@@ -196,7 +196,9 @@ an evaluator-grounded round reflection.  That reflection is appended to the next
 round's context together with the structured hypothesis record, so subsequent
 profiles are conditioned on measured candidate wins/losses rather than on a
 hand-written rule summary.  In `template` mode this reflection remains local and
-is intended only for harness smoke tests.
+is intended only for harness smoke tests.  The final `agent_report.md` records
+both the last profile source and the last reflection source; use those fields to
+separate true model-driven runs from local harness validation runs.
 
 `--max-workers` controls how many independent instance/seed experiments the
 harness evaluates concurrently.  It is intentionally separate from solver

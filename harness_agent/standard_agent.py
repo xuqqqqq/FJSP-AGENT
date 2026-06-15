@@ -26,6 +26,7 @@ class StandardAgentState(TypedDict, total=False):
     contract_path: str
     selected_candidate_id: str
     candidate_results: list[dict[str, Any]]
+    reflection_source: str
     harness_output_dir: str
     summary: RunSummary
     reports: list[str]
@@ -100,6 +101,7 @@ class StandardFjspAgentRunner:
             "report": str((self.output_dir / "agent_report.md").resolve()),
             "last_summary": self._summary_payload(final_state.get("summary")),
             "profile_source": final_state.get("profile_source"),
+            "reflection_source": final_state.get("reflection_source"),
         }
 
     def _build_graph(self):
@@ -366,6 +368,7 @@ class StandardFjspAgentRunner:
             "previous_report": self._next_round_context(report, hypothesis, reflection),
             "reports": reports,
             "round_index": round_index + 1,
+            "reflection_source": reflection_source,
             "last_hypothesis_id": hypothesis.hypothesis_id,
             "last_score_value": hypothesis.score_value,
             "best_hypothesis_id": best_hypothesis_id,
@@ -473,6 +476,8 @@ class StandardFjspAgentRunner:
             "",
             f"- Rounds requested: {self.max_rounds}",
             f"- Profile mode: `{self.profile_mode}`",
+            f"- Last profile source: `{state.get('profile_source') or 'N/A'}`",
+            f"- Last reflection source: `{state.get('reflection_source') or 'N/A'}`",
             f"- Solver: `{self.solver}`",
             f"- Local-search run profiles: `{local_search_profile_label}`",
             f"- DeepSeek model: `{self.deepseek_model}`",
