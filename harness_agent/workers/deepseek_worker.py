@@ -125,7 +125,12 @@ Rules:
 - Use only the listed feature names.
 - Weights should normally be between -8 and 12.
 - Prefer valid, fast constructive heuristics; no warm starts from old solutions.
-- If previous reports show high gap, propose genuinely different scoring mixtures.
+- Treat "Structured Hypothesis Feedback" in the previous report as the latest
+  measured evidence.
+- When `avg_gap_pct` is present, lower `avg_gap_pct` is the main benchmark
+  quality target.
+- If the previous hypothesis did not improve, propose genuinely different
+  scoring mixtures rather than small numeric jitter around the same rule.
 
 Requirement and knowledge excerpts:
 {docs[:14000]}

@@ -125,6 +125,7 @@ contains the evaluated instance name.
 3. generate a task contract;
 4. run the selected solver under the fixed evaluator;
 5. write round reflections and an agent report with best-known gaps.
+6. append a structured hypothesis record for the next evolution round.
 
 DeepSeek is enabled by environment variable only.  Do not commit API keys:
 
@@ -157,6 +158,12 @@ critical-path local search.  `--solver portfolio` keeps the constructive
 portfolio-only mode for faster ablation tests.  When `--best-known-csv` is
 provided, every evaluated instance reports `best_known_makespan` and `gap_pct`
 if the instance file name is present in the CSV.
+
+Each run also writes `hypotheses.jsonl` in the output directory.  Every record
+contains the strategy source, solver, parent hypothesis, comparable score,
+delta from the previous hypothesis, summary metrics, and artifact paths.  This
+is the first persistent memory layer for self-evolution; later code-generation
+workers can use the same ledger to decide what to mutate or reject.
 
 ## Coding Workers
 

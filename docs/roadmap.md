@@ -15,6 +15,7 @@ The repository has reached the first harness milestone:
 - portfolio dispatch solver with optional DeepSeek/template strategy profiles;
 - critical-path local-search solver on top of the dispatch portfolio;
 - best-known CSV gap reporting for standard FJSP benchmarks;
+- JSONL hypothesis ledger for round-to-round strategy memory;
 - local knowledge base with paper cards and imported Huawei FJSP notes.
 
 This is not yet the full MD requirement.  It is the engineering base that makes
@@ -142,7 +143,7 @@ table for any standard instance whose file name appears in the CSV.
 | Support multiple metrics from documents | Contract model supports it | Add evaluator schema checks and Pareto reporting. |
 | Generate solver code with an LLM worker | Strategy profile generation implemented; code edits not enabled | Add guarded DeepSeek/OpenCode code-edit loop. |
 | Strategy-first evolution | Implemented for standard FJSP profiles | Extend from scoring profiles to code-level operator evolution. |
-| Self-reflection and hypothesis graph | Not implemented | Add `hypotheses` table and reflection node. |
+| Self-reflection and hypothesis graph | JSONL hypothesis records implemented | Add pruning, promotion, and mutation operators. |
 | Rule/operator evolution | Local-search operator exists; LLM operator edits not enabled | Add strategy library and mutation operators. |
 | Standard FJSP benchmark testing | Smoke path and best-known gap reporting implemented | Add larger benchmark batches and regression baselines. |
 | Industrial FJSP variant testing | Not implemented here | Add adapter to external industrial evaluator. |
@@ -168,8 +169,9 @@ The next concrete slice should be:
    - never marks itself successful.
 
 4. `hypothesis.py`
-   - records strategy family, parent hypothesis, mutation type, and status;
-   - supports prune/promote/mutate.
+   - current: records strategy source, parent hypothesis, score, delta, summary,
+     and artifact paths;
+   - next: support prune/promote/mutate decisions across a hypothesis graph.
 
 5. `standard_fjsp_batch.py`
    - builds task contracts from instance directory and filename patterns;

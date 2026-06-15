@@ -47,7 +47,8 @@ the optimizer; it is the state machine that makes each step explicit:
 4. run solver commands through the harness;
 5. run the fixed evaluator;
 6. write the ledger, report, and reflection;
-7. decide whether another round should be executed.
+7. append a structured hypothesis record;
+8. decide whether another round should be executed.
 
 This separation is intentional.  It keeps the evolving part of the system
 replaceable while preserving deterministic evaluation and reproducibility.
@@ -68,7 +69,23 @@ The harness remains responsible for validity, metrics, best-known gap
 calculation, and final reporting.  No worker result is accepted without an
 evaluator run.
 
-## 5. Contract-Driven Execution
+## 5. Hypothesis Memory
+
+The self-evolution loop needs more than free-form reflection text.  Each
+standard-agent round appends a JSONL hypothesis record with:
+
+- the parent hypothesis;
+- strategy source and solver;
+- comparable score metric;
+- score delta from the parent;
+- evaluator summary;
+- artifact paths.
+
+This record is passed into the next round as structured feedback.  It is also a
+machine-readable trail for later pruning, mutation, and operator-level
+evolution.
+
+## 6. Contract-Driven Execution
 
 The harness should never hard-code a single metric such as makespan, production
 weight, or setup count.  Metrics come from the task contract, which should be
@@ -94,7 +111,7 @@ For standard FJSP benchmarks, the evaluator can also load a best-known CSV.
 When the evaluated instance name appears in the table, the metrics include both
 `best_known_makespan` and `gap_pct`.
 
-## 6. Repository Separation
+## 7. Repository Separation
 
 This project should remain independent from any concrete FJSP solver repository.
 Concrete solvers are attached through command templates or worker backends.

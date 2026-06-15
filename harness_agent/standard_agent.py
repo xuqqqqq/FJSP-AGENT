@@ -7,6 +7,7 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from .graph_runner import GraphHarnessRunner
+from .hypothesis import HypothesisLedger, HypothesisRecord, extract_score, improvement_note, make_hypothesis_id
 from .models import TaskContract
 from .runner import RunSummary
 from .workers.deepseek_worker import generate_profile_auto
@@ -23,6 +24,10 @@ class StandardAgentState(TypedDict, total=False):
     harness_output_dir: str
     summary: RunSummary
     reports: list[str]
+    last_hypothesis_id: str | None
+    last_score_value: float | None
+    best_hypothesis_id: str | None
+    best_score_value: float | None
 
 
 class StandardFjspAgentRunner:
@@ -68,6 +73,7 @@ class StandardFjspAgentRunner:
         self.profile_mode = profile_mode
         self.deepseek_model = deepseek_model
         self.project_root = project_root.resolve()
+        self.hypothesis_ledger = HypothesisLedger(self.output_dir / "hypotheses.jsonl")
 
     def run(self) -> dict[str, Any]:
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -223,25 +229,86 @@ class StandardFjspAgentRunner:
         report = report_path.read_text(encoding="utf-8") if report_path.exists() else ""
         reports = list(state.get("reports", []))
         reports.append(report)
-        reflection = self._local_reflection(round_index, state, report)
+        hypothesis = self._record_hypothesis(round_index, state)
+        reflection = self._local_reflection(round_index, state, report, hypothesis)
         reflection_path = self.output_dir / f"round_{round_index:02d}" / "reflection.md"
         reflection_path.write_text(reflection, encoding="utf-8")
+        best_hypothesis_id = state.get("best_hypothesis_id")
+        best_score_value = state.get("best_score_value")
+        if hypothesis.score_value is not None and (
+            best_score_value is None or hypothesis.score_value > float(best_score_value)
+        ):
+            best_hypothesis_id = hypothesis.hypothesis_id
+            best_score_value = hypothesis.score_value
         return {
-            "previous_report": report,
+            "previous_report": self._next_round_context(report, hypothesis),
             "reports": reports,
             "round_index": round_index + 1,
+            "last_hypothesis_id": hypothesis.hypothesis_id,
+            "last_score_value": hypothesis.score_value,
+            "best_hypothesis_id": best_hypothesis_id,
+            "best_score_value": best_score_value,
         }
 
     def _next_after_reflect(self, state: StandardAgentState) -> str:
         return "continue" if int(state.get("round_index", 0)) < self.max_rounds else "end"
 
-    def _local_reflection(self, round_index: int, state: StandardAgentState, report: str) -> str:
+    def _record_hypothesis(self, round_index: int, state: StandardAgentState) -> HypothesisRecord:
+        summary = self._summary_payload(state.get("summary"))
+        score_metric, score_value = extract_score(summary)
+        parent_score = state.get("last_score_value")
+        delta = None
+        if score_value is not None and parent_score is not None:
+            delta = score_value - float(parent_score)
+        artifacts = {
+            "strategy": str(state.get("strategy_path", "")),
+            "profile": str(state.get("profile_path", "")),
+            "contract": str(state.get("contract_path", "")),
+            "harness": str(state.get("harness_output_dir", "")),
+        }
+        hypothesis = HypothesisRecord(
+            hypothesis_id=make_hypothesis_id(round_index, summary, artifacts),
+            parent_id=state.get("last_hypothesis_id"),
+            round_index=round_index,
+            source=str(state.get("profile_source", "")),
+            solver=self.solver,
+            status="evaluated" if summary else "missing_summary",
+            score_metric=score_metric,
+            score_value=score_value,
+            delta_from_parent=delta,
+            summary=summary,
+            artifacts=artifacts,
+            note=improvement_note(score_metric, score_value, delta),
+        )
+        self.hypothesis_ledger.append(hypothesis)
+        return hypothesis
+
+    def _next_round_context(self, report: str, hypothesis: HypothesisRecord) -> str:
+        return (
+            report
+            + "\n\n## Structured Hypothesis Feedback\n\n"
+            + json.dumps(hypothesis.__dict__, ensure_ascii=False, indent=2)
+        )
+
+    def _local_reflection(
+        self,
+        round_index: int,
+        state: StandardAgentState,
+        report: str,
+        hypothesis: HypothesisRecord,
+    ) -> str:
         summary = self._summary_payload(state.get("summary"))
         return (
             f"# Round {round_index:02d} Reflection\n\n"
             f"- Strategy source: `{state.get('profile_source')}`\n"
             f"- Strategy file: `{state.get('strategy_path')}`\n"
             f"- Harness output: `{state.get('harness_output_dir')}`\n"
+            f"- Hypothesis id: `{hypothesis.hypothesis_id}`\n"
+            f"- Parent hypothesis: `{hypothesis.parent_id or 'N/A'}`\n"
+            f"- Score metric: `{hypothesis.score_metric or 'N/A'}`\n"
+            f"- Score value: `{hypothesis.score_value if hypothesis.score_value is not None else 'N/A'}`\n"
+            f"- Delta from parent: `{hypothesis.delta_from_parent if hypothesis.delta_from_parent is not None else 'N/A'}`\n"
+            f"- Hypothesis note: {hypothesis.note}\n"
             f"- Summary: `{json.dumps(summary, ensure_ascii=False)}`\n\n"
             "The evaluator remains the source of truth. The next round may use this report "
             "as feedback for a new strategy profile, but it must not reuse solution files as warm starts.\n\n"
@@ -259,6 +326,8 @@ class StandardFjspAgentRunner:
             f"- DeepSeek model: `{self.deepseek_model}`",
             f"- Pattern: `{self.pattern}`",
             f"- Last summary: `{json.dumps(self._summary_payload(state.get('summary')), ensure_ascii=False)}`",
+            f"- Best hypothesis: `{state.get('best_hypothesis_id') or 'N/A'}`",
+            f"- Hypothesis ledger: `{self.hypothesis_ledger.path}`",
             "",
             "## Rounds",
             "",
