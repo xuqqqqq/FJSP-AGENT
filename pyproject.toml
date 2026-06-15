@@ -1,0 +1,10 @@
+[project]
+name = "fjsp-harness-agent"
+version = "0.1.0"
+description = "Independent harness engineering agent for FJSP algorithm self-evolution."
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+

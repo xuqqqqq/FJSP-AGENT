@@ -1,0 +1,47 @@
+{
+  "task_id": "demo_dummy_fjsp_contract",
+  "problem_family": "FJSP",
+  "description": "A minimal harness smoke task using dummy solver and evaluator commands.",
+  "instances": [
+    {
+      "id": "dummy_01",
+      "path": "examples/dummy_instance.json"
+    }
+  ],
+  "objectives": [
+    {
+      "name": "primary_score",
+      "direction": "maximize",
+      "priority": 1,
+      "invalid_if_missing": true
+    },
+    {
+      "name": "runtime_seconds",
+      "direction": "minimize",
+      "priority": 2,
+      "invalid_if_missing": false
+    }
+  ],
+  "commands": {
+    "solver": "python examples/dummy_solver.py --input {instance} --output {solution} --seed {seed}",
+    "evaluator": "python examples/dummy_evaluator.py --instance {instance} --solution {solution} --metrics {metrics}",
+    "quick_test": "python -m py_compile examples/dummy_solver.py examples/dummy_evaluator.py"
+  },
+  "budget": {
+    "rounds": 2,
+    "seeds": [0, 1],
+    "timeout_seconds": 30
+  },
+  "paths": {
+    "allowed_paths": [
+      "examples",
+      "harness_agent",
+      "configs"
+    ],
+    "forbidden_paths": [
+      ".git",
+      "outputs"
+    ]
+  }
+}
+
