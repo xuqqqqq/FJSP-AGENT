@@ -10,6 +10,10 @@ The repository has reached the first harness milestone:
 - SQLite experiment ledger;
 - report generation;
 - standard FJSP parser, baseline solver, and evaluator;
+- LangGraph `run-standard-agent` loop for document-driven strategy-profile
+  generation, contract creation, evaluation, and reflection;
+- portfolio dispatch solver with optional DeepSeek/template strategy profiles;
+- best-known CSV gap reporting for standard FJSP benchmarks;
 - local knowledge base with paper cards and imported Huawei FJSP notes.
 
 This is not yet the full MD requirement.  It is the engineering base that makes
@@ -62,6 +66,32 @@ Result:
 The local contract is not committed because it contains machine-specific
 absolute paths.
 
+### Document-Driven Standard Agent Smoke
+
+Template profile command:
+
+```powershell
+python -m harness_agent.cli run-standard-agent `
+  --profile-mode template `
+  --pattern "fjsp.barnes.mt10*.txt" `
+  --max-instances 3 `
+  --seeds 0,1 `
+  --portfolio-size 256
+```
+
+Result from the local Barnes smoke set:
+
+- total experiments: 6;
+- valid experiments: 6;
+- failed experiments: 0;
+- average best-known gap: 15.115%;
+- best single-instance gap: 11.319%.
+
+This improves the earlier single-rule ECT smoke average gap of 36.983% on the
+same 3-instance slice.  It is still not a near-best solver; the next quality
+step is to add critical-path local search and DeepSeek-driven strategy-profile
+mutation across rounds.
+
 ## Gap to the Target MD
 
 | Requirement | Current status | Next action |
@@ -70,7 +100,7 @@ absolute paths.
 | Derive Task Contract from documents | Manual JSON only | Build `contract_builder` with source references. |
 | Support multiple metrics from documents | Contract model supports it | Add evaluator schema checks and Pareto reporting. |
 | Generate solver code with an LLM worker | Worker interface only | Implement DeepSeek/OpenCode worker backend. |
-| Strategy-first evolution | Knowledge and docs define it | Enforce `strategy.md` before code generation. |
+| Strategy-first evolution | Implemented for standard FJSP profiles | Extend from scoring profiles to code-level operator evolution. |
 | Self-reflection and hypothesis graph | Not implemented | Add `hypotheses` table and reflection node. |
 | Rule/operator evolution | Knowledge cards exist | Add strategy library and mutation operators. |
 | Standard FJSP benchmark testing | Smoke path implemented | Add batch contract generation and best-known gap. |
@@ -91,8 +121,8 @@ The next concrete slice should be:
    - keeps prompts small to avoid token truncation.
 
 3. `workers/deepseek_worker.py`
-   - generates `strategy.md`;
-   - generates candidate solver;
+   - current: generates `strategy.md` and `strategy_profile.json`;
+   - next: generate candidate solver patches behind static guards;
    - returns structured result only;
    - never marks itself successful.
 
@@ -110,4 +140,3 @@ The next concrete slice should be:
 The harness must remain the trusted layer.  LLM workers may propose and modify
 algorithms, but evaluator execution, validity status, metric comparison, ledger
 updates, and final reporting must stay in deterministic harness code.
-

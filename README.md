@@ -116,6 +116,36 @@ python -m harness_agent.cli run `
 The generated report includes `best_known_makespan` and `gap_pct` when the CSV
 contains the evaluated instance name.
 
+## Document-Driven Standard Agent
+
+`run-standard-agent` is the current end-to-end LangGraph loop for standard FJSP:
+
+1. read requirement / IO / prompt Markdown documents;
+2. create or request a strategy profile;
+3. generate a task contract;
+4. run the portfolio solver under the fixed evaluator;
+5. write round reflections and an agent report with best-known gaps.
+
+DeepSeek is enabled by environment variable only.  Do not commit API keys:
+
+```powershell
+$env:DEEPSEEK_API_KEY="<your key>"
+python -m harness_agent.cli run-standard-agent `
+  --profile-mode deepseek `
+  --deepseek-model deepseek-v4-pro `
+  --doc F:\path\problem.md `
+  --doc F:\path\io.md `
+  --instance-dir C:\path\FJSP-Instance-main\instance `
+  --pattern "fjsp.barnes*.txt" `
+  --best-known-csv C:\path\Best.csv `
+  --output-dir outputs\standard_agent_barnes_deepseek `
+  --max-rounds 3 `
+  --portfolio-size 256
+```
+
+For offline smoke tests, use `--profile-mode template`.  This keeps the same
+agent workflow but uses a local strategy profile instead of calling DeepSeek.
+
 ## Coding Workers
 
 `harness_agent.worker.CodingWorker` is the interface for code-generation

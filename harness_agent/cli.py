@@ -8,6 +8,7 @@ from pathlib import Path
 from .graph_runner import GraphHarnessRunner
 from .models import TaskContract
 from .runner import HarnessRunner
+from .standard_agent import StandardFjspAgentRunner
 from .worker import NullWorker
 
 
@@ -35,8 +36,26 @@ def build_parser() -> argparse.ArgumentParser:
     build_standard.add_argument("--seeds", default="0,1,2")
     build_standard.add_argument("--timeout-seconds", type=int, default=60)
     build_standard.add_argument("--max-instances", type=int)
+    build_standard.add_argument("--solver", choices=["portfolio", "ect"], default="portfolio")
+    build_standard.add_argument("--portfolio-size", type=int, default=64)
+    build_standard.add_argument("--strategy-profile", type=Path)
 
     subparsers.add_parser("worker-status", help="show available coding worker backends")
+
+    standard_agent = subparsers.add_parser("run-standard-agent", help="run the document-driven standard FJSP agent loop")
+    standard_agent.add_argument("--doc", action="append", type=Path, default=[])
+    standard_agent.add_argument("--instance-dir", required=True, type=Path)
+    standard_agent.add_argument("--pattern", default="*.txt")
+    standard_agent.add_argument("--best-known-csv", type=Path)
+    standard_agent.add_argument("--output-dir", required=True, type=Path)
+    standard_agent.add_argument("--project-root", type=Path, default=Path.cwd())
+    standard_agent.add_argument("--max-instances", type=int)
+    standard_agent.add_argument("--max-rounds", type=int, default=1)
+    standard_agent.add_argument("--seeds", default="0,1,2")
+    standard_agent.add_argument("--timeout-seconds", type=int, default=120)
+    standard_agent.add_argument("--portfolio-size", type=int, default=96)
+    standard_agent.add_argument("--profile-mode", choices=["auto", "deepseek", "template"], default="auto")
+    standard_agent.add_argument("--deepseek-model", default="deepseek-v4-pro")
     return parser
 
 
@@ -96,6 +115,16 @@ def build_standard_contract(args: argparse.Namespace) -> int:
 
     seeds = [int(item.strip()) for item in str(args.seeds).split(",") if item.strip()]
     resources: dict[str, str] = {}
+    solver = "python examples/standard_fjsp_solver.py --input {instance} --output {solution} --seed {seed}"
+    if args.solver == "portfolio":
+        solver = (
+            "python examples/standard_fjsp_portfolio_solver.py "
+            "--input {instance} --output {solution} --seed {seed} "
+            f"--portfolio-size {args.portfolio_size}"
+        )
+        if args.strategy_profile:
+            resources["strategy_profile"] = str(args.strategy_profile)
+            solver += " --strategy-profile {strategy_profile}"
     evaluator = "python examples/standard_fjsp_evaluator.py --instance {instance} --solution {solution} --metrics {metrics}"
     if args.best_known_csv:
         resources["best_known_csv"] = str(args.best_known_csv)
@@ -115,7 +144,7 @@ def build_standard_contract(args: argparse.Namespace) -> int:
             }
         ],
         "commands": {
-            "solver": "python examples/standard_fjsp_solver.py --input {instance} --output {solution} --seed {seed}",
+            "solver": solver,
             "evaluator": evaluator,
             "quick_test": "python -m compileall harness_agent examples",
         },
@@ -139,13 +168,37 @@ def build_standard_contract(args: argparse.Namespace) -> int:
 def worker_status(args: argparse.Namespace) -> int:
     workers = [NullWorker().capabilities()]
     try:
+        from .workers.deepseek_worker import DeepSeekWorker
         from .workers.opencode_worker import OpenCodeWorker
 
+        workers.append(DeepSeekWorker().capabilities())
         workers.append(OpenCodeWorker().capabilities())
     except Exception as exc:  # noqa: BLE001 - status command should report adapter import failures.
         print(json.dumps({"status": "error", "error": str(exc)}, ensure_ascii=False, indent=2))
         return 1
     print(json.dumps({"workers": [worker.__dict__ for worker in workers]}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def run_standard_agent(args: argparse.Namespace) -> int:
+    seeds = [int(item.strip()) for item in str(args.seeds).split(",") if item.strip()]
+    runner = StandardFjspAgentRunner(
+        docs=args.doc,
+        instance_dir=args.instance_dir,
+        pattern=args.pattern,
+        output_dir=args.output_dir,
+        best_known_csv=args.best_known_csv,
+        max_instances=args.max_instances,
+        max_rounds=args.max_rounds,
+        seeds=seeds,
+        timeout_seconds=args.timeout_seconds,
+        portfolio_size=args.portfolio_size,
+        profile_mode=args.profile_mode,
+        deepseek_model=args.deepseek_model,
+        project_root=args.project_root,
+    )
+    result = runner.run()
+    print(json.dumps({"status": "ok", **result}, ensure_ascii=False, indent=2))
     return 0
 
 
@@ -160,6 +213,8 @@ def main(argv: list[str] | None = None) -> int:
         return build_standard_contract(args)
     if args.command == "worker-status":
         return worker_status(args)
+    if args.command == "run-standard-agent":
+        return run_standard_agent(args)
     parser.error(f"unknown command: {args.command}")
     return 2
 
