@@ -11,7 +11,7 @@ from .hypothesis import HypothesisLedger, HypothesisRecord, extract_score, impro
 from .models import TaskContract
 from .runner import RunSummary
 from .strategy_variants import build_strategy_candidates
-from .workers.deepseek_worker import generate_profile_auto, normalize_local_search_profiles
+from .workers.deepseek_worker import generate_profile_auto, generate_reflection_auto, normalize_local_search_profiles
 
 
 class StandardAgentState(TypedDict, total=False):
@@ -337,7 +337,22 @@ class StandardFjspAgentRunner:
         reports = list(state.get("reports", []))
         reports.append(report)
         hypothesis = self._record_hypothesis(round_index, state)
-        reflection = self._local_reflection(round_index, state, report, hypothesis)
+        local_reflection = self._local_reflection(round_index, state, report, hypothesis)
+        model_reflection, reflection_source = generate_reflection_auto(
+            docs=state.get("docs_text", ""),
+            report=report,
+            hypothesis=hypothesis.__dict__,
+            local_reflection=local_reflection,
+            output_dir=self.output_dir / f"round_{round_index:02d}",
+            round_index=round_index,
+            mode=self.profile_mode,
+            model=self.deepseek_model,
+        )
+        reflection = self._combined_reflection(
+            local_reflection=local_reflection,
+            model_reflection=model_reflection,
+            reflection_source=reflection_source,
+        )
         reflection_path = self.output_dir / f"round_{round_index:02d}" / "reflection.md"
         reflection_path.write_text(reflection, encoding="utf-8")
         best_hypothesis_id = state.get("best_hypothesis_id")
@@ -348,7 +363,7 @@ class StandardFjspAgentRunner:
             best_hypothesis_id = hypothesis.hypothesis_id
             best_score_value = hypothesis.score_value
         return {
-            "previous_report": self._next_round_context(report, hypothesis),
+            "previous_report": self._next_round_context(report, hypothesis, reflection),
             "reports": reports,
             "round_index": round_index + 1,
             "last_hypothesis_id": hypothesis.hypothesis_id,
@@ -392,11 +407,30 @@ class StandardFjspAgentRunner:
         self.hypothesis_ledger.append(hypothesis)
         return hypothesis
 
-    def _next_round_context(self, report: str, hypothesis: HypothesisRecord) -> str:
+    def _next_round_context(self, report: str, hypothesis: HypothesisRecord, reflection: str) -> str:
         return (
             report
+            + "\n\n## Agent Reflection Feedback\n\n"
+            + reflection[-6000:]
             + "\n\n## Structured Hypothesis Feedback\n\n"
             + json.dumps(hypothesis.__dict__, ensure_ascii=False, indent=2)
+        )
+
+    def _combined_reflection(
+        self,
+        *,
+        local_reflection: str,
+        model_reflection: str,
+        reflection_source: str,
+    ) -> str:
+        if reflection_source == "local":
+            return local_reflection
+        return (
+            local_reflection
+            + "\n\n## LLM Reflection\n\n"
+            + f"- Reflection source: `{reflection_source}`\n\n"
+            + model_reflection.strip()
+            + "\n"
         )
 
     def _local_reflection(

@@ -191,6 +191,13 @@ model-generated settings for controlled ablations.  Built-in presets such as
 `balanced-random`, `balanced-combined`, `balanced-hgtsa`, `deep-combined`, and
 `deep-hgtsa` remain available as fixed evaluator-visible candidates.
 
+In `--profile-mode deepseek`, the model is also called after evaluation to write
+an evaluator-grounded round reflection.  That reflection is appended to the next
+round's context together with the structured hypothesis record, so subsequent
+profiles are conditioned on measured candidate wins/losses rather than on a
+hand-written rule summary.  In `template` mode this reflection remains local and
+is intended only for harness smoke tests.
+
 `--max-workers` controls how many independent instance/seed experiments the
 harness evaluates concurrently.  It is intentionally separate from solver
 parameters: higher values accelerate candidate comparison but do not change the

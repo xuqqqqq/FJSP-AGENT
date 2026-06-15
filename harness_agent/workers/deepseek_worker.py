@@ -105,6 +105,41 @@ class DeepSeekWorker(CodingWorker):
         strategy_path.write_text(render_strategy_markdown(normalized, source="DeepSeek"), encoding="utf-8")
         return profile_path, strategy_path
 
+    def generate_reflection(
+        self,
+        *,
+        docs: str,
+        report: str,
+        hypothesis: dict[str, Any],
+        output_dir: Path,
+        round_index: int,
+        max_tokens: int = 3500,
+    ) -> str:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        client = DeepSeekClient.from_env(model=self.model)
+        content = client.chat(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an FJSP algorithm-evolution analyst. "
+                        "Use only the evaluator evidence provided. Do not invent results."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": self._reflection_prompt(docs, report, hypothesis, round_index),
+                },
+            ],
+            temperature=0.25,
+            max_tokens=max_tokens,
+            json_mode=False,
+        )
+        reflection = content.strip()
+        path = output_dir / "deepseek_reflection.md"
+        path.write_text(reflection + "\n", encoding="utf-8")
+        return reflection + "\n"
+
     def _profile_prompt(self, docs: str, previous_report: str, round_index: int) -> str:
         return f"""
 We need evolve a standard FJSP heuristic under a fixed evaluator.
@@ -169,6 +204,43 @@ Requirement and knowledge excerpts:
 
 Previous report excerpt:
 {previous_report[-5000:]}
+""".strip()
+
+    def _reflection_prompt(
+        self,
+        docs: str,
+        report: str,
+        hypothesis: dict[str, Any],
+        round_index: int,
+    ) -> str:
+        return f"""
+We evaluated one round of a standard FJSP algorithm-evolution agent.
+
+Round: {round_index}
+
+Write a concise Markdown reflection for the next round. Include:
+1. what the evaluator actually proved;
+2. which dispatch/local-search candidates look promising or harmful;
+3. what concrete rule/parameter/operator changes the next strategy profile
+   should try;
+4. what should not be retried unless new evidence appears.
+
+Rules:
+- Do not claim a candidate is good unless the evaluator metrics support it.
+- Lower gap/makespan is better. The harness stores comparable scores as
+  negative gap/makespan, so a less negative score is better.
+- Keep the reflection actionable for the next profile-generation prompt.
+- Do not propose reusing solution files or manually tuned warm starts.
+- Keep it under 1200 words.
+
+Requirement and knowledge excerpt:
+{docs[:8000]}
+
+Structured hypothesis and candidate evidence:
+{json.dumps(hypothesis, ensure_ascii=False, indent=2)[:10000]}
+
+Selected harness report excerpt:
+{report[:5000]}
 """.strip()
 
     def _repair_profile_json(self, client: DeepSeekClient, raw: str, error: str, max_tokens: int) -> str:
@@ -411,3 +483,47 @@ def generate_profile_auto(
                 raise
     profile_path, strategy_path = write_template_strategy_profile(output_dir, round_index)
     return profile_path, strategy_path, "template"
+
+
+def generate_reflection_auto(
+    *,
+    docs: str,
+    report: str,
+    hypothesis: dict[str, Any],
+    local_reflection: str,
+    output_dir: Path,
+    round_index: int,
+    mode: str,
+    model: str,
+) -> tuple[str, str]:
+    """Generate evaluator-grounded reflection for the next strategy round.
+
+    The profile generator proposes dispatch and local-search hypotheses.  This
+    reflection generator is the complementary agent step: it reads the fixed
+    evaluator output and writes the natural-language diagnosis that conditions
+    the next round.  DeepSeek mode is intentionally strict so failed API access
+    cannot masquerade as model-driven reasoning.
+    """
+
+    if mode not in {"auto", "deepseek", "template"}:
+        raise ValueError(f"unknown profile generation mode: {mode}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if mode in {"auto", "deepseek"}:
+        try:
+            worker = DeepSeekWorker(model=model)
+            reflection = worker.generate_reflection(
+                docs=docs,
+                report=report,
+                hypothesis=hypothesis,
+                output_dir=output_dir,
+                round_index=round_index,
+            )
+            return reflection, "deepseek"
+        except DeepSeekUnavailable:
+            if mode == "deepseek":
+                raise
+        except Exception as exc:  # noqa: BLE001 - auto mode may continue with local reflection.
+            (output_dir / "deepseek_reflection_error.txt").write_text(str(exc), encoding="utf-8")
+            if mode == "deepseek":
+                raise
+    return local_reflection, "local"
