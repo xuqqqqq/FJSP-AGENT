@@ -5,6 +5,7 @@ import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -31,7 +32,8 @@ class DeepSeekClient:
         base_url: str | None = None,
         timeout_seconds: int = 120,
     ) -> "DeepSeekClient":
-        api_key = os.environ.get(api_key_env)
+        load_local_env()
+        api_key = resolve_secret(api_key_env, file_env=f"{api_key_env}_FILE")
         if not api_key:
             raise DeepSeekUnavailable(f"environment variable {api_key_env} is not set")
         return DeepSeekClient(
@@ -89,6 +91,62 @@ class DeepSeekClient:
         if not isinstance(content, str) or not content.strip():
             raise RuntimeError(f"DeepSeek response has empty content: {raw[:1000]}")
         return content.strip()
+
+
+def is_deepseek_configured(api_key_env: str = "DEEPSEEK_API_KEY") -> bool:
+    """Return whether a DeepSeek key is available without exposing the key."""
+
+    load_local_env()
+    return bool(resolve_secret(api_key_env, file_env=f"{api_key_env}_FILE"))
+
+
+def load_local_env() -> None:
+    """Load optional local environment files ignored by git.
+
+    The harness should be runnable as an independent project, but API keys must
+    never be committed.  This tiny parser intentionally supports only the common
+    `KEY=VALUE` subset used by `.env` files and never overwrites values already
+    present in the process environment.
+    """
+
+    explicit = os.environ.get("FJSP_AGENT_ENV_FILE")
+    candidates: list[Path] = []
+    if explicit:
+        candidates.append(Path(explicit))
+
+    repo_root = Path(__file__).resolve().parents[1]
+    for candidate in (Path.cwd() / ".env", Path.cwd() / ".env.local", repo_root / ".env", repo_root / ".env.local"):
+        if candidate not in candidates:
+            candidates.append(candidate)
+
+    for path in candidates:
+        if path.is_file():
+            load_env_file(path)
+
+
+def load_env_file(path: Path) -> None:
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip().lstrip("\ufeff")
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+def resolve_secret(value_env: str, *, file_env: str) -> str | None:
+    value = os.environ.get(value_env)
+    if value:
+        return value.strip()
+    file_path = os.environ.get(file_env)
+    if not file_path:
+        return None
+    path = Path(file_path)
+    if not path.is_file():
+        return None
+    return path.read_text(encoding="utf-8").strip() or None
 
 
 def normalize_deepseek_model(model: str) -> str:

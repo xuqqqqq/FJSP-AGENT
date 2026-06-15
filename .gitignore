@@ -9,4 +9,5 @@ outputs/
 *.sqlite3
 .env
 .env.*
+!.env.example
 knowledge/local_papers/raw/

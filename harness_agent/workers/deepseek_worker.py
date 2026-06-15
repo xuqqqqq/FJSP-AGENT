@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from pathlib import Path
 from typing import Any
 
-from ..deepseek_client import DeepSeekClient, DeepSeekUnavailable
+from ..deepseek_client import DeepSeekClient, DeepSeekUnavailable, is_deepseek_configured
 from ..worker import CodingWorker, ExperimentSpec, WorkerCapabilities, WorkerResult
 
 
@@ -48,7 +47,7 @@ def extract_json_object(text: str) -> dict[str, Any]:
 class DeepSeekWorker(CodingWorker):
     def __init__(self, model: str = "deepseek-v4-pro") -> None:
         self.model = model
-        self.available = bool(os.environ.get("DEEPSEEK_API_KEY"))
+        self.available = is_deepseek_configured()
 
     def capabilities(self) -> WorkerCapabilities:
         return WorkerCapabilities(

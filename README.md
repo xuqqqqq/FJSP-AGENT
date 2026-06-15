@@ -129,10 +129,13 @@ contains the evaluated instance name.
 7. write round reflections and an agent report with best-known gaps;
 8. append a structured hypothesis record for the next evolution round.
 
-DeepSeek is enabled by environment variable only.  Do not commit API keys:
+DeepSeek is enabled by local secret configuration.  Do not commit API keys.
+The runner checks `DEEPSEEK_API_KEY`, `DEEPSEEK_API_KEY_FILE`, and ignored
+local files such as `.env` / `.env.local`:
 
 ```powershell
 $env:DEEPSEEK_API_KEY="<your key>"
+# or copy .env.example to .env and fill DEEPSEEK_API_KEY_FILE / DEEPSEEK_API_KEY
 python -m harness_agent.cli run-standard-agent `
   --profile-mode deepseek `
   --deepseek-model deepseek-v4-pro `
@@ -156,6 +159,10 @@ python -m harness_agent.cli run-standard-agent `
 
 For offline smoke tests, use `--profile-mode template`.  This keeps the same
 agent workflow but uses a local strategy profile instead of calling DeepSeek.
+Template mode is useful for validating the harness, but it is not evidence that
+the LLM agent generated or reflected on rules.  Use `--profile-mode deepseek`
+for agent-driven experiments; if no DeepSeek key is available, that mode fails
+instead of silently falling back to the template profile.
 
 The default standard-FJSP solver is now `local-search`: it first builds a
 diverse dispatch-rule portfolio, then improves the chosen schedule with a
