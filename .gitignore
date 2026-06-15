@@ -7,4 +7,4 @@ outputs/
 *.db
 *.sqlite
 *.sqlite3
-
+knowledge/local_papers/raw/

@@ -1,0 +1,41 @@
+{
+  "task_id": "standard_fjsp_tiny_smoke",
+  "problem_family": "FJSP",
+  "description": "A real standard-FJSP harness smoke task using a tiny included instance.",
+  "instances": [
+    {
+      "id": "tiny",
+      "path": "examples/standard_fjsp_tiny.fjs"
+    }
+  ],
+  "objectives": [
+    {
+      "name": "makespan",
+      "direction": "minimize",
+      "priority": 1,
+      "invalid_if_missing": true
+    }
+  ],
+  "commands": {
+    "solver": "python examples/standard_fjsp_solver.py --input {instance} --output {solution} --seed {seed}",
+    "evaluator": "python examples/standard_fjsp_evaluator.py --instance {instance} --solution {solution} --metrics {metrics}",
+    "quick_test": "python -m compileall harness_agent examples"
+  },
+  "budget": {
+    "rounds": 1,
+    "seeds": [0, 1, 2],
+    "timeout_seconds": 30
+  },
+  "paths": {
+    "allowed_paths": [
+      "examples",
+      "harness_agent",
+      "configs"
+    ],
+    "forbidden_paths": [
+      ".git",
+      "outputs"
+    ]
+  }
+}
+

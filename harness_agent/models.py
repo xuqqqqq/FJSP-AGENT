@@ -98,7 +98,7 @@ class TaskContract:
 
     @staticmethod
     def load(path: Path) -> "TaskContract":
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
         return TaskContract(
             task_id=str(raw["task_id"]),
             problem_family=str(raw.get("problem_family", "FJSP")),
@@ -132,4 +132,3 @@ def resolve_project_path(project_root: Path, path: Path) -> Path:
     if path.is_absolute():
         return path
     return (project_root / path).resolve()
-

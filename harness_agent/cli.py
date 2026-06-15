@@ -58,6 +58,8 @@ def run_contract(args: argparse.Namespace) -> int:
                 "failed": summary.failed,
                 "best_experiment_id": summary.best_experiment_id,
                 "best_metrics": summary.best_metrics,
+                "best_candidate_id": summary.best_candidate_id,
+                "best_candidate_metrics": summary.best_candidate_metrics,
                 "report": str((args.output_dir / "report.md").resolve()),
             },
             ensure_ascii=False,
@@ -80,4 +82,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

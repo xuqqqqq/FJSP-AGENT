@@ -78,3 +78,22 @@ Experiment Ledger + Report
 4. Add hypothesis graph and reflection summaries.
 5. Add Git worktree isolation for each candidate.
 
+## Standard FJSP Smoke
+
+The repository now includes a minimal standard-FJSP parser, baseline solver, and
+evaluator.  This is the first real benchmark path beyond the dummy example.
+
+```powershell
+python -m harness_agent.cli validate-contract --contract configs\standard_fjsp_tiny.example.json
+python -m harness_agent.cli run --contract configs\standard_fjsp_tiny.example.json --output-dir outputs\standard_fjsp_tiny
+```
+
+To test external public instances, create a task contract whose instance paths
+point to local FJSPLib/qimingme instance files and keep using
+`examples/standard_fjsp_solver.py` plus `examples/standard_fjsp_evaluator.py`.
+
+## Knowledge Base
+
+The `knowledge/` directory stores paper cards, benchmark notes, and imported
+local notes from the previous Huawei FJSP project.  Raw local PDFs live under
+`knowledge/local_papers/raw/` and are intentionally not committed to Git.

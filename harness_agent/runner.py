@@ -17,6 +17,8 @@ class RunSummary:
     failed: int
     best_experiment_id: str | None
     best_metrics: dict[str, object]
+    best_candidate_id: str | None = None
+    best_candidate_metrics: dict[str, object] | None = None
 
 
 class HarnessRunner:
@@ -154,13 +156,58 @@ class HarnessRunner:
         records = self.ledger.list_records()
         valid_records = [record for record in records if record.valid]
         best = max(valid_records, key=lambda item: item.objective_key, default=None)
+        candidate_summaries = self._candidate_summaries(records)
+        best_candidate = max(candidate_summaries, key=lambda item: item["objective_key"], default=None)
         return RunSummary(
             total=len(records),
             valid=len(valid_records),
             failed=len(records) - len(valid_records),
             best_experiment_id=best.experiment_id if best else None,
             best_metrics=best.metrics if best else {},
+            best_candidate_id=str(best_candidate["candidate_id"]) if best_candidate else None,
+            best_candidate_metrics=dict(best_candidate["metrics"]) if best_candidate else None,
         )
+
+    def _candidate_summaries(self, records: list[ExperimentRecord]) -> list[dict[str, object]]:
+        grouped: dict[str, list[ExperimentRecord]] = {}
+        for record in records:
+            candidate_id = f"round_{record.round_index:03d}__seed_{record.seed}"
+            grouped.setdefault(candidate_id, []).append(record)
+
+        summaries: list[dict[str, object]] = []
+        expected_instance_count = len(self.contract.instances)
+        for candidate_id, group in sorted(grouped.items()):
+            valid_group = [record for record in group if record.valid]
+            complete = len(valid_group) == expected_instance_count
+            if complete:
+                objective_key = tuple(
+                    sum(record.objective_key[i] for record in valid_group) / len(valid_group)
+                    for i in range(len(self.contract.objectives))
+                )
+            else:
+                objective_key = tuple(float("-inf") for _ in self.contract.objectives)
+
+            numeric_metrics: dict[str, list[float]] = {}
+            for record in valid_group:
+                for name, value in record.metrics.items():
+                    if isinstance(value, (int, float)):
+                        numeric_metrics.setdefault(name, []).append(float(value))
+            metrics = {
+                f"avg_{name}": sum(values) / len(values)
+                for name, values in sorted(numeric_metrics.items())
+                if values
+            }
+            metrics["valid_instances"] = len(valid_group)
+            metrics["expected_instances"] = expected_instance_count
+            summaries.append(
+                {
+                    "candidate_id": candidate_id,
+                    "objective_key": objective_key,
+                    "complete": complete,
+                    "metrics": metrics,
+                }
+            )
+        return summaries
 
     def _write_report(self, summary: RunSummary) -> None:
         records = self.ledger.list_records()
@@ -172,12 +219,29 @@ class HarnessRunner:
             f"- Failed experiments: {summary.failed}",
             f"- Best experiment: {summary.best_experiment_id or 'N/A'}",
             f"- Best metrics: `{json.dumps(summary.best_metrics, ensure_ascii=False)}`",
+            f"- Best candidate: {summary.best_candidate_id or 'N/A'}",
+            f"- Best candidate metrics: `{json.dumps(summary.best_candidate_metrics or {}, ensure_ascii=False)}`",
             "",
-            "## Experiments",
+            "## Candidate Aggregates",
             "",
-            "| Experiment | Status | Valid | Objective Key | Error |",
-            "| --- | --- | ---: | --- | --- |",
+            "| Candidate | Complete | Objective Key | Metrics |",
+            "| --- | ---: | --- | --- |",
         ]
+        for candidate in self._candidate_summaries(records):
+            lines.append(
+                f"| {candidate['candidate_id']} | {candidate['complete']} | "
+                f"`{json.dumps(candidate['objective_key'], ensure_ascii=False)}` | "
+                f"`{json.dumps(candidate['metrics'], ensure_ascii=False)}` |"
+            )
+        lines.extend(
+            [
+                "",
+                "## Experiments",
+                "",
+                "| Experiment | Status | Valid | Objective Key | Error |",
+                "| --- | --- | ---: | --- | --- |",
+            ]
+        )
         for record in records:
             error = (record.error or "").replace("|", "\\|")
             lines.append(
@@ -185,4 +249,3 @@ class HarnessRunner:
                 f"`{json.dumps(record.objective_key, ensure_ascii=False)}` | {error} |"
             )
         (self.output_dir / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-
