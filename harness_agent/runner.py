@@ -81,6 +81,8 @@ class HarnessRunner:
             "seed": seed,
             "workdir": str(work_dir),
         }
+        for name, resource_path in self.contract.resources.items():
+            placeholders[name] = str(resolve_project_path(self.project_root, resource_path))
 
         try:
             solver_cmd = self.contract.commands.solver.format(**placeholders)

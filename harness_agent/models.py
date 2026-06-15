@@ -94,6 +94,7 @@ class TaskContract:
     commands: CommandSpec
     budget: BudgetSpec
     paths: PathPolicy
+    resources: dict[str, Path]
     source_path: Path
 
     @staticmethod
@@ -108,6 +109,7 @@ class TaskContract:
             commands=CommandSpec.from_dict(raw["commands"]),
             budget=BudgetSpec.from_dict(raw.get("budget", {})),
             paths=PathPolicy.from_dict(raw.get("paths", {})),
+            resources={str(key): Path(str(value)) for key, value in raw.get("resources", {}).items()},
             source_path=path,
         )
 
@@ -125,6 +127,10 @@ class TaskContract:
             instance_path = resolve_project_path(project_root, instance.path)
             if not instance_path.exists():
                 errors.append(f"instance {instance.id!r} path does not exist: {instance.path}")
+        for name, resource_path in self.resources.items():
+            resolved_resource = resolve_project_path(project_root, resource_path)
+            if not resolved_resource.exists():
+                errors.append(f"resource {name!r} path does not exist: {resource_path}")
         return errors
 
 
