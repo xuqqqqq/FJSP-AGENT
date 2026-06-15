@@ -227,4 +227,7 @@ local notes from the previous Huawei FJSP project.  Raw local PDFs live under
 The local paper index includes Xie Jin's HGTSA dissertation, and
 `knowledge/imported_huawei_fjsp_knowledge/operators/xiejin_hgtsa_n8_k_insertion_tabu_spec.md`
 summarizes the N7/N8/k-insertion, tabu-key, and approximate-evaluation details
-that should guide the next local-search operator upgrade.
+that should guide the next local-search operator upgrade.  The corresponding
+`hgtsa-lite` and `hybrid` solver profiles are experimental and evaluator-gated:
+they expose the paper-inspired moves for comparison, but the `combined` profile
+remains the stronger default until cross-instance evidence says otherwise.

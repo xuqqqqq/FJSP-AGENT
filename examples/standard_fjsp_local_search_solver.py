@@ -60,10 +60,14 @@ class Move:
 
     @property
     def tabu_key(self) -> tuple[object, ...]:
+        if self.kind.startswith("hgtsa") and self.from_machine == self.to_machine:
+            return (self.kind, self.op, self.from_machine, self.from_index, self.to_index)
         return (self.kind, self.op, self.from_machine, self.to_machine)
 
     @property
     def reverse_tabu_key(self) -> tuple[object, ...]:
+        if self.kind.startswith("hgtsa") and self.from_machine == self.to_machine:
+            return (self.kind, self.op, self.from_machine, self.to_index, self.from_index)
         return (self.kind, self.op, self.to_machine, self.from_machine)
 
 
@@ -246,6 +250,64 @@ def critical_machine_blocks(decoded: DecodedState, state: SearchState) -> list[t
     if len(current_positions) >= 2:
         blocks.append((current_machine, current_positions))
     return blocks
+
+
+def decoded_timing(decoded: DecodedState) -> tuple[dict[OpKey, ScheduleRecord], dict[OpKey, int], dict[OpKey, int]]:
+    record_by_op = {(record.job_id, record.op_id): record for record in decoded.schedule}
+    duration = {op: record.duration for op, record in record_by_op.items()}
+    tail_after = {op: 0 for op in decoded.topological_order}
+    for op in reversed(decoded.topological_order):
+        tail_after[op] = max((duration[successor] + tail_after[successor] for successor in decoded.successors[op]), default=0)
+    return record_by_op, duration, tail_after
+
+
+def job_predecessor_ready(record_by_op: dict[OpKey, ScheduleRecord], op: OpKey) -> int:
+    if op[1] <= 0:
+        return 0
+    predecessor = record_by_op.get((op[0], op[1] - 1))
+    return predecessor.end if predecessor else 0
+
+
+def proxy_insert_score(
+    *,
+    decoded: DecodedState,
+    state: SearchState,
+    record_by_op: dict[OpKey, ScheduleRecord],
+    tail_after: dict[OpKey, int],
+    specs: dict[OpKey, dict[int, int]],
+    op: OpKey,
+    target_machine: int,
+    insert_pos: int,
+    source_machine: int,
+    source_index: int,
+) -> float:
+    """Cheaply rank candidates before full active decoding.
+
+    The proxy is not used as proof of quality.  It estimates the local head
+    created by a move, adds the operation's current tail, and lightly penalizes
+    machine-load imbalance.  The tabu loop still accepts moves only after full
+    decoding and evaluator-compatible schedule validation.
+    """
+
+    target_sequence = list(state.machine_sequences[target_machine])
+    if source_machine == target_machine and 0 <= source_index < len(target_sequence):
+        target_sequence.pop(source_index)
+        if insert_pos > source_index:
+            insert_pos -= 1
+    insert_pos = max(0, min(insert_pos, len(target_sequence)))
+    predecessor = target_sequence[insert_pos - 1] if insert_pos > 0 else None
+    successor = target_sequence[insert_pos] if insert_pos < len(target_sequence) else None
+    machine_ready = record_by_op[predecessor].end if predecessor is not None else 0
+    job_ready = job_predecessor_ready(record_by_op, op)
+    duration = specs[op][target_machine]
+    estimated_start = max(machine_ready, job_ready)
+    estimated_completion = estimated_start + duration + tail_after.get(op, 0)
+    successor_slack = max(0, estimated_start + duration - record_by_op[successor].start) if successor is not None else 0
+    machine_load = sum(specs[item][state.assignment[item]] for item in target_sequence)
+    mean_load = sum(record.duration for record in decoded.schedule) / max(1, len(state.machine_sequences))
+    load_penalty = abs(machine_load + duration - mean_load) / max(1.0, mean_load)
+    locality_penalty = abs(estimated_start - record_by_op[op].start) / max(1, decoded.makespan)
+    return estimated_completion + successor_slack + 0.25 * load_penalty + 0.10 * locality_penalty
 
 
 def clone_sequences(state: SearchState) -> list[list[OpKey]]:
@@ -445,6 +507,202 @@ def generate_structured_neighbors(
     return (priority + remainder[: neighbor_limit - priority_count])[:neighbor_limit]
 
 
+def generate_hgtsa_lite_neighbors(
+    instance: StandardFjspInstance,
+    state: SearchState,
+    decoded: DecodedState,
+    rng: random.Random,
+    neighbor_limit: int,
+) -> list[tuple[Move, SearchState]]:
+    """N8/k-insertion-inspired neighborhood with proxy candidate ranking.
+
+    This is a lightweight implementation of the HGTSA ideas captured in the
+    knowledge base: N8 expands same-machine critical-block moves outside the
+    block, while k-insertion changes the machine of critical operations.  The
+    generator intentionally over-produces candidates, ranks them with a cheap
+    proxy, and leaves exact feasibility/objective judgement to active decoding.
+    """
+
+    specs = operation_specs(instance)
+    path = critical_path(decoded)
+    path_set = set(path)
+    critical_set = critical_operations(decoded)
+    critical_tail = [op for op in critical_set if op not in path_set]
+    rng.shuffle(critical_tail)
+    critical = list(path) + critical_tail
+    record_by_op, _, tail_after = decoded_timing(decoded)
+    machine_load = [
+        sum(specs[op][state.assignment[op]] for op in sequence)
+        for sequence in state.machine_sequences
+    ]
+    scored: list[tuple[float, float, Move, SearchState]] = []
+    seen_moves: set[tuple[object, ...]] = set()
+
+    def remember(move: Move, next_state: SearchState | None, score: float) -> None:
+        if next_state is None:
+            return
+        key = (move.kind, move.op, move.from_machine, move.to_machine, move.from_index, move.to_index)
+        if key in seen_moves:
+            return
+        seen_moves.add(key)
+        scored.append((score, rng.random(), move, next_state))
+
+    blocks = critical_machine_blocks(decoded, state)
+    outside_window = max(3, min(14, neighbor_limit // max(4, len(blocks) or 1)))
+    last_block_index = len(blocks) - 1
+    for block_index, (machine_id, positions) in enumerate(blocks):
+        sequence = state.machine_sequences[machine_id]
+        first_index = positions[0]
+        last_index = positions[-1]
+        block_set = set(positions)
+
+        for old_index in positions:
+            op = sequence[old_index]
+            # N7-like internal critical-block moves, with the N8 paper's
+            # first/last block pruning rules for moves known not to improve.
+            for target_index in positions:
+                if target_index == old_index:
+                    continue
+                if block_index == 0 and old_index == first_index and target_index > old_index:
+                    continue
+                if block_index == 0 and old_index > first_index and target_index == first_index:
+                    continue
+                if block_index == last_block_index and old_index == last_index and target_index < old_index:
+                    continue
+                if block_index == last_block_index and old_index < last_index and target_index == last_index:
+                    continue
+                insert_pos = target_index + 1 if target_index > old_index else target_index
+                score = proxy_insert_score(
+                    decoded=decoded,
+                    state=state,
+                    record_by_op=record_by_op,
+                    tail_after=tail_after,
+                    specs=specs,
+                    op=op,
+                    target_machine=machine_id,
+                    insert_pos=insert_pos,
+                    source_machine=machine_id,
+                    source_index=old_index,
+                )
+                remember(
+                    Move("hgtsa_n8_internal", op, machine_id, machine_id, old_index, insert_pos),
+                    relocate_same_machine(state, machine_id, old_index, insert_pos),
+                    score,
+                )
+
+            # N8 extension: move critical-block operations before/after nearby
+            # same-machine operations outside the critical block.
+            before_targets = range(max(0, first_index - outside_window), first_index)
+            after_targets = range(last_index + 1, min(len(sequence), last_index + 1 + outside_window))
+            for target_index in before_targets:
+                if target_index in block_set:
+                    continue
+                score = proxy_insert_score(
+                    decoded=decoded,
+                    state=state,
+                    record_by_op=record_by_op,
+                    tail_after=tail_after,
+                    specs=specs,
+                    op=op,
+                    target_machine=machine_id,
+                    insert_pos=target_index,
+                    source_machine=machine_id,
+                    source_index=old_index,
+                )
+                remember(
+                    Move("hgtsa_n8_before_block", op, machine_id, machine_id, old_index, target_index),
+                    relocate_same_machine(state, machine_id, old_index, target_index),
+                    score,
+                )
+            for target_index in after_targets:
+                if target_index in block_set:
+                    continue
+                insert_pos = target_index + 1
+                score = proxy_insert_score(
+                    decoded=decoded,
+                    state=state,
+                    record_by_op=record_by_op,
+                    tail_after=tail_after,
+                    specs=specs,
+                    op=op,
+                    target_machine=machine_id,
+                    insert_pos=insert_pos,
+                    source_machine=machine_id,
+                    source_index=old_index,
+                )
+                remember(
+                    Move("hgtsa_n8_after_block", op, machine_id, machine_id, old_index, insert_pos),
+                    relocate_same_machine(state, machine_id, old_index, insert_pos),
+                    score,
+                )
+
+    critical_limit = max(8, min(len(critical), neighbor_limit // 3))
+    for op in critical[:critical_limit]:
+        from_machine = state.assignment[op]
+        source_sequence = state.machine_sequences[from_machine]
+        try:
+            old_index = source_sequence.index(op)
+        except ValueError:
+            continue
+        record = record_by_op[op]
+        candidate_machines = sorted(
+            (machine_id for machine_id in specs[op] if machine_id != from_machine),
+            key=lambda machine_id: (specs[op][machine_id], machine_load[machine_id], machine_id),
+        )
+        for to_machine in candidate_machines:
+            target_sequence = state.machine_sequences[to_machine]
+            positions: set[int] = {0, len(target_sequence)}
+
+            start_pivot = len(target_sequence)
+            ready_pivot = len(target_sequence)
+            job_ready = job_predecessor_ready(record_by_op, op)
+            for index, target_op in enumerate(target_sequence):
+                target_record = record_by_op[target_op]
+                if target_record.start >= record.start and start_pivot == len(target_sequence):
+                    start_pivot = index
+                if target_record.end >= job_ready and ready_pivot == len(target_sequence):
+                    ready_pivot = index
+                if target_op in path_set:
+                    positions.update({index - 1, index, index + 1, index + 2})
+            for pivot in (start_pivot, ready_pivot):
+                positions.update({pivot - 3, pivot - 2, pivot - 1, pivot, pivot + 1, pivot + 2, pivot + 3})
+
+            filtered_positions = sorted(position for position in positions if 0 <= position <= len(target_sequence))
+            for insert_pos in filtered_positions:
+                score = proxy_insert_score(
+                    decoded=decoded,
+                    state=state,
+                    record_by_op=record_by_op,
+                    tail_after=tail_after,
+                    specs=specs,
+                    op=op,
+                    target_machine=to_machine,
+                    insert_pos=insert_pos,
+                    source_machine=from_machine,
+                    source_index=old_index,
+                )
+                remember(
+                    Move("hgtsa_k_insertion", op, from_machine, to_machine, old_index, insert_pos),
+                    change_machine_insert(state, op, from_machine, to_machine, insert_pos),
+                    score,
+                )
+        if len(scored) >= neighbor_limit * 8:
+            break
+
+    if not scored:
+        return []
+    scored.sort(key=lambda item: (item[0], item[1]))
+    # The proxy is intentionally only a coarse filter.  Keep a substantial
+    # random tail so a wrong local estimate does not make the search tunnel on
+    # one critical-path interpretation.
+    priority_count = min(len(scored), max(1, int(neighbor_limit * 0.55)))
+    selected = scored[:priority_count]
+    remainder = scored[priority_count:]
+    rng.shuffle(remainder)
+    selected.extend(remainder[: max(0, neighbor_limit - len(selected))])
+    return [(move, next_state) for _, _, move, next_state in selected[:neighbor_limit]]
+
+
 def generate_random_neighbors(
     instance: StandardFjspInstance,
     state: SearchState,
@@ -513,9 +771,12 @@ def generate_neighbors(
         return generate_random_neighbors(instance, state, decoded, rng, neighbor_limit)
     if neighborhood_profile == "critical-block":
         return generate_structured_neighbors(instance, state, decoded, rng, neighbor_limit)
+    if neighborhood_profile == "hgtsa-lite":
+        return generate_hgtsa_lite_neighbors(instance, state, decoded, rng, neighbor_limit)
 
     structured = generate_structured_neighbors(instance, state, decoded, rng, neighbor_limit)
     random_moves = generate_random_neighbors(instance, state, decoded, rng, neighbor_limit)
+    hgtsa_moves = generate_hgtsa_lite_neighbors(instance, state, decoded, rng, neighbor_limit) if neighborhood_profile == "hybrid" else []
 
     structured_quota = min(len(structured), max(1, neighbor_limit // 4))
     combined = structured[:structured_quota]
@@ -523,7 +784,21 @@ def generate_neighbors(
         (move.kind, move.op, move.from_machine, move.to_machine, move.from_index, move.to_index)
         for move, _ in combined
     }
-    for move, next_state in random_moves + structured[structured_quota:]:
+
+    if neighborhood_profile == "hybrid":
+        random_quota = min(len(random_moves), max(1, neighbor_limit // 2))
+        hgtsa_quota = min(len(hgtsa_moves), max(1, neighbor_limit // 5))
+        ordered_candidates = (
+            random_moves[:random_quota]
+            + hgtsa_moves[:hgtsa_quota]
+            + structured[structured_quota:]
+            + random_moves[random_quota:]
+            + hgtsa_moves[hgtsa_quota:]
+        )
+    else:
+        ordered_candidates = random_moves + structured[structured_quota:]
+
+    for move, next_state in ordered_candidates:
         key = (move.kind, move.op, move.from_machine, move.to_machine, move.from_index, move.to_index)
         if key in seen:
             continue
@@ -553,6 +828,7 @@ def tabu_search(
     best_decoded = current_decoded
     tabu_until: dict[tuple[object, ...], int] = {}
     base_tenure = max(7, int((instance.operation_count ** 0.5) * 1.5))
+    hgtsa_tenure = max(7, int(15 + instance.job_count / max(1, instance.machine_count)))
 
     for iteration in range(iterations):
         if time_limit_sec > 0 and time.perf_counter() - start_time >= time_limit_sec:
@@ -580,6 +856,8 @@ def tabu_search(
         _, _, move, current_state, current_decoded = best_candidate
         if neighborhood_profile == "random":
             tabu_until[move.reverse_tabu_key] = iteration + 7 + (iteration % 5)
+        elif move.kind.startswith("hgtsa"):
+            tabu_until[move.reverse_tabu_key] = iteration + hgtsa_tenure + rng.randint(0, max(3, hgtsa_tenure // 3))
         else:
             tabu_until[move.reverse_tabu_key] = iteration + base_tenure + rng.randint(0, max(3, base_tenure // 2))
         if current_decoded.makespan < best_decoded.makespan:
@@ -645,7 +923,11 @@ def main() -> int:
     parser.add_argument("--iterations", type=int, default=80)
     parser.add_argument("--neighbor-limit", type=int, default=180)
     parser.add_argument("--time-limit-sec", type=float, default=4.0)
-    parser.add_argument("--neighborhood-profile", choices=["random", "critical-block", "combined"], default="random")
+    parser.add_argument(
+        "--neighborhood-profile",
+        choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid"],
+        default="random",
+    )
     args = parser.parse_args()
 
     start_time = time.perf_counter()

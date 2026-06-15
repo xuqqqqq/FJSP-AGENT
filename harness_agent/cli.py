@@ -44,7 +44,11 @@ def build_parser() -> argparse.ArgumentParser:
     build_standard.add_argument("--local-search-iterations", type=int, default=80)
     build_standard.add_argument("--local-search-neighbor-limit", type=int, default=180)
     build_standard.add_argument("--local-search-time-limit-sec", type=float, default=4.0)
-    build_standard.add_argument("--local-search-neighborhood-profile", choices=["random", "critical-block", "combined"], default="random")
+    build_standard.add_argument(
+        "--local-search-neighborhood-profile",
+        choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid"],
+        default="random",
+    )
 
     subparsers.add_parser("worker-status", help="show available coding worker backends")
 
@@ -66,7 +70,11 @@ def build_parser() -> argparse.ArgumentParser:
     standard_agent.add_argument("--local-search-iterations", type=int, default=80)
     standard_agent.add_argument("--local-search-neighbor-limit", type=int, default=180)
     standard_agent.add_argument("--local-search-time-limit-sec", type=float, default=4.0)
-    standard_agent.add_argument("--local-search-neighborhood-profile", choices=["random", "critical-block", "combined"], default="random")
+    standard_agent.add_argument(
+        "--local-search-neighborhood-profile",
+        choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid"],
+        default="random",
+    )
     standard_agent.add_argument(
         "--local-search-neighborhood-profiles",
         help="comma-separated neighborhood profiles to cross-evaluate in each agent round",
@@ -75,7 +83,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--local-search-run-profiles",
         help=(
             "comma-separated local-search run presets to cross-evaluate. "
-            "Built-ins: current, balanced-random, balanced-combined, deep-combined"
+            "Built-ins: current, balanced-random, balanced-combined, balanced-hgtsa, deep-combined, deep-hgtsa"
         ),
     )
     standard_agent.add_argument("--strategy-candidates", type=int, default=1)
@@ -257,7 +265,7 @@ def run_standard_agent(args: argparse.Namespace) -> int:
 
 
 def parse_neighborhood_profiles(value: str | None, *, fallback: str) -> list[str]:
-    allowed = {"random", "critical-block", "combined"}
+    allowed = {"random", "critical-block", "combined", "hgtsa-lite", "hybrid"}
     raw_items = [fallback] if not value else [item.strip() for item in value.split(",") if item.strip()]
     profiles: list[str] = []
     for item in raw_items:
@@ -311,6 +319,24 @@ def build_local_search_run_profiles(args: argparse.Namespace, neighborhood_profi
             "neighbor_limit": max(args.local_search_neighbor_limit, 320),
             "time_limit_sec": max(args.local_search_time_limit_sec, 8.0),
             "neighborhood_profile": "combined",
+        },
+        "balanced-hgtsa": {
+            "name": "balanced-hgtsa",
+            "portfolio_size": max(args.portfolio_size, 192),
+            "restarts": max(args.local_search_restarts, 2),
+            "iterations": max(args.local_search_iterations, 100),
+            "neighbor_limit": max(args.local_search_neighbor_limit, 220),
+            "time_limit_sec": max(args.local_search_time_limit_sec, 4.0),
+            "neighborhood_profile": "hgtsa-lite",
+        },
+        "deep-hgtsa": {
+            "name": "deep-hgtsa",
+            "portfolio_size": max(args.portfolio_size, 256),
+            "restarts": max(args.local_search_restarts, 3),
+            "iterations": max(args.local_search_iterations, 180),
+            "neighbor_limit": max(args.local_search_neighbor_limit, 320),
+            "time_limit_sec": max(args.local_search_time_limit_sec, 8.0),
+            "neighborhood_profile": "hybrid",
         },
     }
     for profile, payload in custom_by_neighborhood.items():
