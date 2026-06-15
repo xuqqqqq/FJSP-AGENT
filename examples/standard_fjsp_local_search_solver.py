@@ -28,7 +28,7 @@ from harness_agent.standard_fjsp import (
     validate_standard_schedule,
     write_solution,
 )
-from standard_fjsp_portfolio_solver import build_portfolio, choose_best
+from standard_fjsp_portfolio_solver import build_portfolio, build_schedule
 
 
 OpKey = tuple[int, int]
@@ -359,6 +359,49 @@ def change_machine_insert(
     assignment = dict(state.assignment)
     assignment[op] = to_machine
     return SearchState(assignment=assignment, machine_sequences=tuple(tuple(seq) for seq in sequences))
+
+
+def schedule_signature(instance: StandardFjspInstance, schedule: list[ScheduleRecord]) -> tuple[object, ...]:
+    by_machine: list[list[ScheduleRecord]] = [[] for _ in range(instance.machine_count)]
+    assignments: list[tuple[int, int, int]] = []
+    for record in schedule:
+        by_machine[record.machine_id].append(record)
+        assignments.append((record.job_id, record.op_id, record.machine_id))
+    machine_sequences = []
+    for records in by_machine:
+        records.sort(key=lambda item: (item.start, item.end, item.job_id, item.op_id))
+        machine_sequences.append(tuple((item.job_id, item.op_id) for item in records))
+    return (tuple(sorted(assignments)), tuple(machine_sequences))
+
+
+def choose_initial_schedules(
+    instance: StandardFjspInstance,
+    strategies: list[object],
+    seed: int,
+    count: int,
+) -> list[tuple[str, int, list[ScheduleRecord]]]:
+    """Return diverse high-quality constructive schedules for local search.
+
+    The earlier solver kept only the single best dispatch schedule from a
+    portfolio.  That is fast, but it can over-commit to one machine assignment
+    before tabu search starts.  This selector keeps a small, duplicate-filtered
+    elite set built only from the current instance and strategy portfolio.
+    """
+
+    candidates: list[tuple[int, int, str, list[ScheduleRecord]]] = []
+    seen: set[tuple[object, ...]] = set()
+    for index, strategy in enumerate(strategies):
+        schedule = build_schedule(instance, strategy, seed + index * 100003)
+        errors, metrics = validate_standard_schedule(instance, schedule)
+        if errors:
+            continue
+        signature = schedule_signature(instance, schedule)
+        if signature in seen:
+            continue
+        seen.add(signature)
+        candidates.append((int(metrics["makespan"]), index, getattr(strategy, "name", f"strategy_{index:03d}"), schedule))
+    candidates.sort(key=lambda item: (item[0], item[1]))
+    return [(name, makespan, schedule) for makespan, _, name, schedule in candidates[: max(1, count)]]
 
 
 def generate_structured_neighbors(
@@ -876,6 +919,7 @@ def solve_with_restarts(
     portfolio_size: int,
     strategy_profile: Path | None,
     restarts: int,
+    initial_pool_size: int,
     iterations: int,
     neighbor_limit: int,
     time_limit_sec: float,
@@ -883,29 +927,32 @@ def solve_with_restarts(
 ) -> tuple[list[ScheduleRecord], str]:
     best: tuple[int, int, DecodedState, str] | None = None
     restart_count = max(1, restarts)
-    per_restart_time = time_limit_sec / restart_count if time_limit_sec > 0 else 0.0
+    pool_size = max(1, initial_pool_size)
+    total_searches = restart_count * pool_size
+    per_search_time = time_limit_sec / total_searches if time_limit_sec > 0 else 0.0
 
     for restart in range(restart_count):
         restart_seed = seed + restart * 1_000_003
         strategies = build_portfolio(restart_seed, portfolio_size, strategy_profile)
-        winner, initial_schedule = choose_best(instance, strategies, restart_seed)
-        initial_makespan = max(record.end for record in initial_schedule)
-        decoded = tabu_search(
-            instance,
-            initial_schedule,
-            seed=restart_seed,
-            iterations=iterations,
-            neighbor_limit=neighbor_limit,
-            time_limit_sec=per_restart_time,
-            neighborhood_profile=neighborhood_profile,
-        )
-        key = (decoded.makespan, initial_makespan)
-        if best is None or key < best[:2]:
-            label = (
-                f"local_search:{neighborhood_profile}:{winner.name}:"
-                f"restart={restart}:initial={initial_makespan}:best={decoded.makespan}"
+        initial_candidates = choose_initial_schedules(instance, strategies, restart_seed, pool_size)
+        for initial_index, (strategy_name, initial_makespan, initial_schedule) in enumerate(initial_candidates):
+            decoded = tabu_search(
+                instance,
+                initial_schedule,
+                seed=restart_seed + initial_index * 17_171,
+                iterations=iterations,
+                neighbor_limit=neighbor_limit,
+                time_limit_sec=per_search_time,
+                neighborhood_profile=neighborhood_profile,
             )
-            best = (decoded.makespan, initial_makespan, decoded, label)
+            key = (decoded.makespan, initial_makespan)
+            if best is None or key < best[:2]:
+                label = (
+                    f"local_search:{neighborhood_profile}:{strategy_name}:"
+                    f"restart={restart}:initial_index={initial_index}:"
+                    f"initial_pool={pool_size}:initial={initial_makespan}:best={decoded.makespan}"
+                )
+                best = (decoded.makespan, initial_makespan, decoded, label)
 
     if best is None:
         raise RuntimeError("local search failed to produce a candidate")
@@ -920,6 +967,7 @@ def main() -> int:
     parser.add_argument("--portfolio-size", type=int, default=128)
     parser.add_argument("--strategy-profile", type=Path)
     parser.add_argument("--restarts", type=int, default=2)
+    parser.add_argument("--initial-pool-size", type=int, default=1)
     parser.add_argument("--iterations", type=int, default=80)
     parser.add_argument("--neighbor-limit", type=int, default=180)
     parser.add_argument("--time-limit-sec", type=float, default=4.0)
@@ -938,6 +986,7 @@ def main() -> int:
         portfolio_size=max(1, args.portfolio_size),
         strategy_profile=args.strategy_profile,
         restarts=max(1, args.restarts),
+        initial_pool_size=max(1, args.initial_pool_size),
         iterations=max(0, args.iterations),
         neighbor_limit=max(1, args.neighbor_limit),
         time_limit_sec=max(0.0, args.time_limit_sec),

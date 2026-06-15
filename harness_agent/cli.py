@@ -41,6 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     build_standard.add_argument("--portfolio-size", type=int, default=64)
     build_standard.add_argument("--strategy-profile", type=Path)
     build_standard.add_argument("--local-search-restarts", type=int, default=2)
+    build_standard.add_argument("--local-search-initial-pool-size", type=int, default=1)
     build_standard.add_argument("--local-search-iterations", type=int, default=80)
     build_standard.add_argument("--local-search-neighbor-limit", type=int, default=180)
     build_standard.add_argument("--local-search-time-limit-sec", type=float, default=4.0)
@@ -67,6 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
     standard_agent.add_argument("--solver", choices=["local-search", "portfolio"], default="local-search")
     standard_agent.add_argument("--portfolio-size", type=int, default=96)
     standard_agent.add_argument("--local-search-restarts", type=int, default=2)
+    standard_agent.add_argument("--local-search-initial-pool-size", type=int, default=1)
     standard_agent.add_argument("--local-search-iterations", type=int, default=80)
     standard_agent.add_argument("--local-search-neighbor-limit", type=int, default=180)
     standard_agent.add_argument("--local-search-time-limit-sec", type=float, default=4.0)
@@ -164,6 +166,7 @@ def build_standard_contract(args: argparse.Namespace) -> int:
             "--input {instance} --output {solution} --seed {seed} "
             f"--portfolio-size {args.portfolio_size} "
             f"--restarts {args.local_search_restarts} "
+            f"--initial-pool-size {args.local_search_initial_pool_size} "
             f"--iterations {args.local_search_iterations} "
             f"--neighbor-limit {args.local_search_neighbor_limit} "
             f"--time-limit-sec {args.local_search_time_limit_sec} "
@@ -249,6 +252,7 @@ def run_standard_agent(args: argparse.Namespace) -> int:
         solver=args.solver,
         portfolio_size=args.portfolio_size,
         local_search_restarts=args.local_search_restarts,
+        local_search_initial_pool_size=args.local_search_initial_pool_size,
         local_search_iterations=args.local_search_iterations,
         local_search_neighbor_limit=args.local_search_neighbor_limit,
         local_search_time_limit_sec=args.local_search_time_limit_sec,
@@ -285,6 +289,7 @@ def build_local_search_run_profiles(args: argparse.Namespace, neighborhood_profi
             "name": f"current-{profile}",
             "portfolio_size": args.portfolio_size,
             "restarts": args.local_search_restarts,
+            "initial_pool_size": args.local_search_initial_pool_size,
             "iterations": args.local_search_iterations,
             "neighbor_limit": args.local_search_neighbor_limit,
             "time_limit_sec": args.local_search_time_limit_sec,
@@ -297,6 +302,7 @@ def build_local_search_run_profiles(args: argparse.Namespace, neighborhood_profi
             "name": "balanced-random",
             "portfolio_size": max(args.portfolio_size, 192),
             "restarts": max(args.local_search_restarts, 2),
+            "initial_pool_size": max(args.local_search_initial_pool_size, 1),
             "iterations": max(args.local_search_iterations, 100),
             "neighbor_limit": max(args.local_search_neighbor_limit, 220),
             "time_limit_sec": max(args.local_search_time_limit_sec, 4.0),
@@ -306,6 +312,7 @@ def build_local_search_run_profiles(args: argparse.Namespace, neighborhood_profi
             "name": "balanced-combined",
             "portfolio_size": max(args.portfolio_size, 192),
             "restarts": max(args.local_search_restarts, 2),
+            "initial_pool_size": max(args.local_search_initial_pool_size, 1),
             "iterations": max(args.local_search_iterations, 100),
             "neighbor_limit": max(args.local_search_neighbor_limit, 220),
             "time_limit_sec": max(args.local_search_time_limit_sec, 4.0),
@@ -315,6 +322,7 @@ def build_local_search_run_profiles(args: argparse.Namespace, neighborhood_profi
             "name": "deep-combined",
             "portfolio_size": max(args.portfolio_size, 256),
             "restarts": max(args.local_search_restarts, 3),
+            "initial_pool_size": max(args.local_search_initial_pool_size, 2),
             "iterations": max(args.local_search_iterations, 180),
             "neighbor_limit": max(args.local_search_neighbor_limit, 320),
             "time_limit_sec": max(args.local_search_time_limit_sec, 8.0),
@@ -324,6 +332,7 @@ def build_local_search_run_profiles(args: argparse.Namespace, neighborhood_profi
             "name": "balanced-hgtsa",
             "portfolio_size": max(args.portfolio_size, 192),
             "restarts": max(args.local_search_restarts, 2),
+            "initial_pool_size": max(args.local_search_initial_pool_size, 1),
             "iterations": max(args.local_search_iterations, 100),
             "neighbor_limit": max(args.local_search_neighbor_limit, 220),
             "time_limit_sec": max(args.local_search_time_limit_sec, 4.0),
@@ -333,6 +342,7 @@ def build_local_search_run_profiles(args: argparse.Namespace, neighborhood_profi
             "name": "deep-hgtsa",
             "portfolio_size": max(args.portfolio_size, 256),
             "restarts": max(args.local_search_restarts, 3),
+            "initial_pool_size": max(args.local_search_initial_pool_size, 2),
             "iterations": max(args.local_search_iterations, 180),
             "neighbor_limit": max(args.local_search_neighbor_limit, 320),
             "time_limit_sec": max(args.local_search_time_limit_sec, 8.0),

@@ -131,6 +131,7 @@ Return JSON with this schema:
       "neighborhood_profile": "combined",
       "portfolio_size": 192,
       "restarts": 2,
+      "initial_pool_size": 1,
       "iterations": 100,
       "neighbor_limit": 220,
       "time_limit_sec": 4.0,
@@ -185,7 +186,8 @@ Previous report excerpt:
                         "Repair it to exactly this schema: "
                         '{"rationale":"short text","strategies":[{"name":"name","noise":0.0,"weights":{"early_finish":5.0}}],'
                         '"local_search_profiles":[{"name":"combined_balanced","neighborhood_profile":"combined","portfolio_size":192,'
-                        '"restarts":2,"iterations":100,"neighbor_limit":220,"time_limit_sec":4.0,"rationale":"short text"}]}. '
+                        '"restarts":2,"initial_pool_size":1,"iterations":100,"neighbor_limit":220,'
+                        '"time_limit_sec":4.0,"rationale":"short text"}]}. '
                         "Use only the already present strategy ideas if possible.\n\n"
                         f"JSON error: {error}\n\n"
                         f"Invalid response:\n{raw[:6000]}"
@@ -244,6 +246,7 @@ def normalize_local_search_profiles(profile: dict[str, Any]) -> list[dict[str, A
         try:
             portfolio_size = int(item.get("portfolio_size", 192))
             restarts = int(item.get("restarts", 2))
+            initial_pool_size = int(item.get("initial_pool_size", item.get("initials", 1)))
             iterations = int(item.get("iterations", 100))
             neighbor_limit = int(item.get("neighbor_limit", 220))
             time_limit_sec = float(item.get("time_limit_sec", 4.0))
@@ -255,6 +258,7 @@ def normalize_local_search_profiles(profile: dict[str, Any]) -> list[dict[str, A
                 "neighborhood_profile": neighborhood,
                 "portfolio_size": max(32, min(512, portfolio_size)),
                 "restarts": max(1, min(6, restarts)),
+                "initial_pool_size": max(1, min(4, initial_pool_size)),
                 "iterations": max(10, min(320, iterations)),
                 "neighbor_limit": max(20, min(520, neighbor_limit)),
                 "time_limit_sec": max(0.5, min(15.0, time_limit_sec)),
@@ -286,6 +290,7 @@ def render_strategy_markdown(profile: dict[str, Any], source: str) -> str:
             lines.append(f"- neighborhood: `{local_profile.get('neighborhood_profile')}`")
             lines.append(f"- portfolio_size: `{local_profile.get('portfolio_size')}`")
             lines.append(f"- restarts: `{local_profile.get('restarts')}`")
+            lines.append(f"- initial_pool_size: `{local_profile.get('initial_pool_size', 1)}`")
             lines.append(f"- iterations: `{local_profile.get('iterations')}`")
             lines.append(f"- neighbor_limit: `{local_profile.get('neighbor_limit')}`")
             lines.append(f"- time_limit_sec: `{local_profile.get('time_limit_sec')}`")
@@ -340,16 +345,29 @@ def write_template_strategy_profile(output_dir: Path, round_index: int) -> tuple
                 "neighborhood_profile": "combined",
                 "portfolio_size": 192,
                 "restarts": 2,
+                "initial_pool_size": 1,
                 "iterations": 100,
                 "neighbor_limit": 220,
                 "time_limit_sec": 4.0,
                 "rationale": "Stable default that protects the current strongest combined neighborhood.",
             },
             {
+                "name": f"template_combined_elite_initials_{round_index}",
+                "neighborhood_profile": "combined",
+                "portfolio_size": 224,
+                "restarts": 2,
+                "initial_pool_size": 2,
+                "iterations": 100,
+                "neighbor_limit": 240,
+                "time_limit_sec": 5.0,
+                "rationale": "Tests whether multiple elite constructive starts improve the combined neighborhood.",
+            },
+            {
                 "name": f"template_hybrid_probe_{round_index}",
                 "neighborhood_profile": "hybrid",
                 "portfolio_size": 256,
                 "restarts": 3,
+                "initial_pool_size": 2,
                 "iterations": 160,
                 "neighbor_limit": 300,
                 "time_limit_sec": 6.0,

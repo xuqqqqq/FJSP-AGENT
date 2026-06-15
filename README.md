@@ -148,6 +148,7 @@ python -m harness_agent.cli run-standard-agent `
   --strategy-candidates 4 `
   --max-workers 4 `
   --local-search-restarts 2 `
+  --local-search-initial-pool-size 1 `
   --local-search-iterations 100 `
   --local-search-neighbor-limit 220 `
   --local-search-time-limit-sec 4
@@ -175,8 +176,10 @@ choice instead of a hidden implementation constant.
 DeepSeek/template profiles may now include `local_search_profiles`.  When
 `--local-search-run-profiles` is not provided, each strategy candidate uses those
 generated local-search profiles, so the agent can evolve dispatch weights,
-neighborhood family, restart count, iteration budget, neighbor limit, and time
-limit together.  Passing `--local-search-run-profiles` intentionally overrides
+neighborhood family, restart count, elite constructive initial count, iteration
+budget, neighbor limit, and time limit together.  `initial_pool_size` is not a
+warm start: it selects multiple fresh high-quality constructive schedules from
+the current portfolio before local search.  Passing `--local-search-run-profiles` intentionally overrides
 model-generated settings for controlled ablations.  Built-in presets such as
 `balanced-random`, `balanced-combined`, `balanced-hgtsa`, `deep-combined`, and
 `deep-hgtsa` remain available as fixed evaluator-visible candidates.

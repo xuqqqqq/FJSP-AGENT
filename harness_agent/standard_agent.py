@@ -54,6 +54,7 @@ class StandardFjspAgentRunner:
         solver: str,
         portfolio_size: int,
         local_search_restarts: int,
+        local_search_initial_pool_size: int,
         local_search_iterations: int,
         local_search_neighbor_limit: int,
         local_search_time_limit_sec: float,
@@ -77,6 +78,7 @@ class StandardFjspAgentRunner:
         self.solver = solver
         self.portfolio_size = portfolio_size
         self.local_search_restarts = local_search_restarts
+        self.local_search_initial_pool_size = local_search_initial_pool_size
         self.local_search_iterations = local_search_iterations
         self.local_search_neighbor_limit = local_search_neighbor_limit
         self.local_search_time_limit_sec = local_search_time_limit_sec
@@ -245,6 +247,7 @@ class StandardFjspAgentRunner:
                 "--input {instance} --output {solution} --seed {seed} "
                 f"--portfolio-size {int(run_profile['portfolio_size'])} "
                 f"--restarts {int(run_profile['restarts'])} "
+                f"--initial-pool-size {int(run_profile.get('initial_pool_size', 1))} "
                 f"--iterations {int(run_profile['iterations'])} "
                 f"--neighbor-limit {int(run_profile['neighbor_limit'])} "
                 f"--time-limit-sec {float(run_profile['time_limit_sec'])} "
@@ -475,6 +478,7 @@ class StandardFjspAgentRunner:
                 "name": profile,
                 "portfolio_size": self.portfolio_size,
                 "restarts": self.local_search_restarts,
+                "initial_pool_size": self.local_search_initial_pool_size,
                 "iterations": self.local_search_iterations,
                 "neighbor_limit": self.local_search_neighbor_limit,
                 "time_limit_sec": self.local_search_time_limit_sec,
