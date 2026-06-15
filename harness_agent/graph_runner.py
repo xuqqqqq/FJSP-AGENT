@@ -74,14 +74,20 @@ class GraphHarnessRunner(HarnessRunner):
     def _graph_run_experiment(self, state: HarnessGraphState) -> HarnessGraphState:
         planned_runs = state.get("planned_runs", [])
         cursor = int(state.get("cursor", 0))
-        run_spec = planned_runs[cursor]
-        self._run_one(
-            round_index=int(run_spec["round_index"]),
-            instance_id=str(run_spec["instance_id"]),
-            instance_path=Path(str(run_spec["instance_path"])),
-            seed=int(run_spec["seed"]),
+        worker_count = max(1, self.contract.budget.max_workers)
+        batch = planned_runs[cursor : cursor + worker_count]
+        self._run_many(
+            [
+                {
+                    "round_index": int(run_spec["round_index"]),
+                    "instance_id": str(run_spec["instance_id"]),
+                    "instance_path": Path(str(run_spec["instance_path"])),
+                    "seed": int(run_spec["seed"]),
+                }
+                for run_spec in batch
+            ]
         )
-        return {"cursor": cursor + 1}
+        return {"cursor": cursor + len(batch)}
 
     def _graph_summarize_results(self, state: HarnessGraphState) -> HarnessGraphState:
         summary = self._summarize()

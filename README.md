@@ -146,6 +146,7 @@ python -m harness_agent.cli run-standard-agent `
   --max-rounds 3 `
   --portfolio-size 256 `
   --strategy-candidates 4 `
+  --max-workers 4 `
   --local-search-restarts 2 `
   --local-search-iterations 100 `
   --local-search-neighbor-limit 220 `
@@ -177,6 +178,11 @@ in presets such as `balanced-random`, `balanced-combined`, and `deep-combined`
 bundle portfolio size, restart count, iteration budget, neighbor limit, time
 limit, and neighborhood profile into evaluator-visible candidates.  This is the
 current lightweight path toward instance-adaptive parameter and rule selection.
+
+`--max-workers` controls how many independent instance/seed experiments the
+harness evaluates concurrently.  It is intentionally separate from solver
+parameters: higher values accelerate candidate comparison but do not change the
+solution logic of any single run.
 
 The DeepSeek client also accepts the user-facing alias `deepseek-4-pro` and
 maps it to the API-supported `deepseek-v4-pro` model name.
@@ -218,3 +224,7 @@ python -m harness_agent.cli worker-status
 The `knowledge/` directory stores paper cards, benchmark notes, and imported
 local notes from the previous Huawei FJSP project.  Raw local PDFs live under
 `knowledge/local_papers/raw/` and are intentionally not committed to Git.
+The local paper index includes Xie Jin's HGTSA dissertation, and
+`knowledge/imported_huawei_fjsp_knowledge/operators/xiejin_hgtsa_n8_k_insertion_tabu_spec.md`
+summarizes the N7/N8/k-insertion, tabu-key, and approximate-evaluation details
+that should guide the next local-search operator upgrade.

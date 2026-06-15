@@ -50,6 +50,7 @@ class StandardFjspAgentRunner:
         max_rounds: int,
         seeds: list[int],
         timeout_seconds: int,
+        max_workers: int,
         solver: str,
         portfolio_size: int,
         local_search_restarts: int,
@@ -72,6 +73,7 @@ class StandardFjspAgentRunner:
         self.max_rounds = max_rounds
         self.seeds = seeds
         self.timeout_seconds = timeout_seconds
+        self.max_workers = max(1, max_workers)
         self.solver = solver
         self.portfolio_size = portfolio_size
         self.local_search_restarts = local_search_restarts
@@ -269,6 +271,7 @@ class StandardFjspAgentRunner:
                 "rounds": 1,
                 "seeds": self.seeds,
                 "timeout_seconds": self.timeout_seconds,
+                "max_workers": self.max_workers,
             },
             "paths": {
                 "allowed_paths": ["examples", "harness_agent", "configs"],

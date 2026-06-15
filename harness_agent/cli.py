@@ -35,6 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     build_standard.add_argument("--rounds", type=int, default=1)
     build_standard.add_argument("--seeds", default="0,1,2")
     build_standard.add_argument("--timeout-seconds", type=int, default=60)
+    build_standard.add_argument("--max-workers", type=int, default=1)
     build_standard.add_argument("--max-instances", type=int)
     build_standard.add_argument("--solver", choices=["local-search", "portfolio", "ect"], default="portfolio")
     build_standard.add_argument("--portfolio-size", type=int, default=64)
@@ -58,6 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     standard_agent.add_argument("--max-rounds", type=int, default=1)
     standard_agent.add_argument("--seeds", default="0,1,2")
     standard_agent.add_argument("--timeout-seconds", type=int, default=120)
+    standard_agent.add_argument("--max-workers", type=int, default=1)
     standard_agent.add_argument("--solver", choices=["local-search", "portfolio"], default="local-search")
     standard_agent.add_argument("--portfolio-size", type=int, default=96)
     standard_agent.add_argument("--local-search-restarts", type=int, default=2)
@@ -189,6 +191,7 @@ def build_standard_contract(args: argparse.Namespace) -> int:
             "rounds": args.rounds,
             "seeds": seeds,
             "timeout_seconds": args.timeout_seconds,
+            "max_workers": max(1, args.max_workers),
         },
         "paths": {
             "allowed_paths": ["examples", "harness_agent", "configs"],
@@ -234,6 +237,7 @@ def run_standard_agent(args: argparse.Namespace) -> int:
         max_rounds=args.max_rounds,
         seeds=seeds,
         timeout_seconds=args.timeout_seconds,
+        max_workers=max(1, args.max_workers),
         solver=args.solver,
         portfolio_size=args.portfolio_size,
         local_search_restarts=args.local_search_restarts,

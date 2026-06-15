@@ -61,6 +61,7 @@ class BudgetSpec:
     rounds: int = 1
     seeds: list[int] = field(default_factory=lambda: [0])
     timeout_seconds: int = 300
+    max_workers: int = 1
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "BudgetSpec":
@@ -68,6 +69,7 @@ class BudgetSpec:
             rounds=int(data.get("rounds", 1)),
             seeds=[int(seed) for seed in data.get("seeds", [0])],
             timeout_seconds=int(data.get("timeout_seconds", 300)),
+            max_workers=max(1, int(data.get("max_workers", 1))),
         )
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,10 +37,18 @@ class HarnessRunner:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.experiment_root.mkdir(parents=True, exist_ok=True)
         self._run_quick_test()
-        for round_index in range(self.contract.budget.rounds):
-            for instance in self.contract.instances:
-                for seed in self.contract.budget.seeds:
-                    self._run_one(round_index, instance.id, instance.path, seed)
+        planned_runs = [
+            {
+                "round_index": round_index,
+                "instance_id": instance.id,
+                "instance_path": instance.path,
+                "seed": seed,
+            }
+            for round_index in range(self.contract.budget.rounds)
+            for instance in self.contract.instances
+            for seed in self.contract.budget.seeds
+        ]
+        self._run_many(planned_runs)
         summary = self._summarize()
         self._write_report(summary)
         return summary
@@ -58,6 +67,39 @@ class HarnessRunner:
         )
 
     def _run_one(self, round_index: int, instance_id: str, instance_path: Path, seed: int) -> None:
+        self.ledger.record(self._run_one_to_record(round_index, instance_id, instance_path, seed))
+
+    def _run_many(self, planned_runs: list[dict[str, object]]) -> None:
+        if not planned_runs:
+            return
+        max_workers = max(1, self.contract.budget.max_workers)
+        if max_workers == 1 or len(planned_runs) == 1:
+            for spec in planned_runs:
+                self._run_one(
+                    round_index=int(spec["round_index"]),
+                    instance_id=str(spec["instance_id"]),
+                    instance_path=Path(str(spec["instance_path"])),
+                    seed=int(spec["seed"]),
+                )
+            return
+
+        # Subprocess execution is independent per instance/seed.  SQLite ledger
+        # writes stay on the main thread to avoid concurrent write contention.
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(planned_runs))) as executor:
+            futures = [
+                executor.submit(
+                    self._run_one_to_record,
+                    int(spec["round_index"]),
+                    str(spec["instance_id"]),
+                    Path(str(spec["instance_path"])),
+                    int(spec["seed"]),
+                )
+                for spec in planned_runs
+            ]
+            for future in as_completed(futures):
+                self.ledger.record(future.result())
+
+    def _run_one_to_record(self, round_index: int, instance_id: str, instance_path: Path, seed: int) -> ExperimentRecord:
         experiment_id = f"round_{round_index:03d}__{instance_id}__seed_{seed}"
         work_dir = self.experiment_root / experiment_id
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -119,36 +161,32 @@ class HarnessRunner:
 
             evaluation = EvaluationResult.from_metrics_file(metrics_path, self.contract.objectives)
             key = objective_key(evaluation, self.contract.objectives)
-            self.ledger.record(
-                ExperimentRecord(
-                    experiment_id=experiment_id,
-                    task_id=self.contract.task_id,
-                    round_index=round_index,
-                    instance_id=instance_id,
-                    seed=seed,
-                    status=evaluation.status,
-                    valid=evaluation.valid,
-                    objective_key=key,
-                    metrics=evaluation.metrics,
-                    paths=self._paths(solution_path, metrics_path, solver_stdout, solver_stderr, evaluator_stdout, evaluator_stderr),
-                    error="; ".join(evaluation.errors) if evaluation.errors else None,
-                )
+            return ExperimentRecord(
+                experiment_id=experiment_id,
+                task_id=self.contract.task_id,
+                round_index=round_index,
+                instance_id=instance_id,
+                seed=seed,
+                status=evaluation.status,
+                valid=evaluation.valid,
+                objective_key=key,
+                metrics=evaluation.metrics,
+                paths=self._paths(solution_path, metrics_path, solver_stdout, solver_stderr, evaluator_stdout, evaluator_stderr),
+                error="; ".join(evaluation.errors) if evaluation.errors else None,
             )
         except Exception as exc:  # noqa: BLE001 - runner must capture failures as experiment facts.
-            self.ledger.record(
-                ExperimentRecord(
-                    experiment_id=experiment_id,
-                    task_id=self.contract.task_id,
-                    round_index=round_index,
-                    instance_id=instance_id,
-                    seed=seed,
-                    status="failed_runtime",
-                    valid=False,
-                    objective_key=tuple(float("-inf") for _ in self.contract.objectives),
-                    metrics={},
-                    paths=self._paths(solution_path, metrics_path, solver_stdout, solver_stderr, evaluator_stdout, evaluator_stderr),
-                    error=str(exc),
-                )
+            return ExperimentRecord(
+                experiment_id=experiment_id,
+                task_id=self.contract.task_id,
+                round_index=round_index,
+                instance_id=instance_id,
+                seed=seed,
+                status="failed_runtime",
+                valid=False,
+                objective_key=tuple(float("-inf") for _ in self.contract.objectives),
+                metrics={},
+                paths=self._paths(solution_path, metrics_path, solver_stdout, solver_stderr, evaluator_stdout, evaluator_stderr),
+                error=str(exc),
             )
 
     def _paths(self, *paths: Path) -> dict[str, str]:

@@ -144,6 +144,18 @@ strategy profile, or evaluate named run profiles such as `balanced-combined` and
 `deep-combined`, then select the best pair with evaluator-backed metrics instead
 of relying on hidden solver constants.
 
+The harness budget also supports `max_workers` so independent instance/seed
+experiments can run concurrently.  This is important for self-evolution because
+stronger tabu-search candidates, such as N8/k-insertion profiles inspired by
+Xie Jin's HGTSA dissertation, need more neighborhood evaluations than a serial
+round can usually afford.
+
+The current knowledge base contains a dedicated HGTSA operator specification at
+`knowledge/imported_huawei_fjsp_knowledge/operators/xiejin_hgtsa_n8_k_insertion_tabu_spec.md`.
+It should be treated as the source card for future `hgtsa-lite` neighborhood
+profiles: N8 critical-block moves, k-insertion machine reassignment, tabu
+attributes, and approximate candidate ranking before full decoding.
+
 ## 9. Repository Separation
 
 This project should remain independent from any concrete FJSP solver repository.
