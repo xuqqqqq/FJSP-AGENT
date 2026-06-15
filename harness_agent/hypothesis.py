@@ -23,6 +23,8 @@ class HypothesisRecord:
     summary: dict[str, Any]
     artifacts: dict[str, str]
     note: str
+    candidate_id: str | None = None
+    candidate_results: list[dict[str, Any]] | None = None
 
 
 class HypothesisLedger:

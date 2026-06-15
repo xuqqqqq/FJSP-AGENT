@@ -70,7 +70,7 @@ class DeepSeekWorker(CodingWorker):
         previous_report: str,
         output_dir: Path,
         round_index: int,
-        max_tokens: int = 2500,
+        max_tokens: int = 5000,
     ) -> tuple[Path, Path]:
         output_dir.mkdir(parents=True, exist_ok=True)
         client = DeepSeekClient.from_env(model=self.model)
@@ -91,7 +91,12 @@ class DeepSeekWorker(CodingWorker):
             json_mode=True,
         )
         (output_dir / "deepseek_raw_response.json").write_text(content, encoding="utf-8")
-        profile = extract_json_object(content)
+        try:
+            profile = extract_json_object(content)
+        except json.JSONDecodeError as exc:
+            repaired = self._repair_profile_json(client, content, str(exc), max_tokens=max_tokens)
+            (output_dir / "deepseek_repair_response.json").write_text(repaired, encoding="utf-8")
+            profile = extract_json_object(repaired)
         normalized = normalize_strategy_profile(profile)
         profile_path = output_dir / "strategy_profile.json"
         strategy_path = output_dir / "strategy.md"
@@ -121,10 +126,18 @@ Return JSON with this schema:
 }}
 
 Rules:
-- Generate 4 to 8 diverse strategies.
+- Generate exactly 4 to 6 diverse strategies.
 - Use only the listed feature names.
 - Weights should normally be between -8 and 12.
 - Prefer valid, fast constructive heuristics; no warm starts from old solutions.
+- Return compact valid JSON only; no Markdown, comments, trailing commas, or
+  partial objects.
+- Feature values already encode scheduling preference direction. For example,
+  `early_finish`, `early_start`, `short_processing`, `min_option`,
+  `machine_ready`, `machine_load`, `flexibility`, `machine_slack`, and
+  `job_slack` are signed so a positive weight usually favors earlier, shorter,
+  less loaded, or less slack choices. Do not flip these signs unless previous
+  measured evidence justifies it.
 - Treat "Structured Hypothesis Feedback" in the previous report as the latest
   measured evidence.
 - When `avg_gap_pct` is present, lower `avg_gap_pct` is the main benchmark
@@ -138,6 +151,30 @@ Requirement and knowledge excerpts:
 Previous report excerpt:
 {previous_report[-5000:]}
 """.strip()
+
+    def _repair_profile_json(self, client: DeepSeekClient, raw: str, error: str, max_tokens: int) -> str:
+        return client.chat(
+            [
+                {
+                    "role": "system",
+                    "content": "Repair malformed JSON. Return valid JSON only, with no Markdown.",
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "The following FJSP strategy profile was invalid JSON. "
+                        "Repair it to exactly this schema: "
+                        '{"rationale":"short text","strategies":[{"name":"name","noise":0.0,"weights":{"early_finish":5.0}}]}. '
+                        "Use only the already present strategy ideas if possible.\n\n"
+                        f"JSON error: {error}\n\n"
+                        f"Invalid response:\n{raw[:6000]}"
+                    ),
+                },
+            ],
+            temperature=0.0,
+            max_tokens=max_tokens,
+            json_mode=True,
+        )
 
 
 def normalize_strategy_profile(profile: dict[str, Any]) -> dict[str, Any]:

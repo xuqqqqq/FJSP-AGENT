@@ -10,6 +10,7 @@ from .graph_runner import GraphHarnessRunner
 from .hypothesis import HypothesisLedger, HypothesisRecord, extract_score, improvement_note, make_hypothesis_id
 from .models import TaskContract
 from .runner import RunSummary
+from .strategy_variants import build_strategy_candidates
 from .workers.deepseek_worker import generate_profile_auto
 
 
@@ -20,7 +21,11 @@ class StandardAgentState(TypedDict, total=False):
     profile_path: str
     strategy_path: str
     profile_source: str
+    profile_candidates: list[dict[str, str]]
+    contract_specs: list[dict[str, str]]
     contract_path: str
+    selected_candidate_id: str
+    candidate_results: list[dict[str, Any]]
     harness_output_dir: str
     summary: RunSummary
     reports: list[str]
@@ -51,6 +56,7 @@ class StandardFjspAgentRunner:
         local_search_iterations: int,
         local_search_neighbor_limit: int,
         local_search_time_limit_sec: float,
+        strategy_candidates: int,
         profile_mode: str,
         deepseek_model: str,
         project_root: Path,
@@ -70,6 +76,7 @@ class StandardFjspAgentRunner:
         self.local_search_iterations = local_search_iterations
         self.local_search_neighbor_limit = local_search_neighbor_limit
         self.local_search_time_limit_sec = local_search_time_limit_sec
+        self.strategy_candidates = max(1, strategy_candidates)
         self.profile_mode = profile_mode
         self.deepseek_model = deepseek_model
         self.project_root = project_root.resolve()
@@ -131,10 +138,17 @@ class StandardFjspAgentRunner:
             mode=self.profile_mode,
             model=self.deepseek_model,
         )
+        candidates = build_strategy_candidates(
+            profile_path=profile_path,
+            output_dir=round_dir,
+            max_candidates=self.strategy_candidates,
+            source=source,
+        )
         return {
             "profile_path": str(profile_path),
             "strategy_path": str(strategy_path),
             "profile_source": source,
+            "profile_candidates": candidates,
         }
 
     def _build_contract(self, state: StandardAgentState) -> StandardAgentState:
@@ -146,12 +160,57 @@ class StandardFjspAgentRunner:
         if not paths:
             raise FileNotFoundError(f"no instance files matched {self.instance_dir / self.pattern}")
 
-        resources = {"strategy_profile": str(Path(state["profile_path"]))}
+        contract_specs: list[dict[str, str]] = []
+        profile_candidates = state.get("profile_candidates") or [
+            {
+                "candidate_id": "candidate_00_all",
+                "profile_path": str(Path(state["profile_path"])),
+                "strategy_path": str(Path(state["strategy_path"])),
+            }
+        ]
+
         evaluator = "python examples/standard_fjsp_evaluator.py --instance {instance} --solution {solution} --metrics {metrics}"
+        evaluator_resources: dict[str, str] = {}
         if self.best_known_csv:
-            resources["best_known_csv"] = str(self.best_known_csv)
+            evaluator_resources["best_known_csv"] = str(self.best_known_csv)
             evaluator += " --best-known-csv {best_known_csv}"
 
+        for candidate in profile_candidates:
+            candidate_id = candidate["candidate_id"]
+            candidate_dir = round_dir / "candidates" / candidate_id
+            candidate_dir.mkdir(parents=True, exist_ok=True)
+            resources = {
+                "strategy_profile": candidate["profile_path"],
+                **evaluator_resources,
+            }
+            payload = self._contract_payload(
+                round_index=round_index,
+                candidate_id=candidate_id,
+                paths=paths,
+                evaluator=evaluator,
+                resources=resources,
+            )
+            contract_path = candidate_dir / "contract.json"
+            contract_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            contract_specs.append(
+                {
+                    "candidate_id": candidate_id,
+                    "profile_path": candidate["profile_path"],
+                    "strategy_path": candidate["strategy_path"],
+                    "contract_path": str(contract_path),
+                }
+            )
+        return {"contract_specs": contract_specs, "contract_path": contract_specs[0]["contract_path"]}
+
+    def _contract_payload(
+        self,
+        *,
+        round_index: int,
+        candidate_id: str,
+        paths: list[Path],
+        evaluator: str,
+        resources: dict[str, str],
+    ) -> dict[str, Any]:
         if self.solver == "portfolio":
             solver_cmd = (
                 "python examples/standard_fjsp_portfolio_solver.py "
@@ -173,8 +232,8 @@ class StandardFjspAgentRunner:
         else:
             raise ValueError(f"unknown standard solver: {self.solver}")
 
-        payload = {
-            "task_id": f"standard_fjsp_agent_round_{round_index:02d}",
+        return {
+            "task_id": f"standard_fjsp_agent_round_{round_index:02d}_{candidate_id}",
             "problem_family": "FJSP",
             "description": "Document-driven standard FJSP agent round.",
             "instances": [{"id": path.stem, "path": str(path)} for path in paths],
@@ -202,25 +261,47 @@ class StandardFjspAgentRunner:
             },
             "resources": resources,
         }
-        contract_path = round_dir / "contract.json"
-        contract_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        return {"contract_path": str(contract_path)}
 
     def _run_harness(self, state: StandardAgentState) -> StandardAgentState:
         round_index = int(state.get("round_index", 0))
-        contract = TaskContract.load(Path(state["contract_path"]))
-        errors = contract.validate(self.project_root)
-        if errors:
-            raise RuntimeError(f"generated contract is invalid: {errors}")
-        harness_output_dir = self.output_dir / f"round_{round_index:02d}" / "harness"
-        runner = GraphHarnessRunner(contract=contract, project_root=self.project_root, output_dir=harness_output_dir)
-        try:
-            summary = runner.run()
-        finally:
-            runner.close()
+        candidate_results: list[dict[str, Any]] = []
+        best_result: dict[str, Any] | None = None
+        for spec in state.get("contract_specs", []):
+            contract = TaskContract.load(Path(spec["contract_path"]))
+            errors = contract.validate(self.project_root)
+            if errors:
+                raise RuntimeError(f"generated contract is invalid for {spec['candidate_id']}: {errors}")
+            harness_output_dir = self.output_dir / f"round_{round_index:02d}" / "candidates" / spec["candidate_id"] / "harness"
+            runner = GraphHarnessRunner(contract=contract, project_root=self.project_root, output_dir=harness_output_dir)
+            try:
+                summary = runner.run()
+            finally:
+                runner.close()
+            summary_payload = self._summary_payload(summary)
+            metric_name, score_value = extract_score(summary_payload)
+            result = {
+                "candidate_id": spec["candidate_id"],
+                "profile_path": spec["profile_path"],
+                "strategy_path": spec["strategy_path"],
+                "contract_path": spec["contract_path"],
+                "harness_output_dir": str(harness_output_dir),
+                "score_metric": metric_name,
+                "score_value": score_value,
+                "summary": summary_payload,
+            }
+            candidate_results.append(result)
+            if best_result is None or self._candidate_sort_key(result) > self._candidate_sort_key(best_result):
+                best_result = result
+        if best_result is None:
+            raise RuntimeError("no strategy candidates were evaluated")
         return {
-            "summary": summary,
-            "harness_output_dir": str(harness_output_dir),
+            "summary": self._summary_from_payload(best_result["summary"]),
+            "harness_output_dir": str(best_result["harness_output_dir"]),
+            "selected_candidate_id": str(best_result["candidate_id"]),
+            "profile_path": str(best_result["profile_path"]),
+            "strategy_path": str(best_result["strategy_path"]),
+            "contract_path": str(best_result["contract_path"]),
+            "candidate_results": candidate_results,
         }
 
     def _reflect(self, state: StandardAgentState) -> StandardAgentState:
@@ -279,6 +360,8 @@ class StandardFjspAgentRunner:
             summary=summary,
             artifacts=artifacts,
             note=improvement_note(score_metric, score_value, delta),
+            candidate_id=state.get("selected_candidate_id"),
+            candidate_results=state.get("candidate_results"),
         )
         self.hypothesis_ledger.append(hypothesis)
         return hypothesis
@@ -303,6 +386,7 @@ class StandardFjspAgentRunner:
             f"- Strategy source: `{state.get('profile_source')}`\n"
             f"- Strategy file: `{state.get('strategy_path')}`\n"
             f"- Harness output: `{state.get('harness_output_dir')}`\n"
+            f"- Selected candidate: `{state.get('selected_candidate_id') or 'N/A'}`\n"
             f"- Hypothesis id: `{hypothesis.hypothesis_id}`\n"
             f"- Parent hypothesis: `{hypothesis.parent_id or 'N/A'}`\n"
             f"- Score metric: `{hypothesis.score_metric or 'N/A'}`\n"
@@ -310,6 +394,7 @@ class StandardFjspAgentRunner:
             f"- Delta from parent: `{hypothesis.delta_from_parent if hypothesis.delta_from_parent is not None else 'N/A'}`\n"
             f"- Hypothesis note: {hypothesis.note}\n"
             f"- Summary: `{json.dumps(summary, ensure_ascii=False)}`\n\n"
+            f"{self._candidate_table(state.get('candidate_results', []))}\n\n"
             "The evaluator remains the source of truth. The next round may use this report "
             "as feedback for a new strategy profile, but it must not reuse solution files as warm starts.\n\n"
             "## Report Excerpt\n\n"
@@ -325,7 +410,9 @@ class StandardFjspAgentRunner:
             f"- Solver: `{self.solver}`",
             f"- DeepSeek model: `{self.deepseek_model}`",
             f"- Pattern: `{self.pattern}`",
+            f"- Strategy candidates per round: `{self.strategy_candidates}`",
             f"- Last summary: `{json.dumps(self._summary_payload(state.get('summary')), ensure_ascii=False)}`",
+            f"- Selected candidate: `{state.get('selected_candidate_id') or 'N/A'}`",
             f"- Best hypothesis: `{state.get('best_hypothesis_id') or 'N/A'}`",
             f"- Hypothesis ledger: `{self.hypothesis_ledger.path}`",
             "",
@@ -349,3 +436,35 @@ class StandardFjspAgentRunner:
             "best_candidate_id": summary.best_candidate_id,
             "best_candidate_metrics": summary.best_candidate_metrics,
         }
+
+    def _candidate_sort_key(self, result: dict[str, Any]) -> tuple[float, str]:
+        score = result.get("score_value")
+        return (float(score) if isinstance(score, (int, float)) else float("-inf"), str(result.get("candidate_id", "")))
+
+    def _summary_from_payload(self, payload: dict[str, Any]) -> RunSummary:
+        return RunSummary(
+            total=int(payload.get("total", 0)),
+            valid=int(payload.get("valid", 0)),
+            failed=int(payload.get("failed", 0)),
+            best_experiment_id=payload.get("best_experiment_id"),
+            best_metrics=dict(payload.get("best_metrics") or {}),
+            best_candidate_id=payload.get("best_candidate_id"),
+            best_candidate_metrics=dict(payload.get("best_candidate_metrics") or {}),
+        )
+
+    def _candidate_table(self, candidate_results: list[dict[str, Any]]) -> str:
+        if not candidate_results:
+            return "## Strategy Candidates\n\nNo strategy-candidate comparison was recorded."
+        lines = [
+            "## Strategy Candidates",
+            "",
+            "| Candidate | Score Metric | Score Value | Summary |",
+            "| --- | --- | ---: | --- |",
+        ]
+        for result in candidate_results:
+            lines.append(
+                f"| {result.get('candidate_id')} | {result.get('score_metric') or 'N/A'} | "
+                f"`{result.get('score_value')}` | "
+                f"`{json.dumps(result.get('summary') or {}, ensure_ascii=False)}` |"
+            )
+        return "\n".join(lines)

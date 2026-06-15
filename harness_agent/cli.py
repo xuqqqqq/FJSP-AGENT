@@ -63,6 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     standard_agent.add_argument("--local-search-iterations", type=int, default=80)
     standard_agent.add_argument("--local-search-neighbor-limit", type=int, default=180)
     standard_agent.add_argument("--local-search-time-limit-sec", type=float, default=4.0)
+    standard_agent.add_argument("--strategy-candidates", type=int, default=1)
     standard_agent.add_argument("--profile-mode", choices=["auto", "deepseek", "template"], default="auto")
     standard_agent.add_argument("--deepseek-model", default="deepseek-v4-pro")
     return parser
@@ -220,6 +221,7 @@ def run_standard_agent(args: argparse.Namespace) -> int:
         local_search_iterations=args.local_search_iterations,
         local_search_neighbor_limit=args.local_search_neighbor_limit,
         local_search_time_limit_sec=args.local_search_time_limit_sec,
+        strategy_candidates=args.strategy_candidates,
         profile_mode=args.profile_mode,
         deepseek_model=args.deepseek_model,
         project_root=args.project_root,

@@ -122,10 +122,12 @@ contains the evaluated instance name.
 
 1. read requirement / IO / prompt Markdown documents;
 2. create or request a strategy profile;
-3. generate a task contract;
-4. run the selected solver under the fixed evaluator;
-5. write round reflections and an agent report with best-known gaps.
-6. append a structured hypothesis record for the next evolution round.
+3. split the profile into one or more strategy candidates;
+4. generate candidate task contracts;
+5. run the selected solver under the fixed evaluator;
+6. compare candidates by evaluator metrics;
+7. write round reflections and an agent report with best-known gaps;
+8. append a structured hypothesis record for the next evolution round.
 
 DeepSeek is enabled by environment variable only.  Do not commit API keys:
 
@@ -143,6 +145,7 @@ python -m harness_agent.cli run-standard-agent `
   --output-dir outputs\standard_agent_barnes_deepseek `
   --max-rounds 3 `
   --portfolio-size 256 `
+  --strategy-candidates 4 `
   --local-search-restarts 2 `
   --local-search-iterations 100 `
   --local-search-neighbor-limit 220 `
@@ -159,11 +162,19 @@ portfolio-only mode for faster ablation tests.  When `--best-known-csv` is
 provided, every evaluated instance reports `best_known_makespan` and `gap_pct`
 if the instance file name is present in the CSV.
 
+The DeepSeek client also accepts the user-facing alias `deepseek-4-pro` and
+maps it to the API-supported `deepseek-v4-pro` model name.
+
 Each run also writes `hypotheses.jsonl` in the output directory.  Every record
 contains the strategy source, solver, parent hypothesis, comparable score,
 delta from the previous hypothesis, summary metrics, and artifact paths.  This
 is the first persistent memory layer for self-evolution; later code-generation
 workers can use the same ledger to decide what to mutate or reject.
+
+`--strategy-candidates` controls how many profile variants are evaluated inside
+each round.  Candidate 0 keeps the full profile; later candidates perform
+single-strategy ablations or deterministic profile mutations.  The evaluator
+chooses the selected candidate, not the LLM.
 
 ## Coding Workers
 

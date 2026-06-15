@@ -37,7 +37,7 @@ class DeepSeekClient:
         return DeepSeekClient(
             DeepSeekConfig(
                 api_key=api_key,
-                model=model or os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro"),
+                model=normalize_deepseek_model(model or os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")),
                 base_url=base_url or os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
                 timeout_seconds=timeout_seconds,
             )
@@ -89,3 +89,11 @@ class DeepSeekClient:
         if not isinstance(content, str) or not content.strip():
             raise RuntimeError(f"DeepSeek response has empty content: {raw[:1000]}")
         return content.strip()
+
+
+def normalize_deepseek_model(model: str) -> str:
+    aliases = {
+        "deepseek-4-pro": "deepseek-v4-pro",
+        "deepseek-4-flash": "deepseek-v4-flash",
+    }
+    return aliases.get(model, model)

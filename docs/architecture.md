@@ -43,12 +43,14 @@ the optimizer; it is the state machine that makes each step explicit:
 
 1. ingest requirement and IO documents;
 2. ask a worker or template generator for a strategy profile;
-3. build a task contract;
-4. run solver commands through the harness;
-5. run the fixed evaluator;
-6. write the ledger, report, and reflection;
-7. append a structured hypothesis record;
-8. decide whether another round should be executed.
+3. split the profile into strategy candidates;
+4. build one task contract per candidate;
+5. run solver commands through the harness;
+6. run the fixed evaluator;
+7. compare candidate metrics;
+8. write the ledger, report, and reflection;
+9. append a structured hypothesis record;
+10. decide whether another round should be executed.
 
 This separation is intentional.  It keeps the evolving part of the system
 replaceable while preserving deterministic evaluation and reproducibility.
@@ -85,7 +87,21 @@ This record is passed into the next round as structured feedback.  It is also a
 machine-readable trail for later pruning, mutation, and operator-level
 evolution.
 
-## 6. Contract-Driven Execution
+## 6. Strategy-Candidate Evaluation
+
+A single LLM response may contain multiple heuristic ideas.  The agent therefore
+does not trust the merged response blindly.  It creates bounded strategy
+candidates:
+
+- the complete strategy profile;
+- single-strategy ablations;
+- deterministic profile mutations such as chain bias and machine-load bias.
+
+Each candidate receives its own task contract and harness output directory.  The
+selected candidate is the one with the best evaluator-backed score, usually
+lowest average best-known gap when `Best.csv` is available.
+
+## 7. Contract-Driven Execution
 
 The harness should never hard-code a single metric such as makespan, production
 weight, or setup count.  Metrics come from the task contract, which should be
@@ -111,7 +127,7 @@ For standard FJSP benchmarks, the evaluator can also load a best-known CSV.
 When the evaluated instance name appears in the table, the metrics include both
 `best_known_makespan` and `gap_pct`.
 
-## 7. Repository Separation
+## 8. Repository Separation
 
 This project should remain independent from any concrete FJSP solver repository.
 Concrete solvers are attached through command templates or worker backends.

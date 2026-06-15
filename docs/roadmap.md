@@ -16,6 +16,7 @@ The repository has reached the first harness milestone:
 - critical-path local-search solver on top of the dispatch portfolio;
 - best-known CSV gap reporting for standard FJSP benchmarks;
 - JSONL hypothesis ledger for round-to-round strategy memory;
+- per-round strategy-candidate evaluation with ablation/mutation variants;
 - local knowledge base with paper cards and imported Huawei FJSP notes.
 
 This is not yet the full MD requirement.  It is the engineering base that makes
@@ -134,6 +135,29 @@ These are still baseline-quality results rather than competitive final results,
 but the harness now exposes a measurable gap against the provided best-known
 table for any standard instance whose file name appears in the CSV.
 
+### DeepSeek Strategy-Candidate Smoke
+
+DeepSeek live API was verified through the standard-agent path using the
+environment variable `DEEPSEEK_API_KEY`.  The public-facing model alias
+`deepseek-4-pro` is normalized to the API-supported `deepseek-v4-pro`.
+
+Small single-instance smoke:
+
+- profile source: DeepSeek;
+- strategy candidates per round: 2;
+- valid experiments: 1/1;
+- selected candidate: SPT-style single-strategy ablation;
+- output included `hypotheses.jsonl` with candidate comparison.
+
+Two-round smoke:
+
+- profile source: DeepSeek;
+- strategy candidates per round: 2;
+- second-round rationale consumed the previous `avg_gap_pct` feedback;
+- valid experiments: 2/2 across the two rounds;
+- no quality improvement on the tiny smoke, so the next work should improve
+  mutation quality rather than claiming benchmark convergence.
+
 ## Gap to the Target MD
 
 | Requirement | Current status | Next action |
@@ -142,9 +166,9 @@ table for any standard instance whose file name appears in the CSV.
 | Derive Task Contract from documents | Manual JSON only | Build `contract_builder` with source references. |
 | Support multiple metrics from documents | Contract model supports it | Add evaluator schema checks and Pareto reporting. |
 | Generate solver code with an LLM worker | Strategy profile generation implemented; code edits not enabled | Add guarded DeepSeek/OpenCode code-edit loop. |
-| Strategy-first evolution | Implemented for standard FJSP profiles | Extend from scoring profiles to code-level operator evolution. |
+| Strategy-first evolution | DeepSeek/template profiles plus candidate ablation implemented | Extend from scoring profiles to code-level operator evolution. |
 | Self-reflection and hypothesis graph | JSONL hypothesis records implemented | Add pruning, promotion, and mutation operators. |
-| Rule/operator evolution | Local-search operator exists; LLM operator edits not enabled | Add strategy library and mutation operators. |
+| Rule/operator evolution | Local-search operator and profile-level mutation exist; LLM operator edits not enabled | Add guarded code-level mutation operators. |
 | Standard FJSP benchmark testing | Smoke path and best-known gap reporting implemented | Add larger benchmark batches and regression baselines. |
 | Industrial FJSP variant testing | Not implemented here | Add adapter to external industrial evaluator. |
 | Full auditability | Ledger exists | Add Git worktree, diff capture, context packet hash. |
@@ -163,7 +187,8 @@ The next concrete slice should be:
    - keeps prompts small to avoid token truncation.
 
 3. `workers/deepseek_worker.py`
-   - current: generates `strategy.md` and `strategy_profile.json`;
+   - current: generates `strategy.md` and `strategy_profile.json`, with JSON
+     repair and model-name aliasing;
    - next: generate candidate solver patches behind static guards;
    - returns structured result only;
    - never marks itself successful.
@@ -172,6 +197,11 @@ The next concrete slice should be:
    - current: records strategy source, parent hypothesis, score, delta, summary,
      and artifact paths;
    - next: support prune/promote/mutate decisions across a hypothesis graph.
+
+5. `strategy_variants.py`
+   - current: creates full-profile, single-strategy, and deterministic mutated
+     profile candidates;
+   - next: use hypothesis history to generate targeted profile mutations.
 
 5. `standard_fjsp_batch.py`
    - builds task contracts from instance directory and filename patterns;
