@@ -25,6 +25,9 @@ def build_strategy_candidates(
 
     profile = json.loads(profile_path.read_text(encoding="utf-8"))
     strategies = [item for item in profile.get("strategies", []) if isinstance(item, dict)]
+    local_search_profiles = [
+        item for item in profile.get("local_search_profiles", []) if isinstance(item, dict)
+    ]
     candidate_dir = output_dir / "strategy_candidates"
     candidate_dir.mkdir(parents=True, exist_ok=True)
 
@@ -51,6 +54,7 @@ def build_strategy_candidates(
         {
             "rationale": profile.get("rationale", ""),
             "strategies": strategies,
+            "local_search_profiles": local_search_profiles,
         },
     )
 
@@ -60,6 +64,7 @@ def build_strategy_candidates(
             {
                 "rationale": f"Single-strategy ablation from {source}: {strategy.get('name', index)}",
                 "strategies": [strategy],
+                "local_search_profiles": local_search_profiles,
             },
         )
 
@@ -69,6 +74,7 @@ def build_strategy_candidates(
             {
                 "rationale": "Mutated candidate that emphasizes long remaining chains and early finish.",
                 "strategies": [mutate_weights(strategy, {"remaining_work": 1.25, "remaining_ops": 1.2, "early_finish": 1.1}) for strategy in strategies],
+                "local_search_profiles": local_search_profiles,
             },
         )
         add_candidate(
@@ -76,6 +82,7 @@ def build_strategy_candidates(
             {
                 "rationale": "Mutated candidate that emphasizes machine readiness, load, and flexibility.",
                 "strategies": [mutate_weights(strategy, {"machine_load": 1.3, "machine_ready": 1.2, "flexibility": 1.15}) for strategy in strategies],
+                "local_search_profiles": local_search_profiles,
             },
         )
 

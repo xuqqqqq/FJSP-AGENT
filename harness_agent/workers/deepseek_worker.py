@@ -27,6 +27,8 @@ FEATURES = [
     "job_slack",
 ]
 
+LOCAL_SEARCH_NEIGHBORHOODS = ["random", "critical-block", "combined", "hgtsa-lite", "hybrid"]
+
 
 def extract_json_object(text: str) -> dict[str, Any]:
     stripped = text.strip()
@@ -122,14 +124,31 @@ Return JSON with this schema:
       "noise": 0.0,
       "weights": {{"early_finish": 5.0, "remaining_work": 2.0}}
     }}
+  ],
+  "local_search_profiles": [
+    {{
+      "name": "combined_balanced",
+      "neighborhood_profile": "combined",
+      "portfolio_size": 192,
+      "restarts": 2,
+      "iterations": 100,
+      "neighbor_limit": 220,
+      "time_limit_sec": 4.0,
+      "rationale": "why this operator/budget mix should help"
+    }}
   ]
 }}
 
 Rules:
 - Generate exactly 4 to 6 diverse strategies.
+- Generate 1 to 3 diverse local_search_profiles.
 - Use only the listed feature names.
+- Use only these local-search neighborhoods: {", ".join(LOCAL_SEARCH_NEIGHBORHOODS)}.
 - Weights should normally be between -8 and 12.
 - Prefer valid, fast constructive heuristics; no warm starts from old solutions.
+- Local-search profiles are operator/budget hypotheses, not claims. Prefer
+  `combined` for stable quality, use `hybrid` or `hgtsa-lite` only when the
+  previous measured evidence suggests N8/k-insertion-style moves may help.
 - Return compact valid JSON only; no Markdown, comments, trailing commas, or
   partial objects.
 - Feature values already encode scheduling preference direction. For example,
@@ -164,7 +183,9 @@ Previous report excerpt:
                     "content": (
                         "The following FJSP strategy profile was invalid JSON. "
                         "Repair it to exactly this schema: "
-                        '{"rationale":"short text","strategies":[{"name":"name","noise":0.0,"weights":{"early_finish":5.0}}]}. '
+                        '{"rationale":"short text","strategies":[{"name":"name","noise":0.0,"weights":{"early_finish":5.0}}],'
+                        '"local_search_profiles":[{"name":"combined_balanced","neighborhood_profile":"combined","portfolio_size":192,'
+                        '"restarts":2,"iterations":100,"neighbor_limit":220,"time_limit_sec":4.0,"rationale":"short text"}]}. '
                         "Use only the already present strategy ideas if possible.\n\n"
                         f"JSON error: {error}\n\n"
                         f"Invalid response:\n{raw[:6000]}"
@@ -205,7 +226,47 @@ def normalize_strategy_profile(profile: dict[str, Any]) -> dict[str, Any]:
     return {
         "rationale": str(profile.get("rationale", ""))[:4000],
         "strategies": strategies,
+        "local_search_profiles": normalize_local_search_profiles(profile),
     }
+
+
+def normalize_local_search_profiles(profile: dict[str, Any]) -> list[dict[str, Any]]:
+    profiles: list[dict[str, Any]] = []
+    raw_profiles = profile.get("local_search_profiles", [])
+    if not isinstance(raw_profiles, list):
+        return profiles
+    for index, item in enumerate(raw_profiles):
+        if not isinstance(item, dict):
+            continue
+        neighborhood = str(item.get("neighborhood_profile", item.get("neighborhood", ""))).strip()
+        if neighborhood not in LOCAL_SEARCH_NEIGHBORHOODS:
+            continue
+        try:
+            portfolio_size = int(item.get("portfolio_size", 192))
+            restarts = int(item.get("restarts", 2))
+            iterations = int(item.get("iterations", 100))
+            neighbor_limit = int(item.get("neighbor_limit", 220))
+            time_limit_sec = float(item.get("time_limit_sec", 4.0))
+        except (TypeError, ValueError):
+            continue
+        profiles.append(
+            {
+                "name": safe_profile_name(str(item.get("name", f"{neighborhood}_{index:02d}"))),
+                "neighborhood_profile": neighborhood,
+                "portfolio_size": max(32, min(512, portfolio_size)),
+                "restarts": max(1, min(6, restarts)),
+                "iterations": max(10, min(320, iterations)),
+                "neighbor_limit": max(20, min(520, neighbor_limit)),
+                "time_limit_sec": max(0.5, min(15.0, time_limit_sec)),
+                "rationale": str(item.get("rationale", ""))[:800],
+            }
+        )
+    return profiles[:3]
+
+
+def safe_profile_name(value: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
+    return safe[:64] or "local_search_profile"
 
 
 def render_strategy_markdown(profile: dict[str, Any], source: str) -> str:
@@ -216,6 +277,20 @@ def render_strategy_markdown(profile: dict[str, Any], source: str) -> str:
         lines.append(f"- noise: `{strategy.get('noise', 0.0)}`")
         lines.append(f"- weights: `{json.dumps(strategy.get('weights', {}), ensure_ascii=False)}`")
         lines.append("")
+    local_profiles = profile.get("local_search_profiles", [])
+    if local_profiles:
+        lines.extend(["## Local Search Profiles", ""])
+        for local_profile in local_profiles:
+            lines.append(f"### {local_profile['name']}")
+            lines.append("")
+            lines.append(f"- neighborhood: `{local_profile.get('neighborhood_profile')}`")
+            lines.append(f"- portfolio_size: `{local_profile.get('portfolio_size')}`")
+            lines.append(f"- restarts: `{local_profile.get('restarts')}`")
+            lines.append(f"- iterations: `{local_profile.get('iterations')}`")
+            lines.append(f"- neighbor_limit: `{local_profile.get('neighbor_limit')}`")
+            lines.append(f"- time_limit_sec: `{local_profile.get('time_limit_sec')}`")
+            lines.append(f"- rationale: {local_profile.get('rationale', '')}")
+            lines.append("")
     return "\n".join(lines).strip() + "\n"
 
 
@@ -257,6 +332,28 @@ def write_template_strategy_profile(output_dir: Path, round_index: int) -> tuple
                     "early_finish": 2.0,
                     "min_option": 1.0,
                 },
+            },
+        ],
+        "local_search_profiles": [
+            {
+                "name": f"template_combined_balanced_{round_index}",
+                "neighborhood_profile": "combined",
+                "portfolio_size": 192,
+                "restarts": 2,
+                "iterations": 100,
+                "neighbor_limit": 220,
+                "time_limit_sec": 4.0,
+                "rationale": "Stable default that protects the current strongest combined neighborhood.",
+            },
+            {
+                "name": f"template_hybrid_probe_{round_index}",
+                "neighborhood_profile": "hybrid",
+                "portfolio_size": 256,
+                "restarts": 3,
+                "iterations": 160,
+                "neighbor_limit": 300,
+                "time_limit_sec": 6.0,
+                "rationale": "Evaluator-gated probe for HGTSA-style N8/k-insertion moves without replacing combined.",
             },
         ],
     }

@@ -11,7 +11,7 @@ from .hypothesis import HypothesisLedger, HypothesisRecord, extract_score, impro
 from .models import TaskContract
 from .runner import RunSummary
 from .strategy_variants import build_strategy_candidates
-from .workers.deepseek_worker import generate_profile_auto
+from .workers.deepseek_worker import generate_profile_auto, normalize_local_search_profiles
 
 
 class StandardAgentState(TypedDict, total=False):
@@ -181,8 +181,13 @@ class StandardFjspAgentRunner:
             evaluator_resources["best_known_csv"] = str(self.best_known_csv)
             evaluator += " --best-known-csv {best_known_csv}"
 
-        run_profiles = self._local_search_profiles()
+        default_run_profiles = self._local_search_profiles()
         for candidate in profile_candidates:
+            run_profiles = (
+                default_run_profiles
+                if self.local_search_run_profiles
+                else self._local_search_profiles_for_candidate(Path(candidate["profile_path"]), default_run_profiles)
+            )
             for run_profile in run_profiles:
                 candidate_id = candidate["candidate_id"]
                 expanded_candidate_id = (
@@ -420,13 +425,19 @@ class StandardFjspAgentRunner:
         )
 
     def _write_agent_report(self, state: StandardAgentState) -> None:
+        local_search_profile_label = (
+            ", ".join(profile["name"] for profile in self._local_search_profiles())
+            if self.local_search_run_profiles
+            else "profile-driven local_search_profiles; fallback="
+            + ", ".join(profile["name"] for profile in self._local_search_profiles())
+        )
         lines = [
             "# Standard FJSP Agent Report",
             "",
             f"- Rounds requested: {self.max_rounds}",
             f"- Profile mode: `{self.profile_mode}`",
             f"- Solver: `{self.solver}`",
-            f"- Local-search run profiles: `{', '.join(profile['name'] for profile in self._local_search_profiles())}`",
+            f"- Local-search run profiles: `{local_search_profile_label}`",
             f"- DeepSeek model: `{self.deepseek_model}`",
             f"- Pattern: `{self.pattern}`",
             f"- Strategy candidates per round: `{self.strategy_candidates}`",
@@ -471,6 +482,20 @@ class StandardFjspAgentRunner:
             }
             for profile in self.local_search_neighborhood_profiles
         ]
+
+    def _local_search_profiles_for_candidate(
+        self,
+        profile_path: Path,
+        fallback: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        try:
+            profile = json.loads(profile_path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            return fallback
+        generated_profiles = normalize_local_search_profiles(profile)
+        if not generated_profiles:
+            return fallback
+        return generated_profiles
 
     def _candidate_sort_key(self, result: dict[str, Any]) -> tuple[float, str]:
         score = result.get("score_value")

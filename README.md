@@ -121,7 +121,7 @@ contains the evaluated instance name.
 `run-standard-agent` is the current end-to-end LangGraph loop for standard FJSP:
 
 1. read requirement / IO / prompt Markdown documents;
-2. create or request a strategy profile;
+2. create or request a strategy profile, including dispatch rules and optional local-search operator/budget profiles;
 3. split the profile into one or more strategy candidates;
 4. generate candidate task contracts;
 5. run the selected solver under the fixed evaluator;
@@ -150,8 +150,7 @@ python -m harness_agent.cli run-standard-agent `
   --local-search-restarts 2 `
   --local-search-iterations 100 `
   --local-search-neighbor-limit 220 `
-  --local-search-time-limit-sec 4 `
-  --local-search-run-profiles balanced-random,balanced-combined
+  --local-search-time-limit-sec 4
 ```
 
 For offline smoke tests, use `--profile-mode template`.  This keeps the same
@@ -173,11 +172,14 @@ machine-block moves, and `combined` uses the legacy sampler with a bounded
 critical-block supplement.  This makes neighborhood selection an evolvable rule
 choice instead of a hidden implementation constant.
 
-`--local-search-run-profiles` extends that idea to full solver settings.  Built
-in presets such as `balanced-random`, `balanced-combined`, and `deep-combined`
-bundle portfolio size, restart count, iteration budget, neighbor limit, time
-limit, and neighborhood profile into evaluator-visible candidates.  This is the
-current lightweight path toward instance-adaptive parameter and rule selection.
+DeepSeek/template profiles may now include `local_search_profiles`.  When
+`--local-search-run-profiles` is not provided, each strategy candidate uses those
+generated local-search profiles, so the agent can evolve dispatch weights,
+neighborhood family, restart count, iteration budget, neighbor limit, and time
+limit together.  Passing `--local-search-run-profiles` intentionally overrides
+model-generated settings for controlled ablations.  Built-in presets such as
+`balanced-random`, `balanced-combined`, `balanced-hgtsa`, `deep-combined`, and
+`deep-hgtsa` remain available as fixed evaluator-visible candidates.
 
 `--max-workers` controls how many independent instance/seed experiments the
 harness evaluates concurrently.  It is intentionally separate from solver
