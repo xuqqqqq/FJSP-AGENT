@@ -57,6 +57,7 @@ class StandardFjspAgentRunner:
         local_search_neighbor_limit: int,
         local_search_time_limit_sec: float,
         local_search_neighborhood_profiles: list[str],
+        local_search_run_profiles: list[dict[str, Any]] | None,
         strategy_candidates: int,
         profile_mode: str,
         deepseek_model: str,
@@ -78,6 +79,7 @@ class StandardFjspAgentRunner:
         self.local_search_neighbor_limit = local_search_neighbor_limit
         self.local_search_time_limit_sec = local_search_time_limit_sec
         self.local_search_neighborhood_profiles = local_search_neighborhood_profiles or ["random"]
+        self.local_search_run_profiles = local_search_run_profiles
         self.strategy_candidates = max(1, strategy_candidates)
         self.profile_mode = profile_mode
         self.deepseek_model = deepseek_model
@@ -177,13 +179,14 @@ class StandardFjspAgentRunner:
             evaluator_resources["best_known_csv"] = str(self.best_known_csv)
             evaluator += " --best-known-csv {best_known_csv}"
 
+        run_profiles = self._local_search_profiles()
         for candidate in profile_candidates:
-            for neighborhood_profile in self.local_search_neighborhood_profiles:
+            for run_profile in run_profiles:
                 candidate_id = candidate["candidate_id"]
                 expanded_candidate_id = (
                     candidate_id
-                    if len(self.local_search_neighborhood_profiles) == 1
-                    else f"{candidate_id}__nh_{neighborhood_profile}"
+                    if len(run_profiles) == 1
+                    else f"{candidate_id}__ls_{run_profile['name']}"
                 )
                 candidate_dir = round_dir / "candidates" / expanded_candidate_id
                 candidate_dir.mkdir(parents=True, exist_ok=True)
@@ -197,7 +200,7 @@ class StandardFjspAgentRunner:
                     paths=paths,
                     evaluator=evaluator,
                     resources=resources,
-                    neighborhood_profile=neighborhood_profile,
+                    run_profile=run_profile,
                 )
                 contract_path = candidate_dir / "contract.json"
                 contract_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -207,7 +210,7 @@ class StandardFjspAgentRunner:
                         "profile_path": candidate["profile_path"],
                         "strategy_path": candidate["strategy_path"],
                         "contract_path": str(contract_path),
-                        "neighborhood_profile": neighborhood_profile,
+                        "local_search_profile": str(run_profile["name"]),
                     }
                 )
         return {"contract_specs": contract_specs, "contract_path": contract_specs[0]["contract_path"]}
@@ -220,7 +223,7 @@ class StandardFjspAgentRunner:
         paths: list[Path],
         evaluator: str,
         resources: dict[str, str],
-        neighborhood_profile: str,
+        run_profile: dict[str, Any],
     ) -> dict[str, Any]:
         if self.solver == "portfolio":
             solver_cmd = (
@@ -233,12 +236,12 @@ class StandardFjspAgentRunner:
             solver_cmd = (
                 "python examples/standard_fjsp_local_search_solver.py "
                 "--input {instance} --output {solution} --seed {seed} "
-                f"--portfolio-size {self.portfolio_size} "
-                f"--restarts {self.local_search_restarts} "
-                f"--iterations {self.local_search_iterations} "
-                f"--neighbor-limit {self.local_search_neighbor_limit} "
-                f"--time-limit-sec {self.local_search_time_limit_sec} "
-                f"--neighborhood-profile {neighborhood_profile} "
+                f"--portfolio-size {int(run_profile['portfolio_size'])} "
+                f"--restarts {int(run_profile['restarts'])} "
+                f"--iterations {int(run_profile['iterations'])} "
+                f"--neighbor-limit {int(run_profile['neighbor_limit'])} "
+                f"--time-limit-sec {float(run_profile['time_limit_sec'])} "
+                f"--neighborhood-profile {run_profile['neighborhood_profile']} "
                 "--strategy-profile {strategy_profile}"
             )
         else:
@@ -420,7 +423,7 @@ class StandardFjspAgentRunner:
             f"- Rounds requested: {self.max_rounds}",
             f"- Profile mode: `{self.profile_mode}`",
             f"- Solver: `{self.solver}`",
-            f"- Local-search neighborhood profiles: `{', '.join(self.local_search_neighborhood_profiles)}`",
+            f"- Local-search run profiles: `{', '.join(profile['name'] for profile in self._local_search_profiles())}`",
             f"- DeepSeek model: `{self.deepseek_model}`",
             f"- Pattern: `{self.pattern}`",
             f"- Strategy candidates per round: `{self.strategy_candidates}`",
@@ -449,6 +452,22 @@ class StandardFjspAgentRunner:
             "best_candidate_id": summary.best_candidate_id,
             "best_candidate_metrics": summary.best_candidate_metrics,
         }
+
+    def _local_search_profiles(self) -> list[dict[str, Any]]:
+        if self.local_search_run_profiles:
+            return self.local_search_run_profiles
+        return [
+            {
+                "name": profile,
+                "portfolio_size": self.portfolio_size,
+                "restarts": self.local_search_restarts,
+                "iterations": self.local_search_iterations,
+                "neighbor_limit": self.local_search_neighbor_limit,
+                "time_limit_sec": self.local_search_time_limit_sec,
+                "neighborhood_profile": profile,
+            }
+            for profile in self.local_search_neighborhood_profiles
+        ]
 
     def _candidate_sort_key(self, result: dict[str, Any]) -> tuple[float, str]:
         score = result.get("score_value")

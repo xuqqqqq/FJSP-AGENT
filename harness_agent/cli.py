@@ -69,6 +69,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--local-search-neighborhood-profiles",
         help="comma-separated neighborhood profiles to cross-evaluate in each agent round",
     )
+    standard_agent.add_argument(
+        "--local-search-run-profiles",
+        help=(
+            "comma-separated local-search run presets to cross-evaluate. "
+            "Built-ins: current, balanced-random, balanced-combined, deep-combined"
+        ),
+    )
     standard_agent.add_argument("--strategy-candidates", type=int, default=1)
     standard_agent.add_argument("--profile-mode", choices=["auto", "deepseek", "template"], default="auto")
     standard_agent.add_argument("--deepseek-model", default="deepseek-v4-pro")
@@ -216,6 +223,7 @@ def run_standard_agent(args: argparse.Namespace) -> int:
         args.local_search_neighborhood_profiles,
         fallback=args.local_search_neighborhood_profile,
     )
+    run_profiles = build_local_search_run_profiles(args, neighborhood_profiles)
     runner = StandardFjspAgentRunner(
         docs=args.doc,
         instance_dir=args.instance_dir,
@@ -233,6 +241,7 @@ def run_standard_agent(args: argparse.Namespace) -> int:
         local_search_neighbor_limit=args.local_search_neighbor_limit,
         local_search_time_limit_sec=args.local_search_time_limit_sec,
         local_search_neighborhood_profiles=neighborhood_profiles,
+        local_search_run_profiles=run_profiles,
         strategy_candidates=args.strategy_candidates,
         profile_mode=args.profile_mode,
         deepseek_model=args.deepseek_model,
@@ -253,6 +262,67 @@ def parse_neighborhood_profiles(value: str | None, *, fallback: str) -> list[str
         if item not in profiles:
             profiles.append(item)
     return profiles or [fallback]
+
+
+def build_local_search_run_profiles(args: argparse.Namespace, neighborhood_profiles: list[str]) -> list[dict[str, object]] | None:
+    if not args.local_search_run_profiles:
+        return None
+
+    custom_by_neighborhood = {
+        profile: {
+            "name": f"current-{profile}",
+            "portfolio_size": args.portfolio_size,
+            "restarts": args.local_search_restarts,
+            "iterations": args.local_search_iterations,
+            "neighbor_limit": args.local_search_neighbor_limit,
+            "time_limit_sec": args.local_search_time_limit_sec,
+            "neighborhood_profile": profile,
+        }
+        for profile in neighborhood_profiles
+    }
+    presets: dict[str, dict[str, object]] = {
+        "balanced-random": {
+            "name": "balanced-random",
+            "portfolio_size": max(args.portfolio_size, 192),
+            "restarts": max(args.local_search_restarts, 2),
+            "iterations": max(args.local_search_iterations, 100),
+            "neighbor_limit": max(args.local_search_neighbor_limit, 220),
+            "time_limit_sec": max(args.local_search_time_limit_sec, 4.0),
+            "neighborhood_profile": "random",
+        },
+        "balanced-combined": {
+            "name": "balanced-combined",
+            "portfolio_size": max(args.portfolio_size, 192),
+            "restarts": max(args.local_search_restarts, 2),
+            "iterations": max(args.local_search_iterations, 100),
+            "neighbor_limit": max(args.local_search_neighbor_limit, 220),
+            "time_limit_sec": max(args.local_search_time_limit_sec, 4.0),
+            "neighborhood_profile": "combined",
+        },
+        "deep-combined": {
+            "name": "deep-combined",
+            "portfolio_size": max(args.portfolio_size, 256),
+            "restarts": max(args.local_search_restarts, 3),
+            "iterations": max(args.local_search_iterations, 180),
+            "neighbor_limit": max(args.local_search_neighbor_limit, 320),
+            "time_limit_sec": max(args.local_search_time_limit_sec, 8.0),
+            "neighborhood_profile": "combined",
+        },
+    }
+    for profile, payload in custom_by_neighborhood.items():
+        presets[f"current-{profile}"] = payload
+    if len(custom_by_neighborhood) == 1:
+        presets["current"] = next(iter(custom_by_neighborhood.values()))
+
+    requested = [item.strip() for item in args.local_search_run_profiles.split(",") if item.strip()]
+    run_profiles: list[dict[str, object]] = []
+    for name in requested:
+        if name not in presets:
+            raise ValueError(f"unknown local-search run profile: {name}")
+        profile = dict(presets[name])
+        if profile not in run_profiles:
+            run_profiles.append(profile)
+    return run_profiles
 
 
 def main(argv: list[str] | None = None) -> int:

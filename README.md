@@ -150,7 +150,7 @@ python -m harness_agent.cli run-standard-agent `
   --local-search-iterations 100 `
   --local-search-neighbor-limit 220 `
   --local-search-time-limit-sec 4 `
-  --local-search-neighborhood-profiles random,combined
+  --local-search-run-profiles balanced-random,balanced-combined
 ```
 
 For offline smoke tests, use `--profile-mode template`.  This keeps the same
@@ -171,6 +171,12 @@ critical-operation neighborhood, `critical-block` evaluates critical-path
 machine-block moves, and `combined` uses the legacy sampler with a bounded
 critical-block supplement.  This makes neighborhood selection an evolvable rule
 choice instead of a hidden implementation constant.
+
+`--local-search-run-profiles` extends that idea to full solver settings.  Built
+in presets such as `balanced-random`, `balanced-combined`, and `deep-combined`
+bundle portfolio size, restart count, iteration budget, neighbor limit, time
+limit, and neighborhood profile into evaluator-visible candidates.  This is the
+current lightweight path toward instance-adaptive parameter and rule selection.
 
 The DeepSeek client also accepts the user-facing alias `deepseek-4-pro` and
 maps it to the API-supported `deepseek-v4-pro` model name.

@@ -133,13 +133,16 @@ The standard FJSP solver exposes two separate evolution surfaces:
 
 - strategy profiles control constructive dispatch-rule weights;
 - neighborhood profiles control the local-search operator family.
+- run profiles bundle neighborhood choice with budget parameters such as
+  portfolio size, restart count, neighbor limit, and time limit.
 
 This distinction matters because changing only dispatch weights cannot emulate a
 strong tabu search.  The current local-search solver supports `random`,
 `critical-block`, and `combined` neighborhood profiles.  A standard-agent round
 can cross-evaluate multiple neighborhood profiles against each generated
-strategy profile, then select the best pair with evaluator-backed metrics
-instead of relying on a hidden solver constant.
+strategy profile, or evaluate named run profiles such as `balanced-combined` and
+`deep-combined`, then select the best pair with evaluator-backed metrics instead
+of relying on hidden solver constants.
 
 ## 9. Repository Separation
 
