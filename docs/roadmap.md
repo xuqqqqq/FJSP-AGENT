@@ -112,16 +112,27 @@ python -m harness_agent.cli run-standard-agent `
   --local-search-restarts 2 `
   --local-search-iterations 100 `
   --local-search-neighbor-limit 220 `
-  --local-search-time-limit-sec 4
+  --local-search-time-limit-sec 4 `
+  --local-search-neighborhood-profile combined
 ```
 
-Result from the local Barnes set:
+Result from the local Barnes set with the legacy random neighborhood:
 
 - instances: 21;
 - valid experiments: 21;
 - failed experiments: 0;
 - average best-known gap: 9.257%;
 - best single-instance gap: 7.438%.
+
+After exposing the neighborhood profile and using `combined`, which keeps the
+legacy broad critical-operation sampler while adding bounded critical-block
+moves, the same Barnes family smoke produced:
+
+- instances: 21;
+- valid experiments: 21;
+- failed experiments: 0;
+- average best-known gap: 8.754%;
+- best single-instance gap: 5.313%.
 
 Dauzere/DP-family smoke:
 

@@ -43,6 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     build_standard.add_argument("--local-search-iterations", type=int, default=80)
     build_standard.add_argument("--local-search-neighbor-limit", type=int, default=180)
     build_standard.add_argument("--local-search-time-limit-sec", type=float, default=4.0)
+    build_standard.add_argument("--local-search-neighborhood-profile", choices=["random", "critical-block", "combined"], default="random")
 
     subparsers.add_parser("worker-status", help="show available coding worker backends")
 
@@ -63,6 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     standard_agent.add_argument("--local-search-iterations", type=int, default=80)
     standard_agent.add_argument("--local-search-neighbor-limit", type=int, default=180)
     standard_agent.add_argument("--local-search-time-limit-sec", type=float, default=4.0)
+    standard_agent.add_argument("--local-search-neighborhood-profile", choices=["random", "critical-block", "combined"], default="random")
     standard_agent.add_argument("--strategy-candidates", type=int, default=1)
     standard_agent.add_argument("--profile-mode", choices=["auto", "deepseek", "template"], default="auto")
     standard_agent.add_argument("--deepseek-model", default="deepseek-v4-pro")
@@ -143,7 +145,8 @@ def build_standard_contract(args: argparse.Namespace) -> int:
             f"--restarts {args.local_search_restarts} "
             f"--iterations {args.local_search_iterations} "
             f"--neighbor-limit {args.local_search_neighbor_limit} "
-            f"--time-limit-sec {args.local_search_time_limit_sec}"
+            f"--time-limit-sec {args.local_search_time_limit_sec} "
+            f"--neighborhood-profile {args.local_search_neighborhood_profile}"
         )
         if args.strategy_profile:
             resources["strategy_profile"] = str(args.strategy_profile)
@@ -221,6 +224,7 @@ def run_standard_agent(args: argparse.Namespace) -> int:
         local_search_iterations=args.local_search_iterations,
         local_search_neighbor_limit=args.local_search_neighbor_limit,
         local_search_time_limit_sec=args.local_search_time_limit_sec,
+        local_search_neighborhood_profile=args.local_search_neighborhood_profile,
         strategy_candidates=args.strategy_candidates,
         profile_mode=args.profile_mode,
         deepseek_model=args.deepseek_model,

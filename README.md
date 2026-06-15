@@ -149,7 +149,8 @@ python -m harness_agent.cli run-standard-agent `
   --local-search-restarts 2 `
   --local-search-iterations 100 `
   --local-search-neighbor-limit 220 `
-  --local-search-time-limit-sec 4
+  --local-search-time-limit-sec 4 `
+  --local-search-neighborhood-profile combined
 ```
 
 For offline smoke tests, use `--profile-mode template`.  This keeps the same
@@ -161,6 +162,13 @@ critical-path local search.  `--solver portfolio` keeps the constructive
 portfolio-only mode for faster ablation tests.  When `--best-known-csv` is
 provided, every evaluated instance reports `best_known_makespan` and `gap_pct`
 if the instance file name is present in the CSV.
+
+`--local-search-neighborhood-profile` exposes the local-search operator family
+to the agent layer.  `random` preserves the broad legacy critical-operation
+neighborhood, `critical-block` evaluates critical-path machine-block moves, and
+`combined` uses the legacy sampler with a bounded critical-block supplement.
+This makes neighborhood selection an evolvable rule choice instead of a hidden
+implementation constant.
 
 The DeepSeek client also accepts the user-facing alias `deepseek-4-pro` and
 maps it to the API-supported `deepseek-v4-pro` model name.

@@ -56,6 +56,7 @@ class StandardFjspAgentRunner:
         local_search_iterations: int,
         local_search_neighbor_limit: int,
         local_search_time_limit_sec: float,
+        local_search_neighborhood_profile: str,
         strategy_candidates: int,
         profile_mode: str,
         deepseek_model: str,
@@ -76,6 +77,7 @@ class StandardFjspAgentRunner:
         self.local_search_iterations = local_search_iterations
         self.local_search_neighbor_limit = local_search_neighbor_limit
         self.local_search_time_limit_sec = local_search_time_limit_sec
+        self.local_search_neighborhood_profile = local_search_neighborhood_profile
         self.strategy_candidates = max(1, strategy_candidates)
         self.profile_mode = profile_mode
         self.deepseek_model = deepseek_model
@@ -227,6 +229,7 @@ class StandardFjspAgentRunner:
                 f"--iterations {self.local_search_iterations} "
                 f"--neighbor-limit {self.local_search_neighbor_limit} "
                 f"--time-limit-sec {self.local_search_time_limit_sec} "
+                f"--neighborhood-profile {self.local_search_neighborhood_profile} "
                 "--strategy-profile {strategy_profile}"
             )
         else:
@@ -408,6 +411,7 @@ class StandardFjspAgentRunner:
             f"- Rounds requested: {self.max_rounds}",
             f"- Profile mode: `{self.profile_mode}`",
             f"- Solver: `{self.solver}`",
+            f"- Local-search neighborhood profile: `{self.local_search_neighborhood_profile}`",
             f"- DeepSeek model: `{self.deepseek_model}`",
             f"- Pattern: `{self.pattern}`",
             f"- Strategy candidates per round: `{self.strategy_candidates}`",

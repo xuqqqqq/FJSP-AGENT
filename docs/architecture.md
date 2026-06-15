@@ -127,7 +127,21 @@ For standard FJSP benchmarks, the evaluator can also load a best-known CSV.
 When the evaluated instance name appears in the table, the metrics include both
 `best_known_makespan` and `gap_pct`.
 
-## 8. Repository Separation
+## 8. Operator-Profile Evolution
+
+The standard FJSP solver exposes two separate evolution surfaces:
+
+- strategy profiles control constructive dispatch-rule weights;
+- neighborhood profiles control the local-search operator family.
+
+This distinction matters because changing only dispatch weights cannot emulate a
+strong tabu search.  The current local-search solver supports `random`,
+`critical-block`, and `combined` neighborhood profiles.  The harness writes the
+chosen profile into the task contract so that future LLM rounds can compare
+operator families with evaluator-backed metrics instead of relying on a hidden
+solver constant.
+
+## 9. Repository Separation
 
 This project should remain independent from any concrete FJSP solver repository.
 Concrete solvers are attached through command templates or worker backends.
