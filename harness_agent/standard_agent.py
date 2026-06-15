@@ -56,7 +56,7 @@ class StandardFjspAgentRunner:
         local_search_iterations: int,
         local_search_neighbor_limit: int,
         local_search_time_limit_sec: float,
-        local_search_neighborhood_profile: str,
+        local_search_neighborhood_profiles: list[str],
         strategy_candidates: int,
         profile_mode: str,
         deepseek_model: str,
@@ -77,7 +77,7 @@ class StandardFjspAgentRunner:
         self.local_search_iterations = local_search_iterations
         self.local_search_neighbor_limit = local_search_neighbor_limit
         self.local_search_time_limit_sec = local_search_time_limit_sec
-        self.local_search_neighborhood_profile = local_search_neighborhood_profile
+        self.local_search_neighborhood_profiles = local_search_neighborhood_profiles or ["random"]
         self.strategy_candidates = max(1, strategy_candidates)
         self.profile_mode = profile_mode
         self.deepseek_model = deepseek_model
@@ -178,30 +178,38 @@ class StandardFjspAgentRunner:
             evaluator += " --best-known-csv {best_known_csv}"
 
         for candidate in profile_candidates:
-            candidate_id = candidate["candidate_id"]
-            candidate_dir = round_dir / "candidates" / candidate_id
-            candidate_dir.mkdir(parents=True, exist_ok=True)
-            resources = {
-                "strategy_profile": candidate["profile_path"],
-                **evaluator_resources,
-            }
-            payload = self._contract_payload(
-                round_index=round_index,
-                candidate_id=candidate_id,
-                paths=paths,
-                evaluator=evaluator,
-                resources=resources,
-            )
-            contract_path = candidate_dir / "contract.json"
-            contract_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            contract_specs.append(
-                {
-                    "candidate_id": candidate_id,
-                    "profile_path": candidate["profile_path"],
-                    "strategy_path": candidate["strategy_path"],
-                    "contract_path": str(contract_path),
+            for neighborhood_profile in self.local_search_neighborhood_profiles:
+                candidate_id = candidate["candidate_id"]
+                expanded_candidate_id = (
+                    candidate_id
+                    if len(self.local_search_neighborhood_profiles) == 1
+                    else f"{candidate_id}__nh_{neighborhood_profile}"
+                )
+                candidate_dir = round_dir / "candidates" / expanded_candidate_id
+                candidate_dir.mkdir(parents=True, exist_ok=True)
+                resources = {
+                    "strategy_profile": candidate["profile_path"],
+                    **evaluator_resources,
                 }
-            )
+                payload = self._contract_payload(
+                    round_index=round_index,
+                    candidate_id=expanded_candidate_id,
+                    paths=paths,
+                    evaluator=evaluator,
+                    resources=resources,
+                    neighborhood_profile=neighborhood_profile,
+                )
+                contract_path = candidate_dir / "contract.json"
+                contract_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+                contract_specs.append(
+                    {
+                        "candidate_id": expanded_candidate_id,
+                        "profile_path": candidate["profile_path"],
+                        "strategy_path": candidate["strategy_path"],
+                        "contract_path": str(contract_path),
+                        "neighborhood_profile": neighborhood_profile,
+                    }
+                )
         return {"contract_specs": contract_specs, "contract_path": contract_specs[0]["contract_path"]}
 
     def _contract_payload(
@@ -212,6 +220,7 @@ class StandardFjspAgentRunner:
         paths: list[Path],
         evaluator: str,
         resources: dict[str, str],
+        neighborhood_profile: str,
     ) -> dict[str, Any]:
         if self.solver == "portfolio":
             solver_cmd = (
@@ -229,7 +238,7 @@ class StandardFjspAgentRunner:
                 f"--iterations {self.local_search_iterations} "
                 f"--neighbor-limit {self.local_search_neighbor_limit} "
                 f"--time-limit-sec {self.local_search_time_limit_sec} "
-                f"--neighborhood-profile {self.local_search_neighborhood_profile} "
+                f"--neighborhood-profile {neighborhood_profile} "
                 "--strategy-profile {strategy_profile}"
             )
         else:
@@ -411,7 +420,7 @@ class StandardFjspAgentRunner:
             f"- Rounds requested: {self.max_rounds}",
             f"- Profile mode: `{self.profile_mode}`",
             f"- Solver: `{self.solver}`",
-            f"- Local-search neighborhood profile: `{self.local_search_neighborhood_profile}`",
+            f"- Local-search neighborhood profiles: `{', '.join(self.local_search_neighborhood_profiles)}`",
             f"- DeepSeek model: `{self.deepseek_model}`",
             f"- Pattern: `{self.pattern}`",
             f"- Strategy candidates per round: `{self.strategy_candidates}`",

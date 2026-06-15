@@ -136,10 +136,10 @@ The standard FJSP solver exposes two separate evolution surfaces:
 
 This distinction matters because changing only dispatch weights cannot emulate a
 strong tabu search.  The current local-search solver supports `random`,
-`critical-block`, and `combined` neighborhood profiles.  The harness writes the
-chosen profile into the task contract so that future LLM rounds can compare
-operator families with evaluator-backed metrics instead of relying on a hidden
-solver constant.
+`critical-block`, and `combined` neighborhood profiles.  A standard-agent round
+can cross-evaluate multiple neighborhood profiles against each generated
+strategy profile, then select the best pair with evaluator-backed metrics
+instead of relying on a hidden solver constant.
 
 ## 9. Repository Separation
 

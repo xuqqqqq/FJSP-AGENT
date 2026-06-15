@@ -65,6 +65,10 @@ def build_parser() -> argparse.ArgumentParser:
     standard_agent.add_argument("--local-search-neighbor-limit", type=int, default=180)
     standard_agent.add_argument("--local-search-time-limit-sec", type=float, default=4.0)
     standard_agent.add_argument("--local-search-neighborhood-profile", choices=["random", "critical-block", "combined"], default="random")
+    standard_agent.add_argument(
+        "--local-search-neighborhood-profiles",
+        help="comma-separated neighborhood profiles to cross-evaluate in each agent round",
+    )
     standard_agent.add_argument("--strategy-candidates", type=int, default=1)
     standard_agent.add_argument("--profile-mode", choices=["auto", "deepseek", "template"], default="auto")
     standard_agent.add_argument("--deepseek-model", default="deepseek-v4-pro")
@@ -208,6 +212,10 @@ def worker_status(args: argparse.Namespace) -> int:
 
 def run_standard_agent(args: argparse.Namespace) -> int:
     seeds = [int(item.strip()) for item in str(args.seeds).split(",") if item.strip()]
+    neighborhood_profiles = parse_neighborhood_profiles(
+        args.local_search_neighborhood_profiles,
+        fallback=args.local_search_neighborhood_profile,
+    )
     runner = StandardFjspAgentRunner(
         docs=args.doc,
         instance_dir=args.instance_dir,
@@ -224,7 +232,7 @@ def run_standard_agent(args: argparse.Namespace) -> int:
         local_search_iterations=args.local_search_iterations,
         local_search_neighbor_limit=args.local_search_neighbor_limit,
         local_search_time_limit_sec=args.local_search_time_limit_sec,
-        local_search_neighborhood_profile=args.local_search_neighborhood_profile,
+        local_search_neighborhood_profiles=neighborhood_profiles,
         strategy_candidates=args.strategy_candidates,
         profile_mode=args.profile_mode,
         deepseek_model=args.deepseek_model,
@@ -233,6 +241,18 @@ def run_standard_agent(args: argparse.Namespace) -> int:
     result = runner.run()
     print(json.dumps({"status": "ok", **result}, ensure_ascii=False, indent=2))
     return 0
+
+
+def parse_neighborhood_profiles(value: str | None, *, fallback: str) -> list[str]:
+    allowed = {"random", "critical-block", "combined"}
+    raw_items = [fallback] if not value else [item.strip() for item in value.split(",") if item.strip()]
+    profiles: list[str] = []
+    for item in raw_items:
+        if item not in allowed:
+            raise ValueError(f"unknown local-search neighborhood profile: {item}")
+        if item not in profiles:
+            profiles.append(item)
+    return profiles or [fallback]
 
 
 def main(argv: list[str] | None = None) -> int:
