@@ -40,7 +40,12 @@ class StandardFjspAgentRunner:
         max_rounds: int,
         seeds: list[int],
         timeout_seconds: int,
+        solver: str,
         portfolio_size: int,
+        local_search_restarts: int,
+        local_search_iterations: int,
+        local_search_neighbor_limit: int,
+        local_search_time_limit_sec: float,
         profile_mode: str,
         deepseek_model: str,
         project_root: Path,
@@ -54,7 +59,12 @@ class StandardFjspAgentRunner:
         self.max_rounds = max_rounds
         self.seeds = seeds
         self.timeout_seconds = timeout_seconds
+        self.solver = solver
         self.portfolio_size = portfolio_size
+        self.local_search_restarts = local_search_restarts
+        self.local_search_iterations = local_search_iterations
+        self.local_search_neighbor_limit = local_search_neighbor_limit
+        self.local_search_time_limit_sec = local_search_time_limit_sec
         self.profile_mode = profile_mode
         self.deepseek_model = deepseek_model
         self.project_root = project_root.resolve()
@@ -136,6 +146,27 @@ class StandardFjspAgentRunner:
             resources["best_known_csv"] = str(self.best_known_csv)
             evaluator += " --best-known-csv {best_known_csv}"
 
+        if self.solver == "portfolio":
+            solver_cmd = (
+                "python examples/standard_fjsp_portfolio_solver.py "
+                "--input {instance} --output {solution} --seed {seed} "
+                f"--portfolio-size {self.portfolio_size} "
+                "--strategy-profile {strategy_profile}"
+            )
+        elif self.solver == "local-search":
+            solver_cmd = (
+                "python examples/standard_fjsp_local_search_solver.py "
+                "--input {instance} --output {solution} --seed {seed} "
+                f"--portfolio-size {self.portfolio_size} "
+                f"--restarts {self.local_search_restarts} "
+                f"--iterations {self.local_search_iterations} "
+                f"--neighbor-limit {self.local_search_neighbor_limit} "
+                f"--time-limit-sec {self.local_search_time_limit_sec} "
+                "--strategy-profile {strategy_profile}"
+            )
+        else:
+            raise ValueError(f"unknown standard solver: {self.solver}")
+
         payload = {
             "task_id": f"standard_fjsp_agent_round_{round_index:02d}",
             "problem_family": "FJSP",
@@ -150,12 +181,7 @@ class StandardFjspAgentRunner:
                 }
             ],
             "commands": {
-                "solver": (
-                    "python examples/standard_fjsp_portfolio_solver.py "
-                    "--input {instance} --output {solution} --seed {seed} "
-                    f"--portfolio-size {self.portfolio_size} "
-                    "--strategy-profile {strategy_profile}"
-                ),
+                "solver": solver_cmd,
                 "evaluator": evaluator,
                 "quick_test": "python -m compileall harness_agent examples",
             },
@@ -229,6 +255,7 @@ class StandardFjspAgentRunner:
             "",
             f"- Rounds requested: {self.max_rounds}",
             f"- Profile mode: `{self.profile_mode}`",
+            f"- Solver: `{self.solver}`",
             f"- DeepSeek model: `{self.deepseek_model}`",
             f"- Pattern: `{self.pattern}`",
             f"- Last summary: `{json.dumps(self._summary_payload(state.get('summary')), ensure_ascii=False)}`",

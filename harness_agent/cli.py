@@ -36,9 +36,13 @@ def build_parser() -> argparse.ArgumentParser:
     build_standard.add_argument("--seeds", default="0,1,2")
     build_standard.add_argument("--timeout-seconds", type=int, default=60)
     build_standard.add_argument("--max-instances", type=int)
-    build_standard.add_argument("--solver", choices=["portfolio", "ect"], default="portfolio")
+    build_standard.add_argument("--solver", choices=["local-search", "portfolio", "ect"], default="portfolio")
     build_standard.add_argument("--portfolio-size", type=int, default=64)
     build_standard.add_argument("--strategy-profile", type=Path)
+    build_standard.add_argument("--local-search-restarts", type=int, default=2)
+    build_standard.add_argument("--local-search-iterations", type=int, default=80)
+    build_standard.add_argument("--local-search-neighbor-limit", type=int, default=180)
+    build_standard.add_argument("--local-search-time-limit-sec", type=float, default=4.0)
 
     subparsers.add_parser("worker-status", help="show available coding worker backends")
 
@@ -53,7 +57,12 @@ def build_parser() -> argparse.ArgumentParser:
     standard_agent.add_argument("--max-rounds", type=int, default=1)
     standard_agent.add_argument("--seeds", default="0,1,2")
     standard_agent.add_argument("--timeout-seconds", type=int, default=120)
+    standard_agent.add_argument("--solver", choices=["local-search", "portfolio"], default="local-search")
     standard_agent.add_argument("--portfolio-size", type=int, default=96)
+    standard_agent.add_argument("--local-search-restarts", type=int, default=2)
+    standard_agent.add_argument("--local-search-iterations", type=int, default=80)
+    standard_agent.add_argument("--local-search-neighbor-limit", type=int, default=180)
+    standard_agent.add_argument("--local-search-time-limit-sec", type=float, default=4.0)
     standard_agent.add_argument("--profile-mode", choices=["auto", "deepseek", "template"], default="auto")
     standard_agent.add_argument("--deepseek-model", default="deepseek-v4-pro")
     return parser
@@ -125,6 +134,19 @@ def build_standard_contract(args: argparse.Namespace) -> int:
         if args.strategy_profile:
             resources["strategy_profile"] = str(args.strategy_profile)
             solver += " --strategy-profile {strategy_profile}"
+    elif args.solver == "local-search":
+        solver = (
+            "python examples/standard_fjsp_local_search_solver.py "
+            "--input {instance} --output {solution} --seed {seed} "
+            f"--portfolio-size {args.portfolio_size} "
+            f"--restarts {args.local_search_restarts} "
+            f"--iterations {args.local_search_iterations} "
+            f"--neighbor-limit {args.local_search_neighbor_limit} "
+            f"--time-limit-sec {args.local_search_time_limit_sec}"
+        )
+        if args.strategy_profile:
+            resources["strategy_profile"] = str(args.strategy_profile)
+            solver += " --strategy-profile {strategy_profile}"
     evaluator = "python examples/standard_fjsp_evaluator.py --instance {instance} --solution {solution} --metrics {metrics}"
     if args.best_known_csv:
         resources["best_known_csv"] = str(args.best_known_csv)
@@ -192,7 +214,12 @@ def run_standard_agent(args: argparse.Namespace) -> int:
         max_rounds=args.max_rounds,
         seeds=seeds,
         timeout_seconds=args.timeout_seconds,
+        solver=args.solver,
         portfolio_size=args.portfolio_size,
+        local_search_restarts=args.local_search_restarts,
+        local_search_iterations=args.local_search_iterations,
+        local_search_neighbor_limit=args.local_search_neighbor_limit,
+        local_search_time_limit_sec=args.local_search_time_limit_sec,
         profile_mode=args.profile_mode,
         deepseek_model=args.deepseek_model,
         project_root=args.project_root,

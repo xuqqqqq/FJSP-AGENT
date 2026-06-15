@@ -123,7 +123,7 @@ contains the evaluated instance name.
 1. read requirement / IO / prompt Markdown documents;
 2. create or request a strategy profile;
 3. generate a task contract;
-4. run the portfolio solver under the fixed evaluator;
+4. run the selected solver under the fixed evaluator;
 5. write round reflections and an agent report with best-known gaps.
 
 DeepSeek is enabled by environment variable only.  Do not commit API keys:
@@ -133,6 +133,7 @@ $env:DEEPSEEK_API_KEY="<your key>"
 python -m harness_agent.cli run-standard-agent `
   --profile-mode deepseek `
   --deepseek-model deepseek-v4-pro `
+  --solver local-search `
   --doc F:\path\problem.md `
   --doc F:\path\io.md `
   --instance-dir C:\path\FJSP-Instance-main\instance `
@@ -140,11 +141,22 @@ python -m harness_agent.cli run-standard-agent `
   --best-known-csv C:\path\Best.csv `
   --output-dir outputs\standard_agent_barnes_deepseek `
   --max-rounds 3 `
-  --portfolio-size 256
+  --portfolio-size 256 `
+  --local-search-restarts 2 `
+  --local-search-iterations 100 `
+  --local-search-neighbor-limit 220 `
+  --local-search-time-limit-sec 4
 ```
 
 For offline smoke tests, use `--profile-mode template`.  This keeps the same
 agent workflow but uses a local strategy profile instead of calling DeepSeek.
+
+The default standard-FJSP solver is now `local-search`: it first builds a
+diverse dispatch-rule portfolio, then improves the chosen schedule with a
+critical-path local search.  `--solver portfolio` keeps the constructive
+portfolio-only mode for faster ablation tests.  When `--best-known-csv` is
+provided, every evaluated instance reports `best_known_makespan` and `gap_pct`
+if the instance file name is present in the CSV.
 
 ## Coding Workers
 
@@ -155,6 +167,11 @@ backends.  The repository currently ships:
 - `OpenCodeWorker`: a detection/adapter boundary for introducing OpenCode as a
   coding agent.  It becomes active once the `opencode` executable is available
   on PATH.
+
+At this stage, OpenCode is intentionally only an adapter boundary.  The trusted
+LangGraph harness owns evaluation and reporting; a coding worker may later be
+allowed to propose solver edits, but it will not be allowed to mark its own
+candidate as successful.
 
 Check local backend availability with:
 
