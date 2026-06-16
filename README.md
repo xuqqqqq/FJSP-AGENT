@@ -42,6 +42,39 @@ Run the lightweight regression suite with:
 python -m unittest discover -s tests -v
 ```
 
+## Standard FJSP End-To-End Demo
+
+`run-demo` is the compact closed-loop entry point for the current standard-FJSP
+prototype.  It starts from documents and benchmark instances, generates strategy
+candidates, builds evaluator-backed contracts, runs the fixed solver/evaluator
+path through the LangGraph harness, records hypotheses, and writes a demo
+manifest.
+
+```powershell
+python -m harness_agent.cli run-demo `
+  --doc README.md `
+  --instance-dir examples `
+  --pattern standard_fjsp_tiny.fjs `
+  --output-dir outputs\standard_fjsp_demo `
+  --max-rounds 2 `
+  --seeds 0 `
+  --solver portfolio `
+  --portfolio-size 8 `
+  --strategy-candidates 2 `
+  --profile-mode template
+```
+
+Expected outputs:
+
+- `outputs/standard_fjsp_demo/demo_manifest.json`
+- `outputs/standard_fjsp_demo/demo_report.md`
+- `outputs/standard_fjsp_demo/standard_agent/agent_report.md`
+- `outputs/standard_fjsp_demo/standard_agent/hypotheses.jsonl`
+- `outputs/standard_fjsp_demo/standard_agent/hypothesis_graph.md`
+
+The demo report is evidence that the loop executed; the evaluator output inside
+the generated harness reports remains the source of truth for solver quality.
+
 ## Document To Draft Contract
 
 AlgoForge starts from requirement, IO, and metric documents rather than from a

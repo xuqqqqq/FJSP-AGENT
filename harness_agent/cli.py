@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .context_packet import ContextPacketRequest, write_context_packet
 from .contract_builder import DraftContractRequest, write_confirmed_contract, write_draft_contract
+from .demo import StandardDemoRequest, run_standard_demo
 from .graph_runner import GraphHarnessRunner
 from .loop_runner import run_worker_loop
 from .models import TaskContract
@@ -181,6 +182,36 @@ def build_parser() -> argparse.ArgumentParser:
     standard_agent.add_argument("--strategy-candidates", type=int, default=1)
     standard_agent.add_argument("--profile-mode", choices=["auto", "deepseek", "template"], default="auto")
     standard_agent.add_argument("--deepseek-model", default="deepseek-v4-pro")
+
+    demo = subparsers.add_parser("run-demo", help="run a compact document-to-evaluator loop demo")
+    demo.add_argument("--doc", action="append", type=Path, default=[])
+    demo.add_argument("--instance-dir", required=True, type=Path)
+    demo.add_argument("--pattern", default="*.txt")
+    demo.add_argument("--best-known-csv", type=Path)
+    demo.add_argument("--output-dir", required=True, type=Path)
+    demo.add_argument("--project-root", type=Path, default=Path.cwd())
+    demo.add_argument("--max-instances", type=int)
+    demo.add_argument("--max-rounds", type=int, default=2)
+    demo.add_argument("--seeds", default="0")
+    demo.add_argument("--timeout-seconds", type=int, default=60)
+    demo.add_argument("--max-workers", type=int, default=1)
+    demo.add_argument("--solver", choices=["local-search", "portfolio"], default="portfolio")
+    demo.add_argument("--portfolio-size", type=int, default=16)
+    demo.add_argument("--local-search-restarts", type=int, default=1)
+    demo.add_argument("--local-search-initial-pool-size", type=int, default=1)
+    demo.add_argument("--local-search-iterations", type=int, default=20)
+    demo.add_argument("--local-search-neighbor-limit", type=int, default=60)
+    demo.add_argument("--local-search-time-limit-sec", type=float, default=2.0)
+    demo.add_argument(
+        "--local-search-neighborhood-profile",
+        choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid"],
+        default="random",
+    )
+    demo.add_argument("--local-search-neighborhood-profiles")
+    demo.add_argument("--local-search-run-profiles")
+    demo.add_argument("--strategy-candidates", type=int, default=2)
+    demo.add_argument("--profile-mode", choices=["auto", "deepseek", "template"], default="template")
+    demo.add_argument("--deepseek-model", default="deepseek-v4-pro")
     return parser
 
 
@@ -614,6 +645,58 @@ def run_standard_agent(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_demo(args: argparse.Namespace) -> int:
+    seeds = [int(item.strip()) for item in str(args.seeds).split(",") if item.strip()]
+    neighborhood_profiles = parse_neighborhood_profiles(
+        args.local_search_neighborhood_profiles,
+        fallback=args.local_search_neighborhood_profile,
+    )
+    run_profiles = build_local_search_run_profiles(args, neighborhood_profiles)
+    manifest = run_standard_demo(
+        StandardDemoRequest(
+            docs=args.doc,
+            instance_dir=args.instance_dir,
+            pattern=args.pattern,
+            output_dir=args.output_dir,
+            project_root=args.project_root,
+            best_known_csv=args.best_known_csv,
+            max_instances=args.max_instances,
+            max_rounds=args.max_rounds,
+            seeds=seeds or [0],
+            timeout_seconds=args.timeout_seconds,
+            max_workers=max(1, args.max_workers),
+            solver=args.solver,
+            portfolio_size=args.portfolio_size,
+            local_search_restarts=args.local_search_restarts,
+            local_search_initial_pool_size=args.local_search_initial_pool_size,
+            local_search_iterations=args.local_search_iterations,
+            local_search_neighbor_limit=args.local_search_neighbor_limit,
+            local_search_time_limit_sec=args.local_search_time_limit_sec,
+            local_search_neighborhood_profiles=neighborhood_profiles,
+            local_search_run_profiles=run_profiles,
+            strategy_candidates=args.strategy_candidates,
+            profile_mode=args.profile_mode,
+            deepseek_model=args.deepseek_model,
+        )
+    )
+    print(
+        json.dumps(
+            {
+                "status": manifest["status"],
+                "manifest": manifest["artifacts"]["manifest"],
+                "report": manifest["artifacts"]["report"],
+                "standard_agent_report": manifest["artifacts"]["standard_agent_report"],
+                "hypothesis_graph": manifest["artifacts"]["hypothesis_graph"],
+                "last_summary": manifest["agent_result"].get("last_summary"),
+                "artifact_checks": manifest["artifact_checks"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0 if manifest["status"] == "ok" else 1
+
+
 def parse_neighborhood_profiles(value: str | None, *, fallback: str) -> list[str]:
     allowed = {"random", "critical-block", "combined", "hgtsa-lite", "hybrid"}
     raw_items = [fallback] if not value else [item.strip() for item in value.split(",") if item.strip()]
@@ -736,6 +819,8 @@ def main(argv: list[str] | None = None) -> int:
         return worker_status(args)
     if args.command == "run-standard-agent":
         return run_standard_agent(args)
+    if args.command == "run-demo":
+        return run_demo(args)
     parser.error(f"unknown command: {args.command}")
     return 2
 
