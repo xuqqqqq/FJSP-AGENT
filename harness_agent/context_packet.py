@@ -43,6 +43,7 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         if request.project_intake_manifest
         else None
     )
+    contract_review_evidence = _contract_review_payload(contract.review)
     required_order = [
         "Read this context packet.",
         "State a natural-language strategy before editing code.",
@@ -50,6 +51,8 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         "Run the quick test before benchmark self-evaluation.",
         "Return structured changed files, test results, benchmark summary, and failure analysis.",
     ]
+    if contract_review_evidence.get("has_document_schema"):
+        required_order.insert(1, "Review contract_review_evidence before interpreting document snippets.")
     if project_intake:
         required_order.insert(1, "Review project_intake before proposing code changes.")
     if previous_pipeline_memory:
@@ -105,6 +108,7 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
             "success_rule": "Do not claim success unless AlgoForge Core reruns evaluator/validator and accepts the result.",
         },
         "hypothesis": request.hypothesis,
+        "contract_review_evidence": contract_review_evidence,
         "project_intake": project_intake,
         "documents": docs,
         "knowledge_cards": knowledge_cards,
@@ -241,6 +245,87 @@ def _pipeline_memory_payload(path: Path) -> dict[str, Any]:
         "artifacts": memory.get("artifacts") or {},
         "error": error,
     }
+
+
+def _contract_review_payload(review: dict[str, Any]) -> dict[str, Any]:
+    document_schema = _compact_document_schema(review.get("document_schema") or {})
+    return {
+        "status": review.get("status"),
+        "uncertain_fields": (review.get("uncertain_fields") or [])[:30],
+        "extracted_problem_features": _compact_feature_hints(review.get("extracted_problem_features") or [], limit=30),
+        "metric_hints": _compact_metric_hints(review.get("metric_hints") or [], limit=30),
+        "document_schema": document_schema,
+        "has_document_schema": bool(document_schema.get("section_count")),
+        "extraction_method": review.get("extraction_method"),
+    }
+
+
+def _compact_document_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    if not schema:
+        return {}
+    compact_documents = []
+    section_budget = 40
+    for document in schema.get("documents") or []:
+        sections = []
+        for section in document.get("sections") or []:
+            if section_budget <= 0:
+                break
+            sections.append(
+                {
+                    "heading": section.get("heading"),
+                    "level": section.get("level"),
+                    "line_start": section.get("line_start"),
+                    "line_end": section.get("line_end"),
+                    "roles": section.get("roles") or [],
+                    "feature_hints": _compact_feature_hints(section.get("feature_hints") or [], limit=8),
+                    "metric_hints": _compact_metric_hints(section.get("metric_hints") or [], limit=8),
+                    "evidence_excerpt": str(section.get("evidence_excerpt") or "")[:180],
+                }
+            )
+            section_budget -= 1
+        compact_documents.append(
+            {
+                "path": document.get("path"),
+                "section_count": document.get("section_count", len(sections)),
+                "sections": sections,
+            }
+        )
+        if section_budget <= 0:
+            break
+    return {
+        "schema_version": schema.get("schema_version"),
+        "document_count": schema.get("document_count", len(compact_documents)),
+        "section_count": schema.get("section_count", sum(len(item["sections"]) for item in compact_documents)),
+        "role_counts": schema.get("role_counts") or {},
+        "documents": compact_documents,
+        "truncated": section_budget <= 0,
+    }
+
+
+def _compact_feature_hints(hints: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    compact = []
+    for item in hints[:limit]:
+        compact.append(
+            {
+                "name": item.get("name"),
+                "category": item.get("category"),
+                "matched_pattern": item.get("matched_pattern"),
+            }
+        )
+    return compact
+
+
+def _compact_metric_hints(hints: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    compact = []
+    for item in hints[:limit]:
+        compact.append(
+            {
+                "metric": item.get("metric"),
+                "direction": item.get("direction"),
+                "matched_pattern": item.get("matched_pattern"),
+            }
+        )
+    return compact
 
 
 def _compact_worker_signal(worker_signal: dict[str, Any]) -> dict[str, Any]:

@@ -378,10 +378,14 @@ python -m harness_agent.cli draft-contract `
 
 This command records `review.status = draft_requires_human_confirmation` and
 stores source references, uncertain fields, extracted problem-feature hints,
-metric hints, command-template placeholder checks, and a confirmation checklist
-in the contract JSON.  These fields are evidence for review; they are not a
-formal evaluator contract until confirmed.  After review, create a confirmed
-copy before treating the evaluator as formal:
+metric hints, command-template placeholder checks, a Markdown section schema,
+and a confirmation checklist in the contract JSON.  The section schema records
+headings, line ranges, inferred roles such as objectives/constraints/input-output,
+and per-section feature or metric hints so later workers can ground proposals in
+specific document regions instead of only reading a flat text snippet.  These
+fields are evidence for review; they are not a formal evaluator contract until
+confirmed.  After review, create a confirmed copy before treating the evaluator
+as formal:
 
 ```powershell
 python -m harness_agent.cli confirm-contract `
@@ -412,9 +416,13 @@ python -m harness_agent.cli build-context-packet `
 ```
 
 The packet records the contract hash, review status, evaluator protocol, edit
-policy, project-intake summary, bounded document snippets, knowledge cards,
-previous report, and worker instructions.  A worker may self-test against it,
-but AlgoForge Core still owns the final evaluator run and success verdict.
+policy, compact contract-review evidence, project-intake summary, bounded
+document snippets, knowledge cards, previous report, and worker instructions.
+When the contract was generated from Markdown, the review evidence includes the
+section schema produced by `draft-contract`, so a worker can cite objective,
+constraint, or IO sections without relying on an unstructured blob.  A worker
+may self-test against it, but AlgoForge Core still owns the final evaluator run
+and success verdict.
 
 ## Coding Worker Run
 

@@ -17,9 +17,22 @@ class ContractBuilderTests(unittest.TestCase):
                 """
 # 柔性车间调度需求
 
+## 目标与评价指标
+
 本问题属于 FJSP 场景，每道工序有候选机器。目标包括提升产量，并降低 setup 切换次数。
+
+## 约束清单
+
 约束包括释放时间、最大生产间隔、最小生产间隔、设备维修窗口、跨厂转运时间、
 工件优先级、可重入工序、替代加工路径以及 p-batch 组批加工。
+
+## 输入输出结构
+
+输入文件包含任务、工序、候选机器和维修窗口；输出文件包含每道工序的机器与时间。
+
+## 算法提示
+
+可以使用启发式规则、局部搜索或者强化学习 PPO 思想生成候选解。
                 """.strip(),
                 encoding="utf-8",
             )
@@ -62,7 +75,22 @@ class ContractBuilderTests(unittest.TestCase):
             self.assertIn("commands.solver", review["uncertain_fields"])
             self.assertIn("commands.evaluator", review["uncertain_fields"])
             self.assertTrue(review["confirmation_checklist"])
-            self.assertIn("rule_based_source_grounding_v1", review["extraction_method"])
+            self.assertIn("rule_based_source_grounding_v2", review["extraction_method"])
+
+            schema = review["document_schema"]
+            self.assertEqual(1, schema["document_count"])
+            self.assertGreaterEqual(schema["section_count"], 4)
+            self.assertGreaterEqual(schema["role_counts"]["objectives"], 1)
+            self.assertGreaterEqual(schema["role_counts"]["constraints"], 1)
+            self.assertGreaterEqual(schema["role_counts"]["input_output"], 1)
+            self.assertGreaterEqual(schema["role_counts"]["algorithm_guidance"], 1)
+            sections = schema["documents"][0]["sections"]
+            objective_section = next(item for item in sections if item["heading"] == "目标与评价指标")
+            constraint_section = next(item for item in sections if item["heading"] == "约束清单")
+            self.assertIn("objectives", objective_section["roles"])
+            self.assertTrue(any(item["metric"] == "completed_weight" for item in objective_section["metric_hints"]))
+            self.assertIn("constraints", constraint_section["roles"])
+            self.assertTrue(any(item["name"] == "maintenance_windows" for item in constraint_section["feature_hints"]))
 
 
 if __name__ == "__main__":

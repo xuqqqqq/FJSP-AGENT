@@ -31,6 +31,15 @@ FEATURE_CANDIDATES = [
     ("decomposition_required", "challenge", ["大规模", "分解", "decomposition", "large-scale"]),
 ]
 
+SECTION_ROLE_CANDIDATES = [
+    ("objectives", ["目标", "objective", "指标", "metric", "评价"]),
+    ("constraints", ["约束", "constraint", "限制", "合法", "可行"]),
+    ("input_output", ["输入", "输出", "IO", "字段", "schema", "format"]),
+    ("algorithm_guidance", ["算法", "强化学习", "heuristic", "prompt", "RL", "PPO", "DQN"]),
+    ("instance_data", ["算例", "数据", "instance", "benchmark", "测试集"]),
+    ("acceptance", ["验收", "交付", "acceptance", "标准", "对比"]),
+]
+
 REQUIRED_SOLVER_PLACEHOLDERS = ["{instance}", "{solution}"]
 REQUIRED_EVALUATOR_PLACEHOLDERS = ["{instance}", "{solution}", "{metrics}"]
 
@@ -109,6 +118,7 @@ def build_draft_contract(request: DraftContractRequest) -> dict[str, Any]:
     source_references.extend(_document_references(sources))
     feature_hints = _extract_problem_features(joined_text)
     metric_hints = _extract_metric_hints(joined_text)
+    document_schema = _extract_document_schema(sources)
     command_checks = _command_template_checks(solver_cmd=solver_cmd, evaluator_cmd=evaluator_cmd)
     uncertain_fields.extend(check["field"] for check in command_checks if check["status"] == "missing_placeholder")
 
@@ -152,6 +162,7 @@ def build_draft_contract(request: DraftContractRequest) -> dict[str, Any]:
             "source_documents": [str(path) for path in request.docs],
             "source_references": source_references,
             "document_statistics": _document_statistics(sources),
+            "document_schema": document_schema,
             "extracted_problem_features": feature_hints,
             "metric_hints": metric_hints,
             "command_template_checks": command_checks,
@@ -161,8 +172,8 @@ def build_draft_contract(request: DraftContractRequest) -> dict[str, Any]:
                 metric_hints=metric_hints,
             ),
             "extraction_method": (
-                "rule_based_source_grounding_v1: keyword evidence is used only "
-                "to draft fields for review, not to create a formal evaluator contract."
+                "rule_based_source_grounding_v2: keyword and markdown-section evidence "
+                "is used only to draft fields for review, not to create a formal evaluator contract."
             ),
         },
     }
@@ -292,6 +303,142 @@ def _extract_problem_features(text: str) -> list[dict[str, Any]]:
                 )
                 break
     return features
+
+
+def _extract_document_schema(sources: list[DraftSource]) -> dict[str, Any]:
+    """Parse lightweight Markdown structure for review and worker grounding."""
+
+    documents = []
+    total_sections = 0
+    role_counts: dict[str, int] = {}
+    for source in sources:
+        sections = _markdown_sections(source)
+        total_sections += len(sections)
+        for section in sections:
+            for role in section["roles"]:
+                role_counts[role] = role_counts.get(role, 0) + 1
+        documents.append(
+            {
+                "path": str(source.path),
+                "section_count": len(sections),
+                "sections": sections,
+            }
+        )
+    return {
+        "schema_version": 1,
+        "document_count": len(sources),
+        "section_count": total_sections,
+        "role_counts": role_counts,
+        "documents": documents,
+    }
+
+
+def _markdown_sections(source: DraftSource) -> list[dict[str, Any]]:
+    lines = source.text.splitlines()
+    headings: list[tuple[int, int, str]] = []
+    for line_number, line in enumerate(lines, start=1):
+        match = re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
+        if match:
+            headings.append((line_number, len(match.group(1)), match.group(2).strip()))
+
+    if not lines:
+        return [
+            _section_payload(
+                source=source,
+                heading="document",
+                level=0,
+                line_start=1,
+                line_end=0,
+                text="",
+            )
+        ]
+    if not headings:
+        return [
+            _section_payload(
+                source=source,
+                heading="document",
+                level=0,
+                line_start=1,
+                line_end=len(lines),
+                text="\n".join(lines),
+            )
+        ]
+
+    sections: list[dict[str, Any]] = []
+    if headings[0][0] > 1:
+        preamble_end = headings[0][0] - 1
+        sections.append(
+            _section_payload(
+                source=source,
+                heading="preamble",
+                level=0,
+                line_start=1,
+                line_end=preamble_end,
+                text="\n".join(lines[:preamble_end]),
+            )
+        )
+
+    for index, (line_start, level, heading) in enumerate(headings):
+        next_start = headings[index + 1][0] if index + 1 < len(headings) else len(lines) + 1
+        line_end = max(line_start, next_start - 1)
+        section_text = "\n".join(lines[line_start - 1 : line_end])
+        sections.append(
+            _section_payload(
+                source=source,
+                heading=heading,
+                level=level,
+                line_start=line_start,
+                line_end=line_end,
+                text=section_text,
+            )
+        )
+    return sections
+
+
+def _section_payload(
+    *,
+    source: DraftSource,
+    heading: str,
+    level: int,
+    line_start: int,
+    line_end: int,
+    text: str,
+) -> dict[str, Any]:
+    return {
+        "heading": heading,
+        "level": level,
+        "line_start": line_start,
+        "line_end": line_end,
+        "chars": len(text),
+        "roles": _section_roles(heading, text),
+        "feature_hints": [
+            {
+                "name": item["name"],
+                "category": item["category"],
+                "matched_pattern": item["matched_pattern"],
+            }
+            for item in _extract_problem_features(text)
+        ],
+        "metric_hints": [
+            {
+                "metric": item["metric"],
+                "direction": item["direction"],
+                "matched_pattern": item["matched_pattern"],
+            }
+            for item in _extract_metric_hints(text)
+        ],
+        "evidence_excerpt": re.sub(r"\s+", " ", text).strip()[:240],
+        "source": str(source.path),
+    }
+
+
+def _section_roles(heading: str, text: str) -> list[str]:
+    combined = f"{heading}\n{text}"
+    roles = []
+    for role, patterns in SECTION_ROLE_CANDIDATES:
+        if any(re.search(pattern, combined, flags=re.IGNORECASE) for pattern in patterns):
+            roles.append(role)
+    return roles or ["general"]
 
 
 def _command_template_checks(*, solver_cmd: str, evaluator_cmd: str) -> list[dict[str, Any]]:

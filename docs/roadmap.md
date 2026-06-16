@@ -26,7 +26,8 @@ The repository has reached the first harness milestone:
   fields, and required human confirmation before a generated evaluator or
   validator can become formal.
 - source-grounded draft-contract extraction of problem features, metric hints,
-  command-template checks, document statistics, and confirmation checklist.
+  command-template checks, document statistics, Markdown section schema, and
+  confirmation checklist.
 - formal run gate that refuses unconfirmed generated contracts unless the user
   explicitly requests exploratory `--allow-draft` execution.
 - contract health-check CLI that validates referenced inputs, runs the quick
@@ -36,7 +37,8 @@ The repository has reached the first harness milestone:
   reviewable optimization intent card with objectives, constraints, risks,
   blockers, warnings, and readiness status.
 - context-packet CLI that packages confirmed evaluator semantics, bounded docs,
-  knowledge cards, previous reports, and hypotheses for coding workers.
+  compact contract-review evidence, knowledge cards, previous reports, and
+  hypotheses for coding workers.
 - `run-worker` CLI that executes a coding backend against a context packet and
   stores proposal artifacts, with optional guarded apply inside a specified
   worktree.
@@ -245,8 +247,8 @@ Two-round smoke:
 
 | Requirement | Current status | Next action |
 | --- | --- | --- |
-| Read requirement and IO documents | Draft-contract ingestion with source-grounded feature/metric hints, uncertainty reporting, project intake, and intent-alignment cards implemented | Add richer section-level parsing and optional LLM-assisted extraction. |
-| Derive Task Contract from documents | Draft JSON, evidence fields, command checks, and confirmation gate implemented | Add stronger document schema extraction and web review workflow. |
+| Read requirement and IO documents | Draft-contract ingestion with source-grounded feature/metric hints, Markdown section schema, uncertainty reporting, project intake, and intent-alignment cards implemented | Add optional LLM-assisted extraction and long-document compression. |
+| Derive Task Contract from documents | Draft JSON, evidence fields, command checks, section roles, and confirmation gate implemented | Add stronger schema-to-review UI and optional web review workflow. |
 | Support multiple metrics from documents | Contract model, evaluator schema checks, validation summary, and Pareto frontier reporting implemented | Add richer evaluator schema declarations and visual Pareto exports. |
 | Generate solver code with an LLM worker | DeepSeek proposal-first worker with project-intake proposal audit, non-interactive OpenCodeWorker adapter, project-intake-aware context packets, isolated worker-cycle evaluator rerun, multi-cycle promotion/rollback, and per-round context refresh implemented | Add stronger rule/operator mutation prompts. |
 | Admission and intent gates | Project-intake, health-check, and intent-alignment readiness implemented; standard pipeline skips optimization stages when admission fails | Add UI confirmation flow around the generated readiness card. |
@@ -266,9 +268,10 @@ The next concrete slice should be:
      hints;
    - current: outputs review-required draft `task_contract.json`;
    - current: records source references, uncertain fields, problem-feature
-     hints, metric hints, command-template checks, and confirmation checklist;
-   - next: add section-level document schema extraction and metric-specific
-     validator prompts.
+     hints, metric hints, command-template checks, Markdown section schema, and
+     confirmation checklist;
+   - next: add optional LLM-assisted extraction and metric-specific validator
+     prompts.
 
 2. `context_packet.py`
    - current: packages task contract hash, review status, evaluator protocol,

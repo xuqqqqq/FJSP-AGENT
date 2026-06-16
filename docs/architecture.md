@@ -258,6 +258,22 @@ The harness should never hard-code a single metric such as makespan, production
 weight, or setup count.  Metrics come from the task contract, which should be
 derived from the provided requirement and IO documents.
 
+Draft contract generation is source-grounded rather than authoritative.  The
+builder reads Markdown documents, records source references, extracts obvious
+feature and metric hints, and now emits a section-level document schema with
+headings, line ranges, inferred roles, and per-section hints.  That schema gives
+later worker prompts a structured map of where objectives, constraints,
+input-output definitions, algorithm guidance, and acceptance language appeared.
+It does not bypass human confirmation: generated contracts remain drafts until
+the evaluator semantics and objective metrics are reviewed.
+
+Context packets include a compact form of that contract-review evidence.  The
+worker sees review status, uncertain fields, extracted feature/metric hints, and
+the bounded section schema alongside document snippets.  This keeps the
+document-driven loop grounded in the source Markdown while avoiding long prompt
+payloads and preserving the rule that generated evaluator semantics require
+review before formal optimization.
+
 The evaluator output is expected to contain:
 
 ```json

@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from harness_agent.contract_builder import DraftContractRequest, build_draft_contract
 from harness_agent.context_packet import ContextPacketRequest, write_context_packet
 from harness_agent.project_intake import ProjectIntakeRequest, write_project_intake
 
@@ -92,6 +93,62 @@ class ContextPacketTests(unittest.TestCase):
             self.assertEqual(16.67, memory["benchmark_signal"]["avg_reported_gap_pct"])
             self.assertEqual("rolled_back", memory["worker_signal"]["rounds"][0]["decision"])
             self.assertIn("Review previous_pipeline_memory", " ".join(packet["worker_instruction"]["required_order"]))
+
+    def test_context_packet_embeds_compact_contract_review_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            doc = tmp_path / "requirements.md"
+            instance = tmp_path / "case.json"
+            contract_path = tmp_path / "draft_contract.json"
+            doc.write_text(
+                """
+# FJSP 需求
+
+## 目标指标
+
+目标包括产量和 setup 切换次数。
+
+## 输入输出结构
+
+输入包含工序、候选机器和维修窗口。
+                """.strip(),
+                encoding="utf-8",
+            )
+            instance.write_text("{}", encoding="utf-8")
+            contract_payload = build_draft_contract(
+                DraftContractRequest(
+                    task_id="draft_context_case",
+                    docs=[doc],
+                    instances=[instance],
+                    output=contract_path,
+                )
+            )
+            contract_path.write_text(json.dumps(contract_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+            output = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=contract_path,
+                    output_path=tmp_path / "context_packet.json",
+                    hypothesis="Use document schema grounding.",
+                )
+            )
+            packet = json.loads(output.read_text(encoding="utf-8"))
+
+            evidence = packet["contract_review_evidence"]
+            self.assertTrue(evidence["has_document_schema"])
+            self.assertEqual("draft_requires_human_confirmation", evidence["status"])
+            self.assertGreaterEqual(evidence["document_schema"]["section_count"], 2)
+            role_counts = evidence["document_schema"]["role_counts"]
+            self.assertGreaterEqual(role_counts["objectives"], 1)
+            self.assertGreaterEqual(role_counts["input_output"], 1)
+            headings = [
+                section["heading"]
+                for document in evidence["document_schema"]["documents"]
+                for section in document["sections"]
+            ]
+            self.assertIn("目标指标", headings)
+            self.assertTrue(any(item["metric"] == "completed_weight" for item in evidence["metric_hints"]))
+            self.assertIn("Review contract_review_evidence", " ".join(packet["worker_instruction"]["required_order"]))
 
 
 if __name__ == "__main__":
