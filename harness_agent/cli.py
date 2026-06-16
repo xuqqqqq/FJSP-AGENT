@@ -356,6 +356,8 @@ def run_worker_cycle_cmd(args: argparse.Namespace) -> int:
         "best_metrics": result.summary.best_metrics,
         "cycle_report": str((args.output_dir / "cycle_report.md").resolve()),
         "cycle_result": str((args.output_dir / "cycle_result.json").resolve()),
+        "worktree_delta": str(result.delta_path),
+        "worktree_patch": str(result.patch_path),
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0

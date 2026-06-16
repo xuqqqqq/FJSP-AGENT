@@ -99,7 +99,10 @@ copy the allowed project surface into an isolated candidate worktree, run the
 worker, optionally apply accepted edits, and then invoke the deterministic
 LangGraph harness in the candidate tree.  The cycle report records both worker
 status and Core evaluator metrics, keeping the proposal layer separate from the
-final verdict.
+final verdict.  It also records a harness-generated worktree delta and unified
+patch.  These artifacts are computed from before/after file snapshots, so they
+remain available even when the worker summary is incomplete or overly
+optimistic.
 
 `run-worker-loop` repeats that cycle with an incumbent policy.  It evaluates a
 baseline first, then promotes a candidate worktree only when the Core

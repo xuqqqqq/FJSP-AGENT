@@ -27,6 +27,8 @@ class LoopRoundRecord:
     candidate_summary: dict[str, Any]
     cycle_dir: str
     context_packet_path: str
+    delta_path: str
+    patch_path: str
     promoted_worktree: str | None
 
 
@@ -114,6 +116,8 @@ def run_worker_loop(
                 candidate_summary=summary_payload(cycle.summary),
                 cycle_dir=str(cycle_dir),
                 context_packet_path=str(round_context_packet_path),
+                delta_path=str(cycle.delta_path),
+                patch_path=str(cycle.patch_path),
                 promoted_worktree=str(cycle.worktree_path) if promoted else None,
             )
         )
@@ -220,6 +224,8 @@ def round_record_payload(item: LoopRoundRecord) -> dict[str, Any]:
         "candidate_summary": item.candidate_summary,
         "cycle_dir": item.cycle_dir,
         "context_packet_path": item.context_packet_path,
+        "delta_path": item.delta_path,
+        "patch_path": item.patch_path,
         "promoted_worktree": item.promoted_worktree,
     }
 
@@ -272,8 +278,8 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult) -> None:
         "",
         "## Rounds",
         "",
-        "| Round | Decision | Worker | Duplicate Proposal | Candidate Key | Incumbent Key After | Context Packet | Changed Files |",
-        "| ---: | --- | --- | --- | --- | --- | --- | --- |",
+        "| Round | Decision | Worker | Duplicate Proposal | Candidate Key | Incumbent Key After | Context Packet | Worktree Delta | Changed Files |",
+        "| ---: | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for item in result.rounds:
         lines.append(
@@ -282,6 +288,7 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult) -> None:
             f"`{json.dumps(item.candidate_key, ensure_ascii=False)}` | "
             f"`{json.dumps(item.incumbent_key_after, ensure_ascii=False)}` | "
             f"`{item.context_packet_path}` | "
+            f"`{item.delta_path}` | "
             f"`{json.dumps(item.worker_changed_files, ensure_ascii=False)}` |"
         )
     lines.extend(

@@ -36,6 +36,8 @@ The repository has reached the first harness milestone:
 - per-round context refresh in `run-worker-loop`, so each coding-worker proposal
   can see baseline metrics, current incumbent status, and previous
   evaluator-backed wins/losses.
+- harness-generated worktree delta and unified patch artifacts for each
+  worker-cycle candidate.
 
 This is not yet the full MD requirement.  It is the engineering base that makes
 the later self-evolution loop measurable and auditable.
@@ -200,7 +202,7 @@ Two-round smoke:
 | Rule/operator evolution | Local-search operator and profile-level mutation exist; LLM operator edits not enabled | Add guarded code-level mutation operators. |
 | Standard FJSP benchmark testing | Smoke path and best-known gap reporting implemented | Add larger benchmark batches and regression baselines. |
 | Industrial FJSP variant testing | Not implemented here | Add adapter to external industrial evaluator. |
-| Full auditability | Ledger exists | Add Git worktree, diff capture, context packet hash. |
+| Full auditability | Ledger, context packet hash, candidate worktree copy, worktree delta JSON, and text patch artifacts implemented | Add optional Git worktree/branch archival for long-running external experiments. |
 
 ## Next Build Slice
 

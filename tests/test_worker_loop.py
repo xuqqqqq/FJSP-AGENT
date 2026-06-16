@@ -70,6 +70,9 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual("rolled_back", round_001_context["loop_feedback"]["previous_rounds"][0]["decision"])
             self.assertTrue(round_001_context["worker_instruction"]["round_feedback_rule"])
 
+            round_001_delta = json.loads((tmp_path / "loop" / "round_001" / "worker_worktree_delta.json").read_text(encoding="utf-8"))
+            self.assertEqual(0, round_001_delta["counts"]["total_changed"])
+
     def test_loop_promotes_only_strict_objective_improvement(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -93,6 +96,13 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual((992.0, -0.01), result.final_key)
             self.assertEqual(["promoted", "rolled_back"], [item.decision for item in result.rounds])
             self.assertEqual([False, False], [item.duplicate_proposal for item in result.rounds])
+
+            round_000_delta = json.loads((tmp_path / "loop" / "round_000" / "worker_worktree_delta.json").read_text(encoding="utf-8"))
+            self.assertEqual(1, round_000_delta["counts"]["modified"])
+            self.assertEqual("examples/dummy_solver.py", round_000_delta["modified"][0]["path"])
+            round_000_patch = (tmp_path / "loop" / "round_000" / "worker_changes.patch").read_text(encoding="utf-8")
+            self.assertIn("examples/dummy_solver.py", round_000_patch)
+            self.assertIn("8 + args.seed", round_000_patch)
 
 
 def _write_test_context(tmp_path: Path) -> Path:
