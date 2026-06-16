@@ -14,6 +14,7 @@ from .loop_runner import run_worker_loop
 from .models import TaskContract
 from .runner import HarnessRunner
 from .standard_agent import StandardFjspAgentRunner
+from .standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop
 from .worker import ExperimentSpec, NullWorker, WorkerResult
 from .worker_cycle import run_worker_cycle
 
@@ -219,6 +220,40 @@ def build_parser() -> argparse.ArgumentParser:
     suite.add_argument("--output-dir", required=True, type=Path)
     suite.add_argument("--project-root", type=Path, default=Path.cwd())
     suite.add_argument("--max-suites", type=int)
+
+    standard_worker = subparsers.add_parser("run-standard-worker-loop", help="run a standard FJSP coding-worker evolution loop")
+    standard_worker.add_argument("--doc", action="append", type=Path, default=[])
+    standard_worker.add_argument("--knowledge-card", action="append", type=Path, default=[])
+    standard_worker.add_argument("--instance-dir", required=True, type=Path)
+    standard_worker.add_argument("--pattern", default="*.txt")
+    standard_worker.add_argument("--best-known-csv", type=Path)
+    standard_worker.add_argument("--output-dir", required=True, type=Path)
+    standard_worker.add_argument("--project-root", type=Path, default=Path.cwd())
+    standard_worker.add_argument("--max-instances", type=int)
+    standard_worker.add_argument("--seeds", default="0")
+    standard_worker.add_argument("--timeout-seconds", type=int, default=60)
+    standard_worker.add_argument("--max-workers", type=int, default=1)
+    standard_worker.add_argument("--solver", choices=["local-search", "portfolio"], default="portfolio")
+    standard_worker.add_argument("--portfolio-size", type=int, default=16)
+    standard_worker.add_argument("--local-search-restarts", type=int, default=1)
+    standard_worker.add_argument("--local-search-initial-pool-size", type=int, default=1)
+    standard_worker.add_argument("--local-search-iterations", type=int, default=40)
+    standard_worker.add_argument("--local-search-neighbor-limit", type=int, default=100)
+    standard_worker.add_argument("--local-search-time-limit-sec", type=float, default=2.0)
+    standard_worker.add_argument(
+        "--local-search-neighborhood-profile",
+        choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid"],
+        default="combined",
+    )
+    standard_worker.add_argument("--worker", choices=["null", "deepseek", "opencode"], default="null")
+    standard_worker.add_argument("--iterations", type=int, default=1)
+    standard_worker.add_argument("--max-steps", type=int, default=4)
+    standard_worker.add_argument("--max-runtime-seconds", type=int, default=120)
+    standard_worker.add_argument("--apply-worker", action="store_true")
+    standard_worker.add_argument("--experiment-id", default="standard_worker_loop")
+    standard_worker.add_argument("--hypothesis", default="")
+    standard_worker.add_argument("--deepseek-model", default="deepseek-v4-pro")
+    standard_worker.add_argument("--opencode-model")
     return parser
 
 
@@ -729,6 +764,60 @@ def run_benchmark_suite_cmd(args: argparse.Namespace) -> int:
     return 0 if manifest["status"] == "ok" else 1
 
 
+def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
+    seeds = [int(item.strip()) for item in str(args.seeds).split(",") if item.strip()]
+    worker = make_worker(args.worker, deepseek_model=args.deepseek_model, opencode_model=args.opencode_model)
+    manifest = run_standard_worker_loop(
+        StandardWorkerLoopRequest(
+            docs=args.doc,
+            knowledge_cards=args.knowledge_card,
+            instance_dir=args.instance_dir,
+            pattern=args.pattern,
+            output_dir=args.output_dir,
+            project_root=args.project_root,
+            worker=worker,
+            best_known_csv=args.best_known_csv,
+            max_instances=args.max_instances,
+            seeds=seeds or [0],
+            timeout_seconds=args.timeout_seconds,
+            max_workers=max(1, args.max_workers),
+            solver=args.solver,
+            portfolio_size=args.portfolio_size,
+            local_search_restarts=args.local_search_restarts,
+            local_search_initial_pool_size=args.local_search_initial_pool_size,
+            local_search_iterations=args.local_search_iterations,
+            local_search_neighbor_limit=args.local_search_neighbor_limit,
+            local_search_time_limit_sec=args.local_search_time_limit_sec,
+            local_search_neighborhood_profile=args.local_search_neighborhood_profile,
+            iterations=args.iterations,
+            max_steps=args.max_steps,
+            max_runtime_seconds=args.max_runtime_seconds,
+            apply_worker_changes=bool(args.apply_worker),
+            experiment_id=args.experiment_id,
+            hypothesis=args.hypothesis
+            or "Improve the standard FJSP solver under the fixed evaluator. State the rule-level idea before editing code.",
+        )
+    )
+    print(
+        json.dumps(
+            {
+                "status": manifest["status"],
+                "baseline_key": manifest["baseline_key"],
+                "final_key": manifest["final_key"],
+                "improved": manifest["improved"],
+                "round_count": manifest["round_count"],
+                "promoted_rounds": manifest["promoted_rounds"],
+                "manifest": manifest["artifacts"]["manifest"],
+                "report": manifest["artifacts"]["report"],
+                "loop_report": manifest["artifacts"]["loop_report"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0 if manifest["status"] == "ok" else 1
+
+
 def parse_neighborhood_profiles(value: str | None, *, fallback: str) -> list[str]:
     allowed = {"random", "critical-block", "combined", "hgtsa-lite", "hybrid"}
     raw_items = [fallback] if not value else [item.strip() for item in value.split(",") if item.strip()]
@@ -855,6 +944,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_demo(args)
     if args.command == "run-benchmark-suite":
         return run_benchmark_suite_cmd(args)
+    if args.command == "run-standard-worker-loop":
+        return run_standard_worker_loop_cmd(args)
     parser.error(f"unknown command: {args.command}")
     return 2
 

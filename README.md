@@ -141,6 +141,43 @@ best-known gap availability, and per-suite makespan/gap metrics.  It is the
 recommended smoke path before adding larger Barnes, Brandimarte, or
 Dauzère-Pérès benchmark batches.
 
+## Standard FJSP Coding-Worker Loop
+
+`run-demo` and `run-benchmark-suite` evolve strategy profiles and parameters.
+`run-standard-worker-loop` exercises the code-evolution lane: it builds a
+standard-FJSP contract, packages a context packet for a coding worker, evaluates
+a baseline worktree, then runs candidate worker cycles with evaluator-backed
+promotion or rollback.
+
+Safe smoke run with the no-op worker:
+
+```powershell
+python -m harness_agent.cli run-standard-worker-loop `
+  --worker null `
+  --doc README.md `
+  --instance-dir examples `
+  --pattern standard_fjsp_tiny.fjs `
+  --best-known-csv configs\standard_fjsp_tiny_best.csv `
+  --output-dir outputs\standard_worker_loop_demo `
+  --iterations 1 `
+  --seeds 0 `
+  --solver portfolio `
+  --portfolio-size 4
+```
+
+Expected outputs:
+
+- `outputs/standard_worker_loop_demo/standard_worker_contract.json`
+- `outputs/standard_worker_loop_demo/context_packet.json`
+- `outputs/standard_worker_loop_demo/standard_worker_loop_manifest.json`
+- `outputs/standard_worker_loop_demo/standard_worker_loop_report.md`
+- `outputs/standard_worker_loop_demo/worker_loop/loop_report.md`
+
+When `--worker deepseek` or `--worker opencode` is used, worker proposals may
+modify files inside isolated candidate worktrees.  A round is promoted only if
+the fixed evaluator reports a strictly better objective key than the incumbent;
+otherwise the candidate is rolled back.
+
 ## Document To Draft Contract
 
 AlgoForge starts from requirement, IO, and metric documents rather than from a
