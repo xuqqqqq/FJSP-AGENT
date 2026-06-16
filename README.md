@@ -64,6 +64,25 @@ python -m harness_agent.cli run-demo `
   --profile-mode template
 ```
 
+For benchmark batches with known upper bounds, pass a CSV with an instance-name
+column and a best-known makespan column.  The standard evaluator accepts common
+headers such as `instance,best`, `name,best_known`, or `file,ub`:
+
+```powershell
+python -m harness_agent.cli run-demo `
+  --doc README.md `
+  --instance-dir C:\Users\ASUS\Downloads\FJSP-Instance-main\FJSP-Instance-main\instance `
+  --pattern "fjsp.barnes.mt10*.txt" `
+  --best-known-csv path\to\Best.csv `
+  --output-dir outputs\barnes_demo `
+  --max-instances 3 `
+  --max-rounds 2 `
+  --seeds 0 `
+  --solver local-search `
+  --strategy-candidates 2 `
+  --profile-mode template
+```
+
 Expected outputs:
 
 - `outputs/standard_fjsp_demo/demo_manifest.json`
@@ -74,6 +93,8 @@ Expected outputs:
 
 The demo report is evidence that the loop executed; the evaluator output inside
 the generated harness reports remains the source of truth for solver quality.
+When `--best-known-csv` is provided and instance names match, the demo manifest
+adds `benchmark_summary.gap_metrics`, including metrics such as `avg_gap_pct`.
 
 ## Document To Draft Contract
 

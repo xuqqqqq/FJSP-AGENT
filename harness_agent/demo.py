@@ -100,6 +100,7 @@ def run_standard_demo(request: StandardDemoRequest) -> dict[str, Any]:
         },
         "agent_result": agent_result,
         "artifact_checks": artifact_checks,
+        "benchmark_summary": summarize_benchmark_result(agent_result),
     }
     manifest_path = output_dir / "demo_manifest.json"
     report_path = output_dir / "demo_report.md"
@@ -135,10 +136,50 @@ def verify_standard_demo_artifacts(agent_dir: Path, *, rounds: int) -> dict[str,
     }
 
 
+def summarize_benchmark_result(agent_result: dict[str, Any]) -> dict[str, Any]:
+    """Extract benchmark-facing evidence from the evaluator-backed summary."""
+
+    last_summary = agent_result.get("last_summary") or {}
+    best_metrics = dict(last_summary.get("best_metrics") or {})
+    best_candidate_metrics = dict(last_summary.get("best_candidate_metrics") or {})
+    candidate_summaries = list(last_summary.get("candidate_summaries") or [])
+    pareto_frontier = list(last_summary.get("pareto_frontier") or [])
+    metrics = {**best_metrics, **best_candidate_metrics}
+    gap_metrics = {
+        name: value
+        for name, value in sorted(metrics.items())
+        if "gap_pct" in name and isinstance(value, (int, float))
+    }
+    best_known_metrics = {
+        name: value
+        for name, value in sorted(metrics.items())
+        if "best_known" in name and isinstance(value, (int, float))
+    }
+    makespan_metrics = {
+        name: value
+        for name, value in sorted(metrics.items())
+        if "makespan" in name and isinstance(value, (int, float))
+    }
+    return {
+        "total_experiments": int(last_summary.get("total", 0) or 0),
+        "valid_experiments": int(last_summary.get("valid", 0) or 0),
+        "failed_experiments": int(last_summary.get("failed", 0) or 0),
+        "candidate_count": len(candidate_summaries),
+        "pareto_count": len(pareto_frontier),
+        "best_experiment_id": last_summary.get("best_experiment_id"),
+        "best_candidate_id": last_summary.get("best_candidate_id"),
+        "makespan_metrics": makespan_metrics,
+        "best_known_metrics": best_known_metrics,
+        "gap_metrics": gap_metrics,
+        "has_best_known_gap": bool(gap_metrics),
+    }
+
+
 def render_demo_report(manifest: dict[str, Any]) -> str:
     checks = manifest.get("artifact_checks", {})
     agent_result = manifest.get("agent_result", {})
     last_summary = agent_result.get("last_summary") or {}
+    benchmark = manifest.get("benchmark_summary") or {}
     lines = [
         "# Loop Engineering Demo Report",
         "",
@@ -151,6 +192,8 @@ def render_demo_report(manifest: dict[str, Any]) -> str:
         f"- Missing required artifacts: `{len(checks.get('missing') or [])}`",
         f"- Generated contracts: `{checks.get('contract_count', 0)}`",
         f"- Harness reports: `{checks.get('harness_report_count', 0)}`",
+        f"- Best-known gap available: `{benchmark.get('has_best_known_gap', False)}`",
+        f"- Gap metrics: `{json.dumps(benchmark.get('gap_metrics') or {}, ensure_ascii=False)}`",
         "",
         "## Flow",
         "",
@@ -165,4 +208,12 @@ def render_demo_report(manifest: dict[str, Any]) -> str:
     )
     for name, path in (manifest.get("artifacts") or {}).items():
         lines.append(f"- {name}: `{path}`")
+    lines.extend(
+        [
+            "",
+            "## Benchmark Summary",
+            "",
+            f"```json\n{json.dumps(benchmark, ensure_ascii=False, indent=2)}\n```",
+        ]
+    )
     return "\n".join(lines).strip() + "\n"
