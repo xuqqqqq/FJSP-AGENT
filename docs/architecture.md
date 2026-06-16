@@ -94,6 +94,13 @@ that pass allowed-path and forbidden-path checks are written into the specified
 worktree.  This keeps code generation useful while preventing a worker from
 silently editing evaluator artifacts, output directories, or Git metadata.
 
+`run-worker-cycle` turns that proposal protocol into one evaluator-backed loop:
+copy the allowed project surface into an isolated candidate worktree, run the
+worker, optionally apply accepted edits, and then invoke the deterministic
+LangGraph harness in the candidate tree.  The cycle report records both worker
+status and Core evaluator metrics, keeping the proposal layer separate from the
+final verdict.
+
 ## 5. Hypothesis Memory
 
 The self-evolution loop needs more than free-form reflection text.  Each

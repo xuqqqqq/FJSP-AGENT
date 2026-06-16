@@ -119,6 +119,25 @@ allowlist and forbidden-path checks pass.  Even after `--apply`, the worker
 result is not a success verdict; the harness must still run quick tests and the
 fixed evaluator.
 
+For a full single-iteration loop, use `run-worker-cycle`. It creates an
+isolated candidate worktree, runs the worker against the context packet, then
+runs the fixed harness evaluator inside that candidate tree:
+
+```powershell
+python -m harness_agent.cli run-worker-cycle `
+  --worker deepseek `
+  --contract outputs\confirmed_contract.json `
+  --context-packet outputs\context_packet.json `
+  --output-dir outputs\cycle_001 `
+  --project-root . `
+  --experiment-id cycle_001 `
+  --apply-worker
+```
+
+The command writes `cycle_result.json` and `cycle_report.md`. If the worker is
+`null`, the same command validates that the isolated worktree and evaluator path
+are healthy before live code generation is enabled.
+
 ## Project Boundary
 
 This repository owns:

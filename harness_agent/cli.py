@@ -12,6 +12,7 @@ from .models import TaskContract
 from .runner import HarnessRunner
 from .standard_agent import StandardFjspAgentRunner
 from .worker import ExperimentSpec, NullWorker, WorkerResult
+from .worker_cycle import run_worker_cycle
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -48,6 +49,19 @@ def build_parser() -> argparse.ArgumentParser:
     run_worker.add_argument("--max-runtime-seconds", type=int, default=300)
     run_worker.add_argument("--apply", action="store_true", help="apply accepted file replacements inside --worktree")
     run_worker.add_argument("--deepseek-model", default="deepseek-v4-pro")
+
+    cycle = subparsers.add_parser("run-worker-cycle", help="run worker proposal/apply/evaluate cycle in an isolated worktree")
+    cycle.add_argument("--contract", required=True, type=Path)
+    cycle.add_argument("--context-packet", required=True, type=Path)
+    cycle.add_argument("--output-dir", required=True, type=Path)
+    cycle.add_argument("--project-root", type=Path, default=Path.cwd())
+    cycle.add_argument("--worker", choices=["null", "deepseek", "opencode"], default="null")
+    cycle.add_argument("--experiment-id", default="worker_cycle")
+    cycle.add_argument("--max-steps", type=int, default=8)
+    cycle.add_argument("--max-runtime-seconds", type=int, default=300)
+    cycle.add_argument("--apply-worker", action="store_true", help="apply accepted worker edits before Core evaluation")
+    cycle.add_argument("--allow-draft", action="store_true", help="allow exploratory cycles on unconfirmed draft contracts")
+    cycle.add_argument("--deepseek-model", default="deepseek-v4-pro")
 
     draft = subparsers.add_parser("draft-contract", help="build a human-review draft task contract from documents")
     draft.add_argument("--doc", action="append", type=Path, default=[], help="requirement/IO/metric document path")
@@ -284,6 +298,52 @@ def run_worker_cmd(args: argparse.Namespace) -> int:
         )
     )
     return 0 if result.status not in {"failed", "unavailable"} else 1
+
+
+def run_worker_cycle_cmd(args: argparse.Namespace) -> int:
+    contract = TaskContract.load(args.contract)
+    errors = contract.validate(args.project_root)
+    if errors:
+        print(json.dumps({"status": "invalid_contract", "errors": errors}, ensure_ascii=False, indent=2))
+        return 1
+    if contract.requires_human_confirmation and not args.allow_draft:
+        print(
+            json.dumps(
+                {
+                    "status": "contract_requires_human_confirmation",
+                    "review_status": contract.review_status,
+                    "message": "Confirm this contract or pass --allow-draft for exploratory cycles.",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 1
+    worker = make_worker(args.worker, deepseek_model=args.deepseek_model)
+    result = run_worker_cycle(
+        contract=contract,
+        project_root=args.project_root,
+        output_dir=args.output_dir,
+        context_packet_path=args.context_packet,
+        worker=worker,
+        experiment_id=args.experiment_id,
+        max_steps=max(1, args.max_steps),
+        max_runtime_seconds=max(1, args.max_runtime_seconds),
+        apply_worker_changes=bool(args.apply_worker),
+    )
+    payload = {
+        "status": "ok",
+        "worker_status": result.worker_result.status,
+        "worker_changed_files": result.worker_result.changed_files,
+        "harness_total": result.summary.total,
+        "harness_valid": result.summary.valid,
+        "harness_failed": result.summary.failed,
+        "best_metrics": result.summary.best_metrics,
+        "cycle_report": str((args.output_dir / "cycle_report.md").resolve()),
+        "cycle_result": str((args.output_dir / "cycle_result.json").resolve()),
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
 
 
 def make_worker(name: str, *, deepseek_model: str):
@@ -594,6 +654,8 @@ def main(argv: list[str] | None = None) -> int:
         return build_context_packet_cmd(args)
     if args.command == "run-worker":
         return run_worker_cmd(args)
+    if args.command == "run-worker-cycle":
+        return run_worker_cycle_cmd(args)
     if args.command == "draft-contract":
         return draft_contract(args)
     if args.command == "run":
