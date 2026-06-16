@@ -32,6 +32,15 @@ class EvaluationResult:
             valid = False
             errors.extend(f"missing required metric: {name}" for name in missing)
             error_count = max(error_count, len(errors))
+        non_numeric = [
+            objective.name
+            for objective in objectives
+            if objective.name in metrics and not isinstance(metrics[objective.name], (int, float))
+        ]
+        if non_numeric:
+            valid = False
+            errors.extend(f"non-numeric objective metric: {name}" for name in non_numeric)
+            error_count = max(error_count, len(errors))
         return EvaluationResult(
             valid=valid,
             error_count=error_count,
@@ -51,7 +60,11 @@ def objective_key(result: EvaluationResult, objectives: list[ObjectiveSpec]) -> 
         if value is None:
             key.append(float("-inf"))
             continue
-        numeric = float(value)
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            key.append(float("-inf"))
+            continue
         if objective.threshold is not None:
             if objective.direction == "maximize" and numeric < objective.threshold:
                 key.append(float("-inf"))
@@ -61,4 +74,3 @@ def objective_key(result: EvaluationResult, objectives: list[ObjectiveSpec]) -> 
                 continue
         key.append(numeric if objective.direction == "maximize" else -numeric)
     return tuple(key)
-

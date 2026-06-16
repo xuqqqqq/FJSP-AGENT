@@ -9,6 +9,8 @@ The repository has reached the first harness milestone:
 - solver/evaluator command orchestration;
 - SQLite experiment ledger;
 - report generation;
+- evaluator metric schema checks, validation summaries, and Pareto frontier
+  reporting for multi-objective contracts;
 - standard FJSP parser, baseline solver, and evaluator;
 - LangGraph `run-standard-agent` loop for document-driven strategy-profile
   generation, contract creation, evaluation, and reflection;
@@ -199,7 +201,7 @@ Two-round smoke:
 | --- | --- | --- |
 | Read requirement and IO documents | Draft-contract ingestion with source-grounded feature/metric hints and uncertainty reporting implemented | Add richer section-level parsing and optional LLM-assisted extraction. |
 | Derive Task Contract from documents | Draft JSON, evidence fields, command checks, and confirmation gate implemented | Add stronger document schema extraction and web review workflow. |
-| Support multiple metrics from documents | Contract model supports it | Add evaluator schema checks and Pareto reporting. |
+| Support multiple metrics from documents | Contract model, evaluator schema checks, validation summary, and Pareto frontier reporting implemented | Add richer evaluator schema declarations and visual Pareto exports. |
 | Generate solver code with an LLM worker | DeepSeek proposal-first worker, non-interactive OpenCodeWorker adapter, isolated worker-cycle evaluator rerun, multi-cycle promotion/rollback, and per-round context refresh implemented | Add stronger rule/operator mutation prompts. |
 | Strategy-first evolution | DeepSeek/template profiles plus candidate ablation implemented | Extend from scoring profiles to code-level operator evolution. |
 | Self-reflection and hypothesis graph | JSONL hypothesis records implemented | Add pruning, promotion, and mutation operators. |

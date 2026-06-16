@@ -171,6 +171,9 @@ def summary_payload(summary: RunSummary) -> dict[str, Any]:
         "best_metrics": summary.best_metrics,
         "best_candidate_id": summary.best_candidate_id,
         "best_candidate_metrics": summary.best_candidate_metrics,
+        "candidate_summaries": summary.candidate_summaries or [],
+        "pareto_frontier": summary.pareto_frontier or [],
+        "validation_summary": summary.validation_summary or {},
     }
 
 

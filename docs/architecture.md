@@ -177,6 +177,13 @@ The evaluator output is expected to contain:
 The harness can compare candidates only after validity is known and all required
 objective metrics are present.
 
+For multi-objective contracts, the runner reports both the lexicographic best
+candidate and a Pareto frontier over complete candidate aggregates.  Objective
+keys are normalized so larger is always better, including minimized metrics
+after sign conversion.  Reports also include status/error counts so evaluator
+schema failures, missing metrics, and runtime failures remain visible during
+self-evolution.
+
 Generated contracts carry a `review.status`.  If the status is
 `draft_requires_human_confirmation`, formal `run` refuses the contract unless the
 caller explicitly passes `--allow-draft` for exploration.  A reviewed contract is

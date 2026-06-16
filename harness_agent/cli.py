@@ -475,6 +475,8 @@ def run_contract(args: argparse.Namespace) -> int:
                 "best_metrics": summary.best_metrics,
                 "best_candidate_id": summary.best_candidate_id,
                 "best_candidate_metrics": summary.best_candidate_metrics,
+                "pareto_frontier": summary.pareto_frontier or [],
+                "validation_summary": summary.validation_summary or {},
                 "report": str((args.output_dir / "report.md").resolve()),
             },
             ensure_ascii=False,

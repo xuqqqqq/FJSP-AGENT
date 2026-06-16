@@ -257,6 +257,10 @@ python -m harness_agent.cli run `
 The generated report includes `best_known_makespan` and `gap_pct` when the CSV
 contains the evaluated instance name.
 
+Harness reports also include a validation summary and a Pareto frontier over
+complete candidate aggregates.  Objective keys are normalized so larger is
+better for every objective, including minimized metrics after sign conversion.
+
 ## Document-Driven Standard Agent
 
 `run-standard-agent` is the current end-to-end LangGraph loop for standard FJSP:

@@ -20,6 +20,9 @@ class RunSummary:
     best_metrics: dict[str, object]
     best_candidate_id: str | None = None
     best_candidate_metrics: dict[str, object] | None = None
+    candidate_summaries: list[dict[str, object]] | None = None
+    pareto_frontier: list[dict[str, object]] | None = None
+    validation_summary: dict[str, object] | None = None
 
 
 class HarnessRunner:
@@ -198,6 +201,7 @@ class HarnessRunner:
         best = max(valid_records, key=lambda item: item.objective_key, default=None)
         candidate_summaries = self._candidate_summaries(records)
         best_candidate = max(candidate_summaries, key=lambda item: item["objective_key"], default=None)
+        pareto = pareto_frontier(candidate_summaries)
         return RunSummary(
             total=len(records),
             valid=len(valid_records),
@@ -206,6 +210,9 @@ class HarnessRunner:
             best_metrics=best.metrics if best else {},
             best_candidate_id=str(best_candidate["candidate_id"]) if best_candidate else None,
             best_candidate_metrics=dict(best_candidate["metrics"]) if best_candidate else None,
+            candidate_summaries=candidate_summaries,
+            pareto_frontier=pareto,
+            validation_summary=validation_summary(records),
         )
 
     def _candidate_summaries(self, records: list[ExperimentRecord]) -> list[dict[str, object]]:
@@ -251,6 +258,9 @@ class HarnessRunner:
 
     def _write_report(self, summary: RunSummary) -> None:
         records = self.ledger.list_records()
+        candidate_summaries = summary.candidate_summaries or self._candidate_summaries(records)
+        frontier = summary.pareto_frontier or pareto_frontier(candidate_summaries)
+        validation = summary.validation_summary or validation_summary(records)
         lines = [
             f"# Harness Report: {self.contract.task_id}",
             "",
@@ -261,18 +271,37 @@ class HarnessRunner:
             f"- Best metrics: `{json.dumps(summary.best_metrics, ensure_ascii=False)}`",
             f"- Best candidate: {summary.best_candidate_id or 'N/A'}",
             f"- Best candidate metrics: `{json.dumps(summary.best_candidate_metrics or {}, ensure_ascii=False)}`",
+            f"- Validation summary: `{json.dumps(validation, ensure_ascii=False)}`",
             "",
             "## Candidate Aggregates",
             "",
             "| Candidate | Complete | Objective Key | Metrics |",
             "| --- | ---: | --- | --- |",
         ]
-        for candidate in self._candidate_summaries(records):
+        for candidate in candidate_summaries:
             lines.append(
                 f"| {candidate['candidate_id']} | {candidate['complete']} | "
                 f"`{json.dumps(candidate['objective_key'], ensure_ascii=False)}` | "
                 f"`{json.dumps(candidate['metrics'], ensure_ascii=False)}` |"
             )
+        lines.extend(
+            [
+                "",
+                "## Pareto Frontier",
+                "",
+                "| Candidate | Objective Key | Metrics |",
+                "| --- | --- | --- |",
+            ]
+        )
+        if frontier:
+            for candidate in frontier:
+                lines.append(
+                    f"| {candidate['candidate_id']} | "
+                    f"`{json.dumps(candidate['objective_key'], ensure_ascii=False)}` | "
+                    f"`{json.dumps(candidate['metrics'], ensure_ascii=False)}` |"
+                )
+        else:
+            lines.append("| N/A | `[]` | `{}` |")
         lines.extend(
             [
                 "",
@@ -289,3 +318,54 @@ class HarnessRunner:
                 f"`{json.dumps(record.objective_key, ensure_ascii=False)}` | {error} |"
             )
         (self.output_dir / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def pareto_frontier(candidates: list[dict[str, object]]) -> list[dict[str, object]]:
+    complete_candidates = [
+        candidate
+        for candidate in candidates
+        if bool(candidate.get("complete")) and _finite_key(candidate.get("objective_key"))
+    ]
+    frontier: list[dict[str, object]] = []
+    for candidate in complete_candidates:
+        candidate_key = tuple(float(item) for item in candidate.get("objective_key", ()))
+        dominated = False
+        for other in complete_candidates:
+            if other is candidate:
+                continue
+            other_key = tuple(float(item) for item in other.get("objective_key", ()))
+            if _dominates(other_key, candidate_key):
+                dominated = True
+                break
+        if not dominated:
+            frontier.append(candidate)
+    return sorted(frontier, key=lambda item: item.get("objective_key", ()), reverse=True)
+
+
+def validation_summary(records: list[ExperimentRecord]) -> dict[str, object]:
+    status_counts: dict[str, int] = {}
+    error_counts: dict[str, int] = {}
+    for record in records:
+        status_counts[record.status] = status_counts.get(record.status, 0) + 1
+        if record.error:
+            for error in record.error.split("; "):
+                error_counts[error] = error_counts.get(error, 0) + 1
+    return {
+        "status_counts": dict(sorted(status_counts.items())),
+        "top_errors": [
+            {"error": error, "count": count}
+            for error, count in sorted(error_counts.items(), key=lambda item: (-item[1], item[0]))[:10]
+        ],
+    }
+
+
+def _dominates(left: tuple[float, ...], right: tuple[float, ...]) -> bool:
+    if len(left) != len(right):
+        return False
+    return all(a >= b for a, b in zip(left, right)) and any(a > b for a, b in zip(left, right))
+
+
+def _finite_key(value: object) -> bool:
+    if not isinstance(value, tuple):
+        return False
+    return bool(value) and all(item != float("-inf") for item in value)
