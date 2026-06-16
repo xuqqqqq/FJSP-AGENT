@@ -215,11 +215,11 @@ Experiment Ledger + Report
 
 ## Next Milestones
 
-1. Wire the `OpenCodeWorker` adapter into candidate code-generation nodes.
-2. Add document-to-contract extraction.
-3. Add FJSP evaluator adapters for industrial variants.
-4. Add hypothesis graph and reflection summaries.
-5. Add Git worktree isolation for each candidate.
+1. Add stronger document-to-contract extraction.
+2. Add FJSP evaluator adapters for industrial variants.
+3. Add hypothesis graph pruning and mutation operators.
+4. Add optional Git branch/worktree archival for promoted candidates.
+5. Add larger benchmark regression batches.
 
 ## Standard FJSP Smoke
 
@@ -363,14 +363,28 @@ chooses the selected candidate, not the LLM.
 backends.  The repository currently ships:
 
 - `NullWorker`: a no-op backend for contract and harness tests.
-- `OpenCodeWorker`: a detection/adapter boundary for introducing OpenCode as a
-  coding agent.  It becomes active once the `opencode` executable is available
-  on PATH.
+- `OpenCodeWorker`: a non-interactive `opencode run` adapter.  It becomes
+  active once the `opencode` executable is available on PATH, or when a concrete
+  executable path is supplied by code.  It writes prompt, command, stdout, and
+  stderr artifacts; the harness still decides acceptance through worktree diff
+  capture and evaluator results.
 
-At this stage, OpenCode is intentionally only an adapter boundary.  The trusted
-LangGraph harness owns evaluation and reporting; a coding worker may later be
-allowed to propose solver edits, but it will not be allowed to mark its own
-candidate as successful.
+OpenCode can be selected from the same guarded worker-cycle and worker-loop
+commands:
+
+```powershell
+python -m harness_agent.cli run-worker-cycle `
+  --worker opencode `
+  --opencode-model "provider/model" `
+  --contract outputs\confirmed_contract.json `
+  --context-packet outputs\context_packet.json `
+  --output-dir outputs\opencode_cycle_001 `
+  --project-root . `
+  --experiment-id opencode_cycle_001
+```
+
+The trusted LangGraph harness owns evaluation and reporting; no coding worker is
+allowed to mark its own candidate as successful.
 
 Check local backend availability with:
 

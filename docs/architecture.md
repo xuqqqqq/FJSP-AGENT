@@ -77,9 +77,9 @@ Worker backends are proposal engines, not judges.
   supplied documents and previous reports.  It can also consume a context packet
   and produce a guarded code-edit proposal.  Proposal output is normalized and
   path-checked by the harness before any optional apply step.
-- `OpenCodeWorker` is an adapter boundary for a future coding agent that can
-  edit candidate solver code once the executable is available and guarded edit
-  flow is implemented.
+- `OpenCodeWorker` runs `opencode run` non-interactively when an executable is
+  available.  It writes prompt, command, stdout, and stderr artifacts, then
+  leaves acceptance to the harness diff and evaluator stages.
 - Additional backends can be added if they return artifacts that the harness can
   evaluate deterministically.
 

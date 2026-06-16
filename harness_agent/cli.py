@@ -50,6 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_worker.add_argument("--max-runtime-seconds", type=int, default=300)
     run_worker.add_argument("--apply", action="store_true", help="apply accepted file replacements inside --worktree")
     run_worker.add_argument("--deepseek-model", default="deepseek-v4-pro")
+    run_worker.add_argument("--opencode-model", help="optional OpenCode model override, for example provider/model")
 
     cycle = subparsers.add_parser("run-worker-cycle", help="run worker proposal/apply/evaluate cycle in an isolated worktree")
     cycle.add_argument("--contract", required=True, type=Path)
@@ -63,6 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     cycle.add_argument("--apply-worker", action="store_true", help="apply accepted worker edits before Core evaluation")
     cycle.add_argument("--allow-draft", action="store_true", help="allow exploratory cycles on unconfirmed draft contracts")
     cycle.add_argument("--deepseek-model", default="deepseek-v4-pro")
+    cycle.add_argument("--opencode-model", help="optional OpenCode model override, for example provider/model")
 
     loop = subparsers.add_parser("run-worker-loop", help="run multiple worker cycles with promotion/rollback decisions")
     loop.add_argument("--contract", required=True, type=Path)
@@ -77,6 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     loop.add_argument("--apply-worker", action="store_true", help="apply accepted worker edits before each Core evaluation")
     loop.add_argument("--allow-draft", action="store_true", help="allow exploratory loops on unconfirmed draft contracts")
     loop.add_argument("--deepseek-model", default="deepseek-v4-pro")
+    loop.add_argument("--opencode-model", help="optional OpenCode model override, for example provider/model")
 
     draft = subparsers.add_parser("draft-contract", help="build a human-review draft task contract from documents")
     draft.add_argument("--doc", action="append", type=Path, default=[], help="requirement/IO/metric document path")
@@ -284,7 +287,7 @@ def build_context_packet_cmd(args: argparse.Namespace) -> int:
 
 
 def run_worker_cmd(args: argparse.Namespace) -> int:
-    worker = make_worker(args.worker, deepseek_model=args.deepseek_model)
+    worker = make_worker(args.worker, deepseek_model=args.deepseek_model, opencode_model=args.opencode_model)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     spec = ExperimentSpec(
         task_id=args.task_id,
@@ -334,7 +337,7 @@ def run_worker_cycle_cmd(args: argparse.Namespace) -> int:
             )
         )
         return 1
-    worker = make_worker(args.worker, deepseek_model=args.deepseek_model)
+    worker = make_worker(args.worker, deepseek_model=args.deepseek_model, opencode_model=args.opencode_model)
     result = run_worker_cycle(
         contract=contract,
         project_root=args.project_root,
@@ -382,7 +385,7 @@ def run_worker_loop_cmd(args: argparse.Namespace) -> int:
             )
         )
         return 1
-    worker = make_worker(args.worker, deepseek_model=args.deepseek_model)
+    worker = make_worker(args.worker, deepseek_model=args.deepseek_model, opencode_model=args.opencode_model)
     result = run_worker_loop(
         contract=contract,
         project_root=args.project_root,
@@ -409,7 +412,7 @@ def run_worker_loop_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
-def make_worker(name: str, *, deepseek_model: str):
+def make_worker(name: str, *, deepseek_model: str, opencode_model: str | None = None):
     if name == "null":
         return NullWorker()
     if name == "deepseek":
@@ -419,7 +422,7 @@ def make_worker(name: str, *, deepseek_model: str):
     if name == "opencode":
         from .workers.opencode_worker import OpenCodeWorker
 
-        return OpenCodeWorker()
+        return OpenCodeWorker(model=opencode_model)
     raise ValueError(f"unknown worker: {name}")
 
 
