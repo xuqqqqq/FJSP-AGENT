@@ -356,8 +356,12 @@ maps it to the API-supported `deepseek-v4-pro` model name.
 Each run also writes `hypotheses.jsonl` in the output directory.  Every record
 contains the strategy source, solver, parent hypothesis, comparable score,
 delta from the previous hypothesis, summary metrics, and artifact paths.  This
-is the first persistent memory layer for self-evolution; later code-generation
-workers can use the same ledger to decide what to mutate or reject.
+is the first persistent memory layer for self-evolution.  The standard agent
+also writes `hypothesis_graph.json` and `hypothesis_graph.md`, which classify
+historical hypotheses as `promote`, `prune`, or `mutate` using evaluator-backed
+scores.  The next round receives this graph guidance in its context, so profile
+generation can preserve elite ideas, avoid failed branches, and perturb useful
+parents instead of restarting from a blank prompt.
 
 `--strategy-candidates` controls how many profile variants are evaluated inside
 each round.  Candidate 0 keeps the full profile; later candidates perform

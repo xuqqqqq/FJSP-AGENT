@@ -141,6 +141,14 @@ This record is passed into the next round as structured feedback.  It is also a
 machine-readable trail for later pruning, mutation, and operator-level
 evolution.
 
+The standard agent now materializes that trail as a hypothesis graph summary.
+Each evaluated hypothesis receives an advisory decision: `promote` for elite
+evaluator-backed scores, `prune` for missing or clearly worse evidence, and
+`mutate` for useful ancestors or non-elite comparable records.  The graph is
+written as JSON and Markdown, then injected into the next strategy-generation
+context.  These decisions guide exploration; they do not accept candidates
+without evaluator confirmation.
+
 ## 6. Strategy-Candidate Evaluation
 
 A single LLM response may contain multiple heuristic ideas.  The agent therefore

@@ -7,7 +7,15 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from .graph_runner import GraphHarnessRunner
-from .hypothesis import HypothesisLedger, HypothesisRecord, extract_score, improvement_note, make_hypothesis_id
+from .hypothesis import (
+    HypothesisLedger,
+    HypothesisRecord,
+    extract_score,
+    improvement_note,
+    make_hypothesis_id,
+    render_hypothesis_graph_markdown,
+    summarize_hypothesis_graph,
+)
 from .models import TaskContract
 from .runner import RunSummary
 from .strategy_variants import build_strategy_candidates
@@ -355,6 +363,7 @@ class StandardFjspAgentRunner:
             model_reflection=model_reflection,
             reflection_source=reflection_source,
         )
+        graph_summary = self._write_hypothesis_graph_summary()
         reflection_path = self.output_dir / f"round_{round_index:02d}" / "reflection.md"
         reflection_path.write_text(reflection, encoding="utf-8")
         best_hypothesis_id = state.get("best_hypothesis_id")
@@ -365,7 +374,7 @@ class StandardFjspAgentRunner:
             best_hypothesis_id = hypothesis.hypothesis_id
             best_score_value = hypothesis.score_value
         return {
-            "previous_report": self._next_round_context(report, hypothesis, reflection),
+            "previous_report": self._next_round_context(report, hypothesis, reflection, graph_summary),
             "reports": reports,
             "round_index": round_index + 1,
             "reflection_source": reflection_source,
@@ -410,14 +419,39 @@ class StandardFjspAgentRunner:
         self.hypothesis_ledger.append(hypothesis)
         return hypothesis
 
-    def _next_round_context(self, report: str, hypothesis: HypothesisRecord, reflection: str) -> str:
+    def _next_round_context(
+        self,
+        report: str,
+        hypothesis: HypothesisRecord,
+        reflection: str,
+        graph_summary: dict[str, Any],
+    ) -> str:
         return (
             report
             + "\n\n## Agent Reflection Feedback\n\n"
             + reflection[-6000:]
             + "\n\n## Structured Hypothesis Feedback\n\n"
             + json.dumps(hypothesis.__dict__, ensure_ascii=False, indent=2)
+            + "\n\n## Hypothesis Graph Guidance\n\n"
+            + json.dumps(
+                {
+                    "best_hypothesis_id": graph_summary.get("best_hypothesis_id"),
+                    "decision_counts": graph_summary.get("decision_counts"),
+                    "mutation_guidance": graph_summary.get("mutation_guidance"),
+                    "decisions": graph_summary.get("decisions", [])[-8:],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
         )
+
+    def _write_hypothesis_graph_summary(self) -> dict[str, Any]:
+        summary = summarize_hypothesis_graph(self.hypothesis_ledger.list_records())
+        json_path = self.output_dir / "hypothesis_graph.json"
+        markdown_path = self.output_dir / "hypothesis_graph.md"
+        json_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        markdown_path.write_text(render_hypothesis_graph_markdown(summary), encoding="utf-8")
+        return summary
 
     def _combined_reflection(
         self,
@@ -487,6 +521,7 @@ class StandardFjspAgentRunner:
             f"- Selected candidate: `{state.get('selected_candidate_id') or 'N/A'}`",
             f"- Best hypothesis: `{state.get('best_hypothesis_id') or 'N/A'}`",
             f"- Hypothesis ledger: `{self.hypothesis_ledger.path}`",
+            f"- Hypothesis graph: `{self.output_dir / 'hypothesis_graph.md'}`",
             "",
             "## Rounds",
             "",
@@ -507,6 +542,9 @@ class StandardFjspAgentRunner:
             "best_metrics": summary.best_metrics,
             "best_candidate_id": summary.best_candidate_id,
             "best_candidate_metrics": summary.best_candidate_metrics,
+            "candidate_summaries": summary.candidate_summaries or [],
+            "pareto_frontier": summary.pareto_frontier or [],
+            "validation_summary": summary.validation_summary or {},
         }
 
     def _local_search_profiles(self) -> list[dict[str, Any]]:
@@ -553,6 +591,9 @@ class StandardFjspAgentRunner:
             best_metrics=dict(payload.get("best_metrics") or {}),
             best_candidate_id=payload.get("best_candidate_id"),
             best_candidate_metrics=dict(payload.get("best_candidate_metrics") or {}),
+            candidate_summaries=list(payload.get("candidate_summaries") or []),
+            pareto_frontier=list(payload.get("pareto_frontier") or []),
+            validation_summary=dict(payload.get("validation_summary") or {}),
         )
 
     def _candidate_table(self, candidate_results: list[dict[str, Any]]) -> str:

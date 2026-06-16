@@ -18,6 +18,8 @@ The repository has reached the first harness milestone:
 - critical-path local-search solver on top of the dispatch portfolio;
 - best-known CSV gap reporting for standard FJSP benchmarks;
 - JSONL hypothesis ledger for round-to-round strategy memory;
+- hypothesis graph summaries with evaluator-backed promote/prune/mutate
+  guidance for the next round;
 - per-round strategy-candidate evaluation with ablation/mutation variants;
 - local knowledge base with paper cards and imported Huawei FJSP notes.
 - document-to-draft-contract CLI that records source references, uncertain
@@ -204,7 +206,7 @@ Two-round smoke:
 | Support multiple metrics from documents | Contract model, evaluator schema checks, validation summary, and Pareto frontier reporting implemented | Add richer evaluator schema declarations and visual Pareto exports. |
 | Generate solver code with an LLM worker | DeepSeek proposal-first worker, non-interactive OpenCodeWorker adapter, isolated worker-cycle evaluator rerun, multi-cycle promotion/rollback, and per-round context refresh implemented | Add stronger rule/operator mutation prompts. |
 | Strategy-first evolution | DeepSeek/template profiles plus candidate ablation implemented | Extend from scoring profiles to code-level operator evolution. |
-| Self-reflection and hypothesis graph | JSONL hypothesis records implemented | Add pruning, promotion, and mutation operators. |
+| Self-reflection and hypothesis graph | JSONL records plus promote/prune/mutate graph summaries implemented | Add richer operator-level lineage and graph-aware code mutation. |
 | Rule/operator evolution | Local-search operator and profile-level mutation exist; LLM operator edits not enabled | Add guarded code-level mutation operators. |
 | Standard FJSP benchmark testing | Smoke path and best-known gap reporting implemented | Add larger benchmark batches and regression baselines. |
 | Industrial FJSP variant testing | Not implemented here | Add adapter to external industrial evaluator. |
@@ -245,7 +247,10 @@ The next concrete slice should be:
 4. `hypothesis.py`
    - current: records strategy source, parent hypothesis, score, delta, summary,
      and artifact paths;
-   - next: support prune/promote/mutate decisions across a hypothesis graph.
+   - current: summarizes records into promote/prune/mutate guidance for the next
+     round;
+   - next: track operator-level lineage and attach graph decisions to code
+     mutation proposals.
 
 5. `strategy_variants.py`
    - current: creates full-profile, single-strategy, and deterministic mutated
