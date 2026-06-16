@@ -15,6 +15,19 @@ class EvidenceIndexTests(unittest.TestCase):
             report = root / "report.md"
             report.write_text("# report\n", encoding="utf-8")
             _write_json(
+                root / "intake" / "project_intake_manifest.json",
+                {
+                    "status": "ok",
+                    "artifacts": {"report": str(report)},
+                    "language_summary": {"primary_language": "Python"},
+                    "entry_files": ["examples/standard_fjsp_solver.py"],
+                    "core_algorithm_files": ["examples/standard_fjsp_solver.py"],
+                    "benchmark_files": ["harness_agent/benchmark_suite.py"],
+                    "validator_files": ["examples/standard_fjsp_evaluator.py"],
+                    "risk_flags": [],
+                },
+            )
+            _write_json(
                 root / "health" / "health_check_manifest.json",
                 {
                     "status": "ok",
@@ -87,12 +100,13 @@ class EvidenceIndexTests(unittest.TestCase):
                 )
             )
 
-            self.assertEqual(5, index["entry_count"])
+            self.assertEqual(6, index["entry_count"])
             self.assertEqual(
                 {
                     "benchmark_suite": 1,
                     "health_check": 1,
                     "intent_alignment": 1,
+                    "project_intake": 1,
                     "standard_demo": 1,
                     "standard_worker_loop": 1,
                 },

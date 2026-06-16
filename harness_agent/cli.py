@@ -15,6 +15,7 @@ from .health_check import HealthCheckRequest, run_health_check
 from .intent_alignment import IntentAlignmentRequest, write_intent_alignment
 from .loop_runner import run_worker_loop
 from .models import TaskContract
+from .project_intake import ProjectIntakeRequest, write_project_intake
 from .runner import HarnessRunner
 from .standard_agent import StandardFjspAgentRunner
 from .standard_pipeline import StandardPipelineRequest, run_standard_pipeline
@@ -147,6 +148,13 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid"],
         default="random",
     )
+
+    project_intake = subparsers.add_parser("project-intake", help="scan a project and write a bounded context manifest")
+    project_intake.add_argument("--project-root", type=Path, default=Path.cwd())
+    project_intake.add_argument("--output-dir", required=True, type=Path)
+    project_intake.add_argument("--contract", type=Path)
+    project_intake.add_argument("--max-files", type=int, default=200)
+    project_intake.add_argument("--max-symbols-per-file", type=int, default=20)
 
     health = subparsers.add_parser("health-check", help="run contract quick-test and benchmark stability probes")
     health.add_argument("--contract", required=True, type=Path)
@@ -285,6 +293,8 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--output-dir", required=True, type=Path)
     pipeline.add_argument("--project-root", type=Path, default=Path.cwd())
     pipeline.add_argument("--max-suites", type=int)
+    pipeline.add_argument("--skip-project-intake", action="store_true")
+    pipeline.add_argument("--project-intake-max-files", type=int, default=200)
     pipeline.add_argument("--health-contract", type=Path)
     pipeline.add_argument("--health-repeats", type=int, default=2)
     pipeline.add_argument("--health-max-instances", type=int, default=1)
@@ -723,6 +733,34 @@ def worker_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def project_intake_cmd(args: argparse.Namespace) -> int:
+    manifest = write_project_intake(
+        ProjectIntakeRequest(
+            project_root=args.project_root,
+            output_dir=args.output_dir,
+            contract_path=args.contract,
+            max_files=max(1, args.max_files),
+            max_symbols_per_file=max(1, args.max_symbols_per_file),
+        )
+    )
+    print(
+        json.dumps(
+            {
+                "status": manifest["status"],
+                "primary_language": (manifest.get("language_summary") or {}).get("primary_language"),
+                "entry_files": len(manifest.get("entry_files") or []),
+                "core_algorithm_files": len(manifest.get("core_algorithm_files") or []),
+                "risk_flags": len(manifest.get("risk_flags") or []),
+                "manifest": manifest["artifacts"]["manifest"],
+                "report": manifest["artifacts"]["report"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0 if manifest["status"] == "ok" else 1
+
+
 def health_check_cmd(args: argparse.Namespace) -> int:
     manifest = run_health_check(
         HealthCheckRequest(
@@ -961,6 +999,8 @@ def run_standard_pipeline_cmd(args: argparse.Namespace) -> int:
             worker_docs=args.worker_doc,
             worker_knowledge_cards=args.worker_knowledge_card,
             worker_instance_dir=args.worker_instance_dir,
+            run_project_intake=not bool(args.skip_project_intake),
+            project_intake_max_files=max(1, args.project_intake_max_files),
             health_contract=args.health_contract,
             health_repeats=max(1, args.health_repeats),
             health_max_instances=max(1, args.health_max_instances),
@@ -997,6 +1037,7 @@ def run_standard_pipeline_cmd(args: argparse.Namespace) -> int:
             {
                 "status": manifest["status"],
                 "stage_status": manifest["stage_status"],
+                "project_intake": manifest["artifacts"].get("project_intake_report"),
                 "intent_alignment": manifest["artifacts"].get("intent_alignment_report"),
                 "benchmark_suite": manifest["artifacts"]["benchmark_suite_report"],
                 "standard_worker_loop": manifest["artifacts"]["standard_worker_loop_report"],
@@ -1153,6 +1194,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_contract(args)
     if args.command == "build-standard-contract":
         return build_standard_contract(args)
+    if args.command == "project-intake":
+        return project_intake_cmd(args)
     if args.command == "health-check":
         return health_check_cmd(args)
     if args.command == "intent-alignment":

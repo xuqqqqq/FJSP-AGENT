@@ -9,6 +9,7 @@ from .benchmark_suite import BenchmarkSuiteRequest, run_benchmark_suite
 from .evidence import EvidenceIndexRequest, build_evidence_index
 from .health_check import HealthCheckRequest, run_health_check
 from .intent_alignment import IntentAlignmentRequest, write_intent_alignment
+from .project_intake import ProjectIntakeRequest, write_project_intake
 from .standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop
 from .worker import CodingWorker
 
@@ -23,6 +24,8 @@ class StandardPipelineRequest:
     worker: CodingWorker
     worker_docs: list[Path]
     worker_instance_dir: Path
+    run_project_intake: bool = True
+    project_intake_max_files: int = 200
     health_contract: Path | None = None
     health_repeats: int = 2
     health_max_instances: int = 1
@@ -66,9 +69,20 @@ def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
     suite_dir = output_dir / "benchmark_suite"
     worker_dir = output_dir / "standard_worker_loop"
     evidence_dir = output_dir / "evidence_index"
+    intake_dir = output_dir / "project_intake"
     health_dir = output_dir / "health_check"
     intent_dir = output_dir / "intent_alignment"
 
+    intake_manifest = None
+    if request.run_project_intake:
+        intake_manifest = write_project_intake(
+            ProjectIntakeRequest(
+                project_root=request.project_root,
+                output_dir=intake_dir,
+                contract_path=request.health_contract,
+                max_files=max(1, request.project_intake_max_files),
+            )
+        )
     health_manifest = None
     intent_manifest = None
     if request.health_contract:
@@ -138,6 +152,8 @@ def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
             )
         )
     evidence_input_dirs = []
+    if intake_manifest:
+        evidence_input_dirs.append(intake_dir)
     if health_manifest:
         evidence_input_dirs.append(health_dir)
     if intent_manifest:
@@ -158,6 +174,7 @@ def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
     report_path = output_dir / "standard_pipeline_report.md"
     manifest = standard_pipeline_manifest(
         request=request,
+        intake_manifest=intake_manifest,
         health_manifest=health_manifest,
         intent_manifest=intent_manifest,
         admission_passed=admission_passed,
@@ -176,6 +193,7 @@ def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
 def standard_pipeline_manifest(
     *,
     request: StandardPipelineRequest,
+    intake_manifest: dict[str, Any] | None,
     health_manifest: dict[str, Any] | None,
     intent_manifest: dict[str, Any] | None,
     admission_passed: bool,
@@ -187,12 +205,22 @@ def standard_pipeline_manifest(
     report_path: Path,
 ) -> dict[str, Any]:
     evidence_summary = evidence_index.get("summary") or {}
-    status = pipeline_status(health_manifest, intent_manifest, admission_passed, suite_manifest, worker_manifest, evidence_index)
+    status = pipeline_status(
+        intake_manifest,
+        health_manifest,
+        intent_manifest,
+        admission_passed,
+        suite_manifest,
+        worker_manifest,
+        evidence_index,
+    )
     return {
         "status": status,
         "request": {
             "suite_config": str(request.suite_config),
             "max_suites": request.max_suites,
+            "run_project_intake": bool(request.run_project_intake),
+            "project_intake_max_files": max(1, request.project_intake_max_files),
             "health_contract": str(request.health_contract) if request.health_contract else None,
             "health_repeats": max(1, request.health_repeats),
             "benchmark_source": request.benchmark_source,
@@ -207,12 +235,19 @@ def standard_pipeline_manifest(
         },
         "stage_status": {
             "admission_gate": "passed" if admission_passed else "blocked",
+            "project_intake": intake_manifest.get("status") if intake_manifest else "skipped",
             "health_check": health_manifest.get("status") if health_manifest else None,
             "intent_alignment": intent_manifest.get("status") if intent_manifest else None,
             "benchmark_suite": suite_manifest.get("status") if suite_manifest else "skipped_admission_gate",
             "standard_worker_loop": worker_manifest.get("status") if worker_manifest else "skipped_admission_gate",
             "evidence_index_entries": evidence_index.get("entry_count", 0),
             "missing_artifact_count": evidence_summary.get("missing_artifact_count", 0),
+        },
+        "project_intake": {
+            "status": intake_manifest.get("status") if intake_manifest else None,
+            "language_summary": intake_manifest.get("language_summary") if intake_manifest else {},
+            "risk_flags": intake_manifest.get("risk_flags") if intake_manifest else [],
+            "artifacts": (intake_manifest.get("artifacts") if intake_manifest else {}),
         },
         "health_check": {
             "status": health_manifest.get("status") if health_manifest else None,
@@ -248,6 +283,12 @@ def standard_pipeline_manifest(
         "artifacts": {
             "manifest": str(manifest_path.resolve()),
             "report": str(report_path.resolve()),
+            "project_intake_manifest": str((output_dir / "project_intake" / "project_intake_manifest.json").resolve())
+            if intake_manifest
+            else None,
+            "project_intake_report": str((output_dir / "project_intake" / "project_intake_report.md").resolve())
+            if intake_manifest
+            else None,
             "health_check_manifest": str((output_dir / "health_check" / "health_check_manifest.json").resolve())
             if health_manifest
             else None,
@@ -283,6 +324,7 @@ def standard_pipeline_manifest(
 
 
 def pipeline_status(
+    intake_manifest: dict[str, Any] | None,
     health_manifest: dict[str, Any] | None,
     intent_manifest: dict[str, Any] | None,
     admission_passed: bool,
@@ -291,6 +333,8 @@ def pipeline_status(
     evidence_index: dict[str, Any],
 ) -> str:
     evidence_summary = evidence_index.get("summary") or {}
+    if intake_manifest and intake_manifest.get("status") != "ok":
+        return "partial_failed"
     if not admission_passed:
         return "partial_failed"
     if health_manifest and health_manifest.get("status") != "ok":
@@ -310,6 +354,7 @@ def pipeline_status(
 
 def render_standard_pipeline_report(manifest: dict[str, Any]) -> str:
     stage_status = manifest.get("stage_status") or {}
+    intake = manifest.get("project_intake") or {}
     health = manifest.get("health_check") or {}
     intent = manifest.get("intent_alignment") or {}
     benchmark = manifest.get("benchmark_suite") or {}
@@ -320,6 +365,7 @@ def render_standard_pipeline_report(manifest: dict[str, Any]) -> str:
         "",
         f"- Status: `{manifest.get('status')}`",
         f"- Admission gate: `{stage_status.get('admission_gate')}`",
+        f"- Project-intake status: `{stage_status.get('project_intake')}`",
         f"- Health-check status: `{stage_status.get('health_check')}`",
         f"- Intent-alignment status: `{stage_status.get('intent_alignment')}`",
         f"- Benchmark suite status: `{stage_status.get('benchmark_suite')}`",
@@ -331,6 +377,7 @@ def render_standard_pipeline_report(manifest: dict[str, Any]) -> str:
         "",
         "| Stage | Key Evidence |",
         "| --- | --- |",
+        f"| Project intake | `{json.dumps(compact_intake_summary(intake), ensure_ascii=False)}` |",
         f"| Health check | `{json.dumps(compact_health_summary(health), ensure_ascii=False)}` |",
         f"| Intent alignment | `{json.dumps(compact_intent_summary(intent), ensure_ascii=False)}` |",
         f"| Benchmark suite | `{json.dumps(benchmark.get('aggregate') or {}, ensure_ascii=False)}` |",
@@ -351,6 +398,18 @@ def render_standard_pipeline_report(manifest: dict[str, Any]) -> str:
         ]
     )
     return "\n".join(lines).strip() + "\n"
+
+
+def compact_intake_summary(intake: dict[str, Any]) -> dict[str, Any]:
+    if not intake or intake.get("status") is None:
+        return {"enabled": False}
+    language = intake.get("language_summary") or {}
+    return {
+        "enabled": True,
+        "status": intake.get("status"),
+        "primary_language": language.get("primary_language"),
+        "risk_count": len(intake.get("risk_flags") or []),
+    }
 
 
 def compact_health_summary(health: dict[str, Any]) -> dict[str, Any]:

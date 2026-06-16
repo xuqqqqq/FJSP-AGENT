@@ -7,6 +7,7 @@ from typing import Any
 
 
 MANIFEST_NAMES = {
+    "project_intake_manifest.json": "project_intake",
     "health_check_manifest.json": "health_check",
     "intent_alignment_manifest.json": "intent_alignment",
     "demo_manifest.json": "standard_demo",
@@ -87,7 +88,23 @@ def evidence_entry(manifest_path: Path, entry_type: str) -> dict[str, Any]:
         entry.update(health_check_fields(payload))
     elif entry_type == "intent_alignment":
         entry.update(intent_alignment_fields(payload))
+    elif entry_type == "project_intake":
+        entry.update(project_intake_fields(payload))
     return entry
+
+
+def project_intake_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "primary_language": (payload.get("language_summary") or {}).get("primary_language"),
+        "entry_file_count": len(payload.get("entry_files") or []),
+        "core_file_count": len(payload.get("core_algorithm_files") or []),
+        "benchmark_file_count": len(payload.get("benchmark_files") or []),
+        "validator_file_count": len(payload.get("validator_files") or []),
+        "risk_count": len(payload.get("risk_flags") or []),
+        "valid_experiments": 0,
+        "total_experiments": 0,
+        "gap_metrics": {},
+    }
 
 
 def intent_alignment_fields(payload: dict[str, Any]) -> dict[str, Any]:

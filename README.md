@@ -228,14 +228,38 @@ modify files inside isolated candidate worktrees.  A round is promoted only if
 the fixed evaluator reports a strictly better objective key than the incumbent;
 otherwise the candidate is rolled back.
 
+## Project Intake
+
+Before a coding worker edits solver code, the harness can write a bounded
+read-only project map.  The map records language mix, Git state, likely entry
+files, core algorithm files, dependency files, benchmark/evaluator candidates,
+test commands, data directories, output-format hints, edit policy, and risk
+flags.
+
+```powershell
+python -m harness_agent.cli project-intake `
+  --project-root . `
+  --contract configs\standard_fjsp_tiny.example.json `
+  --output-dir outputs\standard_project_intake
+```
+
+Expected outputs:
+
+- `outputs/standard_project_intake/project_intake_manifest.json`
+- `outputs/standard_project_intake/project_intake_report.md`
+
+Project intake does not run solvers or evaluators.  It is context evidence for
+later coding-worker prompts and audit reports.
+
 ## Standard FJSP Full Pipeline
 
 `run-standard-pipeline` is the current one-command smoke path for the standard
-FJSP loop-engineering flow.  It runs the configured benchmark suite, runs the
-coding-worker loop, and then builds a single evidence index over all stages.
-When a health contract is provided, the pipeline first runs health-check and
-intent-alignment.  If either stage blocks, suite and worker-loop execution are
-skipped instead of spending optimization budget after a failed admission gate.
+FJSP loop-engineering flow.  It first writes the project-intake map, then runs
+the configured benchmark suite, runs the coding-worker loop, and builds a
+single evidence index over all stages.  When a health contract is provided, the
+pipeline also runs health-check and intent-alignment before optimization.  If
+either admission stage blocks, suite and worker-loop execution are skipped
+instead of spending optimization budget after a failed admission gate.
 
 ```powershell
 python -m harness_agent.cli run-standard-pipeline `
@@ -261,6 +285,7 @@ Expected outputs:
 
 - `outputs/standard_pipeline_demo/standard_pipeline_manifest.json`
 - `outputs/standard_pipeline_demo/standard_pipeline_report.md`
+- `outputs/standard_pipeline_demo/project_intake/project_intake_report.md`
 - `outputs/standard_pipeline_demo/health_check/health_check_report.md`
 - `outputs/standard_pipeline_demo/intent_alignment/intent_alignment_report.md`
 - `outputs/standard_pipeline_demo/benchmark_suite/suite_report.md`
@@ -290,12 +315,13 @@ Expected outputs:
 - `outputs/evidence_index/evidence_index.json`
 - `outputs/evidence_index/evidence_index.md`
 
-The index does not rerun solvers.  It scans `health_check_manifest.json`,
-`intent_alignment_manifest.json`, `demo_manifest.json`, `suite_manifest.json`,
-and `standard_worker_loop_manifest.json`, then summarizes status counts,
+The index does not rerun solvers.  It scans `project_intake_manifest.json`,
+`health_check_manifest.json`, `intent_alignment_manifest.json`,
+`demo_manifest.json`, `suite_manifest.json`, and
+`standard_worker_loop_manifest.json`, then summarizes status counts,
 valid/total experiments, best-known gap metrics, coding-worker improvement
-flags, health-check stability, intent-readiness flags, and missing referenced
-artifacts.
+flags, project risk flags, health-check stability, intent-readiness flags, and
+missing referenced artifacts.
 
 ## Document To Draft Contract
 

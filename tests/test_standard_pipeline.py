@@ -41,12 +41,14 @@ class StandardPipelineTests(unittest.TestCase):
             )
 
             self.assertEqual("ok", manifest["status"])
+            self.assertEqual("ok", manifest["stage_status"]["project_intake"])
             self.assertEqual("ok", manifest["stage_status"]["health_check"])
             self.assertEqual("ready", manifest["stage_status"]["intent_alignment"])
             self.assertEqual("ok", manifest["stage_status"]["benchmark_suite"])
             self.assertEqual("ok", manifest["stage_status"]["standard_worker_loop"])
-            self.assertGreaterEqual(manifest["stage_status"]["evidence_index_entries"], 5)
+            self.assertGreaterEqual(manifest["stage_status"]["evidence_index_entries"], 6)
             self.assertEqual(0, manifest["stage_status"]["missing_artifact_count"])
+            self.assertEqual("Python", manifest["project_intake"]["language_summary"]["primary_language"])
             self.assertEqual("ok", manifest["health_check"]["status"])
             self.assertTrue(manifest["intent_alignment"]["ready_for_optimization"])
             self.assertTrue(manifest["health_check"]["stability_probe"]["stable"])
@@ -54,6 +56,7 @@ class StandardPipelineTests(unittest.TestCase):
             self.assertEqual(1, manifest["standard_worker_loop"]["round_count"])
             self.assertTrue((output_dir / "standard_pipeline_manifest.json").exists())
             self.assertTrue((output_dir / "standard_pipeline_report.md").exists())
+            self.assertTrue((output_dir / "project_intake" / "project_intake_manifest.json").exists())
             self.assertTrue((output_dir / "health_check" / "health_check_manifest.json").exists())
             self.assertTrue((output_dir / "intent_alignment" / "intent_alignment_manifest.json").exists())
             self.assertTrue((output_dir / "benchmark_suite" / "suite_manifest.json").exists())
@@ -88,12 +91,14 @@ class StandardPipelineTests(unittest.TestCase):
 
             self.assertEqual("partial_failed", manifest["status"])
             self.assertEqual("blocked", manifest["stage_status"]["admission_gate"])
+            self.assertEqual("ok", manifest["stage_status"]["project_intake"])
             self.assertEqual("requires_confirmation", manifest["stage_status"]["health_check"])
             self.assertEqual("blocked", manifest["stage_status"]["intent_alignment"])
             self.assertEqual("skipped_admission_gate", manifest["stage_status"]["benchmark_suite"])
             self.assertEqual("skipped_admission_gate", manifest["stage_status"]["standard_worker_loop"])
             self.assertFalse((output_dir / "benchmark_suite" / "suite_manifest.json").exists())
             self.assertFalse((output_dir / "standard_worker_loop" / "standard_worker_loop_manifest.json").exists())
+            self.assertTrue((output_dir / "project_intake" / "project_intake_manifest.json").exists())
             self.assertTrue((output_dir / "intent_alignment" / "intent_alignment_manifest.json").exists())
 
 

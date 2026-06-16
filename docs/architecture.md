@@ -95,6 +95,13 @@ benchmark behavior before any coding worker spends budget on algorithm changes.
 It is not an optimization result; it is an admission check for the evaluator
 surface.
 
+Before that admission check, the harness can run project intake.  This stage is
+a bounded, read-only scan of the current repository: language mix, Git state,
+entry points, likely solver/evaluator/benchmark files, dependency manifests,
+data directories, inferred test commands, edit policy, and risk flags.  The
+intake manifest gives a coding worker a grounded project map without granting it
+authority to judge candidate quality.
+
 After health evidence exists, the harness can write an intent-alignment card.
 This card is the auditable translation from documents and task contract into the
 optimization target: primary and secondary objectives, hard constraints,
@@ -142,7 +149,7 @@ flagged in reports and fed into the next context packet.  They are not used as a
 success or failure verdict; promotion remains evaluator-only.
 
 Generated loop artifacts can be indexed after the fact with the evidence-index
-command.  The index scans health-check, intent-alignment, demo,
+command.  The index scans project-intake, health-check, intent-alignment, demo,
 benchmark-suite, and standard worker-loop manifests, checks whether referenced
 reports still exist, and
 writes one JSON/Markdown table of statuses, valid experiment counts, gap
@@ -151,12 +158,12 @@ evidence.  This is intentionally read-only: it is an audit surface over existing
 evaluator-backed outputs, not a new evaluator.
 
 For standard FJSP smoke tests, `run-standard-pipeline` composes the benchmark
-health check, intent alignment, benchmark suite, coding-worker loop, and
-evidence-index commands into one reproducible entrypoint.  The pipeline has no
-independent scoring authority.  If the admission stages fail, the pipeline
-skips benchmark-suite and worker-loop execution; if they pass, it succeeds only
-when the underlying evaluator-backed stages produce complete manifests and
-referenced artifacts.
+project intake, health check, intent alignment, benchmark suite, coding-worker
+loop, and evidence-index commands into one reproducible entrypoint.  The
+pipeline has no independent scoring authority.  If the admission stages fail,
+the pipeline skips benchmark-suite and worker-loop execution; if they pass, it
+succeeds only when the underlying evaluator-backed stages produce complete
+manifests and referenced artifacts.
 
 ## 5. Hypothesis Memory
 
