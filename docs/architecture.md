@@ -125,6 +125,13 @@ changed-file set when no proposal artifact exists.  Repeated fingerprints are
 flagged in reports and fed into the next context packet.  They are not used as a
 success or failure verdict; promotion remains evaluator-only.
 
+Generated loop artifacts can be indexed after the fact with the evidence-index
+command.  The index scans demo, benchmark-suite, and standard worker-loop
+manifests, checks whether referenced reports still exist, and writes one
+JSON/Markdown table of statuses, valid experiment counts, gap metrics, and
+worker-loop promotion evidence.  This is intentionally read-only: it is an audit
+surface over existing evaluator-backed outputs, not a new evaluator.
+
 ## 5. Hypothesis Memory
 
 The self-evolution loop needs more than free-form reflection text.  Each

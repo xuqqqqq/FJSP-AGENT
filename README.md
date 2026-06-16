@@ -178,6 +178,29 @@ modify files inside isolated candidate worktrees.  A round is promoted only if
 the fixed evaluator reports a strictly better objective key than the incumbent;
 otherwise the candidate is rolled back.
 
+## Evidence Index
+
+After running demos, benchmark suites, or coding-worker loops, build a single
+evidence index over the generated manifests:
+
+```powershell
+python -m harness_agent.cli build-evidence-index `
+  --input-dir outputs\standard_fjsp_demo `
+  --input-dir outputs\standard_fjsp_suite_demo `
+  --input-dir outputs\standard_worker_loop_demo `
+  --output-dir outputs\evidence_index
+```
+
+Expected outputs:
+
+- `outputs/evidence_index/evidence_index.json`
+- `outputs/evidence_index/evidence_index.md`
+
+The index does not rerun solvers.  It scans `demo_manifest.json`,
+`suite_manifest.json`, and `standard_worker_loop_manifest.json`, then summarizes
+status counts, valid/total experiments, best-known gap metrics, coding-worker
+improvement flags, and missing referenced artifacts.
+
 ## Document To Draft Contract
 
 AlgoForge starts from requirement, IO, and metric documents rather than from a

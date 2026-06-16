@@ -9,6 +9,7 @@ from .benchmark_suite import BenchmarkSuiteRequest, run_benchmark_suite
 from .context_packet import ContextPacketRequest, write_context_packet
 from .contract_builder import DraftContractRequest, write_confirmed_contract, write_draft_contract
 from .demo import StandardDemoRequest, run_standard_demo
+from .evidence import EvidenceIndexRequest, build_evidence_index
 from .graph_runner import GraphHarnessRunner
 from .loop_runner import run_worker_loop
 from .models import TaskContract
@@ -254,6 +255,11 @@ def build_parser() -> argparse.ArgumentParser:
     standard_worker.add_argument("--hypothesis", default="")
     standard_worker.add_argument("--deepseek-model", default="deepseek-v4-pro")
     standard_worker.add_argument("--opencode-model")
+
+    evidence = subparsers.add_parser("build-evidence-index", help="index generated loop-engineering manifests")
+    evidence.add_argument("--input-dir", action="append", required=True, type=Path)
+    evidence.add_argument("--output-dir", required=True, type=Path)
+    evidence.add_argument("--title", default="Loop Engineering Evidence Index")
     return parser
 
 
@@ -818,6 +824,30 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
     return 0 if manifest["status"] == "ok" else 1
 
 
+def build_evidence_index_cmd(args: argparse.Namespace) -> int:
+    index = build_evidence_index(
+        EvidenceIndexRequest(
+            input_dirs=args.input_dir,
+            output_dir=args.output_dir,
+            title=args.title,
+        )
+    )
+    print(
+        json.dumps(
+            {
+                "status": "ok",
+                "entry_count": index["entry_count"],
+                "summary": index["summary"],
+                "json": index["artifacts"]["json"],
+                "markdown": index["artifacts"]["markdown"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def parse_neighborhood_profiles(value: str | None, *, fallback: str) -> list[str]:
     allowed = {"random", "critical-block", "combined", "hgtsa-lite", "hybrid"}
     raw_items = [fallback] if not value else [item.strip() for item in value.split(",") if item.strip()]
@@ -946,6 +976,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_benchmark_suite_cmd(args)
     if args.command == "run-standard-worker-loop":
         return run_standard_worker_loop_cmd(args)
+    if args.command == "build-evidence-index":
+        return build_evidence_index_cmd(args)
     parser.error(f"unknown command: {args.command}")
     return 2
 

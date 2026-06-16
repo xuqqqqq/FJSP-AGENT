@@ -46,6 +46,8 @@ The repository has reached the first harness milestone:
   worker-cycle candidate.
 - non-interactive OpenCodeWorker adapter that can execute `opencode run` inside
   guarded candidate worktrees when OpenCode is installed.
+- evidence-index CLI that scans generated demo, suite, and worker-loop manifests
+  and writes one JSON/Markdown audit index.
 
 This is not yet the full MD requirement.  It is the engineering base that makes
 the later self-evolution loop measurable and auditable.
@@ -210,7 +212,7 @@ Two-round smoke:
 | Rule/operator evolution | Local-search operator and profile-level mutation exist; LLM operator edits not enabled | Add guarded code-level mutation operators. |
 | Standard FJSP benchmark testing | Smoke path and best-known gap reporting implemented | Add larger benchmark batches and regression baselines. |
 | Industrial FJSP variant testing | Not implemented here | Add adapter to external industrial evaluator. |
-| Full auditability | Ledger, context packet hash, candidate worktree copy, worktree delta JSON, and text patch artifacts implemented | Add optional Git worktree/branch archival for long-running external experiments. |
+| Full auditability | Ledger, context packet hash, candidate worktree copy, worktree delta JSON, text patch artifacts, and evidence index implemented | Add optional Git worktree/branch archival for long-running external experiments. |
 
 ## Next Build Slice
 
