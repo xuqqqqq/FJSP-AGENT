@@ -87,6 +87,9 @@ The repository has reached the first harness milestone:
   which gives the next controller/coding backend a structured memory path,
   trend summary, focus areas, and hypothesis text while keeping evaluator
   manifests as the only acceptance source.
+- Multi-round pipeline runs now adapt each next iteration's worker hypothesis
+  from the previous iteration's memory by default, with
+  `--no-adapt-worker-hypothesis` available for fixed-prompt ablations.
 
 This is not yet the full MD requirement.  It is the engineering base that makes
 the later self-evolution loop measurable and auditable.

@@ -320,6 +320,12 @@ is the controller handoff for the next run: it records the final memory path,
 benchmark trend, worker promotion summary, focus areas, and a suggested
 next-worker hypothesis.  It is not a success verdict; fixed evaluator and
 admission manifests still own all acceptance decisions.
+By default, multi-round runs also adapt the next iteration's `worker_hypothesis`
+from the previous iteration's memory artifact, so the coding worker receives a
+focused instruction such as "increase rule/operator diversity" or "target
+best-known gap quality" instead of the same generic prompt every round.  Use
+`--no-adapt-worker-hypothesis` for an ablation that keeps the hypothesis fixed
+while still passing `previous_pipeline_memory`.
 
 ## Evidence Index
 

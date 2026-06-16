@@ -301,6 +301,11 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--output-dir", required=True, type=Path)
     pipeline.add_argument("--project-root", type=Path, default=Path.cwd())
     pipeline.add_argument("--loop-rounds", type=int, default=1, help="run multiple pipeline iterations and chain memory")
+    pipeline.add_argument(
+        "--no-adapt-worker-hypothesis",
+        action="store_true",
+        help="keep the same worker hypothesis across loop iterations instead of deriving it from prior memory",
+    )
     pipeline.add_argument("--max-suites", type=int)
     pipeline.add_argument("--skip-project-intake", action="store_true")
     pipeline.add_argument("--project-intake-max-files", type=int, default=200)
@@ -1047,7 +1052,13 @@ def run_standard_pipeline_cmd(args: argparse.Namespace) -> int:
         title=args.title,
     )
     if max(1, args.loop_rounds) > 1:
-        manifest = run_standard_pipeline_loop(StandardPipelineLoopRequest(base_request=request, rounds=args.loop_rounds))
+        manifest = run_standard_pipeline_loop(
+            StandardPipelineLoopRequest(
+                base_request=request,
+                rounds=args.loop_rounds,
+                adapt_worker_hypothesis=not bool(args.no_adapt_worker_hypothesis),
+            )
+        )
         print(
             json.dumps(
                 {

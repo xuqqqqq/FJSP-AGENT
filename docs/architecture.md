@@ -207,6 +207,12 @@ and promotion trends, lists focus areas such as duplicate proposals or missing
 benchmark improvement, and drafts a next-worker hypothesis.  It deliberately
 stays outside acceptance logic so the loop can become more autonomous without
 weakening evaluator authority.
+The same focus extraction is used inside a multi-round pipeline run.  After
+iteration `k`, the controller reads iteration `k`'s memory artifact and derives
+iteration `k + 1`'s `worker_hypothesis` from evaluator-grounded
+recommendations.  This is the first closed control loop: evidence changes the
+next prompt while evaluation, promotion, and admission gates remain unchanged.
+`--no-adapt-worker-hypothesis` disables that control link for ablation studies.
 
 ## 5. Hypothesis Memory
 

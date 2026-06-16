@@ -68,6 +68,7 @@ class StandardPipelineLoopRequest:
 
     base_request: StandardPipelineRequest
     rounds: int = 2
+    adapt_worker_hypothesis: bool = True
 
 
 def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
@@ -217,6 +218,12 @@ def run_standard_pipeline_loop(request: StandardPipelineLoopRequest) -> dict[str
     output_dir.mkdir(parents=True, exist_ok=True)
     rounds = max(1, request.rounds)
     previous_memory = request.base_request.previous_pipeline_memory
+    worker_hypothesis = request.base_request.worker_hypothesis
+    if request.adapt_worker_hypothesis and previous_memory:
+        worker_hypothesis = standard_pipeline_memory_to_worker_hypothesis(
+            read_json_if_exists(previous_memory),
+            fallback=worker_hypothesis,
+        )
     iterations: list[dict[str, Any]] = []
 
     for index in range(rounds):
@@ -225,15 +232,19 @@ def run_standard_pipeline_loop(request: StandardPipelineLoopRequest) -> dict[str
             request.base_request,
             output_dir=iteration_dir,
             previous_pipeline_memory=previous_memory,
+            worker_hypothesis=worker_hypothesis,
             worker_experiment_id=f"{request.base_request.worker_experiment_id}_iter_{index:03d}",
             title=f"{request.base_request.title} Iteration {index + 1}/{rounds}",
         )
         iteration_manifest = run_standard_pipeline(iteration_request)
-        iteration_record = standard_pipeline_loop_iteration(index, previous_memory, iteration_manifest)
+        iteration_record = standard_pipeline_loop_iteration(index, previous_memory, worker_hypothesis, iteration_manifest)
         iterations.append(iteration_record)
 
         memory_path = iteration_record.get("memory_path")
         previous_memory = Path(str(memory_path)) if memory_path else None
+        if request.adapt_worker_hypothesis:
+            memory = read_json_if_exists(previous_memory) if previous_memory else {}
+            worker_hypothesis = standard_pipeline_memory_to_worker_hypothesis(memory, fallback=worker_hypothesis)
 
     manifest_path = output_dir / "standard_pipeline_loop_manifest.json"
     report_path = output_dir / "standard_pipeline_loop_report.md"
@@ -259,6 +270,7 @@ def run_standard_pipeline_loop(request: StandardPipelineLoopRequest) -> dict[str
 def standard_pipeline_loop_iteration(
     index: int,
     previous_memory: Path | None,
+    worker_hypothesis: str,
     manifest: dict[str, Any],
 ) -> dict[str, Any]:
     """Create a compact record for one chained standard-pipeline iteration."""
@@ -272,6 +284,7 @@ def standard_pipeline_loop_iteration(
         "status": manifest.get("status"),
         "stage_status": manifest.get("stage_status") or {},
         "input_previous_memory": str(previous_memory.resolve()) if previous_memory else None,
+        "worker_hypothesis": worker_hypothesis,
         "manifest": artifacts.get("manifest"),
         "report": artifacts.get("report"),
         "memory_path": memory_path,
@@ -303,6 +316,7 @@ def standard_pipeline_loop_manifest(
         "round_count": len(iterations),
         "request": {
             "loop_rounds": max(1, request.rounds),
+            "adapt_worker_hypothesis": bool(request.adapt_worker_hypothesis),
             "initial_previous_memory": str(request.base_request.previous_pipeline_memory)
             if request.base_request.previous_pipeline_memory
             else None,
@@ -527,6 +541,21 @@ def standard_pipeline_loop_next_action_brief(manifest: dict[str, Any]) -> dict[s
         ],
         "final_recommendations": recommendations,
     }
+
+
+def standard_pipeline_memory_to_worker_hypothesis(memory: dict[str, Any], *, fallback: str) -> str:
+    """Convert one pipeline memory artifact into the next worker hypothesis."""
+
+    if not memory:
+        return fallback
+    recommendations = memory.get("recommendations") or []
+    focus_areas = loop_focus_areas(
+        status=memory.get("pipeline_status"),
+        final_stage_status=memory.get("stage_status") or {},
+        final_worker=memory.get("worker_signal") or {},
+        recommendations=recommendations,
+    )
+    return next_worker_hypothesis(focus_areas, recommendations)
 
 
 def loop_focus_areas(
