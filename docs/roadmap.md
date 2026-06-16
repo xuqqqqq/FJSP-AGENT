@@ -70,6 +70,9 @@ The repository has reached the first harness milestone:
 - DeepSeek code-edit proposals now include deterministic proposal-audit fields
   that show project-intake usage, referenced files, solver/validator touch
   points, test-command references, and warnings.
+- `run-worker-loop` now feeds compact proposal diagnostics from each worker
+  proposal into later round context packets, so standard FJSP self-evolution can
+  learn from prior proposal quality as well as evaluator outcomes.
 
 This is not yet the full MD requirement.  It is the engineering base that makes
 the later self-evolution loop measurable and auditable.

@@ -39,6 +39,57 @@ class ImproveOnceWorker:
         )
 
 
+class ProposalAuditWorker:
+    """Test worker that writes a structured proposal artifact without changing files."""
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="proposal-audit",
+            supports_code_generation=True,
+            supports_repair=False,
+            supports_structured_output=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        output_dir = Path(spec.output_dir or spec.worktree_path)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        proposal_path = output_dir / "proposal.json"
+        proposal_path.write_text(
+            json.dumps(
+                {
+                    "summary": "Try a solver-rule change based on the project intake.",
+                    "strategy_intent": "Prefer solver-side changes and leave validators untouched.",
+                    "context_usage": {
+                        "used_project_intake": True,
+                        "referenced_files": ["examples/dummy_solver.py", "configs/task_contract.example.json"],
+                        "notes": "Used intake to identify the dummy solver entry point.",
+                    },
+                    "proposal_audit": {
+                        "project_intake_present": True,
+                        "project_intake_status": "ok",
+                        "declared_project_intake_used": True,
+                        "detected_referenced_intake_files": ["examples/dummy_solver.py"],
+                        "changed_core_algorithm_files": ["examples/dummy_solver.py"],
+                        "changed_validator_files": [],
+                        "changed_benchmark_files": [],
+                        "referenced_test_commands": ["python -m compileall harness_agent examples"],
+                        "warnings": [],
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return WorkerResult(
+            status="proposal_created",
+            changed_files=[],
+            summary="Proposal artifact was written for diagnostics.",
+            artifacts={"proposal": str(proposal_path)},
+        )
+
+
 class WorkerLoopTests(unittest.TestCase):
     def test_refreshed_context_records_previous_round_and_duplicate_proposal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -63,6 +114,7 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual((990.0, -0.01), result.final_key)
             self.assertEqual(["rolled_back", "rolled_back"], [item.decision for item in result.rounds])
             self.assertEqual([False, True], [item.duplicate_proposal for item in result.rounds])
+            self.assertEqual("missing", result.rounds[0].proposal_diagnostics["status"])
 
             round_001_context = json.loads((tmp_path / "loop" / "round_001" / "context_packet.json").read_text(encoding="utf-8"))
             self.assertEqual("worker_loop_round_feedback", round_001_context["refresh_reason"])
@@ -103,6 +155,42 @@ class WorkerLoopTests(unittest.TestCase):
             round_000_patch = (tmp_path / "loop" / "round_000" / "worker_changes.patch").read_text(encoding="utf-8")
             self.assertIn("examples/dummy_solver.py", round_000_patch)
             self.assertIn("8 + args.seed", round_000_patch)
+
+    def test_proposal_diagnostics_feed_next_round_context_and_result(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=ProposalAuditWorker(),
+                experiment_id="test_proposal_diagnostics",
+                iterations=2,
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+            )
+
+            diagnostics = result.rounds[0].proposal_diagnostics
+            self.assertEqual("ok", diagnostics["status"])
+            self.assertTrue(diagnostics["context_usage"]["used_project_intake"])
+            self.assertEqual(["examples/dummy_solver.py"], diagnostics["proposal_audit"]["changed_core_algorithm_files"])
+
+            round_001_context = json.loads((tmp_path / "loop" / "round_001" / "context_packet.json").read_text(encoding="utf-8"))
+            previous = round_001_context["loop_feedback"]["previous_rounds"][0]
+            self.assertEqual("ok", previous["proposal_diagnostics"]["status"])
+            self.assertTrue(previous["proposal_diagnostics"]["context_usage"]["used_project_intake"])
+            self.assertEqual(
+                ["examples/dummy_solver.py"],
+                previous["proposal_diagnostics"]["proposal_audit"]["changed_core_algorithm_files"],
+            )
+
+            loop_result = json.loads((tmp_path / "loop" / "loop_result.json").read_text(encoding="utf-8"))
+            self.assertEqual("ok", loop_result["rounds"][0]["proposal_diagnostics"]["status"])
 
 
 def _write_test_context(tmp_path: Path) -> Path:

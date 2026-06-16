@@ -58,6 +58,7 @@ class StandardWorkerLoopTests(unittest.TestCase):
             self.assertEqual(0, manifest["promoted_rounds"])
             self.assertEqual(1, manifest["baseline_summary"]["valid"])
             self.assertEqual("rolled_back", manifest["rounds"][0]["decision"])
+            self.assertEqual("missing", manifest["rounds"][0]["proposal_diagnostics"]["status"])
             self.assertEqual(str(Path(intake["artifacts"]["manifest"])), manifest["request"]["project_intake_manifest"])
             self.assertTrue((output_dir / "standard_worker_contract.json").exists())
             self.assertTrue((output_dir / "context_packet.json").exists())

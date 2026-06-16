@@ -464,8 +464,12 @@ incumbent key, previous evaluator-backed promotion/rollback decisions, and
 compact instructions for avoiding repeated failed edits.  The report also
 records a proposal fingerprint and duplicate-proposal flag for each round so
 homogeneous worker outputs are visible without replacing the evaluator-based
-promotion rule.  The loop report links to each round's worktree delta artifact
-and text patch for audit and later reflection.
+promotion rule.  If the worker writes a structured proposal artifact, the loop
+also carries compact proposal diagnostics into the next round: project-intake
+usage, referenced files, core-solver touch points, validator/benchmark touch
+points, quick-test references, and warnings.  These fields are reflection input
+only; promotion remains evaluator-only.  The loop report links to each round's
+worktree delta artifact and text patch for audit and later reflection.
 
 ## Project Boundary
 

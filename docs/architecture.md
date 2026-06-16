@@ -149,6 +149,14 @@ baseline key, incumbent key, prior candidate summaries, and promotion/rollback
 decisions.  This makes later worker proposals condition on measured outcomes
 rather than on static prompt text.
 
+When a worker produces a structured proposal artifact, the refreshed packet also
+receives compact proposal diagnostics from prior rounds.  The diagnostics record
+whether the proposal declared project-intake usage, which files were referenced,
+whether edits targeted core solver files, whether validator or benchmark files
+were touched, which quick-test commands were referenced, and any deterministic
+audit warnings.  This gives the next worker round concrete reflection material
+without turning proposal quality into an acceptance rule.
+
 Proposal diversity is tracked as an audit signal.  The loop computes a stable
 fingerprint from the worker proposal artifact, or from the worker status and
 changed-file set when no proposal artifact exists.  Repeated fingerprints are

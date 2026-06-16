@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .context_packet import ContextPacketRequest, write_context_packet
-from .loop_runner import WorkerLoopResult, run_worker_loop, summary_payload
+from .loop_runner import WorkerLoopResult, compact_proposal_audit, run_worker_loop, summary_payload
 from .models import TaskContract
 from .worker import CodingWorker
 
@@ -217,6 +217,7 @@ def standard_worker_manifest(
                 "worker_status": item.worker_status,
                 "worker_changed_files": item.worker_changed_files,
                 "duplicate_proposal": item.duplicate_proposal,
+                "proposal_diagnostics": item.proposal_diagnostics,
                 "candidate_key": list(item.candidate_key),
                 "incumbent_key_after": list(item.incumbent_key_after),
                 "cycle_dir": item.cycle_dir,
@@ -254,14 +255,17 @@ def render_standard_worker_report(manifest: dict[str, Any]) -> str:
             "",
             "## Rounds",
             "",
-            "| Round | Decision | Worker | Duplicate | Candidate Key | Changed Files | Patch |",
-            "| ---: | --- | --- | --- | --- | --- | --- |",
+            "| Round | Decision | Worker | Duplicate | Proposal Audit | Candidate Key | Changed Files | Patch |",
+            "| ---: | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for item in manifest.get("rounds", []):
+        diagnostics = item.get("proposal_diagnostics") or {}
+        proposal_audit = compact_proposal_audit(diagnostics) if isinstance(diagnostics, dict) else {}
         lines.append(
             f"| {item.get('round_index')} | {item.get('decision')} | {item.get('worker_status')} | "
             f"{item.get('duplicate_proposal')} | "
+            f"`{json.dumps(proposal_audit, ensure_ascii=False)}` | "
             f"`{json.dumps(item.get('candidate_key'), ensure_ascii=False)}` | "
             f"`{json.dumps(item.get('worker_changed_files') or [], ensure_ascii=False)}` | "
             f"`{item.get('patch_path')}` |"
@@ -270,6 +274,7 @@ def render_standard_worker_report(manifest: dict[str, Any]) -> str:
         [
             "",
             "Promotion is allowed only when the Core evaluator-backed objective key is strictly better than the incumbent key.",
+            "Proposal-audit diagnostics are carried forward as reflection context and do not change promotion semantics.",
         ]
     )
     return "\n".join(lines).strip() + "\n"

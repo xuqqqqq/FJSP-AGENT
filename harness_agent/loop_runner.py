@@ -24,6 +24,7 @@ class LoopRoundRecord:
     worker_changed_files: list[str]
     proposal_fingerprint: str
     duplicate_proposal: bool
+    proposal_diagnostics: dict[str, Any]
     candidate_summary: dict[str, Any]
     cycle_dir: str
     context_packet_path: str
@@ -98,6 +99,7 @@ def run_worker_loop(
         proposal_fingerprint = worker_proposal_fingerprint(cycle.worker_result)
         duplicate_proposal = proposal_fingerprint in seen_proposal_fingerprints
         seen_proposal_fingerprints.add(proposal_fingerprint)
+        proposal_diagnostics = worker_proposal_diagnostics(cycle.worker_result)
         candidate_key = summary_objective_key(cycle.summary, contract.objectives)
         promoted = candidate_key > incumbent_key
         if promoted:
@@ -113,6 +115,7 @@ def run_worker_loop(
                 worker_changed_files=cycle.worker_result.changed_files,
                 proposal_fingerprint=proposal_fingerprint,
                 duplicate_proposal=duplicate_proposal,
+                proposal_diagnostics=proposal_diagnostics,
                 candidate_summary=summary_payload(cycle.summary),
                 cycle_dir=str(cycle_dir),
                 context_packet_path=str(round_context_packet_path),
@@ -209,6 +212,7 @@ def loop_feedback_payload(
             "Use only Core evaluator metrics as promotion evidence.",
             "Preserve successful ideas from promoted rounds unless a better alternative is justified.",
             "Do not repeat rolled-back edits unchanged; explain what is materially different if revisiting them.",
+            "Use proposal_diagnostics to inspect whether prior proposals used project_intake, touched solver or validator files, or missed quick-test guidance.",
             "Prefer small, reversible solver changes whose effect can be attributed in the next evaluator run.",
         ],
     }
@@ -224,6 +228,7 @@ def round_record_payload(item: LoopRoundRecord) -> dict[str, Any]:
         "worker_changed_files": item.worker_changed_files,
         "proposal_fingerprint": item.proposal_fingerprint,
         "duplicate_proposal": item.duplicate_proposal,
+        "proposal_diagnostics": item.proposal_diagnostics,
         "candidate_summary": item.candidate_summary,
         "cycle_dir": item.cycle_dir,
         "context_packet_path": item.context_packet_path,
@@ -258,6 +263,68 @@ def worker_proposal_fingerprint(worker_result: WorkerResult) -> str:
     )
 
 
+def worker_proposal_diagnostics(worker_result: WorkerResult) -> dict[str, Any]:
+    """Extract compact proposal diagnostics for the next self-evolution round.
+
+    The diagnostics are reflection context only.  Promotion still depends solely
+    on the fixed evaluator objective key.
+    """
+
+    artifacts = worker_result.artifacts or {}
+    proposal_path_value = artifacts.get("proposal")
+    if not proposal_path_value:
+        return {"status": "missing", "reason": "worker_result_has_no_proposal_artifact"}
+
+    proposal_path = Path(proposal_path_value)
+    if not proposal_path.exists():
+        return {
+            "status": "missing",
+            "reason": "proposal_artifact_not_found",
+            "proposal_path": str(proposal_path),
+        }
+
+    try:
+        proposal = json.loads(proposal_path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "status": "unreadable",
+            "reason": str(exc),
+            "proposal_path": str(proposal_path),
+        }
+
+    audit = proposal.get("proposal_audit")
+    if not isinstance(audit, dict):
+        audit = {}
+    context_usage = proposal.get("context_usage")
+    if not isinstance(context_usage, dict):
+        context_usage = {}
+
+    return {
+        "status": "ok",
+        "proposal_path": str(proposal_path),
+        "summary": _bounded_text(proposal.get("summary")),
+        "strategy_intent": _bounded_text(proposal.get("strategy_intent")),
+        "context_usage": {
+            "used_project_intake": bool(context_usage.get("used_project_intake")),
+            "referenced_files": _bounded_list(context_usage.get("referenced_files"), limit=40),
+            "notes": _bounded_text(context_usage.get("notes")),
+        },
+        "proposal_audit": {
+            "project_intake_present": audit.get("project_intake_present"),
+            "project_intake_status": audit.get("project_intake_status"),
+            "declared_project_intake_used": audit.get("declared_project_intake_used"),
+            "detected_referenced_intake_files": _bounded_list(
+                audit.get("detected_referenced_intake_files"), limit=40
+            ),
+            "changed_core_algorithm_files": _bounded_list(audit.get("changed_core_algorithm_files"), limit=40),
+            "changed_validator_files": _bounded_list(audit.get("changed_validator_files"), limit=40),
+            "changed_benchmark_files": _bounded_list(audit.get("changed_benchmark_files"), limit=40),
+            "referenced_test_commands": _bounded_list(audit.get("referenced_test_commands"), limit=20),
+            "warnings": _bounded_list(audit.get("warnings"), limit=20),
+        },
+    }
+
+
 def write_loop_report(*, output_dir: Path, result: WorkerLoopResult) -> None:
     payload = {
         "baseline_key": list(result.baseline_key),
@@ -281,13 +348,15 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult) -> None:
         "",
         "## Rounds",
         "",
-        "| Round | Decision | Worker | Duplicate Proposal | Candidate Key | Incumbent Key After | Context Packet | Worktree Delta | Changed Files |",
-        "| ---: | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Round | Decision | Worker | Duplicate Proposal | Proposal Audit | Candidate Key | Incumbent Key After | Context Packet | Worktree Delta | Changed Files |",
+        "| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for item in result.rounds:
+        proposal_audit = compact_proposal_audit(item.proposal_diagnostics)
         lines.append(
             f"| {item.round_index} | {item.decision} | {item.worker_status} | "
             f"{'yes' if item.duplicate_proposal else 'no'} | "
+            f"`{json.dumps(proposal_audit, ensure_ascii=False)}` | "
             f"`{json.dumps(item.candidate_key, ensure_ascii=False)}` | "
             f"`{json.dumps(item.incumbent_key_after, ensure_ascii=False)}` | "
             f"`{item.context_packet_path}` | "
@@ -299,9 +368,27 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult) -> None:
             "",
             "A round is promoted only when its Core evaluator-backed objective key is strictly better than the incumbent key.",
             "Rolled-back rounds leave the incumbent worktree unchanged.",
+            "Proposal audit fields are reflection inputs for later rounds; they are not promotion gates.",
         ]
     )
     (output_dir / "loop_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def compact_proposal_audit(diagnostics: dict[str, Any]) -> dict[str, Any]:
+    """Return the report-friendly subset of proposal diagnostics."""
+
+    audit = diagnostics.get("proposal_audit")
+    if not isinstance(audit, dict):
+        audit = {}
+    return {
+        "status": diagnostics.get("status"),
+        "used_intake": (diagnostics.get("context_usage") or {}).get("used_project_intake")
+        if isinstance(diagnostics.get("context_usage"), dict)
+        else None,
+        "changed_core": audit.get("changed_core_algorithm_files") or [],
+        "changed_validators": audit.get("changed_validator_files") or [],
+        "warnings": audit.get("warnings") or [],
+    }
 
 
 def _run_harness(*, contract: TaskContract, project_root: Path, output_dir: Path) -> RunSummary:
@@ -318,3 +405,16 @@ def _hash_json(payload: Any) -> str:
 
 def _hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _bounded_text(value: Any, *, limit: int = 500) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    return text if len(text) <= limit else text[:limit] + "..."
+
+
+def _bounded_list(value: Any, *, limit: int) -> list[Any]:
+    if not isinstance(value, list):
+        return []
+    return value[:limit]
