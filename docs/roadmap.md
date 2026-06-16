@@ -80,6 +80,9 @@ The repository has reached the first harness milestone:
 - `build-context-packet`, `run-standard-worker-loop`, and
   `run-standard-pipeline` can now consume a prior `standard_pipeline_memory.json`
   and expose it to the next coding-worker proposal as `previous_pipeline_memory`.
+- `run-standard-pipeline --loop-rounds N` now automates that handoff by running
+  complete pipeline iterations under `iteration_000`, `iteration_001`, and so
+  on, then feeding each iteration's memory artifact into the next one.
 
 This is not yet the full MD requirement.  It is the engineering base that makes
 the later self-evolution loop measurable and auditable.

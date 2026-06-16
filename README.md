@@ -309,6 +309,12 @@ On a later run, pass the prior JSON back with `--previous-memory
 outputs\standard_pipeline_demo\standard_pipeline_memory.json`; the standard
 worker context packet will expose it as `previous_pipeline_memory` before the
 coding backend proposes another solver change.
+For an automatic multi-round loop, keep the same command and add
+`--loop-rounds 2` or larger.  The command writes
+`standard_pipeline_loop_manifest.json` and `standard_pipeline_loop_report.md`
+under the requested output directory, while each full iteration is stored under
+`iteration_000`, `iteration_001`, and so on.  Every iteration after the first
+receives the previous iteration's `standard_pipeline_memory.json` automatically.
 
 ## Evidence Index
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +60,14 @@ class StandardPipelineRequest:
         "State the rule-level idea before editing code."
     )
     title: str = "Standard FJSP Loop Pipeline Evidence"
+
+
+@dataclass(frozen=True)
+class StandardPipelineLoopRequest:
+    """Request for running several standard pipeline iterations as one loop."""
+
+    base_request: StandardPipelineRequest
+    rounds: int = 2
 
 
 def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
@@ -202,6 +210,124 @@ def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
     return manifest
 
 
+def run_standard_pipeline_loop(request: StandardPipelineLoopRequest) -> dict[str, Any]:
+    """Run standard pipeline rounds while feeding each round's memory to the next."""
+
+    output_dir = request.base_request.output_dir.resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    rounds = max(1, request.rounds)
+    previous_memory = request.base_request.previous_pipeline_memory
+    iterations: list[dict[str, Any]] = []
+
+    for index in range(rounds):
+        iteration_dir = output_dir / f"iteration_{index:03d}"
+        iteration_request = replace(
+            request.base_request,
+            output_dir=iteration_dir,
+            previous_pipeline_memory=previous_memory,
+            worker_experiment_id=f"{request.base_request.worker_experiment_id}_iter_{index:03d}",
+            title=f"{request.base_request.title} Iteration {index + 1}/{rounds}",
+        )
+        iteration_manifest = run_standard_pipeline(iteration_request)
+        iteration_record = standard_pipeline_loop_iteration(index, previous_memory, iteration_manifest)
+        iterations.append(iteration_record)
+
+        memory_path = iteration_record.get("memory_path")
+        previous_memory = Path(str(memory_path)) if memory_path else None
+
+    manifest_path = output_dir / "standard_pipeline_loop_manifest.json"
+    report_path = output_dir / "standard_pipeline_loop_report.md"
+    loop_manifest = standard_pipeline_loop_manifest(
+        request=request,
+        iterations=iterations,
+        output_dir=output_dir,
+        manifest_path=manifest_path,
+        report_path=report_path,
+    )
+    manifest_path.write_text(json.dumps(loop_manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    report_path.write_text(render_standard_pipeline_loop_report(loop_manifest), encoding="utf-8")
+    return loop_manifest
+
+
+def standard_pipeline_loop_iteration(
+    index: int,
+    previous_memory: Path | None,
+    manifest: dict[str, Any],
+) -> dict[str, Any]:
+    """Create a compact record for one chained standard-pipeline iteration."""
+
+    artifacts = manifest.get("artifacts") or {}
+    worker = manifest.get("standard_worker_loop") or {}
+    memory_path = artifacts.get("standard_pipeline_memory_json")
+    memory = read_json_if_exists(Path(str(memory_path))) if memory_path else {}
+    return {
+        "iteration_index": index,
+        "status": manifest.get("status"),
+        "stage_status": manifest.get("stage_status") or {},
+        "input_previous_memory": str(previous_memory.resolve()) if previous_memory else None,
+        "manifest": artifacts.get("manifest"),
+        "report": artifacts.get("report"),
+        "memory_path": memory_path,
+        "benchmark_signal": compact_benchmark_signal(manifest.get("benchmark_suite") or {}),
+        "worker_signal": {
+            "baseline_key": worker.get("baseline_key"),
+            "final_key": worker.get("final_key"),
+            "improved": worker.get("improved"),
+            "round_count": worker.get("round_count", 0),
+            "promoted_rounds": worker.get("promoted_rounds", 0),
+        },
+        "recommendations": memory.get("recommendations") or [],
+    }
+
+
+def standard_pipeline_loop_manifest(
+    *,
+    request: StandardPipelineLoopRequest,
+    iterations: list[dict[str, Any]],
+    output_dir: Path,
+    manifest_path: Path,
+    report_path: Path,
+) -> dict[str, Any]:
+    final_iteration = iterations[-1] if iterations else {}
+    status = "ok" if iterations and all(item.get("status") == "ok" for item in iterations) else "partial_failed"
+    return {
+        "schema_version": 1,
+        "status": status,
+        "round_count": len(iterations),
+        "request": {
+            "loop_rounds": max(1, request.rounds),
+            "initial_previous_memory": str(request.base_request.previous_pipeline_memory)
+            if request.base_request.previous_pipeline_memory
+            else None,
+            "suite_config": str(request.base_request.suite_config),
+            "worker": request.base_request.worker.capabilities().__dict__,
+            "worker_instance_dir": str(request.base_request.worker_instance_dir),
+            "worker_pattern": request.base_request.worker_pattern,
+            "worker_solver": request.base_request.worker_solver,
+        },
+        "iterations": iterations,
+        "final": {
+            "status": final_iteration.get("status"),
+            "manifest": final_iteration.get("manifest"),
+            "report": final_iteration.get("report"),
+            "memory_path": final_iteration.get("memory_path"),
+            "benchmark_signal": final_iteration.get("benchmark_signal") or {},
+            "worker_signal": final_iteration.get("worker_signal") or {},
+            "recommendations": final_iteration.get("recommendations") or [],
+        },
+        "artifacts": {
+            "manifest": str(manifest_path.resolve()),
+            "report": str(report_path.resolve()),
+            "final_memory": final_iteration.get("memory_path"),
+            "final_pipeline_manifest": final_iteration.get("manifest"),
+            "final_pipeline_report": final_iteration.get("report"),
+            "iteration_manifests": [item.get("manifest") for item in iterations if item.get("manifest")],
+            "iteration_reports": [item.get("report") for item in iterations if item.get("report")],
+        },
+        "output_dir": str(output_dir.resolve()),
+    }
+
+
 def standard_pipeline_manifest(
     *,
     request: StandardPipelineRequest,
@@ -337,6 +463,16 @@ def standard_pipeline_manifest(
     }
 
 
+def read_json_if_exists(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def pipeline_status(
     intake_manifest: dict[str, Any] | None,
     health_manifest: dict[str, Any] | None,
@@ -412,6 +548,67 @@ def render_standard_pipeline_report(manifest: dict[str, Any]) -> str:
         ]
     )
     return "\n".join(lines).strip() + "\n"
+
+
+def render_standard_pipeline_loop_report(manifest: dict[str, Any]) -> str:
+    final = manifest.get("final") or {}
+    lines = [
+        "# Standard FJSP Pipeline Loop Report",
+        "",
+        f"- Status: `{manifest.get('status')}`",
+        f"- Rounds: `{manifest.get('round_count', 0)}`",
+        f"- Final memory: `{final.get('memory_path')}`",
+        "",
+        "## Iterations",
+        "",
+        "| Iteration | Status | Previous Memory | Avg Gap % | Worker Promoted | Worker Improved | Memory |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for item in manifest.get("iterations") or []:
+        benchmark = item.get("benchmark_signal") or {}
+        worker = item.get("worker_signal") or {}
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    f"`{item.get('iteration_index')}`",
+                    f"`{item.get('status')}`",
+                    f"`{short_path(item.get('input_previous_memory'))}`",
+                    f"`{benchmark.get('avg_reported_gap_pct')}`",
+                    f"`{worker.get('promoted_rounds', 0)}/{worker.get('round_count', 0)}`",
+                    f"`{worker.get('improved')}`",
+                    f"`{short_path(item.get('memory_path'))}`",
+                ]
+            )
+            + " |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Final Recommendations",
+            "",
+        ]
+    )
+    for item in final.get("recommendations") or []:
+        lines.append(f"- {item}")
+    lines.extend(["", "## Artifacts", ""])
+    for name, path in (manifest.get("artifacts") or {}).items():
+        lines.append(f"- {name}: `{path}`")
+    lines.extend(
+        [
+            "",
+            "Each iteration is a full standard pipeline run.  The next iteration receives only the previous round's compact memory artifact; evaluator and promotion decisions remain owned by the referenced per-iteration manifests.",
+        ]
+    )
+    return "\n".join(lines).strip() + "\n"
+
+
+def short_path(value: object) -> str:
+    if not value:
+        return ""
+    text = str(value)
+    parts = Path(text).parts
+    return str(Path(*parts[-3:])) if len(parts) > 3 else text
 
 
 def standard_pipeline_memory(manifest: dict[str, Any]) -> dict[str, Any]:

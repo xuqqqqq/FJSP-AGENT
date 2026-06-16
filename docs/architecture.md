@@ -195,6 +195,11 @@ The handoff is also consumable by the next run.  `build-context-packet`,
 file and embed a compact `previous_pipeline_memory` object in the worker context
 packet.  This closes the loop between one evaluator-backed pipeline run and the
 next proposal round while keeping the original reports and manifests auditable.
+When `run-standard-pipeline --loop-rounds N` is used, the same handoff is chained
+automatically: each `iteration_xxx` directory is a complete pipeline run, and
+iteration `k + 1` receives iteration `k`'s `standard_pipeline_memory.json` in
+its worker context packet.  The top-level loop manifest is a navigation and
+audit summary only; it does not replace the per-iteration evaluator evidence.
 
 ## 5. Hypothesis Memory
 

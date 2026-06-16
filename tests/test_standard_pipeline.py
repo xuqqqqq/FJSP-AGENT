@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from harness_agent.standard_pipeline import StandardPipelineRequest, run_standard_pipeline
+from harness_agent.standard_pipeline import StandardPipelineLoopRequest, StandardPipelineRequest, run_standard_pipeline, run_standard_pipeline_loop
 from harness_agent.worker import NullWorker
 
 
@@ -125,6 +125,50 @@ class StandardPipelineTests(unittest.TestCase):
             self.assertTrue((output_dir / "standard_pipeline_memory.json").exists())
             self.assertTrue((output_dir / "project_intake" / "project_intake_manifest.json").exists())
             self.assertTrue((output_dir / "intent_alignment" / "intent_alignment_manifest.json").exists())
+
+    def test_standard_pipeline_loop_chains_memory_between_iterations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp) / "pipeline_loop"
+            manifest = run_standard_pipeline_loop(
+                StandardPipelineLoopRequest(
+                    base_request=StandardPipelineRequest(
+                        suite_config=ROOT / "configs" / "standard_fjsp_suite.example.json",
+                        output_dir=output_dir,
+                        project_root=ROOT,
+                        worker=NullWorker(),
+                        worker_docs=[ROOT / "README.md"],
+                        worker_instance_dir=ROOT / "examples",
+                        health_contract=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                        health_repeats=2,
+                        worker_pattern="standard_fjsp_tiny.fjs",
+                        worker_best_known_csv=ROOT / "configs" / "standard_fjsp_tiny_best.csv",
+                        worker_max_instances=1,
+                        worker_seeds=[0],
+                        worker_timeout_seconds=30,
+                        worker_solver="portfolio",
+                        worker_portfolio_size=4,
+                        worker_iterations=1,
+                        worker_max_steps=1,
+                        worker_max_runtime_seconds=30,
+                    ),
+                    rounds=2,
+                )
+            )
+
+            self.assertEqual("ok", manifest["status"])
+            self.assertEqual(2, manifest["round_count"])
+            self.assertEqual(2, len(manifest["iterations"]))
+            first_memory = Path(str(manifest["iterations"][0]["memory_path"]))
+            self.assertTrue(first_memory.exists())
+            self.assertEqual(str(first_memory), manifest["iterations"][1]["input_previous_memory"])
+            second_context = json.loads(
+                (output_dir / "iteration_001" / "standard_worker_loop" / "context_packet.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(str(first_memory), second_context["previous_pipeline_memory"]["path"])
+            self.assertEqual("ok", second_context["previous_pipeline_memory"]["pipeline_status"])
+            self.assertEqual(manifest["iterations"][1]["memory_path"], manifest["artifacts"]["final_memory"])
+            self.assertTrue((output_dir / "standard_pipeline_loop_manifest.json").exists())
+            self.assertTrue((output_dir / "standard_pipeline_loop_report.md").exists())
 
 
 def _write_previous_memory(tmp_path: Path) -> Path:

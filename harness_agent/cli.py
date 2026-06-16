@@ -18,7 +18,12 @@ from .models import TaskContract
 from .project_intake import ProjectIntakeRequest, write_project_intake
 from .runner import HarnessRunner
 from .standard_agent import StandardFjspAgentRunner
-from .standard_pipeline import StandardPipelineRequest, run_standard_pipeline
+from .standard_pipeline import (
+    StandardPipelineLoopRequest,
+    StandardPipelineRequest,
+    run_standard_pipeline,
+    run_standard_pipeline_loop,
+)
 from .standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop
 from .worker import ExperimentSpec, NullWorker, WorkerResult
 from .worker_cycle import run_worker_cycle
@@ -295,6 +300,7 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--suite-config", required=True, type=Path)
     pipeline.add_argument("--output-dir", required=True, type=Path)
     pipeline.add_argument("--project-root", type=Path, default=Path.cwd())
+    pipeline.add_argument("--loop-rounds", type=int, default=1, help="run multiple pipeline iterations and chain memory")
     pipeline.add_argument("--max-suites", type=int)
     pipeline.add_argument("--skip-project-intake", action="store_true")
     pipeline.add_argument("--project-intake-max-files", type=int, default=200)
@@ -999,49 +1005,66 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
 def run_standard_pipeline_cmd(args: argparse.Namespace) -> int:
     seeds = [int(item.strip()) for item in str(args.worker_seeds).split(",") if item.strip()]
     worker = make_worker(args.worker, deepseek_model=args.deepseek_model, opencode_model=args.opencode_model)
-    manifest = run_standard_pipeline(
-        StandardPipelineRequest(
-            suite_config=args.suite_config,
-            output_dir=args.output_dir,
-            project_root=args.project_root,
-            worker=worker,
-            worker_docs=args.worker_doc,
-            worker_knowledge_cards=args.worker_knowledge_card,
-            previous_pipeline_memory=args.previous_memory,
-            worker_instance_dir=args.worker_instance_dir,
-            run_project_intake=not bool(args.skip_project_intake),
-            project_intake_max_files=max(1, args.project_intake_max_files),
-            health_contract=args.health_contract,
-            health_repeats=max(1, args.health_repeats),
-            health_max_instances=max(1, args.health_max_instances),
-            health_max_seeds=max(1, args.health_max_seeds),
-            health_allow_draft=bool(args.health_allow_draft),
-            benchmark_source=args.benchmark_source,
-            worker_pattern=args.worker_pattern,
-            worker_best_known_csv=args.worker_best_known_csv,
-            max_suites=args.max_suites,
-            worker_max_instances=args.worker_max_instances,
-            worker_seeds=seeds or [0],
-            worker_timeout_seconds=args.worker_timeout_seconds,
-            worker_max_workers=max(1, args.worker_max_workers),
-            worker_solver=args.worker_solver,
-            worker_portfolio_size=args.worker_portfolio_size,
-            worker_local_search_restarts=args.worker_local_search_restarts,
-            worker_local_search_initial_pool_size=args.worker_local_search_initial_pool_size,
-            worker_local_search_iterations=args.worker_local_search_iterations,
-            worker_local_search_neighbor_limit=args.worker_local_search_neighbor_limit,
-            worker_local_search_time_limit_sec=args.worker_local_search_time_limit_sec,
-            worker_local_search_neighborhood_profile=args.worker_local_search_neighborhood_profile,
-            worker_iterations=args.worker_iterations,
-            worker_max_steps=args.worker_max_steps,
-            worker_max_runtime_seconds=args.worker_max_runtime_seconds,
-            worker_apply_changes=bool(args.worker_apply),
-            worker_experiment_id=args.worker_experiment_id,
-            worker_hypothesis=args.worker_hypothesis
-            or "Improve the standard FJSP solver under the fixed evaluator. State the rule-level idea before editing code.",
-            title=args.title,
-        )
+    request = StandardPipelineRequest(
+        suite_config=args.suite_config,
+        output_dir=args.output_dir,
+        project_root=args.project_root,
+        worker=worker,
+        worker_docs=args.worker_doc,
+        worker_knowledge_cards=args.worker_knowledge_card,
+        previous_pipeline_memory=args.previous_memory,
+        worker_instance_dir=args.worker_instance_dir,
+        run_project_intake=not bool(args.skip_project_intake),
+        project_intake_max_files=max(1, args.project_intake_max_files),
+        health_contract=args.health_contract,
+        health_repeats=max(1, args.health_repeats),
+        health_max_instances=max(1, args.health_max_instances),
+        health_max_seeds=max(1, args.health_max_seeds),
+        health_allow_draft=bool(args.health_allow_draft),
+        benchmark_source=args.benchmark_source,
+        worker_pattern=args.worker_pattern,
+        worker_best_known_csv=args.worker_best_known_csv,
+        max_suites=args.max_suites,
+        worker_max_instances=args.worker_max_instances,
+        worker_seeds=seeds or [0],
+        worker_timeout_seconds=args.worker_timeout_seconds,
+        worker_max_workers=max(1, args.worker_max_workers),
+        worker_solver=args.worker_solver,
+        worker_portfolio_size=args.worker_portfolio_size,
+        worker_local_search_restarts=args.worker_local_search_restarts,
+        worker_local_search_initial_pool_size=args.worker_local_search_initial_pool_size,
+        worker_local_search_iterations=args.worker_local_search_iterations,
+        worker_local_search_neighbor_limit=args.worker_local_search_neighbor_limit,
+        worker_local_search_time_limit_sec=args.worker_local_search_time_limit_sec,
+        worker_local_search_neighborhood_profile=args.worker_local_search_neighborhood_profile,
+        worker_iterations=args.worker_iterations,
+        worker_max_steps=args.worker_max_steps,
+        worker_max_runtime_seconds=args.worker_max_runtime_seconds,
+        worker_apply_changes=bool(args.worker_apply),
+        worker_experiment_id=args.worker_experiment_id,
+        worker_hypothesis=args.worker_hypothesis
+        or "Improve the standard FJSP solver under the fixed evaluator. State the rule-level idea before editing code.",
+        title=args.title,
     )
+    if max(1, args.loop_rounds) > 1:
+        manifest = run_standard_pipeline_loop(StandardPipelineLoopRequest(base_request=request, rounds=args.loop_rounds))
+        print(
+            json.dumps(
+                {
+                    "status": manifest["status"],
+                    "round_count": manifest["round_count"],
+                    "final": manifest["final"],
+                    "manifest": manifest["artifacts"]["manifest"],
+                    "report": manifest["artifacts"]["report"],
+                    "final_memory": manifest["artifacts"].get("final_memory"),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 0 if manifest["status"] == "ok" else 1
+
+    manifest = run_standard_pipeline(request)
     print(
         json.dumps(
             {
