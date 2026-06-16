@@ -412,6 +412,11 @@ By default, a coding worker only creates proposal artifacts such as
 allowlist and forbidden-path checks pass.  Even after `--apply`, the worker
 result is not a success verdict; the harness must still run quick tests and the
 fixed evaluator.
+For DeepSeek proposals, the normalized `proposal.json` also contains
+`proposal_audit`: a deterministic check of whether the proposal used
+`project_intake`, which intake files it referenced, whether accepted edits touch
+core solver files, and whether they touch validator or benchmark candidates.
+This audit is diagnostic evidence only; it never replaces evaluator promotion.
 
 For a full single-iteration loop, use `run-worker-cycle`. It creates an
 isolated candidate worktree, runs the worker against the context packet, then

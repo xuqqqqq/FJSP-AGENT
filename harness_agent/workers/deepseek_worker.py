@@ -314,6 +314,11 @@ Return JSON only with this schema:
       "rationale": "why this change helps"
     }}
   ],
+  "context_usage": {{
+    "used_project_intake": true,
+    "referenced_files": ["examples/standard_fjsp_solver.py"],
+    "notes": "how the repository map shaped the edit"
+  }},
   "quick_test_plan": "command or explanation",
   "risk_notes": ["risk 1"]
 }}
@@ -323,6 +328,10 @@ Rules:
 - Only propose edits under edit_policy.allowed_paths.
 - Never propose edits under edit_policy.forbidden_paths or .git/outputs.
 - Prefer one small, complete file over many partial edits.
+- If project_intake is present, use it to identify entry files, core solver
+  files, evaluator/validator files, and test commands before choosing edits.
+- In context_usage, explicitly list the project_intake files or commands that
+  shaped the proposal.  If project_intake was not useful, explain why.
 - If the task contract requires human confirmation, say so in risk_notes and
   avoid claiming formal success.
 - Do not include Markdown fences or commentary outside JSON.
@@ -359,14 +368,17 @@ Context packet:
                     "rationale": str(item.get("rationale", ""))[:2000],
                 }
             )
-        return {
+        normalized = {
             "summary": str(proposal.get("summary", ""))[:4000],
             "strategy_intent": str(proposal.get("strategy_intent", ""))[:4000],
             "changes": normalized_changes,
             "rejected_changes": rejected_changes,
+            "context_usage": normalize_context_usage(proposal.get("context_usage")),
             "quick_test_plan": str(proposal.get("quick_test_plan", ""))[:2000],
             "risk_notes": [str(item)[:1000] for item in proposal.get("risk_notes", []) if isinstance(item, str)],
         }
+        normalized["proposal_audit"] = build_proposal_audit(normalized, context)
+        return normalized
 
     def _repair_profile_json(self, client: DeepSeekClient, raw: str, error: str, max_tokens: int) -> str:
         return client.chat(
@@ -464,6 +476,125 @@ def normalize_local_search_profiles(profile: dict[str, Any]) -> list[dict[str, A
     return profiles[:3]
 
 
+def normalize_context_usage(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {
+            "used_project_intake": False,
+            "referenced_files": [],
+            "notes": "",
+        }
+    referenced_files = []
+    for item in value.get("referenced_files", []):
+        if isinstance(item, str) and item.strip():
+            referenced_files.append(normalize_relative_path(item))
+    return {
+        "used_project_intake": bool(value.get("used_project_intake")),
+        "referenced_files": sorted(set(referenced_files))[:40],
+        "notes": str(value.get("notes", ""))[:2000],
+    }
+
+
+def build_proposal_audit(proposal: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    project_intake = context.get("project_intake") or {}
+    intake_summary = project_intake.get("summary") or {}
+    accepted_paths = [normalize_relative_path(str(item.get("path", ""))) for item in proposal.get("changes", [])]
+    accepted_paths = [item for item in accepted_paths if item]
+    rejected_paths = [normalize_relative_path(str(item.get("path", ""))) for item in proposal.get("rejected_changes", [])]
+    rejected_paths = [item for item in rejected_paths if item]
+
+    intake_sets = {
+        "entry_files": normalized_path_set(intake_summary.get("entry_files") or []),
+        "core_algorithm_files": normalized_path_set(intake_summary.get("core_algorithm_files") or []),
+        "benchmark_files": normalized_path_set(intake_summary.get("benchmark_files") or []),
+        "validator_files": normalized_path_set(intake_summary.get("validator_files") or []),
+        "dependency_files": normalized_path_set(intake_summary.get("dependency_files") or []),
+    }
+    proposal_text = proposal_search_text(proposal)
+    referenced_paths = sorted(
+        path
+        for path in all_intake_paths(intake_sets)
+        if path and (path.lower() in proposal_text or any(_path_is_under(changed, path) for changed in accepted_paths))
+    )
+    declared_usage = proposal.get("context_usage") or {}
+    declared_references = normalized_path_set(declared_usage.get("referenced_files") or [])
+    changed_core = sorted(path for path in accepted_paths if path_matches_any(path, intake_sets["core_algorithm_files"]))
+    changed_validators = sorted(path for path in accepted_paths if path_matches_any(path, intake_sets["validator_files"]))
+    changed_benchmarks = sorted(path for path in accepted_paths if path_matches_any(path, intake_sets["benchmark_files"]))
+    touched_intake_paths = sorted(path for path in accepted_paths if path_matches_any(path, all_intake_paths(intake_sets)))
+    risk_codes = [str(item.get("code")) for item in intake_summary.get("risk_flags") or [] if item.get("code")]
+    test_commands = [
+        str(item.get("command"))
+        for item in intake_summary.get("test_commands") or []
+        if item.get("command")
+    ]
+    quick_test_plan = str(proposal.get("quick_test_plan", ""))
+    referenced_test_commands = [command for command in test_commands if command and command in quick_test_plan]
+
+    warnings = []
+    if project_intake and not (declared_usage.get("used_project_intake") or referenced_paths or touched_intake_paths):
+        warnings.append("project_intake_present_but_not_referenced")
+    if changed_validators:
+        warnings.append("proposal_touches_validator_candidates")
+    if changed_benchmarks:
+        warnings.append("proposal_touches_benchmark_candidates")
+    if accepted_paths and not referenced_test_commands:
+        warnings.append("quick_test_plan_does_not_reference_intake_test_command")
+
+    return {
+        "project_intake_present": bool(project_intake),
+        "project_intake_status": project_intake.get("status"),
+        "declared_project_intake_used": bool(declared_usage.get("used_project_intake")),
+        "declared_referenced_files": sorted(declared_references),
+        "detected_referenced_intake_files": referenced_paths[:80],
+        "accepted_change_count": len(accepted_paths),
+        "rejected_change_count": len(rejected_paths),
+        "accepted_change_paths": accepted_paths,
+        "changed_core_algorithm_files": changed_core,
+        "changed_validator_files": changed_validators,
+        "changed_benchmark_files": changed_benchmarks,
+        "changed_files_seen_in_intake": touched_intake_paths,
+        "referenced_test_commands": referenced_test_commands,
+        "project_intake_risk_codes": risk_codes,
+        "warnings": warnings,
+    }
+
+
+def normalized_path_set(values: list[Any]) -> set[str]:
+    result: set[str] = set()
+    for value in values:
+        if isinstance(value, str):
+            normalized = normalize_relative_path(value)
+            if normalized:
+                result.add(normalized)
+    return result
+
+
+def all_intake_paths(intake_sets: dict[str, set[str]]) -> set[str]:
+    result: set[str] = set()
+    for paths in intake_sets.values():
+        result.update(paths)
+    return result
+
+
+def proposal_search_text(proposal: dict[str, Any]) -> str:
+    parts = [
+        str(proposal.get("summary", "")),
+        str(proposal.get("strategy_intent", "")),
+        str(proposal.get("quick_test_plan", "")),
+        str((proposal.get("context_usage") or {}).get("notes", "")),
+    ]
+    for item in proposal.get("changes", []):
+        parts.append(str(item.get("path", "")))
+        parts.append(str(item.get("rationale", "")))
+    for path in (proposal.get("context_usage") or {}).get("referenced_files") or []:
+        parts.append(str(path))
+    return "\n".join(parts).replace("\\", "/").lower()
+
+
+def path_matches_any(path: str, roots: set[str]) -> bool:
+    return any(_path_is_under(path, root) for root in roots if root)
+
+
 def safe_profile_name(value: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
     return safe[:64] or "local_search_profile"
@@ -544,6 +675,34 @@ def render_code_edit_markdown(proposal: dict[str, Any]) -> str:
                 f"- action: `{change.get('action')}`",
                 f"- rationale: {change.get('rationale', '')}",
                 "",
+            ]
+        )
+    context_usage = proposal.get("context_usage") or {}
+    lines.extend(
+        [
+            "",
+            "## Context Usage",
+            "",
+            f"- used_project_intake: `{context_usage.get('used_project_intake')}`",
+            f"- referenced_files: `{json.dumps(context_usage.get('referenced_files') or [], ensure_ascii=False)}`",
+            f"- notes: {context_usage.get('notes') or 'N/A'}",
+        ]
+    )
+    audit = proposal.get("proposal_audit") or {}
+    if audit:
+        lines.extend(
+            [
+                "",
+                "## Proposal Audit",
+                "",
+                f"- project_intake_present: `{audit.get('project_intake_present')}`",
+                f"- project_intake_status: `{audit.get('project_intake_status')}`",
+                f"- declared_project_intake_used: `{audit.get('declared_project_intake_used')}`",
+                f"- detected_referenced_intake_files: `{json.dumps(audit.get('detected_referenced_intake_files') or [], ensure_ascii=False)}`",
+                f"- changed_core_algorithm_files: `{json.dumps(audit.get('changed_core_algorithm_files') or [], ensure_ascii=False)}`",
+                f"- changed_validator_files: `{json.dumps(audit.get('changed_validator_files') or [], ensure_ascii=False)}`",
+                f"- referenced_test_commands: `{json.dumps(audit.get('referenced_test_commands') or [], ensure_ascii=False)}`",
+                f"- warnings: `{json.dumps(audit.get('warnings') or [], ensure_ascii=False)}`",
             ]
         )
     rejected = proposal.get("rejected_changes", [])

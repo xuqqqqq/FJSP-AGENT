@@ -116,6 +116,12 @@ If `--apply` is explicitly requested, only full-file `create_or_replace` edits
 that pass allowed-path and forbidden-path checks are written into the specified
 worktree.  This keeps code generation useful while preventing a worker from
 silently editing evaluator artifacts, output directories, or Git metadata.
+DeepSeek proposals are normalized with a deterministic `proposal_audit` section:
+the harness records whether project intake was present, whether the worker
+declared that it used it, which intake files were referenced, whether accepted
+edits touch core solver files, and whether they touch validator or benchmark
+candidates.  These fields support diagnosis and later reflection; they do not
+change the evaluator-backed promotion rule.
 
 `run-worker-cycle` turns that proposal protocol into one evaluator-backed loop:
 copy the allowed project surface into an isolated candidate worktree, run the
