@@ -8,6 +8,7 @@ from pathlib import Path
 from .context_packet import ContextPacketRequest, write_context_packet
 from .contract_builder import DraftContractRequest, write_confirmed_contract, write_draft_contract
 from .graph_runner import GraphHarnessRunner
+from .loop_runner import run_worker_loop
 from .models import TaskContract
 from .runner import HarnessRunner
 from .standard_agent import StandardFjspAgentRunner
@@ -62,6 +63,20 @@ def build_parser() -> argparse.ArgumentParser:
     cycle.add_argument("--apply-worker", action="store_true", help="apply accepted worker edits before Core evaluation")
     cycle.add_argument("--allow-draft", action="store_true", help="allow exploratory cycles on unconfirmed draft contracts")
     cycle.add_argument("--deepseek-model", default="deepseek-v4-pro")
+
+    loop = subparsers.add_parser("run-worker-loop", help="run multiple worker cycles with promotion/rollback decisions")
+    loop.add_argument("--contract", required=True, type=Path)
+    loop.add_argument("--context-packet", required=True, type=Path)
+    loop.add_argument("--output-dir", required=True, type=Path)
+    loop.add_argument("--project-root", type=Path, default=Path.cwd())
+    loop.add_argument("--worker", choices=["null", "deepseek", "opencode"], default="null")
+    loop.add_argument("--experiment-id", default="worker_loop")
+    loop.add_argument("--iterations", type=int, default=3)
+    loop.add_argument("--max-steps", type=int, default=8)
+    loop.add_argument("--max-runtime-seconds", type=int, default=300)
+    loop.add_argument("--apply-worker", action="store_true", help="apply accepted worker edits before each Core evaluation")
+    loop.add_argument("--allow-draft", action="store_true", help="allow exploratory loops on unconfirmed draft contracts")
+    loop.add_argument("--deepseek-model", default="deepseek-v4-pro")
 
     draft = subparsers.add_parser("draft-contract", help="build a human-review draft task contract from documents")
     draft.add_argument("--doc", action="append", type=Path, default=[], help="requirement/IO/metric document path")
@@ -341,6 +356,52 @@ def run_worker_cycle_cmd(args: argparse.Namespace) -> int:
         "best_metrics": result.summary.best_metrics,
         "cycle_report": str((args.output_dir / "cycle_report.md").resolve()),
         "cycle_result": str((args.output_dir / "cycle_result.json").resolve()),
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def run_worker_loop_cmd(args: argparse.Namespace) -> int:
+    contract = TaskContract.load(args.contract)
+    errors = contract.validate(args.project_root)
+    if errors:
+        print(json.dumps({"status": "invalid_contract", "errors": errors}, ensure_ascii=False, indent=2))
+        return 1
+    if contract.requires_human_confirmation and not args.allow_draft:
+        print(
+            json.dumps(
+                {
+                    "status": "contract_requires_human_confirmation",
+                    "review_status": contract.review_status,
+                    "message": "Confirm this contract or pass --allow-draft for exploratory loops.",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 1
+    worker = make_worker(args.worker, deepseek_model=args.deepseek_model)
+    result = run_worker_loop(
+        contract=contract,
+        project_root=args.project_root,
+        output_dir=args.output_dir,
+        context_packet_path=args.context_packet,
+        worker=worker,
+        experiment_id=args.experiment_id,
+        iterations=max(0, args.iterations),
+        max_steps=max(1, args.max_steps),
+        max_runtime_seconds=max(1, args.max_runtime_seconds),
+        apply_worker_changes=bool(args.apply_worker),
+    )
+    payload = {
+        "status": "ok",
+        "baseline_key": list(result.baseline_key),
+        "final_key": list(result.final_key),
+        "final_worktree": str(result.final_worktree),
+        "rounds": len(result.rounds),
+        "promoted_rounds": sum(1 for item in result.rounds if item.decision == "promoted"),
+        "loop_report": str((args.output_dir / "loop_report.md").resolve()),
+        "loop_result": str((args.output_dir / "loop_result.json").resolve()),
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
@@ -656,6 +717,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_worker_cmd(args)
     if args.command == "run-worker-cycle":
         return run_worker_cycle_cmd(args)
+    if args.command == "run-worker-loop":
+        return run_worker_loop_cmd(args)
     if args.command == "draft-contract":
         return draft_contract(args)
     if args.command == "run":

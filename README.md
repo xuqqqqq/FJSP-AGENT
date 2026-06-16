@@ -138,6 +138,26 @@ The command writes `cycle_result.json` and `cycle_report.md`. If the worker is
 `null`, the same command validates that the isolated worktree and evaluator path
 are healthy before live code generation is enabled.
 
+For repeated self-evolution, use `run-worker-loop`. It runs a baseline
+evaluation first, then executes multiple candidate cycles. A candidate is
+promoted only when its Core evaluator-backed objective key is strictly better
+than the incumbent; otherwise the round is rolled back automatically.
+
+```powershell
+python -m harness_agent.cli run-worker-loop `
+  --worker deepseek `
+  --contract outputs\confirmed_contract.json `
+  --context-packet outputs\context_packet.json `
+  --output-dir outputs\loop_001 `
+  --project-root . `
+  --iterations 5 `
+  --apply-worker
+```
+
+The loop writes `loop_result.json` and `loop_report.md`, including baseline
+metrics, each round's worker status, promotion/rollback decision, and final
+incumbent worktree.
+
 ## Project Boundary
 
 This repository owns:

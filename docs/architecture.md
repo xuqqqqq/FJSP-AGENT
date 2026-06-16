@@ -101,6 +101,14 @@ LangGraph harness in the candidate tree.  The cycle report records both worker
 status and Core evaluator metrics, keeping the proposal layer separate from the
 final verdict.
 
+`run-worker-loop` repeats that cycle with an incumbent policy.  It evaluates a
+baseline first, then promotes a candidate worktree only when the Core
+evaluator-backed objective key is strictly better than the incumbent.  Failed,
+invalid, or non-improving candidates are rolled back by leaving the incumbent
+worktree unchanged.  This is the first full loop-engineering path:
+context packet, worker proposal, guarded apply, Core evaluation, reflection-ready
+reporting, and promotion/rollback memory.
+
 ## 5. Hypothesis Memory
 
 The self-evolution loop needs more than free-form reflection text.  Each

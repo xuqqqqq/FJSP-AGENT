@@ -31,6 +31,8 @@ The repository has reached the first harness milestone:
 - `run-worker-cycle` CLI that copies an isolated candidate worktree, runs a
   coding worker, optionally applies accepted edits, and reruns the Core harness
   evaluator in that candidate tree.
+- `run-worker-loop` CLI that repeats candidate cycles, compares each candidate
+  against the incumbent objective key, and records promotion/rollback decisions.
 
 This is not yet the full MD requirement.  It is the engineering base that makes
 the later self-evolution loop measurable and auditable.
@@ -189,7 +191,7 @@ Two-round smoke:
 | Read requirement and IO documents | Minimal draft-contract ingestion implemented | Expand source-grounded extraction and uncertainty reporting. |
 | Derive Task Contract from documents | Draft JSON and confirmation gate implemented | Add stronger document schema extraction and web review workflow. |
 | Support multiple metrics from documents | Contract model supports it | Add evaluator schema checks and Pareto reporting. |
-| Generate solver code with an LLM worker | DeepSeek proposal-first worker plus isolated worker-cycle evaluator rerun implemented | Add live OpenCode adapter and multi-cycle promotion/rollback policy. |
+| Generate solver code with an LLM worker | DeepSeek proposal-first worker, isolated worker-cycle evaluator rerun, and multi-cycle promotion/rollback implemented | Add live OpenCode adapter and stronger reflection-conditioned context refresh. |
 | Strategy-first evolution | DeepSeek/template profiles plus candidate ablation implemented | Extend from scoring profiles to code-level operator evolution. |
 | Self-reflection and hypothesis graph | JSONL hypothesis records implemented | Add pruning, promotion, and mutation operators. |
 | Rule/operator evolution | Local-search operator and profile-level mutation exist; LLM operator edits not enabled | Add guarded code-level mutation operators. |
@@ -223,7 +225,7 @@ The next concrete slice should be:
    - current: optional apply is limited by allowed/forbidden path checks;
    - current: proposals can be evaluated through `run-worker-cycle` in an
      isolated candidate tree;
-   - next: add multi-cycle promotion/rollback policy and live OpenCode backend;
+   - next: add live OpenCode backend and reflection-conditioned context refresh;
    - returns structured result only;
    - never marks itself successful.
 
