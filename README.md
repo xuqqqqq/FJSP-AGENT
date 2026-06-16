@@ -95,6 +95,30 @@ policy, bounded document snippets, knowledge cards, previous report, and worker
 instructions.  A worker may self-test against it, but AlgoForge Core still owns
 the final evaluator run and success verdict.
 
+## Coding Worker Run
+
+`run-worker` is the guarded execution surface for a coding backend.  It consumes
+a context packet and writes worker artifacts.  The safe smoke backend is
+`null`; the DeepSeek backend can generate a structured code-edit proposal when
+`DEEPSEEK_API_KEY` is configured.
+
+```powershell
+python -m harness_agent.cli run-worker `
+  --worker deepseek `
+  --context-packet outputs\context_packet.json `
+  --worktree . `
+  --output-dir outputs\worker_deepseek `
+  --task-id demo_worker `
+  --experiment-id proposal_001
+```
+
+By default, a coding worker only creates proposal artifacts such as
+`proposal.json` and `proposal.md`.  Passing `--apply` lets accepted
+`create_or_replace` edits write into `--worktree`, but only after the path
+allowlist and forbidden-path checks pass.  Even after `--apply`, the worker
+result is not a success verdict; the harness must still run quick tests and the
+fixed evaluator.
+
 ## Project Boundary
 
 This repository owns:

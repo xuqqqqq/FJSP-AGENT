@@ -11,7 +11,7 @@ from .graph_runner import GraphHarnessRunner
 from .models import TaskContract
 from .runner import HarnessRunner
 from .standard_agent import StandardFjspAgentRunner
-from .worker import NullWorker
+from .worker import ExperimentSpec, NullWorker, WorkerResult
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -36,6 +36,18 @@ def build_parser() -> argparse.ArgumentParser:
     context.add_argument("--hypothesis", default="")
     context.add_argument("--previous-report", type=Path)
     context.add_argument("--max-chars-per-source", type=int, default=12000)
+
+    run_worker = subparsers.add_parser("run-worker", help="run a coding worker against a context packet")
+    run_worker.add_argument("--worker", choices=["null", "deepseek", "opencode"], default="null")
+    run_worker.add_argument("--context-packet", required=True, type=Path)
+    run_worker.add_argument("--worktree", type=Path, default=Path.cwd())
+    run_worker.add_argument("--output-dir", required=True, type=Path)
+    run_worker.add_argument("--task-id", default="worker_task")
+    run_worker.add_argument("--experiment-id", default="worker_experiment")
+    run_worker.add_argument("--max-steps", type=int, default=8)
+    run_worker.add_argument("--max-runtime-seconds", type=int, default=300)
+    run_worker.add_argument("--apply", action="store_true", help="apply accepted file replacements inside --worktree")
+    run_worker.add_argument("--deepseek-model", default="deepseek-v4-pro")
 
     draft = subparsers.add_parser("draft-contract", help="build a human-review draft task contract from documents")
     draft.add_argument("--doc", action="append", type=Path, default=[], help="requirement/IO/metric document path")
@@ -240,6 +252,62 @@ def build_context_packet_cmd(args: argparse.Namespace) -> int:
         )
     )
     return 0
+
+
+def run_worker_cmd(args: argparse.Namespace) -> int:
+    worker = make_worker(args.worker, deepseek_model=args.deepseek_model)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    spec = ExperimentSpec(
+        task_id=args.task_id,
+        experiment_id=args.experiment_id,
+        context_packet_path=str(args.context_packet),
+        worktree_path=str(args.worktree),
+        max_steps=max(1, args.max_steps),
+        max_runtime_seconds=max(1, args.max_runtime_seconds),
+        output_dir=str(args.output_dir),
+        apply_changes=bool(args.apply),
+    )
+    result = worker.run_experiment(spec)
+    result_path = args.output_dir / "worker_result.json"
+    result_path.write_text(json.dumps(worker_result_payload(result), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(
+        json.dumps(
+            {
+                "status": result.status,
+                "changed_files": result.changed_files,
+                "summary": result.summary,
+                "result": str(result_path.resolve()),
+                "artifacts": result.artifacts or {},
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0 if result.status not in {"failed", "unavailable"} else 1
+
+
+def make_worker(name: str, *, deepseek_model: str):
+    if name == "null":
+        return NullWorker()
+    if name == "deepseek":
+        from .workers.deepseek_worker import DeepSeekWorker
+
+        return DeepSeekWorker(model=deepseek_model)
+    if name == "opencode":
+        from .workers.opencode_worker import OpenCodeWorker
+
+        return OpenCodeWorker()
+    raise ValueError(f"unknown worker: {name}")
+
+
+def worker_result_payload(result: WorkerResult) -> dict[str, object]:
+    return {
+        "status": result.status,
+        "changed_files": result.changed_files,
+        "summary": result.summary,
+        "raw_log_path": result.raw_log_path,
+        "artifacts": result.artifacts or {},
+    }
 
 
 def run_contract(args: argparse.Namespace) -> int:
@@ -524,6 +592,8 @@ def main(argv: list[str] | None = None) -> int:
         return confirm_contract(args)
     if args.command == "build-context-packet":
         return build_context_packet_cmd(args)
+    if args.command == "run-worker":
+        return run_worker_cmd(args)
     if args.command == "draft-contract":
         return draft_contract(args)
     if args.command == "run":

@@ -74,7 +74,9 @@ multi-agent coordination overhead while keeping the loop auditable.
 Worker backends are proposal engines, not judges.
 
 - `DeepSeekWorker` currently generates structured strategy profiles from the
-  supplied documents and previous reports.
+  supplied documents and previous reports.  It can also consume a context packet
+  and produce a guarded code-edit proposal.  Proposal output is normalized and
+  path-checked by the harness before any optional apply step.
 - `OpenCodeWorker` is an adapter boundary for a future coding agent that can
   edit candidate solver code once the executable is available and guarded edit
   flow is implemented.
@@ -84,6 +86,13 @@ Worker backends are proposal engines, not judges.
 The harness remains responsible for validity, metrics, best-known gap
 calculation, and final reporting.  No worker result is accepted without an
 evaluator run.
+
+Code-edit workers follow a proposal-first protocol.  The default behavior is to
+write `proposal.json` / `proposal.md` artifacts without touching the worktree.
+If `--apply` is explicitly requested, only full-file `create_or_replace` edits
+that pass allowed-path and forbidden-path checks are written into the specified
+worktree.  This keeps code generation useful while preventing a worker from
+silently editing evaluator artifacts, output directories, or Git metadata.
 
 ## 5. Hypothesis Memory
 

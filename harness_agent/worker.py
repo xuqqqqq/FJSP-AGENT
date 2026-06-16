@@ -20,6 +20,8 @@ class ExperimentSpec:
     worktree_path: str
     max_steps: int
     max_runtime_seconds: int
+    output_dir: str | None = None
+    apply_changes: bool = False
 
 
 @dataclass(frozen=True)
@@ -28,6 +30,7 @@ class WorkerResult:
     changed_files: list[str]
     summary: str
     raw_log_path: str | None = None
+    artifacts: dict[str, str] | None = None
 
 
 class CodingWorker(Protocol):
@@ -53,4 +56,3 @@ class NullWorker:
             changed_files=[],
             summary="NullWorker does not modify code.",
         )
-

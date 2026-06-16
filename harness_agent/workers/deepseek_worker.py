@@ -58,10 +58,62 @@ class DeepSeekWorker(CodingWorker):
         )
 
     def run_experiment(self, spec: ExperimentSpec) -> WorkerResult:
+        output_dir = Path(spec.output_dir) if spec.output_dir else Path(spec.worktree_path) / ".algoforge_worker" / spec.experiment_id
+        output_dir.mkdir(parents=True, exist_ok=True)
+        if not self.available:
+            return WorkerResult(
+                status="unavailable",
+                changed_files=[],
+                summary="DeepSeek API is not configured.",
+                artifacts={"output_dir": str(output_dir)},
+            )
+
+        context = json.loads(Path(spec.context_packet_path).read_text(encoding="utf-8-sig"))
+        client = DeepSeekClient.from_env(model=self.model)
+        prompt = self._code_edit_prompt(context=context, max_steps=spec.max_steps)
+        content = client.chat(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a guarded coding agent. Return compact valid JSON only. "
+                        "Do not claim benchmark success. Do not request forbidden file edits."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=7000,
+            json_mode=True,
+        )
+        raw_path = output_dir / "deepseek_code_edit_raw.json"
+        raw_path.write_text(content, encoding="utf-8")
+        proposal = self._normalize_code_edit_proposal(extract_json_object(content), context)
+        proposal_path = output_dir / "proposal.json"
+        proposal_path.write_text(json.dumps(proposal, ensure_ascii=False, indent=2), encoding="utf-8")
+        markdown_path = output_dir / "proposal.md"
+        markdown_path.write_text(render_code_edit_markdown(proposal), encoding="utf-8")
+
+        changed_files: list[str] = []
+        if spec.apply_changes:
+            changed_files = apply_code_edit_proposal(
+                proposal=proposal,
+                worktree_path=Path(spec.worktree_path),
+                context=context,
+            )
+            applied_path = output_dir / "applied_files.json"
+            applied_path.write_text(json.dumps(changed_files, ensure_ascii=False, indent=2), encoding="utf-8")
+
         return WorkerResult(
-            status="not_implemented",
-            changed_files=[],
-            summary="DeepSeekWorker is used through strategy-profile generation in the standard agent runner.",
+            status="applied" if changed_files else "proposal_created",
+            changed_files=changed_files,
+            summary=str(proposal.get("summary") or proposal.get("strategy_intent") or "DeepSeek code-edit proposal created."),
+            raw_log_path=str(raw_path),
+            artifacts={
+                "output_dir": str(output_dir),
+                "proposal": str(proposal_path),
+                "proposal_markdown": str(markdown_path),
+            },
         )
 
     def generate_strategy_profile(
@@ -243,6 +295,79 @@ Selected harness report excerpt:
 {report[:5000]}
 """.strip()
 
+    def _code_edit_prompt(self, *, context: dict[str, Any], max_steps: int) -> str:
+        compact_context = json.dumps(context, ensure_ascii=False, indent=2)
+        return f"""
+You are inside an AlgoForge coding-worker loop. The harness/evaluator is the
+source of truth; your job is to propose a small code change that can be audited
+and then evaluated by Core.
+
+Return JSON only with this schema:
+{{
+  "summary": "one paragraph summary",
+  "strategy_intent": "natural-language strategy before editing code",
+  "changes": [
+    {{
+      "path": "relative/path.py",
+      "action": "create_or_replace",
+      "content": "full file content",
+      "rationale": "why this change helps"
+    }}
+  ],
+  "quick_test_plan": "command or explanation",
+  "risk_notes": ["risk 1"]
+}}
+
+Rules:
+- Maximum internal reasoning/edit steps requested by Core: {max_steps}.
+- Only propose edits under edit_policy.allowed_paths.
+- Never propose edits under edit_policy.forbidden_paths or .git/outputs.
+- Prefer one small, complete file over many partial edits.
+- If the task contract requires human confirmation, say so in risk_notes and
+  avoid claiming formal success.
+- Do not include Markdown fences or commentary outside JSON.
+- Do not include placeholders like TODO-only implementations unless the context
+  explicitly requests scaffolding.
+- If no safe edit is possible, return an empty "changes" list with an explicit
+  risk note.
+
+Context packet:
+{compact_context[:26000]}
+""".strip()
+
+    def _normalize_code_edit_proposal(self, proposal: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+        normalized_changes: list[dict[str, str]] = []
+        rejected_changes: list[dict[str, str]] = []
+        for item in proposal.get("changes", []):
+            if not isinstance(item, dict):
+                continue
+            path = str(item.get("path", "")).strip()
+            action = str(item.get("action", "create_or_replace")).strip()
+            content = item.get("content")
+            if action != "create_or_replace" or not isinstance(content, str):
+                rejected_changes.append({"path": path, "reason": "unsupported action or missing content"})
+                continue
+            allowed, reason = is_path_allowed(path, context)
+            if not allowed:
+                rejected_changes.append({"path": path, "reason": reason})
+                continue
+            normalized_changes.append(
+                {
+                    "path": normalize_relative_path(path),
+                    "action": "create_or_replace",
+                    "content": content,
+                    "rationale": str(item.get("rationale", ""))[:2000],
+                }
+            )
+        return {
+            "summary": str(proposal.get("summary", ""))[:4000],
+            "strategy_intent": str(proposal.get("strategy_intent", ""))[:4000],
+            "changes": normalized_changes,
+            "rejected_changes": rejected_changes,
+            "quick_test_plan": str(proposal.get("quick_test_plan", ""))[:2000],
+            "risk_notes": [str(item)[:1000] for item in proposal.get("risk_notes", []) if isinstance(item, str)],
+        }
+
     def _repair_profile_json(self, client: DeepSeekClient, raw: str, error: str, max_tokens: int) -> str:
         return client.chat(
             [
@@ -342,6 +467,111 @@ def normalize_local_search_profiles(profile: dict[str, Any]) -> list[dict[str, A
 def safe_profile_name(value: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
     return safe[:64] or "local_search_profile"
+
+
+def normalize_relative_path(value: str) -> str:
+    normalized = value.replace("\\", "/").strip().lstrip("/")
+    parts = [part for part in normalized.split("/") if part not in {"", "."}]
+    return "/".join(parts)
+
+
+def is_path_allowed(path_value: str, context: dict[str, Any]) -> tuple[bool, str]:
+    normalized = normalize_relative_path(path_value)
+    if not normalized:
+        return False, "empty path"
+    candidate = Path(normalized)
+    if candidate.is_absolute() or any(part == ".." for part in candidate.parts):
+        return False, "absolute paths and parent traversal are not allowed"
+    edit_policy = context.get("edit_policy", {})
+    allowed_paths = [normalize_relative_path(str(item)) for item in edit_policy.get("allowed_paths", [])]
+    forbidden_paths = [normalize_relative_path(str(item)) for item in edit_policy.get("forbidden_paths", [])]
+    forbidden_paths.extend([".git", "outputs"])
+    if any(_path_is_under(normalized, forbidden) for forbidden in forbidden_paths if forbidden):
+        return False, "path is under a forbidden directory"
+    if not allowed_paths or "." in allowed_paths:
+        return True, ""
+    if any(_path_is_under(normalized, allowed) for allowed in allowed_paths if allowed):
+        return True, ""
+    return False, "path is outside allowed paths"
+
+
+def apply_code_edit_proposal(
+    *,
+    proposal: dict[str, Any],
+    worktree_path: Path,
+    context: dict[str, Any],
+) -> list[str]:
+    worktree_root = worktree_path.resolve()
+    changed_files: list[str] = []
+    for change in proposal.get("changes", []):
+        path_value = str(change.get("path", ""))
+        allowed, reason = is_path_allowed(path_value, context)
+        if not allowed:
+            raise ValueError(f"refusing to apply rejected path {path_value!r}: {reason}")
+        relative_path = normalize_relative_path(path_value)
+        target = (worktree_root / relative_path).resolve()
+        if not _resolved_is_under(target, worktree_root):
+            raise ValueError(f"refusing to write outside worktree: {relative_path}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(str(change.get("content", "")), encoding="utf-8")
+        changed_files.append(relative_path)
+    return changed_files
+
+
+def render_code_edit_markdown(proposal: dict[str, Any]) -> str:
+    lines = [
+        "# Coding Worker Proposal",
+        "",
+        "## Summary",
+        "",
+        proposal.get("summary", "") or "No summary provided.",
+        "",
+        "## Strategy Intent",
+        "",
+        proposal.get("strategy_intent", "") or "No strategy intent provided.",
+        "",
+        "## Changes",
+        "",
+    ]
+    changes = proposal.get("changes", [])
+    if not changes:
+        lines.append("No accepted changes were proposed.")
+    for change in changes:
+        lines.extend(
+            [
+                f"### `{change.get('path')}`",
+                "",
+                f"- action: `{change.get('action')}`",
+                f"- rationale: {change.get('rationale', '')}",
+                "",
+            ]
+        )
+    rejected = proposal.get("rejected_changes", [])
+    if rejected:
+        lines.extend(["", "## Rejected Changes", ""])
+        for item in rejected:
+            lines.append(f"- `{item.get('path')}`: {item.get('reason')}")
+    risk_notes = proposal.get("risk_notes", [])
+    if risk_notes:
+        lines.extend(["", "## Risk Notes", ""])
+        for note in risk_notes:
+            lines.append(f"- {note}")
+    lines.extend(["", "## Quick Test Plan", "", proposal.get("quick_test_plan", "") or "No quick test plan provided."])
+    return "\n".join(lines).strip() + "\n"
+
+
+def _path_is_under(path_value: str, root_value: str) -> bool:
+    path = normalize_relative_path(path_value)
+    root = normalize_relative_path(root_value)
+    return path == root or path.startswith(root.rstrip("/") + "/")
+
+
+def _resolved_is_under(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
 
 
 def render_strategy_markdown(profile: dict[str, Any], source: str) -> str:

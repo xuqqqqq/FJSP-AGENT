@@ -25,6 +25,9 @@ The repository has reached the first harness milestone:
   explicitly requests exploratory `--allow-draft` execution.
 - context-packet CLI that packages confirmed evaluator semantics, bounded docs,
   knowledge cards, previous reports, and hypotheses for coding workers.
+- `run-worker` CLI that executes a coding backend against a context packet and
+  stores proposal artifacts, with optional guarded apply inside a specified
+  worktree.
 
 This is not yet the full MD requirement.  It is the engineering base that makes
 the later self-evolution loop measurable and auditable.
@@ -183,7 +186,7 @@ Two-round smoke:
 | Read requirement and IO documents | Minimal draft-contract ingestion implemented | Expand source-grounded extraction and uncertainty reporting. |
 | Derive Task Contract from documents | Draft JSON and confirmation gate implemented | Add stronger document schema extraction and web review workflow. |
 | Support multiple metrics from documents | Contract model supports it | Add evaluator schema checks and Pareto reporting. |
-| Generate solver code with an LLM worker | Strategy profile generation and context packet implemented; code edits not enabled | Add guarded DeepSeek/OpenCode code-edit loop. |
+| Generate solver code with an LLM worker | DeepSeek proposal-first code-edit worker implemented; formal evaluation still external | Wire worker proposals into automated candidate branches and evaluator reruns. |
 | Strategy-first evolution | DeepSeek/template profiles plus candidate ablation implemented | Extend from scoring profiles to code-level operator evolution. |
 | Self-reflection and hypothesis graph | JSONL hypothesis records implemented | Add pruning, promotion, and mutation operators. |
 | Rule/operator evolution | Local-search operator and profile-level mutation exist; LLM operator edits not enabled | Add guarded code-level mutation operators. |
@@ -213,7 +216,10 @@ The next concrete slice should be:
 3. `workers/deepseek_worker.py`
    - current: generates `strategy.md` and `strategy_profile.json`, with JSON
      repair and model-name aliasing;
-   - next: generate candidate solver patches behind static guards;
+   - current: consumes context packets and writes guarded code-edit proposals;
+   - current: optional apply is limited by allowed/forbidden path checks;
+   - next: connect applied proposals to candidate branches and Core evaluator
+     reruns;
    - returns structured result only;
    - never marks itself successful.
 
