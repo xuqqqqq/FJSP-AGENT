@@ -116,6 +116,12 @@ then appends compact evaluator evidence: baseline key, incumbent key, prior
 candidate summaries, and promotion/rollback decisions.  This makes later worker
 proposals condition on measured outcomes rather than on static prompt text.
 
+Proposal diversity is tracked as an audit signal.  The loop computes a stable
+fingerprint from the worker proposal artifact, or from the worker status and
+changed-file set when no proposal artifact exists.  Repeated fingerprints are
+flagged in reports and fed into the next context packet.  They are not used as a
+success or failure verdict; promotion remains evaluator-only.
+
 ## 5. Hypothesis Memory
 
 The self-evolution loop needs more than free-form reflection text.  Each

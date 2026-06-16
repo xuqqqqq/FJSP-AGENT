@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,7 +10,7 @@ from .context_packet import write_refreshed_context_packet
 from .graph_runner import GraphHarnessRunner
 from .models import ObjectiveSpec, TaskContract
 from .runner import RunSummary
-from .worker import CodingWorker
+from .worker import CodingWorker, WorkerResult
 from .worker_cycle import prepare_candidate_worktree, run_worker_cycle
 
 
@@ -21,6 +22,8 @@ class LoopRoundRecord:
     incumbent_key_after: tuple[float, ...]
     worker_status: str
     worker_changed_files: list[str]
+    proposal_fingerprint: str
+    duplicate_proposal: bool
     candidate_summary: dict[str, Any]
     cycle_dir: str
     context_packet_path: str
@@ -63,6 +66,7 @@ def run_worker_loop(
     incumbent_worktree = baseline_worktree
 
     round_records: list[LoopRoundRecord] = []
+    seen_proposal_fingerprints: set[str] = set()
     for round_index in range(max(0, iterations)):
         cycle_dir = output_dir / f"round_{round_index:03d}"
         round_context_packet_path = write_refreshed_context_packet(
@@ -89,6 +93,9 @@ def run_worker_loop(
             max_runtime_seconds=max_runtime_seconds,
             apply_worker_changes=apply_worker_changes,
         )
+        proposal_fingerprint = worker_proposal_fingerprint(cycle.worker_result)
+        duplicate_proposal = proposal_fingerprint in seen_proposal_fingerprints
+        seen_proposal_fingerprints.add(proposal_fingerprint)
         candidate_key = summary_objective_key(cycle.summary, contract.objectives)
         promoted = candidate_key > incumbent_key
         if promoted:
@@ -102,6 +109,8 @@ def run_worker_loop(
                 incumbent_key_after=incumbent_key,
                 worker_status=cycle.worker_result.status,
                 worker_changed_files=cycle.worker_result.changed_files,
+                proposal_fingerprint=proposal_fingerprint,
+                duplicate_proposal=duplicate_proposal,
                 candidate_summary=summary_payload(cycle.summary),
                 cycle_dir=str(cycle_dir),
                 context_packet_path=str(round_context_packet_path),
@@ -206,11 +215,38 @@ def round_record_payload(item: LoopRoundRecord) -> dict[str, Any]:
         "incumbent_key_after": list(item.incumbent_key_after),
         "worker_status": item.worker_status,
         "worker_changed_files": item.worker_changed_files,
+        "proposal_fingerprint": item.proposal_fingerprint,
+        "duplicate_proposal": item.duplicate_proposal,
         "candidate_summary": item.candidate_summary,
         "cycle_dir": item.cycle_dir,
         "context_packet_path": item.context_packet_path,
         "promoted_worktree": item.promoted_worktree,
     }
+
+
+def worker_proposal_fingerprint(worker_result: WorkerResult) -> str:
+    """Return a stable proposal fingerprint for duplicate-proposal diagnostics."""
+
+    artifacts = worker_result.artifacts or {}
+    proposal_path_value = artifacts.get("proposal")
+    if proposal_path_value:
+        proposal_path = Path(proposal_path_value)
+        if proposal_path.exists():
+            try:
+                proposal = json.loads(proposal_path.read_text(encoding="utf-8-sig"))
+                return _hash_json({"proposal": proposal})
+            except (OSError, json.JSONDecodeError):
+                try:
+                    return _hash_text(proposal_path.read_text(encoding="utf-8-sig", errors="replace"))
+                except OSError:
+                    pass
+    return _hash_json(
+        {
+            "status": worker_result.status,
+            "changed_files": sorted(worker_result.changed_files),
+            "artifacts": sorted((worker_result.artifacts or {}).keys()),
+        }
+    )
 
 
 def write_loop_report(*, output_dir: Path, result: WorkerLoopResult) -> None:
@@ -236,12 +272,13 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult) -> None:
         "",
         "## Rounds",
         "",
-        "| Round | Decision | Worker | Candidate Key | Incumbent Key After | Context Packet | Changed Files |",
-        "| ---: | --- | --- | --- | --- | --- | --- |",
+        "| Round | Decision | Worker | Duplicate Proposal | Candidate Key | Incumbent Key After | Context Packet | Changed Files |",
+        "| ---: | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for item in result.rounds:
         lines.append(
             f"| {item.round_index} | {item.decision} | {item.worker_status} | "
+            f"{'yes' if item.duplicate_proposal else 'no'} | "
             f"`{json.dumps(item.candidate_key, ensure_ascii=False)}` | "
             f"`{json.dumps(item.incumbent_key_after, ensure_ascii=False)}` | "
             f"`{item.context_packet_path}` | "
@@ -263,3 +300,11 @@ def _run_harness(*, contract: TaskContract, project_root: Path, output_dir: Path
         return runner.run()
     finally:
         runner.close()
+
+
+def _hash_json(payload: Any) -> str:
+    return _hash_text(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+
+
+def _hash_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()

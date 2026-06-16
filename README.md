@@ -159,7 +159,10 @@ metrics, each round's worker status, promotion/rollback decision, and final
 incumbent worktree.  Each round also receives a refreshed
 `round_xxx/context_packet.json` that contains the baseline result, current
 incumbent key, previous evaluator-backed promotion/rollback decisions, and
-compact instructions for avoiding repeated failed edits.
+compact instructions for avoiding repeated failed edits.  The report also
+records a proposal fingerprint and duplicate-proposal flag for each round so
+homogeneous worker outputs are visible without replacing the evaluator-based
+promotion rule.
 
 ## Project Boundary
 
