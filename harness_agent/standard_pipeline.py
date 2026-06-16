@@ -9,6 +9,7 @@ from .benchmark_suite import BenchmarkSuiteRequest, run_benchmark_suite
 from .evidence import EvidenceIndexRequest, build_evidence_index
 from .health_check import HealthCheckRequest, run_health_check
 from .intent_alignment import IntentAlignmentRequest, write_intent_alignment
+from .loop_runner import compact_rule_operator_hypotheses
 from .project_intake import ProjectIntakeRequest, write_project_intake
 from .standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop
 from .worker import CodingWorker
@@ -296,6 +297,7 @@ def standard_pipeline_loop_iteration(
             "round_count": worker.get("round_count", 0),
             "promoted_rounds": worker.get("promoted_rounds", 0),
         },
+        "operator_lineage_signal": memory.get("operator_lineage_signal") or {},
         "recommendations": memory.get("recommendations") or [],
     }
 
@@ -334,6 +336,7 @@ def standard_pipeline_loop_manifest(
             "memory_path": final_iteration.get("memory_path"),
             "benchmark_signal": final_iteration.get("benchmark_signal") or {},
             "worker_signal": final_iteration.get("worker_signal") or {},
+            "operator_lineage_signal": final_iteration.get("operator_lineage_signal") or {},
             "recommendations": final_iteration.get("recommendations") or [],
         },
         "artifacts": {
@@ -492,6 +495,7 @@ def standard_pipeline_loop_next_action_brief(manifest: dict[str, Any]) -> dict[s
     final_memory = final.get("memory_path")
     final_stage_status = (iterations[-1].get("stage_status") if iterations else {}) or {}
     final_worker = final.get("worker_signal") or {}
+    final_operator_lineage = final.get("operator_lineage_signal") or {}
     benchmark_trend = [
         {
             "iteration_index": item.get("iteration_index"),
@@ -508,6 +512,7 @@ def standard_pipeline_loop_next_action_brief(manifest: dict[str, Any]) -> dict[s
         status=manifest.get("status"),
         final_stage_status=final_stage_status,
         final_worker=final_worker,
+        operator_lineage_signal=final_operator_lineage,
         recommendations=recommendations,
     )
     return {
@@ -524,8 +529,13 @@ def standard_pipeline_loop_next_action_brief(manifest: dict[str, Any]) -> dict[s
             "final_promoted_rounds": final_worker.get("promoted_rounds", 0),
             "final_improved": final_worker.get("improved"),
         },
+        "operator_lineage_signal": final_operator_lineage,
         "focus_areas": focus_areas,
-        "next_worker_hypothesis": next_worker_hypothesis(focus_areas, recommendations),
+        "next_worker_hypothesis": next_worker_hypothesis(
+            focus_areas,
+            recommendations,
+            operator_lineage_signal=final_operator_lineage,
+        ),
         "next_run_hint": {
             "entrypoint": "python -m harness_agent.cli run-standard-pipeline",
             "required_argument": f"--previous-memory {final_memory}" if final_memory else None,
@@ -553,9 +563,14 @@ def standard_pipeline_memory_to_worker_hypothesis(memory: dict[str, Any], *, fal
         status=memory.get("pipeline_status"),
         final_stage_status=memory.get("stage_status") or {},
         final_worker=memory.get("worker_signal") or {},
+        operator_lineage_signal=memory.get("operator_lineage_signal") or {},
         recommendations=recommendations,
     )
-    return next_worker_hypothesis(focus_areas, recommendations)
+    return next_worker_hypothesis(
+        focus_areas,
+        recommendations,
+        operator_lineage_signal=memory.get("operator_lineage_signal") or {},
+    )
 
 
 def loop_focus_areas(
@@ -564,8 +579,10 @@ def loop_focus_areas(
     final_stage_status: dict[str, Any],
     final_worker: dict[str, Any],
     recommendations: list[Any],
+    operator_lineage_signal: dict[str, Any] | None = None,
 ) -> list[str]:
     focus: list[str] = []
+    operator_lineage_signal = operator_lineage_signal or {}
     if status != "ok":
         focus.append("repair_pipeline_or_admission_before_optimization")
     if final_stage_status.get("admission_gate") != "passed":
@@ -578,18 +595,50 @@ def loop_focus_areas(
         focus.append("target_best_known_gap_quality")
     if any("duplicate" in str(item).lower() for item in recommendations):
         focus.append("avoid_duplicate_proposal_fingerprints")
+    if int(operator_lineage_signal.get("missing_hypothesis_rounds", 0) or 0) > 0:
+        focus.append("require_rule_operator_hypotheses")
+    if operator_lineage_signal.get("rolled_back_hypotheses"):
+        focus.append("mutate_rolled_back_rule_operator_ideas")
+    if operator_lineage_signal.get("promoted_hypotheses"):
+        focus.append("preserve_or_ablate_promoted_operator_ideas")
     return focus or ["continue_small_evaluator_backed_solver_improvement"]
 
 
-def next_worker_hypothesis(focus_areas: list[str], recommendations: list[Any]) -> str:
+def next_worker_hypothesis(
+    focus_areas: list[str],
+    recommendations: list[Any],
+    *,
+    operator_lineage_signal: dict[str, Any] | None = None,
+) -> str:
     focus_text = ", ".join(focus_areas)
     recommendation_text = " ".join(str(item) for item in recommendations[:3])
+    operator_text = operator_lineage_prompt(operator_lineage_signal or {})
     return (
         "Use the previous pipeline memory as measured evidence. "
         f"Primary focus: {focus_text}. "
         f"Evaluator-backed recommendations: {recommendation_text or 'continue with a small, auditable solver improvement.'} "
+        f"Rule/operator lineage guidance: {operator_text} "
         "Propose a natural-language rule/operator idea first, then edit only allowed algorithm files."
     )
+
+
+def operator_lineage_prompt(operator_lineage_signal: dict[str, Any]) -> str:
+    """Compress lineage evidence into one prompt-safe sentence."""
+
+    if not operator_lineage_signal:
+        return "no rule/operator lineage evidence is available yet; require explicit hypotheses before edits."
+    promoted = operator_lineage_signal.get("promoted_hypotheses") or []
+    rolled_back = operator_lineage_signal.get("rolled_back_hypotheses") or []
+    missing = int(operator_lineage_signal.get("missing_hypothesis_rounds", 0) or 0)
+    if promoted:
+        names = ", ".join(str(item.get("name") or item.get("type")) for item in promoted[:3])
+        return f"preserve or ablate promoted ideas ({names}) before replacing them."
+    if rolled_back:
+        names = ", ".join(str(item.get("name") or item.get("type")) for item in rolled_back[:3])
+        return f"avoid repeating rolled-back ideas unchanged ({names}); mutate the rule or target file."
+    if missing:
+        return "some worker rounds lacked explicit rule/operator hypotheses; make the next proposal auditable first."
+    return "no promoted operator is known yet; explore a materially different evaluator-backed rule."
 
 
 def read_json_if_exists(path: Path) -> dict[str, Any]:
@@ -733,12 +782,14 @@ def render_standard_pipeline_loop_report(manifest: dict[str, Any]) -> str:
 
 
 def render_standard_pipeline_next_action_brief(brief: dict[str, Any]) -> str:
+    operator_lineage = brief.get("operator_lineage_signal") or {}
     lines = [
         "# Standard FJSP Next Action Brief",
         "",
         f"- Status: `{brief.get('status')}`",
         f"- Next previous-memory: `{brief.get('next_previous_memory')}`",
         f"- Focus areas: `{json.dumps(brief.get('focus_areas') or [], ensure_ascii=False)}`",
+        f"- Operator lineage: `{json.dumps(operator_lineage, ensure_ascii=False)}`",
         "",
         "## Next Worker Hypothesis",
         "",
@@ -796,6 +847,7 @@ def standard_pipeline_memory(manifest: dict[str, Any]) -> dict[str, Any]:
     evidence = manifest.get("evidence_index") or {}
     stage_status = manifest.get("stage_status") or {}
     rounds = compact_worker_rounds(worker)
+    operator_lineage = summarize_operator_lineage(rounds)
     memory = {
         "schema_version": 1,
         "purpose": "Compact evidence packet for the next standard-FJSP loop-engineering iteration.",
@@ -818,11 +870,16 @@ def standard_pipeline_memory(manifest: dict[str, Any]) -> dict[str, Any]:
             "promoted_rounds": worker.get("promoted_rounds", 0),
             "rounds": rounds,
         },
+        "operator_lineage_signal": operator_lineage,
         "evidence_signal": {
             "entry_count": evidence.get("entry_count"),
             "summary": evidence.get("summary") or {},
         },
-        "recommendations": standard_pipeline_recommendations(manifest=manifest, compact_rounds=rounds),
+        "recommendations": standard_pipeline_recommendations(
+            manifest=manifest,
+            compact_rounds=rounds,
+            operator_lineage=operator_lineage,
+        ),
         "artifacts": {
             key: value
             for key, value in (manifest.get("artifacts") or {}).items()
@@ -876,6 +933,11 @@ def compact_worker_rounds(worker: dict[str, Any]) -> list[dict[str, Any]]:
                 "proposal_diagnostics": {
                     "status": diagnostics.get("status") if isinstance(diagnostics, dict) else None,
                     "used_project_intake": context_usage.get("used_project_intake"),
+                    "rule_operator_hypotheses": compact_rule_operator_hypotheses(
+                        diagnostics.get("rule_operator_hypotheses") if isinstance(diagnostics, dict) else [],
+                        limit=6,
+                    ),
+                    "operator_lineage": audit.get("operator_lineage") or {},
                     "changed_core_algorithm_files": audit.get("changed_core_algorithm_files") or [],
                     "changed_validator_files": audit.get("changed_validator_files") or [],
                     "changed_benchmark_files": audit.get("changed_benchmark_files") or [],
@@ -886,7 +948,73 @@ def compact_worker_rounds(worker: dict[str, Any]) -> list[dict[str, Any]]:
     return rounds
 
 
-def standard_pipeline_recommendations(*, manifest: dict[str, Any], compact_rounds: list[dict[str, Any]]) -> list[str]:
+def summarize_operator_lineage(compact_rounds: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate worker-declared rule/operator hypotheses across loop rounds.
+
+    The summary is deliberately advisory. It helps the next prompt avoid stale
+    ideas, but evaluator-backed promotion remains the only acceptance signal.
+    """
+
+    records: list[dict[str, Any]] = []
+    type_counts: dict[str, int] = {}
+    decision_counts: dict[str, int] = {}
+    target_file_counts: dict[str, int] = {}
+    missing_hypothesis_rounds = 0
+
+    for round_item in compact_rounds:
+        diagnostics = round_item.get("proposal_diagnostics") or {}
+        if not isinstance(diagnostics, dict):
+            diagnostics = {}
+        hypotheses = diagnostics.get("rule_operator_hypotheses") or []
+        if not hypotheses:
+            missing_hypothesis_rounds += 1
+        decision = str(round_item.get("decision") or "unknown")
+        duplicate = bool(round_item.get("duplicate_proposal"))
+        decision_counts[decision] = decision_counts.get(decision, 0) + len(hypotheses)
+
+        for hypothesis in hypotheses:
+            if not isinstance(hypothesis, dict):
+                continue
+            hypothesis_type = str(hypothesis.get("type") or "unspecified")
+            target_files = [str(item) for item in (hypothesis.get("target_files") or []) if item]
+            type_counts[hypothesis_type] = type_counts.get(hypothesis_type, 0) + 1
+            for file_name in target_files:
+                target_file_counts[file_name] = target_file_counts.get(file_name, 0) + 1
+            records.append(
+                {
+                    "round_index": round_item.get("round_index"),
+                    "decision": decision,
+                    "duplicate_proposal": duplicate,
+                    "name": hypothesis.get("name"),
+                    "type": hypothesis_type,
+                    "target_files": target_files,
+                    "expected_effect": hypothesis.get("expected_effect"),
+                    "novelty": hypothesis.get("novelty"),
+                }
+            )
+
+    promoted = [item for item in records if item.get("decision") == "promoted"]
+    rolled_back = [item for item in records if item.get("decision") == "rolled_back"]
+    duplicate = [item for item in records if item.get("duplicate_proposal")]
+    return {
+        "hypothesis_count": len(records),
+        "missing_hypothesis_rounds": missing_hypothesis_rounds,
+        "type_counts": _sorted_count_dict(type_counts, limit=12),
+        "decision_counts": _sorted_count_dict(decision_counts, limit=12),
+        "target_file_counts": _sorted_count_dict(target_file_counts, limit=12),
+        "promoted_hypotheses": promoted[:8],
+        "rolled_back_hypotheses": rolled_back[:8],
+        "duplicate_hypotheses": duplicate[:8],
+        "records": records[:24],
+    }
+
+
+def standard_pipeline_recommendations(
+    *,
+    manifest: dict[str, Any],
+    compact_rounds: list[dict[str, Any]],
+    operator_lineage: dict[str, Any],
+) -> list[str]:
     recommendations: list[str] = []
     stage_status = manifest.get("stage_status") or {}
     benchmark_signal = compact_benchmark_signal(manifest.get("benchmark_suite") or {})
@@ -923,13 +1051,38 @@ def standard_pipeline_recommendations(*, manifest: dict[str, Any], compact_round
             + ", ".join(sorted({str(item) for item in proposal_warnings}))
         )
 
+    if int(operator_lineage.get("missing_hypothesis_rounds", 0) or 0) > 0:
+        recommendations.append(
+            "Require explicit rule/operator hypotheses so the next round can learn which scheduling idea was tested."
+        )
+
+    rolled_back = operator_lineage.get("rolled_back_hypotheses") or []
+    if rolled_back:
+        names = ", ".join(str(item.get("name") or item.get("type")) for item in rolled_back[:3])
+        recommendations.append(
+            f"Do not repeat rolled-back rule/operator ideas unchanged; mutate or justify: {names}."
+        )
+
+    promoted = operator_lineage.get("promoted_hypotheses") or []
+    if promoted:
+        names = ", ".join(str(item.get("name") or item.get("type")) for item in promoted[:3])
+        recommendations.append(f"Preserve or ablate promoted rule/operator ideas before replacing them: {names}.")
+
     if int(evidence_summary.get("valid_experiments", 0) or 0) < int(evidence_summary.get("total_experiments", 0) or 0):
         recommendations.append("Investigate invalid experiments before using quality metrics for strong claims.")
 
     return recommendations or ["Continue with a small, evaluator-backed solver improvement proposal."]
 
 
+def _sorted_count_dict(counts: dict[str, int], *, limit: int) -> dict[str, int]:
+    return {
+        key: value
+        for key, value in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]
+    }
+
+
 def render_standard_pipeline_memory(memory: dict[str, Any]) -> str:
+    operator_lineage = memory.get("operator_lineage_signal") or {}
     lines = [
         "# Standard FJSP Pipeline Memory",
         "",
@@ -937,6 +1090,7 @@ def render_standard_pipeline_memory(memory: dict[str, Any]) -> str:
         f"- Stage status: `{json.dumps(memory.get('stage_status') or {}, ensure_ascii=False)}`",
         f"- Benchmark signal: `{json.dumps(memory.get('benchmark_signal') or {}, ensure_ascii=False)}`",
         f"- Worker signal: `{json.dumps(memory.get('worker_signal') or {}, ensure_ascii=False)}`",
+        f"- Operator lineage signal: `{json.dumps(operator_lineage, ensure_ascii=False)}`",
         "",
         "## Recommendations",
         "",

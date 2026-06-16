@@ -5,7 +5,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from harness_agent.standard_pipeline import StandardPipelineLoopRequest, StandardPipelineRequest, run_standard_pipeline, run_standard_pipeline_loop
+from harness_agent.standard_pipeline import (
+    StandardPipelineLoopRequest,
+    StandardPipelineRequest,
+    run_standard_pipeline,
+    run_standard_pipeline_loop,
+    summarize_operator_lineage,
+)
 from harness_agent.worker import NullWorker
 
 
@@ -13,6 +19,59 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class StandardPipelineTests(unittest.TestCase):
+    def test_operator_lineage_summary_tracks_promoted_and_rolled_back_rules(self) -> None:
+        summary = summarize_operator_lineage(
+            [
+                {
+                    "round_index": 0,
+                    "decision": "rolled_back",
+                    "duplicate_proposal": False,
+                    "proposal_diagnostics": {
+                        "rule_operator_hypotheses": [
+                            {
+                                "name": "critical_block_bias",
+                                "type": "local_search_operator",
+                                "target_files": ["examples/standard_fjsp_solver.py"],
+                                "expected_effect": "Reduce makespan.",
+                                "novelty": "Moves inside critical blocks instead of dispatch-only sorting.",
+                            }
+                        ],
+                    },
+                },
+                {
+                    "round_index": 1,
+                    "decision": "promoted",
+                    "duplicate_proposal": False,
+                    "proposal_diagnostics": {
+                        "rule_operator_hypotheses": [
+                            {
+                                "name": "machine_load_insert",
+                                "type": "constructive_rule",
+                                "target_files": ["examples/standard_fjsp_solver.py"],
+                                "expected_effect": "Reduce machine idle time.",
+                                "novelty": "Changes insertion timing while preserving evaluator semantics.",
+                            }
+                        ],
+                    },
+                },
+                {
+                    "round_index": 2,
+                    "decision": "rolled_back",
+                    "duplicate_proposal": True,
+                    "proposal_diagnostics": {"rule_operator_hypotheses": []},
+                },
+            ]
+        )
+
+        self.assertEqual(2, summary["hypothesis_count"])
+        self.assertEqual(1, summary["missing_hypothesis_rounds"])
+        self.assertEqual(1, summary["type_counts"]["constructive_rule"])
+        self.assertEqual(1, summary["type_counts"]["local_search_operator"])
+        self.assertEqual(1, summary["decision_counts"]["promoted"])
+        self.assertEqual(1, summary["decision_counts"]["rolled_back"])
+        self.assertEqual("machine_load_insert", summary["promoted_hypotheses"][0]["name"])
+        self.assertEqual("critical_block_bias", summary["rolled_back_hypotheses"][0]["name"])
+
     def test_standard_pipeline_runs_all_core_stages(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -78,7 +137,10 @@ class StandardPipelineTests(unittest.TestCase):
             self.assertEqual("ok", memory["pipeline_status"])
             self.assertEqual(1, len(memory["worker_signal"]["rounds"]))
             self.assertEqual("missing", memory["worker_signal"]["rounds"][0]["proposal_diagnostics"]["status"])
+            self.assertEqual(1, memory["operator_lineage_signal"]["missing_hypothesis_rounds"])
+            self.assertEqual(0, memory["operator_lineage_signal"]["hypothesis_count"])
             self.assertTrue(any("No worker round was promoted" in item for item in memory["recommendations"]))
+            self.assertTrue(any("rule/operator hypotheses" in item for item in memory["recommendations"]))
             self.assertEqual(
                 "ok",
                 json.loads((output_dir / "standard_worker_loop" / "context_packet.json").read_text(encoding="utf-8"))[
@@ -177,6 +239,8 @@ class StandardPipelineTests(unittest.TestCase):
             self.assertEqual("ready", brief["status"])
             self.assertEqual(manifest["artifacts"]["final_memory"], brief["next_previous_memory"])
             self.assertIn("target_best_known_gap_quality", brief["focus_areas"])
+            self.assertIn("require_rule_operator_hypotheses", brief["focus_areas"])
+            self.assertEqual(1, brief["operator_lineage_signal"]["missing_hypothesis_rounds"])
             self.assertTrue(any("evaluator" in item.lower() for item in brief["proposal_requirements"]))
             self.assertTrue((output_dir / "standard_pipeline_loop_manifest.json").exists())
             self.assertTrue((output_dir / "standard_pipeline_loop_report.md").exists())

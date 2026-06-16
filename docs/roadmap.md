@@ -97,6 +97,10 @@ The repository has reached the first harness milestone:
   which gives the next controller/coding backend a structured memory path,
   trend summary, focus areas, and hypothesis text while keeping evaluator
   manifests as the only acceptance source.
+- Pipeline memory and next-action briefs now aggregate rule/operator lineage
+  across worker rounds.  Promoted, rolled-back, duplicate, and missing
+  hypotheses are surfaced as advisory evidence so the next coding proposal can
+  preserve useful ideas, mutate failed ones, and avoid non-auditable edits.
 - Multi-round pipeline runs now adapt each next iteration's worker hypothesis
   from the previous iteration's memory by default, with
   `--no-adapt-worker-hypothesis` available for fixed-prompt ablations.

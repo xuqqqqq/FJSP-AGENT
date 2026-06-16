@@ -212,6 +212,13 @@ and promotion trends, lists focus areas such as duplicate proposals or missing
 benchmark improvement, and drafts a next-worker hypothesis.  It deliberately
 stays outside acceptance logic so the loop can become more autonomous without
 weakening evaluator authority.
+The memory and brief now carry an `operator_lineage_signal` derived from
+worker-declared rule/operator hypotheses.  The signal records which scheduling
+ideas were promoted, rolled back, duplicated, or missing from a proposal, plus
+their declared target files and expected effects.  The controller uses this
+lineage only to steer the next natural-language strategy and diversity
+requirements.  It does not change objective keys, benchmark metrics, evaluator
+contracts, or promotion rules.
 The same focus extraction is used inside a multi-round pipeline run.  After
 iteration `k`, the controller reads iteration `k`'s memory artifact and derives
 iteration `k + 1`'s `worker_hypothesis` from evaluator-grounded

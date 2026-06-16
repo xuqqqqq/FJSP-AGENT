@@ -305,6 +305,11 @@ The `standard_pipeline_memory.*` files are compact handoff artifacts for the
 next loop iteration.  They combine admission status, benchmark gap signal,
 worker-loop promotion/rollback evidence, proposal diagnostics, and deterministic
 next-step recommendations without replacing the underlying evaluator manifests.
+They also aggregate worker-declared rule/operator hypotheses into an
+`operator_lineage_signal`, including promoted, rolled-back, duplicate, and
+missing-hypothesis patterns.  This lets the next coding backend distinguish
+"preserve and ablate this idea" from "do not repeat this failed idea unchanged"
+without turning reflection text into an acceptance metric.
 On a later run, pass the prior JSON back with `--previous-memory
 outputs\standard_pipeline_demo\standard_pipeline_memory.json`; the standard
 worker context packet will expose it as `previous_pipeline_memory` before the
@@ -320,6 +325,9 @@ is the controller handoff for the next run: it records the final memory path,
 benchmark trend, worker promotion summary, focus areas, and a suggested
 next-worker hypothesis.  It is not a success verdict; fixed evaluator and
 admission manifests still own all acceptance decisions.
+When operator lineage is available, the brief adds lineage-specific focus areas
+such as requiring explicit rule/operator hypotheses, mutating rolled-back
+operator ideas, or preserving promoted ideas for ablation.
 By default, multi-round runs also adapt the next iteration's `worker_hypothesis`
 from the previous iteration's memory artifact, so the coding worker receives a
 focused instruction such as "increase rule/operator diversity" or "target
