@@ -36,6 +36,12 @@ Expected outputs:
 - `outputs/demo/experiments/...`
 - `outputs/demo/report.md`
 
+Run the lightweight regression suite with:
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
 ## Document To Draft Contract
 
 AlgoForge starts from requirement, IO, and metric documents rather than from a
