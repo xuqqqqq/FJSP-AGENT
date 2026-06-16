@@ -311,6 +311,13 @@ checklist under `review`.  These fields help the main agent and reviewer see how
 the requirement/IO documents were translated, but they remain non-authoritative
 until the contract is confirmed.
 
+Alongside the JSON draft, the builder also writes a deterministic
+`*.review.md` card generated from the same payload.  This card is the
+human-readable review surface for objectives, command-template checks,
+feature/metric hints, Markdown section roles, line ranges, and confirmation
+tasks.  It is deliberately derived from the JSON rather than maintained as a
+second source of truth.
+
 Coding workers do not receive the whole repository context by default.  The main
 agent writes a context packet containing the task contract hash, review status,
 evaluator protocol, edit policy, bounded document snippets, knowledge cards,

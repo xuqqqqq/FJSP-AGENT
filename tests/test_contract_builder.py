@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from harness_agent.contract_builder import DraftContractRequest, build_draft_contract
+from harness_agent.contract_builder import (
+    DraftContractRequest,
+    build_draft_contract,
+    draft_review_report_path,
+    write_draft_contract,
+)
 
 
 class ContractBuilderTests(unittest.TestCase):
@@ -91,6 +97,55 @@ class ContractBuilderTests(unittest.TestCase):
             self.assertTrue(any(item["metric"] == "completed_weight" for item in objective_section["metric_hints"]))
             self.assertIn("constraints", constraint_section["roles"])
             self.assertTrue(any(item["name"] == "maintenance_windows" for item in constraint_section["feature_hints"]))
+
+    def test_write_draft_contract_writes_review_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            doc = tmp_path / "requirements.md"
+            instance = tmp_path / "case.json"
+            output = tmp_path / "draft_contract.json"
+            doc.write_text(
+                """
+# FJSP 需求
+
+## 目标指标
+
+优化产量并减少 setup 切换次数。
+
+## 输入输出
+
+输入包含任务和候选机器；输出包含每道工序的开始结束时间。
+                """.strip(),
+                encoding="utf-8",
+            )
+            instance.write_text("{}", encoding="utf-8")
+
+            written = write_draft_contract(
+                DraftContractRequest(
+                    task_id="draft_review_case",
+                    docs=[doc],
+                    instances=[instance],
+                    output=output,
+                    solver_cmd="python solver.py --input {instance} --output {solution}",
+                    evaluator_cmd=(
+                        "python evaluator.py --instance {instance} --solution {solution} --metrics {metrics}"
+                    ),
+                )
+            )
+
+            report_path = draft_review_report_path(written)
+            self.assertEqual(output, written)
+            self.assertTrue(output.exists())
+            self.assertTrue(report_path.exists())
+
+            payload = json.loads(output.read_text(encoding="utf-8"))
+            report = report_path.read_text(encoding="utf-8")
+            self.assertIn("document_schema", payload["review"])
+            self.assertIn("# Draft Contract Review", report)
+            self.assertIn("Markdown Document Schema", report)
+            self.assertIn("目标指标", report)
+            self.assertIn("Confirmation Checklist", report)
+            self.assertIn("setup_count", report)
 
 
 if __name__ == "__main__":

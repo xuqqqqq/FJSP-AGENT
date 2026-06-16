@@ -376,16 +376,21 @@ python -m harness_agent.cli draft-contract `
   --quick-test "python -m py_compile examples/dummy_solver.py examples/dummy_evaluator.py"
 ```
 
-This command records `review.status = draft_requires_human_confirmation` and
-stores source references, uncertain fields, extracted problem-feature hints,
-metric hints, command-template placeholder checks, a Markdown section schema,
-and a confirmation checklist in the contract JSON.  The section schema records
-headings, line ranges, inferred roles such as objectives/constraints/input-output,
-and per-section feature or metric hints so later workers can ground proposals in
-specific document regions instead of only reading a flat text snippet.  These
-fields are evidence for review; they are not a formal evaluator contract until
-confirmed.  After review, create a confirmed copy before treating the evaluator
-as formal:
+This command writes both `outputs\draft_contract.json` and a sibling
+`outputs\draft_contract.review.md` review card.  The JSON records
+`review.status = draft_requires_human_confirmation` plus source references,
+uncertain fields, extracted problem-feature hints, metric hints,
+command-template placeholder checks, a Markdown section schema, and a
+confirmation checklist.  The Markdown card renders that same evidence for
+human review: objectives, command checks, feature and metric hints, section
+roles, line ranges, and confirmation tasks.
+
+The section schema records headings, line ranges, inferred roles such as
+objectives/constraints/input-output, and per-section feature or metric hints so
+later workers can ground proposals in specific document regions instead of only
+reading a flat text snippet.  These fields are evidence for review; they are not
+a formal evaluator contract until confirmed.  After review, create a confirmed
+copy before treating the evaluator as formal:
 
 ```powershell
 python -m harness_agent.cli confirm-contract `

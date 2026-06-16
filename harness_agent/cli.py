@@ -7,7 +7,12 @@ from pathlib import Path
 
 from .benchmark_suite import BenchmarkSuiteRequest, run_benchmark_suite
 from .context_packet import ContextPacketRequest, write_context_packet
-from .contract_builder import DraftContractRequest, write_confirmed_contract, write_draft_contract
+from .contract_builder import (
+    DraftContractRequest,
+    draft_review_report_path,
+    write_confirmed_contract,
+    write_draft_contract,
+)
 from .demo import StandardDemoRequest, run_standard_demo
 from .evidence import EvidenceIndexRequest, build_evidence_index
 from .graph_runner import GraphHarnessRunner
@@ -397,6 +402,7 @@ def draft_contract(args: argparse.Namespace) -> int:
     payload = {
         "status": "draft_created",
         "output": str(output.resolve()),
+        "review_report": str(draft_review_report_path(output).resolve()),
         "task_id": contract.task_id,
         "problem_family": contract.problem_family,
         "instances": len(contract.instances),

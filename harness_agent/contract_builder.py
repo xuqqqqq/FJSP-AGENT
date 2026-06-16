@@ -183,7 +183,169 @@ def write_draft_contract(request: DraftContractRequest) -> Path:
     payload = build_draft_contract(request)
     request.output.parent.mkdir(parents=True, exist_ok=True)
     request.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    draft_review_report_path(request.output).write_text(render_draft_contract_review(payload), encoding="utf-8")
     return request.output
+
+
+def draft_review_report_path(contract_path: Path) -> Path:
+    """Return the deterministic Markdown review-card path for a draft contract."""
+
+    return contract_path.with_suffix(".review.md")
+
+
+def render_draft_contract_review(payload: dict[str, Any]) -> str:
+    """Render draft-contract evidence as a human-reviewable Markdown card.
+
+    The JSON contract remains the machine-readable source of truth.  This card
+    is a reviewer convenience layer generated from the same payload so that
+    source extraction, inferred metrics, and uncertain fields are easy to audit.
+    """
+
+    review = dict(payload.get("review") or {})
+    objectives = list(payload.get("objectives") or [])
+    instances = list(payload.get("instances") or [])
+    command_checks = list(review.get("command_template_checks") or [])
+    features = list(review.get("extracted_problem_features") or [])
+    metrics = list(review.get("metric_hints") or [])
+    checklist = list(review.get("confirmation_checklist") or [])
+    schema = dict(review.get("document_schema") or {})
+
+    lines = [
+        "# Draft Contract Review",
+        "",
+        "本审核卡由 `draft-contract` 根据同一份 JSON 草稿自动生成，用于人工确认问题语义、",
+        "评价指标、命令模板和文档抽取证据。它不是正式评价器结论；只有经过 `confirm-contract`",
+        "确认后的契约才应作为正式优化依据。",
+        "",
+        "## Summary",
+        "",
+        f"- Task ID: `{payload.get('task_id', '')}`",
+        f"- Problem family: `{payload.get('problem_family', '')}`",
+        f"- Review status: `{review.get('status', '')}`",
+        f"- Instance count: `{len(instances)}`",
+        f"- Uncertain fields: {_format_inline_list(review.get('uncertain_fields') or [])}",
+        f"- Extraction method: `{review.get('extraction_method', '')}`",
+        "",
+        "## Objectives",
+        "",
+        "| Name | Direction | Priority | Required |",
+        "| --- | --- | ---: | --- |",
+    ]
+    if objectives:
+        for objective in objectives:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _md_cell(objective.get("name", "")),
+                        _md_cell(objective.get("direction", "")),
+                        _md_cell(objective.get("priority", "")),
+                        _md_cell(objective.get("invalid_if_missing", "")),
+                    ]
+                )
+                + " |"
+            )
+    else:
+        lines.append("| - | - | - | - |")
+
+    lines.extend(
+        [
+            "",
+            "## Command Template Checks",
+            "",
+            "| Field | Placeholder | Status |",
+            "| --- | --- | --- |",
+        ]
+    )
+    if command_checks:
+        for check in command_checks:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _md_cell(check.get("field", "")),
+                        _md_cell(check.get("placeholder", "")),
+                        _md_cell(check.get("status", "")),
+                    ]
+                )
+                + " |"
+            )
+    else:
+        lines.append("| - | - | - |")
+
+    lines.extend(
+        [
+            "",
+            "## Extracted Problem Features",
+            "",
+            "| Feature | Category | Matched Pattern | Evidence |",
+            "| --- | --- | --- | --- |",
+        ]
+    )
+    if features:
+        for feature in features:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _md_cell(feature.get("name", "")),
+                        _md_cell(feature.get("category", "")),
+                        _md_cell(feature.get("matched_pattern", "")),
+                        _md_cell(feature.get("evidence", "")),
+                    ]
+                )
+                + " |"
+            )
+    else:
+        lines.append("| - | - | - | - |")
+
+    lines.extend(
+        [
+            "",
+            "## Metric Hints",
+            "",
+            "| Metric | Direction | Matched Pattern | Evidence |",
+            "| --- | --- | --- | --- |",
+        ]
+    )
+    if metrics:
+        for metric in metrics:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _md_cell(metric.get("metric", "")),
+                        _md_cell(metric.get("direction", "")),
+                        _md_cell(metric.get("matched_pattern", "")),
+                        _md_cell(metric.get("evidence", "")),
+                    ]
+                )
+                + " |"
+            )
+    else:
+        lines.append("| - | - | - | - |")
+
+    lines.extend(
+        [
+            "",
+            "## Markdown Document Schema",
+            "",
+            "| Document | Lines | Heading | Roles | Feature Hints | Metric Hints | Evidence Excerpt |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    schema_rows = _document_schema_rows(schema)
+    lines.extend(schema_rows or ["| - | - | - | - | - | - | - |"])
+
+    lines.extend(["", "## Confirmation Checklist", ""])
+    if checklist:
+        for index, item in enumerate(checklist, start=1):
+            lines.append(f"{index}. {item}")
+    else:
+        lines.append("1. Confirm evaluator, objective, and validity semantics before formal optimization.")
+
+    lines.append("")
+    return "\n".join(lines)
 
 
 def write_confirmed_contract(
@@ -480,6 +642,45 @@ def _confirmation_checklist(
         metric_names = ", ".join(item["metric"] for item in metric_hints)
         checklist.append(f"Confirm objective priority and directions for inferred metrics: {metric_names}.")
     return checklist
+
+
+def _document_schema_rows(schema: dict[str, Any]) -> list[str]:
+    rows: list[str] = []
+    for document in schema.get("documents") or []:
+        document_path = str(document.get("path", ""))
+        for section in document.get("sections") or []:
+            line_start = section.get("line_start", "")
+            line_end = section.get("line_end", "")
+            feature_names = [str(item.get("name", "")) for item in section.get("feature_hints") or []]
+            metric_names = [str(item.get("metric", "")) for item in section.get("metric_hints") or []]
+            rows.append(
+                "| "
+                + " | ".join(
+                    [
+                        _md_cell(document_path),
+                        _md_cell(f"{line_start}-{line_end}"),
+                        _md_cell(section.get("heading", "")),
+                        _md_cell(", ".join(section.get("roles") or [])),
+                        _md_cell(", ".join(name for name in feature_names if name) or "-"),
+                        _md_cell(", ".join(name for name in metric_names if name) or "-"),
+                        _md_cell(section.get("evidence_excerpt", "")),
+                    ]
+                )
+                + " |"
+            )
+    return rows
+
+
+def _format_inline_list(items: list[Any]) -> str:
+    values = [str(item) for item in items if str(item)]
+    if not values:
+        return "-"
+    return ", ".join(f"`{item}`" for item in values)
+
+
+def _md_cell(value: Any) -> str:
+    text = re.sub(r"\s+", " ", str(value)).strip()
+    return text.replace("|", "\\|") or "-"
 
 
 def _build_instances(paths: list[Path]) -> list[dict[str, str]]:
