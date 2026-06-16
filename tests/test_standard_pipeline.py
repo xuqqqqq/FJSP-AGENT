@@ -54,8 +54,15 @@ class StandardPipelineTests(unittest.TestCase):
             self.assertTrue(manifest["health_check"]["stability_probe"]["stable"])
             self.assertEqual(1, manifest["benchmark_suite"]["aggregate"]["valid_experiments"])
             self.assertEqual(1, manifest["standard_worker_loop"]["round_count"])
+            self.assertEqual(1, len(manifest["standard_worker_loop"]["rounds"]))
+            self.assertEqual(
+                "missing",
+                manifest["standard_worker_loop"]["rounds"][0]["proposal_diagnostics"]["status"],
+            )
             self.assertTrue((output_dir / "standard_pipeline_manifest.json").exists())
             self.assertTrue((output_dir / "standard_pipeline_report.md").exists())
+            self.assertTrue((output_dir / "standard_pipeline_memory.json").exists())
+            self.assertTrue((output_dir / "standard_pipeline_memory.md").exists())
             self.assertTrue((output_dir / "project_intake" / "project_intake_manifest.json").exists())
             self.assertTrue((output_dir / "health_check" / "health_check_manifest.json").exists())
             self.assertTrue((output_dir / "intent_alignment" / "intent_alignment_manifest.json").exists())
@@ -64,6 +71,11 @@ class StandardPipelineTests(unittest.TestCase):
             context_packet = json.loads((output_dir / "standard_worker_loop" / "context_packet.json").read_text(encoding="utf-8"))
             self.assertTrue(context_packet["project_intake"]["exists"])
             self.assertEqual("ok", context_packet["project_intake"]["status"])
+            memory = json.loads((output_dir / "standard_pipeline_memory.json").read_text(encoding="utf-8"))
+            self.assertEqual("ok", memory["pipeline_status"])
+            self.assertEqual(1, len(memory["worker_signal"]["rounds"]))
+            self.assertEqual("missing", memory["worker_signal"]["rounds"][0]["proposal_diagnostics"]["status"])
+            self.assertTrue(any("No worker round was promoted" in item for item in memory["recommendations"]))
             self.assertTrue((output_dir / "evidence_index" / "evidence_index.json").exists())
 
     def test_standard_pipeline_skips_optimization_when_admission_is_blocked(self) -> None:
@@ -101,6 +113,7 @@ class StandardPipelineTests(unittest.TestCase):
             self.assertEqual("skipped_admission_gate", manifest["stage_status"]["standard_worker_loop"])
             self.assertFalse((output_dir / "benchmark_suite" / "suite_manifest.json").exists())
             self.assertFalse((output_dir / "standard_worker_loop" / "standard_worker_loop_manifest.json").exists())
+            self.assertTrue((output_dir / "standard_pipeline_memory.json").exists())
             self.assertTrue((output_dir / "project_intake" / "project_intake_manifest.json").exists())
             self.assertTrue((output_dir / "intent_alignment" / "intent_alignment_manifest.json").exists())
 

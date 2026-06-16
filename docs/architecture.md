@@ -182,6 +182,14 @@ manifests and referenced artifacts.  The generated project-intake manifest is
 also passed into the standard worker-loop context packet, so code-generation
 backends receive a bounded repository map before proposing edits.
 
+The same pipeline writes a compact memory artifact for the next orchestration
+turn.  The memory file condenses admission status, benchmark best-known gap
+signals, worker-loop promotion/rollback outcomes, per-round proposal
+diagnostics, evidence-index completeness, and deterministic next-step
+recommendations.  It is a prompt handoff and reporting aid, not a scoring layer:
+all acceptance decisions remain tied to the source manifests and fixed
+evaluator metrics.
+
 ## 5. Hypothesis Memory
 
 The self-evolution loop needs more than free-form reflection text.  Each

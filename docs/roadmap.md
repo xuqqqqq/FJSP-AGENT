@@ -73,6 +73,10 @@ The repository has reached the first harness milestone:
 - `run-worker-loop` now feeds compact proposal diagnostics from each worker
   proposal into later round context packets, so standard FJSP self-evolution can
   learn from prior proposal quality as well as evaluator outcomes.
+- `run-standard-pipeline` now writes `standard_pipeline_memory.json/md`, a
+  compact next-round handoff with admission status, benchmark gap signal,
+  worker-loop round diagnostics, evidence completeness, and deterministic
+  recommendations.
 
 This is not yet the full MD requirement.  It is the engineering base that makes
 the later self-evolution loop measurable and auditable.

@@ -285,6 +285,8 @@ Expected outputs:
 
 - `outputs/standard_pipeline_demo/standard_pipeline_manifest.json`
 - `outputs/standard_pipeline_demo/standard_pipeline_report.md`
+- `outputs/standard_pipeline_demo/standard_pipeline_memory.json`
+- `outputs/standard_pipeline_demo/standard_pipeline_memory.md`
 - `outputs/standard_pipeline_demo/project_intake/project_intake_report.md`
 - `outputs/standard_pipeline_demo/health_check/health_check_report.md`
 - `outputs/standard_pipeline_demo/intent_alignment/intent_alignment_report.md`
@@ -299,6 +301,10 @@ evaluator-backed components that produced the referenced manifests.
 When project intake is enabled, the standard worker-loop context packet receives
 the generated intake manifest summary and report snippet automatically, so the
 coding backend sees the repository map before proposing code changes.
+The `standard_pipeline_memory.*` files are compact handoff artifacts for the
+next loop iteration.  They combine admission status, benchmark gap signal,
+worker-loop promotion/rollback evidence, proposal diagnostics, and deterministic
+next-step recommendations without replacing the underlying evaluator manifests.
 
 ## Evidence Index
 

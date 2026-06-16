@@ -188,6 +188,13 @@ def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
         manifest_path=manifest_path,
         report_path=report_path,
     )
+    memory_path = output_dir / "standard_pipeline_memory.json"
+    memory_report_path = output_dir / "standard_pipeline_memory.md"
+    manifest["artifacts"]["standard_pipeline_memory_json"] = str(memory_path.resolve())
+    manifest["artifacts"]["standard_pipeline_memory_markdown"] = str(memory_report_path.resolve())
+    memory = standard_pipeline_memory(manifest)
+    memory_path.write_text(json.dumps(memory, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    memory_report_path.write_text(render_standard_pipeline_memory(memory), encoding="utf-8")
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     report_path.write_text(render_standard_pipeline_report(manifest), encoding="utf-8")
     return manifest
@@ -276,6 +283,7 @@ def standard_pipeline_manifest(
             "improved": worker_manifest.get("improved") if worker_manifest else None,
             "round_count": worker_manifest.get("round_count", 0) if worker_manifest else 0,
             "promoted_rounds": worker_manifest.get("promoted_rounds", 0) if worker_manifest else 0,
+            "rounds": worker_manifest.get("rounds", []) if worker_manifest else [],
             "artifacts": worker_manifest.get("artifacts") if worker_manifest else {},
         },
         "evidence_index": {
@@ -400,6 +408,172 @@ def render_standard_pipeline_report(manifest: dict[str, Any]) -> str:
             "The pipeline is orchestration glue.  Benchmark quality, worker promotion, and evidence completeness remain decided by the fixed evaluator-backed components that produced the referenced manifests.",
         ]
     )
+    return "\n".join(lines).strip() + "\n"
+
+
+def standard_pipeline_memory(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Build compact machine-readable memory for the next loop iteration.
+
+    This artifact is intentionally derived from fixed-stage manifests.  It gives
+    future worker prompts a small evidence packet without creating a second
+    source of truth for acceptance decisions.
+    """
+
+    benchmark = manifest.get("benchmark_suite") or {}
+    worker = manifest.get("standard_worker_loop") or {}
+    evidence = manifest.get("evidence_index") or {}
+    stage_status = manifest.get("stage_status") or {}
+    rounds = compact_worker_rounds(worker)
+    memory = {
+        "schema_version": 1,
+        "purpose": "Compact evidence packet for the next standard-FJSP loop-engineering iteration.",
+        "pipeline_status": manifest.get("status"),
+        "stage_status": stage_status,
+        "admission": {
+            "gate": stage_status.get("admission_gate"),
+            "health_check": stage_status.get("health_check"),
+            "intent_alignment": stage_status.get("intent_alignment"),
+            "ready_for_optimization": (manifest.get("intent_alignment") or {}).get("ready_for_optimization"),
+            "blockers": (manifest.get("intent_alignment") or {}).get("blockers") or [],
+            "warnings": (manifest.get("intent_alignment") or {}).get("warnings") or [],
+        },
+        "benchmark_signal": compact_benchmark_signal(benchmark),
+        "worker_signal": {
+            "baseline_key": worker.get("baseline_key"),
+            "final_key": worker.get("final_key"),
+            "improved": worker.get("improved"),
+            "round_count": worker.get("round_count", 0),
+            "promoted_rounds": worker.get("promoted_rounds", 0),
+            "rounds": rounds,
+        },
+        "evidence_signal": {
+            "entry_count": evidence.get("entry_count"),
+            "summary": evidence.get("summary") or {},
+        },
+        "recommendations": standard_pipeline_recommendations(manifest=manifest, compact_rounds=rounds),
+        "artifacts": {
+            key: value
+            for key, value in (manifest.get("artifacts") or {}).items()
+            if key
+            in {
+                "manifest",
+                "report",
+                "benchmark_suite_manifest",
+                "benchmark_suite_report",
+                "standard_worker_loop_manifest",
+                "standard_worker_loop_report",
+                "evidence_index_json",
+                "evidence_index_markdown",
+            }
+        },
+    }
+    return memory
+
+
+def compact_benchmark_signal(benchmark: dict[str, Any]) -> dict[str, Any]:
+    aggregate = benchmark.get("aggregate") or {}
+    return {
+        "suite_count": benchmark.get("suite_count", 0),
+        "total_experiments": aggregate.get("total_experiments"),
+        "valid_experiments": aggregate.get("valid_experiments"),
+        "failed_experiments": aggregate.get("failed_experiments"),
+        "avg_reported_gap_pct": aggregate.get("avg_reported_gap_pct"),
+        "gap_suite_count": aggregate.get("gap_suite_count"),
+    }
+
+
+def compact_worker_rounds(worker: dict[str, Any]) -> list[dict[str, Any]]:
+    rounds: list[dict[str, Any]] = []
+    for item in worker.get("rounds") or []:
+        diagnostics = item.get("proposal_diagnostics") or {}
+        audit = diagnostics.get("proposal_audit") if isinstance(diagnostics, dict) else {}
+        if not isinstance(audit, dict):
+            audit = {}
+        context_usage = diagnostics.get("context_usage") if isinstance(diagnostics, dict) else {}
+        if not isinstance(context_usage, dict):
+            context_usage = {}
+        rounds.append(
+            {
+                "round_index": item.get("round_index"),
+                "decision": item.get("decision"),
+                "worker_status": item.get("worker_status"),
+                "duplicate_proposal": item.get("duplicate_proposal"),
+                "candidate_key": item.get("candidate_key"),
+                "incumbent_key_after": item.get("incumbent_key_after"),
+                "changed_files": item.get("worker_changed_files") or [],
+                "proposal_diagnostics": {
+                    "status": diagnostics.get("status") if isinstance(diagnostics, dict) else None,
+                    "used_project_intake": context_usage.get("used_project_intake"),
+                    "changed_core_algorithm_files": audit.get("changed_core_algorithm_files") or [],
+                    "changed_validator_files": audit.get("changed_validator_files") or [],
+                    "changed_benchmark_files": audit.get("changed_benchmark_files") or [],
+                    "warnings": audit.get("warnings") or [],
+                },
+            }
+        )
+    return rounds
+
+
+def standard_pipeline_recommendations(*, manifest: dict[str, Any], compact_rounds: list[dict[str, Any]]) -> list[str]:
+    recommendations: list[str] = []
+    stage_status = manifest.get("stage_status") or {}
+    benchmark_signal = compact_benchmark_signal(manifest.get("benchmark_suite") or {})
+    worker = manifest.get("standard_worker_loop") or {}
+    evidence_summary = (manifest.get("evidence_index") or {}).get("summary") or {}
+
+    if stage_status.get("admission_gate") != "passed":
+        recommendations.append("Resolve admission blockers before spending worker budget on solver evolution.")
+    if int(stage_status.get("missing_artifact_count", 0) or 0) > 0:
+        recommendations.append("Repair missing referenced artifacts so future evidence indexes remain reproducible.")
+
+    avg_gap = benchmark_signal.get("avg_reported_gap_pct")
+    if isinstance(avg_gap, (int, float)) and avg_gap > 0:
+        recommendations.append(
+            "Use benchmark gap evidence to focus the next strategy on makespan quality rather than only feasibility."
+        )
+
+    if int(worker.get("round_count", 0) or 0) > 0 and int(worker.get("promoted_rounds", 0) or 0) == 0:
+        recommendations.append(
+            "No worker round was promoted; require the next proposal to explain a materially different rule or operator."
+        )
+
+    if any(item.get("duplicate_proposal") for item in compact_rounds):
+        recommendations.append("Duplicate proposal fingerprints were observed; enforce stronger candidate diversity.")
+
+    proposal_warnings = [
+        warning
+        for item in compact_rounds
+        for warning in (item.get("proposal_diagnostics") or {}).get("warnings", [])
+    ]
+    if proposal_warnings:
+        recommendations.append(
+            "Address proposal-audit warnings before promotion attempts: "
+            + ", ".join(sorted({str(item) for item in proposal_warnings}))
+        )
+
+    if int(evidence_summary.get("valid_experiments", 0) or 0) < int(evidence_summary.get("total_experiments", 0) or 0):
+        recommendations.append("Investigate invalid experiments before using quality metrics for strong claims.")
+
+    return recommendations or ["Continue with a small, evaluator-backed solver improvement proposal."]
+
+
+def render_standard_pipeline_memory(memory: dict[str, Any]) -> str:
+    lines = [
+        "# Standard FJSP Pipeline Memory",
+        "",
+        f"- Pipeline status: `{memory.get('pipeline_status')}`",
+        f"- Stage status: `{json.dumps(memory.get('stage_status') or {}, ensure_ascii=False)}`",
+        f"- Benchmark signal: `{json.dumps(memory.get('benchmark_signal') or {}, ensure_ascii=False)}`",
+        f"- Worker signal: `{json.dumps(memory.get('worker_signal') or {}, ensure_ascii=False)}`",
+        "",
+        "## Recommendations",
+        "",
+    ]
+    for item in memory.get("recommendations") or []:
+        lines.append(f"- {item}")
+    lines.extend(["", "## Artifacts", ""])
+    for name, path in (memory.get("artifacts") or {}).items():
+        lines.append(f"- {name}: `{path}`")
     return "\n".join(lines).strip() + "\n"
 
 
