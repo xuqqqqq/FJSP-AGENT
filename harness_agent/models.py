@@ -98,6 +98,7 @@ class TaskContract:
     paths: PathPolicy
     resources: dict[str, Path]
     source_path: Path
+    review: dict[str, Any]
 
     @staticmethod
     def load(path: Path) -> "TaskContract":
@@ -113,7 +114,16 @@ class TaskContract:
             paths=PathPolicy.from_dict(raw.get("paths", {})),
             resources={str(key): Path(str(value)) for key, value in raw.get("resources", {}).items()},
             source_path=path,
+            review=dict(raw.get("review", {})),
         )
+
+    @property
+    def review_status(self) -> str:
+        return str(self.review.get("status", "confirmed"))
+
+    @property
+    def requires_human_confirmation(self) -> bool:
+        return self.review_status == "draft_requires_human_confirmation"
 
     def validate(self, project_root: Path) -> list[str]:
         errors: list[str] = []

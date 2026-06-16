@@ -36,6 +36,65 @@ Expected outputs:
 - `outputs/demo/experiments/...`
 - `outputs/demo/report.md`
 
+## Document To Draft Contract
+
+AlgoForge starts from requirement, IO, and metric documents rather than from a
+hand-written solver script.  The current first step is `draft-contract`: it reads
+source documents and CLI hints, then writes a review-required task contract.
+
+The generated contract is intentionally marked as a draft.  If the evaluator or
+validator was generated or inferred, a human must confirm the objective,
+constraint, command, and metric semantics before the harness treats it as the
+formal source of truth.
+
+```powershell
+python -m harness_agent.cli draft-contract `
+  --doc docs\architecture.md `
+  --instance examples\dummy_instance.json `
+  --output outputs\draft_contract.json `
+  --task-id draft_dummy `
+  --objective primary_score:maximize:1 `
+  --solver-cmd "python examples/dummy_solver.py --input {instance} --output {solution} --seed {seed}" `
+  --evaluator-cmd "python examples/dummy_evaluator.py --instance {instance} --solution {solution} --metrics {metrics}" `
+  --quick-test "python -m py_compile examples/dummy_solver.py examples/dummy_evaluator.py"
+```
+
+This command records `review.status = draft_requires_human_confirmation` and
+stores source references plus uncertain fields in the contract JSON.  After
+review, create a confirmed copy before treating the evaluator as formal:
+
+```powershell
+python -m harness_agent.cli confirm-contract `
+  --contract outputs\draft_contract.json `
+  --output outputs\confirmed_contract.json `
+  --confirmed-by reviewer-name `
+  --note "Objectives, evaluator command, and validity semantics reviewed."
+```
+
+`run` refuses unconfirmed draft contracts by default.  Use `--allow-draft` only
+for exploratory runs that must not be reported as formal evidence.
+
+## Context Packet For Coding Agents
+
+Before a coding backend edits solver code, the main agent packages a bounded
+context packet.  This is the auditable handoff from LangGraph orchestration to a
+CodingWorker such as OpenCode + DeepSeek:
+
+```powershell
+python -m harness_agent.cli build-context-packet `
+  --contract outputs\confirmed_contract.json `
+  --doc docs\architecture.md `
+  --knowledge-card knowledge\principles\harness_agent_design.md `
+  --previous-report outputs\demo\report.md `
+  --hypothesis "Try a conservative solver improvement under confirmed evaluator semantics." `
+  --output outputs\context_packet.json
+```
+
+The packet records the contract hash, review status, evaluator protocol, edit
+policy, bounded document snippets, knowledge cards, previous report, and worker
+instructions.  A worker may self-test against it, but AlgoForge Core still owns
+the final evaluator run and success verdict.
+
 ## Project Boundary
 
 This repository owns:

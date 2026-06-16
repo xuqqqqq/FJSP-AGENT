@@ -18,6 +18,13 @@ The repository has reached the first harness milestone:
 - JSONL hypothesis ledger for round-to-round strategy memory;
 - per-round strategy-candidate evaluation with ablation/mutation variants;
 - local knowledge base with paper cards and imported Huawei FJSP notes.
+- document-to-draft-contract CLI that records source references, uncertain
+  fields, and required human confirmation before a generated evaluator or
+  validator can become formal.
+- formal run gate that refuses unconfirmed generated contracts unless the user
+  explicitly requests exploratory `--allow-draft` execution.
+- context-packet CLI that packages confirmed evaluator semantics, bounded docs,
+  knowledge cards, previous reports, and hypotheses for coding workers.
 
 This is not yet the full MD requirement.  It is the engineering base that makes
 the later self-evolution loop measurable and auditable.
@@ -173,10 +180,10 @@ Two-round smoke:
 
 | Requirement | Current status | Next action |
 | --- | --- | --- |
-| Read requirement and IO documents | Not implemented | Add document ingestion and extraction. |
-| Derive Task Contract from documents | Manual JSON only | Build `contract_builder` with source references. |
+| Read requirement and IO documents | Minimal draft-contract ingestion implemented | Expand source-grounded extraction and uncertainty reporting. |
+| Derive Task Contract from documents | Draft JSON and confirmation gate implemented | Add stronger document schema extraction and web review workflow. |
 | Support multiple metrics from documents | Contract model supports it | Add evaluator schema checks and Pareto reporting. |
-| Generate solver code with an LLM worker | Strategy profile generation implemented; code edits not enabled | Add guarded DeepSeek/OpenCode code-edit loop. |
+| Generate solver code with an LLM worker | Strategy profile generation and context packet implemented; code edits not enabled | Add guarded DeepSeek/OpenCode code-edit loop. |
 | Strategy-first evolution | DeepSeek/template profiles plus candidate ablation implemented | Extend from scoring profiles to code-level operator evolution. |
 | Self-reflection and hypothesis graph | JSONL hypothesis records implemented | Add pruning, promotion, and mutation operators. |
 | Rule/operator evolution | Local-search operator and profile-level mutation exist; LLM operator edits not enabled | Add guarded code-level mutation operators. |
@@ -189,13 +196,19 @@ Two-round smoke:
 The next concrete slice should be:
 
 1. `contract_builder.py`
-   - inputs: requirement docs, IO docs, metric docs;
-   - output: draft `task_contract.json`;
-   - records source passages and uncertain fields.
+   - current: reads requirement docs, IO docs, metric docs, instances, and CLI
+     hints;
+   - current: outputs review-required draft `task_contract.json`;
+   - current: records source references and uncertain fields;
+   - next: add source-grounded field extraction, metric-specific validator
+     prompts, and explicit human confirmation state transitions.
 
 2. `context_packet.py`
-   - packages task contract, evaluator protocol, knowledge cards, and current hypothesis;
-   - keeps prompts small to avoid token truncation.
+   - current: packages task contract hash, review status, evaluator protocol,
+     knowledge cards, previous report, and current hypothesis;
+   - current: keeps prompts bounded to avoid token truncation;
+   - next: wire context packets into OpenCodeWorker / DeepSeek code-edit
+     experiments.
 
 3. `workers/deepseek_worker.py`
    - current: generates `strategy.md` and `strategy_profile.json`, with JSON

@@ -55,6 +55,20 @@ the optimizer; it is the state machine that makes each step explicit:
 This separation is intentional.  It keeps the evolving part of the system
 replaceable while preserving deterministic evaluation and reproducibility.
 
+The MVP agent surface is deliberately small:
+
+- one LangGraph main agent owns orchestration, review state, experiment memory,
+  and final candidate decisions;
+- one coding agent backend writes or modifies code inside guarded experiment
+  boundaries;
+- strategy generation is a capability of the coding agent by default, and is
+  split into a separate strategy agent only if context length, parallel strategy
+  comparison, or audit requirements make that separation necessary.
+
+Document parsing, domain routing, reflection, and candidate review are graph
+nodes or core services, not separate default agents.  This avoids unnecessary
+multi-agent coordination overhead while keeping the loop auditable.
+
 ## 4. Worker Backends
 
 Worker backends are proposal engines, not judges.
@@ -122,6 +136,19 @@ The evaluator output is expected to contain:
 
 The harness can compare candidates only after validity is known and all required
 objective metrics are present.
+
+Generated contracts carry a `review.status`.  If the status is
+`draft_requires_human_confirmation`, formal `run` refuses the contract unless the
+caller explicitly passes `--allow-draft` for exploration.  A reviewed contract is
+created with `confirm-contract`, which records who confirmed it and when.  This
+implements the rule that generated evaluators and validators must not become
+formal judges until a human confirms their semantics.
+
+Coding workers do not receive the whole repository context by default.  The main
+agent writes a context packet containing the task contract hash, review status,
+evaluator protocol, edit policy, bounded document snippets, knowledge cards,
+previous report, and current hypothesis.  This packet is the stable boundary
+between orchestration and code generation.
 
 For standard FJSP benchmarks, the evaluator can also load a best-known CSV.
 When the evaluated instance name appears in the table, the metrics include both

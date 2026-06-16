@@ -1,0 +1,129 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from .models import TaskContract
+
+
+@dataclass(frozen=True)
+class ContextPacketRequest:
+    contract_path: Path
+    output_path: Path
+    docs: list[Path] = field(default_factory=list)
+    knowledge_cards: list[Path] = field(default_factory=list)
+    hypothesis: str = ""
+    previous_report: Path | None = None
+    max_chars_per_source: int = 12000
+
+
+def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
+    contract = TaskContract.load(request.contract_path)
+    contract_raw = json.loads(request.contract_path.read_text(encoding="utf-8-sig"))
+    docs = [_source_payload(path, request.max_chars_per_source) for path in request.docs]
+    knowledge_cards = [_source_payload(path, request.max_chars_per_source) for path in request.knowledge_cards]
+    previous_report = (
+        _source_payload(request.previous_report, request.max_chars_per_source)
+        if request.previous_report
+        else None
+    )
+    packet = {
+        "packet_type": "algoforge_context_packet",
+        "schema_version": 1,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "contract_path": str(request.contract_path),
+        "contract_hash": _hash_text(json.dumps(contract_raw, ensure_ascii=False, sort_keys=True)),
+        "task": {
+            "task_id": contract.task_id,
+            "problem_family": contract.problem_family,
+            "description": contract.description,
+            "review_status": contract.review_status,
+            "requires_human_confirmation": contract.requires_human_confirmation,
+            "objectives": [
+                {
+                    "name": objective.name,
+                    "direction": objective.direction,
+                    "priority": objective.priority,
+                    "invalid_if_missing": objective.invalid_if_missing,
+                    "threshold": objective.threshold,
+                }
+                for objective in contract.objectives
+            ],
+            "instances": [{"id": instance.id, "path": str(instance.path)} for instance in contract.instances],
+            "budget": {
+                "rounds": contract.budget.rounds,
+                "seeds": contract.budget.seeds,
+                "timeout_seconds": contract.budget.timeout_seconds,
+                "max_workers": contract.budget.max_workers,
+            },
+        },
+        "evaluator_protocol": {
+            "solver_command_template": contract.commands.solver,
+            "evaluator_command_template": contract.commands.evaluator,
+            "quick_test_command": contract.commands.quick_test,
+            "resources": {key: str(value) for key, value in contract.resources.items()},
+            "formal_verdict_owner": "AlgoForge Core",
+            "worker_self_evaluation_policy": (
+                "Worker may run quick tests and evaluator self-checks, but final success is decided only by Core."
+            ),
+        },
+        "edit_policy": {
+            "allowed_paths": contract.paths.allowed_paths,
+            "forbidden_paths": contract.paths.forbidden_paths,
+            "must_not_modify": [".git", "outputs", "confirmed evaluator semantics unless explicitly requested"],
+        },
+        "worker_instruction": {
+            "role": "Coding Agent / CodingWorker",
+            "required_order": [
+                "Read this context packet.",
+                "State a natural-language strategy before editing code.",
+                "Modify only allowed files.",
+                "Run the quick test before benchmark self-evaluation.",
+                "Return structured changed files, test results, benchmark summary, and failure analysis.",
+            ],
+            "success_rule": "Do not claim success unless AlgoForge Core reruns evaluator/validator and accepts the result.",
+        },
+        "hypothesis": request.hypothesis,
+        "documents": docs,
+        "knowledge_cards": knowledge_cards,
+        "previous_report": previous_report,
+    }
+    packet["packet_hash"] = _hash_text(json.dumps(packet, ensure_ascii=False, sort_keys=True))
+    return packet
+
+
+def write_context_packet(request: ContextPacketRequest) -> Path:
+    payload = build_context_packet(request)
+    request.output_path.parent.mkdir(parents=True, exist_ok=True)
+    request.output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return request.output_path
+
+
+def _source_payload(path: Path, max_chars: int) -> dict[str, Any]:
+    try:
+        text = path.read_text(encoding="utf-8-sig", errors="replace")
+        exists = True
+        error = None
+    except OSError as exc:
+        text = ""
+        exists = False
+        error = str(exc)
+    truncated = len(text) > max_chars
+    snippet = text[:max_chars]
+    return {
+        "path": str(path),
+        "exists": exists,
+        "sha256": _hash_text(text) if exists else None,
+        "chars": len(text),
+        "truncated": truncated,
+        "snippet": snippet,
+        "error": error,
+    }
+
+
+def _hash_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()

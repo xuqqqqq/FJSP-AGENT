@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+from .context_packet import ContextPacketRequest, write_context_packet
+from .contract_builder import DraftContractRequest, write_confirmed_contract, write_draft_contract
 from .graph_runner import GraphHarnessRunner
 from .models import TaskContract
 from .runner import HarnessRunner
@@ -20,11 +22,55 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--contract", required=True, type=Path)
     validate.add_argument("--project-root", type=Path, default=Path.cwd())
 
+    confirm = subparsers.add_parser("confirm-contract", help="mark a reviewed draft contract as human-confirmed")
+    confirm.add_argument("--contract", required=True, type=Path)
+    confirm.add_argument("--output", required=True, type=Path)
+    confirm.add_argument("--confirmed-by", required=True)
+    confirm.add_argument("--note", default="")
+
+    context = subparsers.add_parser("build-context-packet", help="package a bounded context packet for a coding worker")
+    context.add_argument("--contract", required=True, type=Path)
+    context.add_argument("--output", required=True, type=Path)
+    context.add_argument("--doc", action="append", type=Path, default=[])
+    context.add_argument("--knowledge-card", action="append", type=Path, default=[])
+    context.add_argument("--hypothesis", default="")
+    context.add_argument("--previous-report", type=Path)
+    context.add_argument("--max-chars-per-source", type=int, default=12000)
+
+    draft = subparsers.add_parser("draft-contract", help="build a human-review draft task contract from documents")
+    draft.add_argument("--doc", action="append", type=Path, default=[], help="requirement/IO/metric document path")
+    draft.add_argument("--instance", action="append", type=Path, default=[], help="instance file or directory path")
+    draft.add_argument("--output", required=True, type=Path)
+    draft.add_argument("--project-root", type=Path, default=Path.cwd())
+    draft.add_argument("--task-id", default="draft_task")
+    draft.add_argument("--problem-family", help="override inferred problem family, for example FJSP")
+    draft.add_argument(
+        "--objective",
+        action="append",
+        default=[],
+        help="objective override in name:direction[:priority] format, e.g. makespan:minimize:1",
+    )
+    draft.add_argument("--solver-cmd", help="solver command template")
+    draft.add_argument("--evaluator-cmd", help="evaluator command template")
+    draft.add_argument("--quick-test", help="quick correctness command")
+    draft.add_argument("--rounds", type=int, default=1)
+    draft.add_argument("--seeds", default="0")
+    draft.add_argument("--timeout-seconds", type=int, default=300)
+    draft.add_argument("--max-workers", type=int, default=1)
+    draft.add_argument("--allowed-path", action="append", default=[])
+    draft.add_argument("--forbidden-path", action="append", default=[".git", "outputs"])
+    draft.add_argument("--resource", action="append", default=[], help="resource mapping in key=path format")
+
     run = subparsers.add_parser("run", help="run solver/evaluator experiments from a task contract")
     run.add_argument("--contract", required=True, type=Path)
     run.add_argument("--project-root", type=Path, default=Path.cwd())
     run.add_argument("--output-dir", required=True, type=Path)
     run.add_argument("--runner", choices=["langgraph", "linear"], default="langgraph")
+    run.add_argument(
+        "--allow-draft",
+        action="store_true",
+        help="allow exploratory runs on a draft contract that still requires human confirmation",
+    )
 
     build_standard = subparsers.add_parser("build-standard-contract", help="create a standard FJSP task contract")
     build_standard.add_argument("--instance-dir", required=True, type=Path)
@@ -102,10 +148,98 @@ def validate_contract(args: argparse.Namespace) -> int:
         "problem_family": contract.problem_family,
         "instances": len(contract.instances),
         "objectives": [objective.name for objective in contract.objectives],
+        "review_status": contract.review_status,
+        "requires_human_confirmation": contract.requires_human_confirmation,
         "errors": errors,
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 1 if errors else 0
+
+
+def draft_contract(args: argparse.Namespace) -> int:
+    seeds = [int(item.strip()) for item in str(args.seeds).split(",") if item.strip()]
+    request = DraftContractRequest(
+        task_id=args.task_id,
+        docs=args.doc,
+        instances=args.instance,
+        output=args.output,
+        problem_family=args.problem_family,
+        objectives=args.objective,
+        solver_cmd=args.solver_cmd,
+        evaluator_cmd=args.evaluator_cmd,
+        quick_test_cmd=args.quick_test,
+        rounds=args.rounds,
+        seeds=seeds or [0],
+        timeout_seconds=args.timeout_seconds,
+        max_workers=max(1, args.max_workers),
+        allowed_paths=args.allowed_path,
+        forbidden_paths=args.forbidden_path,
+        resources=args.resource,
+    )
+    output = write_draft_contract(request)
+    contract = TaskContract.load(output)
+    errors = contract.validate(args.project_root)
+    payload = {
+        "status": "draft_created",
+        "output": str(output.resolve()),
+        "task_id": contract.task_id,
+        "problem_family": contract.problem_family,
+        "instances": len(contract.instances),
+        "objectives": [objective.name for objective in contract.objectives],
+        "validation_errors": errors,
+        "review_required": True,
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def confirm_contract(args: argparse.Namespace) -> int:
+    output = write_confirmed_contract(
+        contract_path=args.contract,
+        output_path=args.output,
+        confirmed_by=args.confirmed_by,
+        note=args.note,
+    )
+    contract = TaskContract.load(output)
+    payload = {
+        "status": "confirmed",
+        "output": str(output.resolve()),
+        "task_id": contract.task_id,
+        "review_status": contract.review_status,
+        "requires_human_confirmation": contract.requires_human_confirmation,
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def build_context_packet_cmd(args: argparse.Namespace) -> int:
+    request = ContextPacketRequest(
+        contract_path=args.contract,
+        output_path=args.output,
+        docs=args.doc,
+        knowledge_cards=args.knowledge_card,
+        hypothesis=args.hypothesis,
+        previous_report=args.previous_report,
+        max_chars_per_source=max(1000, args.max_chars_per_source),
+    )
+    output = write_context_packet(request)
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    print(
+        json.dumps(
+            {
+                "status": "context_packet_created",
+                "output": str(output.resolve()),
+                "task_id": payload["task"]["task_id"],
+                "review_status": payload["task"]["review_status"],
+                "documents": len(payload["documents"]),
+                "knowledge_cards": len(payload["knowledge_cards"]),
+                "packet_hash": payload["packet_hash"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
 
 
 def run_contract(args: argparse.Namespace) -> int:
@@ -113,6 +247,22 @@ def run_contract(args: argparse.Namespace) -> int:
     errors = contract.validate(args.project_root)
     if errors:
         print(json.dumps({"status": "invalid_contract", "errors": errors}, ensure_ascii=False, indent=2))
+        return 1
+    if contract.requires_human_confirmation and not args.allow_draft:
+        print(
+            json.dumps(
+                {
+                    "status": "contract_requires_human_confirmation",
+                    "review_status": contract.review_status,
+                    "message": (
+                        "This contract is a generated draft. Run confirm-contract after human review, "
+                        "or pass --allow-draft for exploratory runs that must not be treated as formal evidence."
+                    ),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         return 1
     runner_cls = GraphHarnessRunner if args.runner == "langgraph" else HarnessRunner
     runner = runner_cls(contract=contract, project_root=args.project_root, output_dir=args.output_dir)
@@ -370,6 +520,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "validate-contract":
         return validate_contract(args)
+    if args.command == "confirm-contract":
+        return confirm_contract(args)
+    if args.command == "build-context-packet":
+        return build_context_packet_cmd(args)
+    if args.command == "draft-contract":
+        return draft_contract(args)
     if args.command == "run":
         return run_contract(args)
     if args.command == "build-standard-contract":
