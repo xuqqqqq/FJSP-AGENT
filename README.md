@@ -66,8 +66,11 @@ python -m harness_agent.cli draft-contract `
 ```
 
 This command records `review.status = draft_requires_human_confirmation` and
-stores source references plus uncertain fields in the contract JSON.  After
-review, create a confirmed copy before treating the evaluator as formal:
+stores source references, uncertain fields, extracted problem-feature hints,
+metric hints, command-template placeholder checks, and a confirmation checklist
+in the contract JSON.  These fields are evidence for review; they are not a
+formal evaluator contract until confirmed.  After review, create a confirmed
+copy before treating the evaluator as formal:
 
 ```powershell
 python -m harness_agent.cli confirm-contract `

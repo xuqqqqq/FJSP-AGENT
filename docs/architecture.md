@@ -184,6 +184,13 @@ created with `confirm-contract`, which records who confirmed it and when.  This
 implements the rule that generated evaluators and validators must not become
 formal judges until a human confirms their semantics.
 
+The draft-contract builder performs source-grounded extraction before that
+confirmation step.  It records problem-feature hints, inferred metric hints,
+command-template placeholder checks, document statistics, and a confirmation
+checklist under `review`.  These fields help the main agent and reviewer see how
+the requirement/IO documents were translated, but they remain non-authoritative
+until the contract is confirmed.
+
 Coding workers do not receive the whole repository context by default.  The main
 agent writes a context packet containing the task contract hash, review status,
 evaluator protocol, edit policy, bounded document snippets, knowledge cards,

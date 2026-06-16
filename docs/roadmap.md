@@ -21,6 +21,8 @@ The repository has reached the first harness milestone:
 - document-to-draft-contract CLI that records source references, uncertain
   fields, and required human confirmation before a generated evaluator or
   validator can become formal.
+- source-grounded draft-contract extraction of problem features, metric hints,
+  command-template checks, document statistics, and confirmation checklist.
 - formal run gate that refuses unconfirmed generated contracts unless the user
   explicitly requests exploratory `--allow-draft` execution.
 - context-packet CLI that packages confirmed evaluator semantics, bounded docs,
@@ -195,8 +197,8 @@ Two-round smoke:
 
 | Requirement | Current status | Next action |
 | --- | --- | --- |
-| Read requirement and IO documents | Minimal draft-contract ingestion implemented | Expand source-grounded extraction and uncertainty reporting. |
-| Derive Task Contract from documents | Draft JSON and confirmation gate implemented | Add stronger document schema extraction and web review workflow. |
+| Read requirement and IO documents | Draft-contract ingestion with source-grounded feature/metric hints and uncertainty reporting implemented | Add richer section-level parsing and optional LLM-assisted extraction. |
+| Derive Task Contract from documents | Draft JSON, evidence fields, command checks, and confirmation gate implemented | Add stronger document schema extraction and web review workflow. |
 | Support multiple metrics from documents | Contract model supports it | Add evaluator schema checks and Pareto reporting. |
 | Generate solver code with an LLM worker | DeepSeek proposal-first worker, non-interactive OpenCodeWorker adapter, isolated worker-cycle evaluator rerun, multi-cycle promotion/rollback, and per-round context refresh implemented | Add stronger rule/operator mutation prompts. |
 | Strategy-first evolution | DeepSeek/template profiles plus candidate ablation implemented | Extend from scoring profiles to code-level operator evolution. |
@@ -214,9 +216,10 @@ The next concrete slice should be:
    - current: reads requirement docs, IO docs, metric docs, instances, and CLI
      hints;
    - current: outputs review-required draft `task_contract.json`;
-   - current: records source references and uncertain fields;
-   - next: add source-grounded field extraction, metric-specific validator
-     prompts, and explicit human confirmation state transitions.
+   - current: records source references, uncertain fields, problem-feature
+     hints, metric hints, command-template checks, and confirmation checklist;
+   - next: add section-level document schema extraction and metric-specific
+     validator prompts.
 
 2. `context_packet.py`
    - current: packages task contract hash, review status, evaluator protocol,

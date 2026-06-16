@@ -2,10 +2,37 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+OBJECTIVE_CANDIDATES = [
+    ("completed_weight", "maximize", ["产量", "完成重量", "completed_weight", "throughput"]),
+    ("makespan", "minimize", ["makespan", "最大完工", "完工时间", "最大完成时间"]),
+    ("setup_count", "minimize", ["setup", "切换次数", "换型"]),
+    ("tardiness", "minimize", ["延期", "迟交", "tardiness"]),
+    ("runtime_seconds", "minimize", ["运行时间", "runtime"]),
+]
+
+FEATURE_CANDIDATES = [
+    ("flexible_job_shop", "core", ["FJSP", "柔性作业", "柔性车间", "候选机器", "多台机器可选"]),
+    ("release_time", "constraint", ["释放时间", "release time", "最早到达", "最早可用"]),
+    ("maximum_time_lag", "constraint", ["最大生产间隔", "最大间隔", "max lag", "maximum time lag"]),
+    ("minimum_time_lag", "constraint", ["最小生产间隔", "最小间隔", "min lag", "minimum time lag"]),
+    ("sequence_dependent_setup", "constraint", ["顺序相关切换", "切换矩阵", "sequence-dependent", "setup"]),
+    ("reentrant_operations", "constraint", ["可重入", "reentrant", "多次重入"]),
+    ("alternative_routes", "constraint", ["替代加工路径", "多条加工路径", "路径可选", "route choice"]),
+    ("maintenance_windows", "constraint", ["维修", "维护", "maintenance", "不可用时间"]),
+    ("cross_factory_transfer", "extension", ["跨厂", "转运", "transfer", "运输时间"]),
+    ("job_priority", "extension", ["优先级", "priority"]),
+    ("batch_processing", "extension", ["组批", "并行组批", "p-batch", "batch"]),
+    ("decomposition_required", "challenge", ["大规模", "分解", "decomposition", "large-scale"]),
+]
+
+REQUIRED_SOLVER_PLACEHOLDERS = ["{instance}", "{solution}"]
+REQUIRED_EVALUATOR_PLACEHOLDERS = ["{instance}", "{solution}", "{metrics}"]
 
 
 @dataclass(frozen=True)
@@ -80,6 +107,10 @@ def build_draft_contract(request: DraftContractRequest) -> dict[str, Any]:
     resources = _parse_resources(request.resources, uncertain_fields)
     description = _build_description(sources, joined_text)
     source_references.extend(_document_references(sources))
+    feature_hints = _extract_problem_features(joined_text)
+    metric_hints = _extract_metric_hints(joined_text)
+    command_checks = _command_template_checks(solver_cmd=solver_cmd, evaluator_cmd=evaluator_cmd)
+    uncertain_fields.extend(check["field"] for check in command_checks if check["status"] == "missing_placeholder")
 
     return {
         "task_id": request.task_id,
@@ -120,6 +151,19 @@ def build_draft_contract(request: DraftContractRequest) -> dict[str, Any]:
             "uncertain_fields": sorted(set(uncertain_fields)),
             "source_documents": [str(path) for path in request.docs],
             "source_references": source_references,
+            "document_statistics": _document_statistics(sources),
+            "extracted_problem_features": feature_hints,
+            "metric_hints": metric_hints,
+            "command_template_checks": command_checks,
+            "confirmation_checklist": _confirmation_checklist(
+                uncertain_fields=sorted(set(uncertain_fields)),
+                feature_hints=feature_hints,
+                metric_hints=metric_hints,
+            ),
+            "extraction_method": (
+                "rule_based_source_grounding_v1: keyword evidence is used only "
+                "to draft fields for review, not to create a formal evaluator contract."
+            ),
         },
     }
 
@@ -197,15 +241,8 @@ def _parse_objective_overrides(values: list[str]) -> list[DraftObjective]:
 
 
 def _infer_objectives(text: str, source_references: list[dict[str, Any]]) -> list[DraftObjective]:
-    candidates = [
-        ("completed_weight", "maximize", ["产量", "完成重量", "completed_weight", "throughput"]),
-        ("makespan", "minimize", ["makespan", "最大完工", "完工时间", "最大完成时间"]),
-        ("setup_count", "minimize", ["setup", "切换次数", "换型"]),
-        ("tardiness", "minimize", ["延期", "迟交", "tardiness"]),
-        ("runtime_seconds", "minimize", ["运行时间", "runtime"]),
-    ]
     objectives: list[DraftObjective] = []
-    for name, direction, patterns in candidates:
+    for name, direction, patterns in OBJECTIVE_CANDIDATES:
         for pattern in patterns:
             if re.search(pattern, text, flags=re.IGNORECASE):
                 priority = len(objectives) + 1
@@ -219,6 +256,83 @@ def _infer_objectives(text: str, source_references: list[dict[str, Any]]) -> lis
                 )
                 break
     return objectives
+
+
+def _extract_metric_hints(text: str) -> list[dict[str, Any]]:
+    hints: list[dict[str, Any]] = []
+    for name, direction, patterns in OBJECTIVE_CANDIDATES:
+        for pattern in patterns:
+            evidence = _short_evidence(text, pattern)
+            if evidence:
+                hints.append(
+                    {
+                        "metric": name,
+                        "direction": direction,
+                        "matched_pattern": pattern,
+                        "evidence": evidence,
+                    }
+                )
+                break
+    return hints
+
+
+def _extract_problem_features(text: str) -> list[dict[str, Any]]:
+    features: list[dict[str, Any]] = []
+    for name, category, patterns in FEATURE_CANDIDATES:
+        for pattern in patterns:
+            evidence = _short_evidence(text, pattern)
+            if evidence:
+                features.append(
+                    {
+                        "name": name,
+                        "category": category,
+                        "matched_pattern": pattern,
+                        "evidence": evidence,
+                    }
+                )
+                break
+    return features
+
+
+def _command_template_checks(*, solver_cmd: str, evaluator_cmd: str) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    for field, command, placeholders in [
+        ("commands.solver", solver_cmd, REQUIRED_SOLVER_PLACEHOLDERS),
+        ("commands.evaluator", evaluator_cmd, REQUIRED_EVALUATOR_PLACEHOLDERS),
+    ]:
+        for placeholder in placeholders:
+            status = "ok" if placeholder in command else "missing_placeholder"
+            checks.append(
+                {
+                    "field": field,
+                    "placeholder": placeholder,
+                    "status": status,
+                    "command": command,
+                }
+            )
+    return checks
+
+
+def _confirmation_checklist(
+    *,
+    uncertain_fields: list[str],
+    feature_hints: list[dict[str, Any]],
+    metric_hints: list[dict[str, Any]],
+) -> list[str]:
+    checklist = [
+        "Confirm that solver/evaluator command templates use the expected placeholders and produce the declared metrics.",
+        "Confirm that every objective metric name matches the evaluator output JSON exactly.",
+        "Confirm that validity semantics are owned by the evaluator/validator, not by the coding worker.",
+    ]
+    if uncertain_fields:
+        checklist.append(f"Review uncertain fields: {', '.join(uncertain_fields)}.")
+    if feature_hints:
+        feature_names = ", ".join(item["name"] for item in feature_hints[:8])
+        checklist.append(f"Confirm extracted problem features and required constraint switches: {feature_names}.")
+    if metric_hints:
+        metric_names = ", ".join(item["metric"] for item in metric_hints)
+        checklist.append(f"Confirm objective priority and directions for inferred metrics: {metric_names}.")
+    return checklist
 
 
 def _build_instances(paths: list[Path]) -> list[dict[str, str]]:
@@ -268,6 +382,17 @@ def _document_references(sources: list[DraftSource]) -> list[dict[str, Any]]:
             }
         )
     return references
+
+
+def _document_statistics(sources: list[DraftSource]) -> list[dict[str, Any]]:
+    return [
+        {
+            "path": str(source.path),
+            "chars": len(source.text),
+            "non_empty_lines": sum(1 for line in source.text.splitlines() if line.strip()),
+        }
+        for source in sources
+    ]
 
 
 def _short_evidence(text: str, pattern: str) -> str:
