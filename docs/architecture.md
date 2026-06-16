@@ -132,6 +132,12 @@ JSON/Markdown table of statuses, valid experiment counts, gap metrics, and
 worker-loop promotion evidence.  This is intentionally read-only: it is an audit
 surface over existing evaluator-backed outputs, not a new evaluator.
 
+For standard FJSP smoke tests, `run-standard-pipeline` composes the benchmark
+suite, coding-worker loop, and evidence-index commands into one reproducible
+entrypoint.  The pipeline has no independent scoring authority; it succeeds only
+when the underlying evaluator-backed stages produce complete manifests and
+referenced artifacts.
+
 ## 5. Hypothesis Memory
 
 The self-evolution loop needs more than free-form reflection text.  Each

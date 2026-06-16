@@ -42,6 +42,9 @@ The repository has reached the first harness milestone:
 - per-round context refresh in `run-worker-loop`, so each coding-worker proposal
   can see baseline metrics, current incumbent status, and previous
   evaluator-backed wins/losses.
+- `run-standard-pipeline` CLI that runs the standard benchmark suite,
+  evaluator-backed coding-worker loop, and evidence index as one reproducible
+  standard-FJSP smoke workflow.
 - harness-generated worktree delta and unified patch artifacts for each
   worker-cycle candidate.
 - non-interactive OpenCodeWorker adapter that can execute `opencode run` inside

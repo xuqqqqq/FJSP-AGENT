@@ -178,6 +178,45 @@ modify files inside isolated candidate worktrees.  A round is promoted only if
 the fixed evaluator reports a strictly better objective key than the incumbent;
 otherwise the candidate is rolled back.
 
+## Standard FJSP Full Pipeline
+
+`run-standard-pipeline` is the current one-command smoke path for the standard
+FJSP loop-engineering flow.  It runs the configured benchmark suite, runs the
+coding-worker loop, and then builds a single evidence index over both stages.
+This is the recommended command when the goal is to verify that the full
+document-to-evaluator-to-reflection chain is wired correctly.
+
+```powershell
+python -m harness_agent.cli run-standard-pipeline `
+  --suite-config configs\standard_fjsp_suite.example.json `
+  --output-dir outputs\standard_pipeline_demo `
+  --worker null `
+  --worker-doc README.md `
+  --worker-instance-dir examples `
+  --worker-pattern standard_fjsp_tiny.fjs `
+  --worker-best-known-csv configs\standard_fjsp_tiny_best.csv `
+  --worker-iterations 1 `
+  --worker-seeds 0 `
+  --worker-timeout-seconds 30 `
+  --worker-max-runtime-seconds 30 `
+  --worker-max-steps 1 `
+  --worker-solver portfolio `
+  --worker-portfolio-size 4
+```
+
+Expected outputs:
+
+- `outputs/standard_pipeline_demo/standard_pipeline_manifest.json`
+- `outputs/standard_pipeline_demo/standard_pipeline_report.md`
+- `outputs/standard_pipeline_demo/benchmark_suite/suite_report.md`
+- `outputs/standard_pipeline_demo/standard_worker_loop/standard_worker_loop_report.md`
+- `outputs/standard_pipeline_demo/evidence_index/evidence_index.md`
+
+The pipeline is intentionally only orchestration glue.  It does not override
+suite metrics, worker-loop promotion decisions, or evidence-index checks; those
+remain owned by the evaluator-backed components that produced the referenced
+manifests.
+
 ## Evidence Index
 
 After running demos, benchmark suites, or coding-worker loops, build a single

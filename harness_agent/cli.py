@@ -15,6 +15,7 @@ from .loop_runner import run_worker_loop
 from .models import TaskContract
 from .runner import HarnessRunner
 from .standard_agent import StandardFjspAgentRunner
+from .standard_pipeline import StandardPipelineRequest, run_standard_pipeline
 from .standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop
 from .worker import ExperimentSpec, NullWorker, WorkerResult
 from .worker_cycle import run_worker_cycle
@@ -255,6 +256,46 @@ def build_parser() -> argparse.ArgumentParser:
     standard_worker.add_argument("--hypothesis", default="")
     standard_worker.add_argument("--deepseek-model", default="deepseek-v4-pro")
     standard_worker.add_argument("--opencode-model")
+
+    pipeline = subparsers.add_parser(
+        "run-standard-pipeline",
+        help="run benchmark suite, coding-worker loop, and evidence index as one standard FJSP pipeline",
+    )
+    pipeline.add_argument("--suite-config", required=True, type=Path)
+    pipeline.add_argument("--output-dir", required=True, type=Path)
+    pipeline.add_argument("--project-root", type=Path, default=Path.cwd())
+    pipeline.add_argument("--max-suites", type=int)
+    pipeline.add_argument("--worker", choices=["null", "deepseek", "opencode"], default="null")
+    pipeline.add_argument("--worker-doc", action="append", type=Path, default=[])
+    pipeline.add_argument("--worker-knowledge-card", action="append", type=Path, default=[])
+    pipeline.add_argument("--worker-instance-dir", required=True, type=Path)
+    pipeline.add_argument("--worker-pattern", default="*.txt")
+    pipeline.add_argument("--worker-best-known-csv", type=Path)
+    pipeline.add_argument("--worker-max-instances", type=int)
+    pipeline.add_argument("--worker-seeds", default="0")
+    pipeline.add_argument("--worker-timeout-seconds", type=int, default=60)
+    pipeline.add_argument("--worker-max-workers", type=int, default=1)
+    pipeline.add_argument("--worker-solver", choices=["local-search", "portfolio"], default="portfolio")
+    pipeline.add_argument("--worker-portfolio-size", type=int, default=16)
+    pipeline.add_argument("--worker-local-search-restarts", type=int, default=1)
+    pipeline.add_argument("--worker-local-search-initial-pool-size", type=int, default=1)
+    pipeline.add_argument("--worker-local-search-iterations", type=int, default=40)
+    pipeline.add_argument("--worker-local-search-neighbor-limit", type=int, default=100)
+    pipeline.add_argument("--worker-local-search-time-limit-sec", type=float, default=2.0)
+    pipeline.add_argument(
+        "--worker-local-search-neighborhood-profile",
+        choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid"],
+        default="combined",
+    )
+    pipeline.add_argument("--worker-iterations", type=int, default=1)
+    pipeline.add_argument("--worker-max-steps", type=int, default=4)
+    pipeline.add_argument("--worker-max-runtime-seconds", type=int, default=120)
+    pipeline.add_argument("--worker-apply", action="store_true")
+    pipeline.add_argument("--worker-experiment-id", default="standard_pipeline_worker_loop")
+    pipeline.add_argument("--worker-hypothesis", default="")
+    pipeline.add_argument("--deepseek-model", default="deepseek-v4-pro")
+    pipeline.add_argument("--opencode-model")
+    pipeline.add_argument("--title", default="Standard FJSP Loop Pipeline Evidence")
 
     evidence = subparsers.add_parser("build-evidence-index", help="index generated loop-engineering manifests")
     evidence.add_argument("--input-dir", action="append", required=True, type=Path)
@@ -824,6 +865,61 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
     return 0 if manifest["status"] == "ok" else 1
 
 
+def run_standard_pipeline_cmd(args: argparse.Namespace) -> int:
+    seeds = [int(item.strip()) for item in str(args.worker_seeds).split(",") if item.strip()]
+    worker = make_worker(args.worker, deepseek_model=args.deepseek_model, opencode_model=args.opencode_model)
+    manifest = run_standard_pipeline(
+        StandardPipelineRequest(
+            suite_config=args.suite_config,
+            output_dir=args.output_dir,
+            project_root=args.project_root,
+            worker=worker,
+            worker_docs=args.worker_doc,
+            worker_knowledge_cards=args.worker_knowledge_card,
+            worker_instance_dir=args.worker_instance_dir,
+            worker_pattern=args.worker_pattern,
+            worker_best_known_csv=args.worker_best_known_csv,
+            max_suites=args.max_suites,
+            worker_max_instances=args.worker_max_instances,
+            worker_seeds=seeds or [0],
+            worker_timeout_seconds=args.worker_timeout_seconds,
+            worker_max_workers=max(1, args.worker_max_workers),
+            worker_solver=args.worker_solver,
+            worker_portfolio_size=args.worker_portfolio_size,
+            worker_local_search_restarts=args.worker_local_search_restarts,
+            worker_local_search_initial_pool_size=args.worker_local_search_initial_pool_size,
+            worker_local_search_iterations=args.worker_local_search_iterations,
+            worker_local_search_neighbor_limit=args.worker_local_search_neighbor_limit,
+            worker_local_search_time_limit_sec=args.worker_local_search_time_limit_sec,
+            worker_local_search_neighborhood_profile=args.worker_local_search_neighborhood_profile,
+            worker_iterations=args.worker_iterations,
+            worker_max_steps=args.worker_max_steps,
+            worker_max_runtime_seconds=args.worker_max_runtime_seconds,
+            worker_apply_changes=bool(args.worker_apply),
+            worker_experiment_id=args.worker_experiment_id,
+            worker_hypothesis=args.worker_hypothesis
+            or "Improve the standard FJSP solver under the fixed evaluator. State the rule-level idea before editing code.",
+            title=args.title,
+        )
+    )
+    print(
+        json.dumps(
+            {
+                "status": manifest["status"],
+                "stage_status": manifest["stage_status"],
+                "benchmark_suite": manifest["artifacts"]["benchmark_suite_report"],
+                "standard_worker_loop": manifest["artifacts"]["standard_worker_loop_report"],
+                "evidence_index": manifest["artifacts"]["evidence_index_markdown"],
+                "manifest": manifest["artifacts"]["manifest"],
+                "report": manifest["artifacts"]["report"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0 if manifest["status"] == "ok" else 1
+
+
 def build_evidence_index_cmd(args: argparse.Namespace) -> int:
     index = build_evidence_index(
         EvidenceIndexRequest(
@@ -976,6 +1072,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_benchmark_suite_cmd(args)
     if args.command == "run-standard-worker-loop":
         return run_standard_worker_loop_cmd(args)
+    if args.command == "run-standard-pipeline":
+        return run_standard_pipeline_cmd(args)
     if args.command == "build-evidence-index":
         return build_evidence_index_cmd(args)
     parser.error(f"unknown command: {args.command}")
