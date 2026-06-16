@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 
+from .benchmark_suite import BenchmarkSuiteRequest, run_benchmark_suite
 from .context_packet import ContextPacketRequest, write_context_packet
 from .contract_builder import DraftContractRequest, write_confirmed_contract, write_draft_contract
 from .demo import StandardDemoRequest, run_standard_demo
@@ -212,6 +213,12 @@ def build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--strategy-candidates", type=int, default=2)
     demo.add_argument("--profile-mode", choices=["auto", "deepseek", "template"], default="template")
     demo.add_argument("--deepseek-model", default="deepseek-v4-pro")
+
+    suite = subparsers.add_parser("run-benchmark-suite", help="run configured standard FJSP benchmark demo suites")
+    suite.add_argument("--config", required=True, type=Path)
+    suite.add_argument("--output-dir", required=True, type=Path)
+    suite.add_argument("--project-root", type=Path, default=Path.cwd())
+    suite.add_argument("--max-suites", type=int)
     return parser
 
 
@@ -697,6 +704,31 @@ def run_demo(args: argparse.Namespace) -> int:
     return 0 if manifest["status"] == "ok" else 1
 
 
+def run_benchmark_suite_cmd(args: argparse.Namespace) -> int:
+    manifest = run_benchmark_suite(
+        BenchmarkSuiteRequest(
+            config_path=args.config,
+            output_dir=args.output_dir,
+            project_root=args.project_root,
+            max_suites=args.max_suites,
+        )
+    )
+    print(
+        json.dumps(
+            {
+                "status": manifest["status"],
+                "suite_count": manifest["suite_count"],
+                "aggregate": manifest["aggregate"],
+                "manifest": manifest["artifacts"]["manifest"],
+                "report": manifest["artifacts"]["report"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0 if manifest["status"] == "ok" else 1
+
+
 def parse_neighborhood_profiles(value: str | None, *, fallback: str) -> list[str]:
     allowed = {"random", "critical-block", "combined", "hgtsa-lite", "hybrid"}
     raw_items = [fallback] if not value else [item.strip() for item in value.split(",") if item.strip()]
@@ -821,6 +853,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_standard_agent(args)
     if args.command == "run-demo":
         return run_demo(args)
+    if args.command == "run-benchmark-suite":
+        return run_benchmark_suite_cmd(args)
     parser.error(f"unknown command: {args.command}")
     return 2
 

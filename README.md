@@ -96,6 +96,51 @@ the generated harness reports remains the source of truth for solver quality.
 When `--best-known-csv` is provided and instance names match, the demo manifest
 adds `benchmark_summary.gap_metrics`, including metrics such as `avg_gap_pct`.
 
+## Standard FJSP Benchmark Suite
+
+For repeated benchmark evidence, put one or more standard-FJSP suites in a JSON
+configuration and run them together:
+
+```powershell
+python -m harness_agent.cli run-benchmark-suite `
+  --config configs\standard_fjsp_suite.example.json `
+  --output-dir outputs\standard_fjsp_suite_demo
+```
+
+The suite config supports shared `defaults` plus per-suite overrides:
+
+```json
+{
+  "defaults": {
+    "docs": ["../README.md"],
+    "max_rounds": 1,
+    "seeds": [0],
+    "solver": "portfolio",
+    "profile_mode": "template"
+  },
+  "suites": [
+    {
+      "name": "tiny-standard-fjsp",
+      "instance_dir": "../examples",
+      "pattern": "standard_fjsp_tiny.fjs",
+      "best_known_csv": "standard_fjsp_tiny_best.csv",
+      "max_instances": 1
+    }
+  ]
+}
+```
+
+Expected outputs:
+
+- `outputs/standard_fjsp_suite_demo/suite_manifest.json`
+- `outputs/standard_fjsp_suite_demo/suite_report.md`
+- one subdirectory under `outputs/standard_fjsp_suite_demo/suites/` per suite
+
+The suite report aggregates evaluator-backed valid/failed experiment counts,
+best-known gap availability, and per-suite makespan/gap metrics.  It is the
+recommended smoke path before adding larger Barnes, Brandimarte, or
+Dauzère-Pérès benchmark batches.
+
 ## Document To Draft Contract
 
 AlgoForge starts from requirement, IO, and metric documents rather than from a

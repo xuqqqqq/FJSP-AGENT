@@ -1,0 +1,26 @@
+{
+  "defaults": {
+    "docs": [
+      "../README.md"
+    ],
+    "max_rounds": 1,
+    "seeds": [
+      0
+    ],
+    "timeout_seconds": 30,
+    "max_workers": 1,
+    "solver": "portfolio",
+    "portfolio_size": 4,
+    "strategy_candidates": 1,
+    "profile_mode": "template"
+  },
+  "suites": [
+    {
+      "name": "tiny-standard-fjsp",
+      "instance_dir": "../examples",
+      "pattern": "standard_fjsp_tiny.fjs",
+      "best_known_csv": "standard_fjsp_tiny_best.csv",
+      "max_instances": 1
+    }
+  ]
+}
