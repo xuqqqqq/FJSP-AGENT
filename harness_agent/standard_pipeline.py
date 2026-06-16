@@ -237,6 +237,8 @@ def run_standard_pipeline_loop(request: StandardPipelineLoopRequest) -> dict[str
 
     manifest_path = output_dir / "standard_pipeline_loop_manifest.json"
     report_path = output_dir / "standard_pipeline_loop_report.md"
+    next_action_path = output_dir / "standard_pipeline_next_action_brief.json"
+    next_action_report_path = output_dir / "standard_pipeline_next_action_brief.md"
     loop_manifest = standard_pipeline_loop_manifest(
         request=request,
         iterations=iterations,
@@ -244,6 +246,11 @@ def run_standard_pipeline_loop(request: StandardPipelineLoopRequest) -> dict[str
         manifest_path=manifest_path,
         report_path=report_path,
     )
+    loop_manifest["artifacts"]["next_action_brief_json"] = str(next_action_path.resolve())
+    loop_manifest["artifacts"]["next_action_brief_markdown"] = str(next_action_report_path.resolve())
+    next_action_brief = standard_pipeline_loop_next_action_brief(loop_manifest)
+    next_action_path.write_text(json.dumps(next_action_brief, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    next_action_report_path.write_text(render_standard_pipeline_next_action_brief(next_action_brief), encoding="utf-8")
     manifest_path.write_text(json.dumps(loop_manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     report_path.write_text(render_standard_pipeline_loop_report(loop_manifest), encoding="utf-8")
     return loop_manifest
@@ -463,6 +470,99 @@ def standard_pipeline_manifest(
     }
 
 
+def standard_pipeline_loop_next_action_brief(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Build a compact controller handoff for the next loop invocation."""
+
+    iterations = manifest.get("iterations") or []
+    final = manifest.get("final") or {}
+    final_memory = final.get("memory_path")
+    final_stage_status = (iterations[-1].get("stage_status") if iterations else {}) or {}
+    final_worker = final.get("worker_signal") or {}
+    benchmark_trend = [
+        {
+            "iteration_index": item.get("iteration_index"),
+            "status": item.get("status"),
+            "avg_reported_gap_pct": (item.get("benchmark_signal") or {}).get("avg_reported_gap_pct"),
+            "promoted_rounds": (item.get("worker_signal") or {}).get("promoted_rounds", 0),
+            "worker_rounds": (item.get("worker_signal") or {}).get("round_count", 0),
+        }
+        for item in iterations
+    ]
+    promoted_total = sum(int((item.get("worker_signal") or {}).get("promoted_rounds", 0) or 0) for item in iterations)
+    recommendations = final.get("recommendations") or []
+    focus_areas = loop_focus_areas(
+        status=manifest.get("status"),
+        final_stage_status=final_stage_status,
+        final_worker=final_worker,
+        recommendations=recommendations,
+    )
+    return {
+        "schema_version": 1,
+        "purpose": "Controller handoff for the next standard-pipeline loop. It summarizes evidence and proposes the next prompt/parameter focus without changing evaluator semantics.",
+        "source_loop_manifest": (manifest.get("artifacts") or {}).get("manifest"),
+        "status": "ready" if manifest.get("status") == "ok" and final_memory else "blocked",
+        "next_previous_memory": final_memory,
+        "stage_status": final_stage_status,
+        "benchmark_trend": benchmark_trend,
+        "worker_promotion_summary": {
+            "total_promoted_rounds": promoted_total,
+            "final_rounds": final_worker.get("round_count", 0),
+            "final_promoted_rounds": final_worker.get("promoted_rounds", 0),
+            "final_improved": final_worker.get("improved"),
+        },
+        "focus_areas": focus_areas,
+        "next_worker_hypothesis": next_worker_hypothesis(focus_areas, recommendations),
+        "next_run_hint": {
+            "entrypoint": "python -m harness_agent.cli run-standard-pipeline",
+            "required_argument": f"--previous-memory {final_memory}" if final_memory else None,
+            "optional_argument": "--loop-rounds 2",
+            "note": "Keep evaluator and health gates unchanged; use this brief to vary the next worker hypothesis or coding proposal.",
+        },
+        "proposal_requirements": [
+            "Read previous_pipeline_memory before proposing edits.",
+            "State the natural-language strategy before code changes.",
+            "Explain why the proposal is materially different from rolled-back or duplicate prior attempts.",
+            "Modify solver/strategy code only; do not weaken evaluator, benchmark, or admission semantics.",
+            "Use Core evaluator metrics as the only promotion evidence.",
+        ],
+        "final_recommendations": recommendations,
+    }
+
+
+def loop_focus_areas(
+    *,
+    status: object,
+    final_stage_status: dict[str, Any],
+    final_worker: dict[str, Any],
+    recommendations: list[Any],
+) -> list[str]:
+    focus: list[str] = []
+    if status != "ok":
+        focus.append("repair_pipeline_or_admission_before_optimization")
+    if final_stage_status.get("admission_gate") != "passed":
+        focus.append("resolve_admission_gate")
+    if int(final_worker.get("round_count", 0) or 0) > 0 and int(final_worker.get("promoted_rounds", 0) or 0) == 0:
+        focus.append("increase_rule_or_operator_diversity")
+    if final_worker.get("improved") is False:
+        focus.append("require_materially_different_candidate")
+    if any("benchmark gap" in str(item).lower() for item in recommendations):
+        focus.append("target_best_known_gap_quality")
+    if any("duplicate" in str(item).lower() for item in recommendations):
+        focus.append("avoid_duplicate_proposal_fingerprints")
+    return focus or ["continue_small_evaluator_backed_solver_improvement"]
+
+
+def next_worker_hypothesis(focus_areas: list[str], recommendations: list[Any]) -> str:
+    focus_text = ", ".join(focus_areas)
+    recommendation_text = " ".join(str(item) for item in recommendations[:3])
+    return (
+        "Use the previous pipeline memory as measured evidence. "
+        f"Primary focus: {focus_text}. "
+        f"Evaluator-backed recommendations: {recommendation_text or 'continue with a small, auditable solver improvement.'} "
+        "Propose a natural-language rule/operator idea first, then edit only allowed algorithm files."
+    )
+
+
 def read_json_if_exists(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -598,6 +698,49 @@ def render_standard_pipeline_loop_report(manifest: dict[str, Any]) -> str:
         [
             "",
             "Each iteration is a full standard pipeline run.  The next iteration receives only the previous round's compact memory artifact; evaluator and promotion decisions remain owned by the referenced per-iteration manifests.",
+        ]
+    )
+    return "\n".join(lines).strip() + "\n"
+
+
+def render_standard_pipeline_next_action_brief(brief: dict[str, Any]) -> str:
+    lines = [
+        "# Standard FJSP Next Action Brief",
+        "",
+        f"- Status: `{brief.get('status')}`",
+        f"- Next previous-memory: `{brief.get('next_previous_memory')}`",
+        f"- Focus areas: `{json.dumps(brief.get('focus_areas') or [], ensure_ascii=False)}`",
+        "",
+        "## Next Worker Hypothesis",
+        "",
+        brief.get("next_worker_hypothesis") or "",
+        "",
+        "## Benchmark Trend",
+        "",
+        "| Iteration | Status | Avg Gap % | Promoted |",
+        "| --- | --- | --- | --- |",
+    ]
+    for item in brief.get("benchmark_trend") or []:
+        lines.append(
+            f"| `{item.get('iteration_index')}` | `{item.get('status')}` | "
+            f"`{item.get('avg_reported_gap_pct')}` | `{item.get('promoted_rounds')}/{item.get('worker_rounds')}` |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Proposal Requirements",
+            "",
+        ]
+    )
+    for item in brief.get("proposal_requirements") or []:
+        lines.append(f"- {item}")
+    lines.extend(["", "## Final Recommendations", ""])
+    for item in brief.get("final_recommendations") or []:
+        lines.append(f"- {item}")
+    lines.extend(
+        [
+            "",
+            "This brief is a controller handoff. It should guide the next worker prompt or parameter choice, but it is not a success verdict and must not override fixed evaluator evidence.",
         ]
     )
     return "\n".join(lines).strip() + "\n"

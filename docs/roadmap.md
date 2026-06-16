@@ -83,6 +83,10 @@ The repository has reached the first harness milestone:
 - `run-standard-pipeline --loop-rounds N` now automates that handoff by running
   complete pipeline iterations under `iteration_000`, `iteration_001`, and so
   on, then feeding each iteration's memory artifact into the next one.
+- Multi-round pipeline runs now emit `standard_pipeline_next_action_brief.*`,
+  which gives the next controller/coding backend a structured memory path,
+  trend summary, focus areas, and hypothesis text while keeping evaluator
+  manifests as the only acceptance source.
 
 This is not yet the full MD requirement.  It is the engineering base that makes
 the later self-evolution loop measurable and auditable.

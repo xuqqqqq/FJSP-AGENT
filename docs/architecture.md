@@ -200,6 +200,13 @@ automatically: each `iteration_xxx` directory is a complete pipeline run, and
 iteration `k + 1` receives iteration `k`'s `standard_pipeline_memory.json` in
 its worker context packet.  The top-level loop manifest is a navigation and
 audit summary only; it does not replace the per-iteration evaluator evidence.
+The top-level loop also writes a next-action brief.  This file is a small
+controller handoff for a future planner or coding backend: it points to the
+memory artifact that should be supplied as `--previous-memory`, summarizes gap
+and promotion trends, lists focus areas such as duplicate proposals or missing
+benchmark improvement, and drafts a next-worker hypothesis.  It deliberately
+stays outside acceptance logic so the loop can become more autonomous without
+weakening evaluator authority.
 
 ## 5. Hypothesis Memory
 

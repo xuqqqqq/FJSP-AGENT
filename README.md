@@ -315,6 +315,11 @@ For an automatic multi-round loop, keep the same command and add
 under the requested output directory, while each full iteration is stored under
 `iteration_000`, `iteration_001`, and so on.  Every iteration after the first
 receives the previous iteration's `standard_pipeline_memory.json` automatically.
+The loop also writes `standard_pipeline_next_action_brief.json/md`.  This brief
+is the controller handoff for the next run: it records the final memory path,
+benchmark trend, worker promotion summary, focus areas, and a suggested
+next-worker hypothesis.  It is not a success verdict; fixed evaluator and
+admission manifests still own all acceptance decisions.
 
 ## Evidence Index
 

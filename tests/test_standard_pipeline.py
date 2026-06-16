@@ -167,6 +167,13 @@ class StandardPipelineTests(unittest.TestCase):
             self.assertEqual(str(first_memory), second_context["previous_pipeline_memory"]["path"])
             self.assertEqual("ok", second_context["previous_pipeline_memory"]["pipeline_status"])
             self.assertEqual(manifest["iterations"][1]["memory_path"], manifest["artifacts"]["final_memory"])
+            self.assertTrue((output_dir / "standard_pipeline_next_action_brief.json").exists())
+            self.assertTrue((output_dir / "standard_pipeline_next_action_brief.md").exists())
+            brief = json.loads((output_dir / "standard_pipeline_next_action_brief.json").read_text(encoding="utf-8"))
+            self.assertEqual("ready", brief["status"])
+            self.assertEqual(manifest["artifacts"]["final_memory"], brief["next_previous_memory"])
+            self.assertIn("target_best_known_gap_quality", brief["focus_areas"])
+            self.assertTrue(any("evaluator" in item.lower() for item in brief["proposal_requirements"]))
             self.assertTrue((output_dir / "standard_pipeline_loop_manifest.json").exists())
             self.assertTrue((output_dir / "standard_pipeline_loop_report.md").exists())
 
