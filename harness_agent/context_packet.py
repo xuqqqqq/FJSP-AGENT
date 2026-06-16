@@ -18,6 +18,7 @@ class ContextPacketRequest:
     knowledge_cards: list[Path] = field(default_factory=list)
     hypothesis: str = ""
     previous_report: Path | None = None
+    previous_pipeline_memory: Path | None = None
     project_intake_manifest: Path | None = None
     max_chars_per_source: int = 12000
 
@@ -30,6 +31,11 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
     previous_report = (
         _source_payload(request.previous_report, request.max_chars_per_source)
         if request.previous_report
+        else None
+    )
+    previous_pipeline_memory = (
+        _pipeline_memory_payload(request.previous_pipeline_memory)
+        if request.previous_pipeline_memory
         else None
     )
     project_intake = (
@@ -46,6 +52,8 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
     ]
     if project_intake:
         required_order.insert(1, "Review project_intake before proposing code changes.")
+    if previous_pipeline_memory:
+        required_order.insert(1, "Review previous_pipeline_memory before proposing the next loop change.")
     packet = {
         "packet_type": "algoforge_context_packet",
         "schema_version": 1,
@@ -101,6 +109,7 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         "documents": docs,
         "knowledge_cards": knowledge_cards,
         "previous_report": previous_report,
+        "previous_pipeline_memory": previous_pipeline_memory,
     }
     packet["packet_hash"] = _hash_text(json.dumps(packet, ensure_ascii=False, sort_keys=True))
     return packet
@@ -202,6 +211,64 @@ def _project_intake_payload(path: Path, max_chars: int) -> dict[str, Any]:
         "error": error,
         "summary": _compact_project_intake(manifest),
         "report": report,
+    }
+
+
+def _pipeline_memory_payload(path: Path) -> dict[str, Any]:
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+        memory = json.loads(text)
+        exists = True
+        error = None
+    except (OSError, json.JSONDecodeError) as exc:
+        text = ""
+        memory = {}
+        exists = False
+        error = str(exc)
+
+    return {
+        "path": str(path),
+        "exists": exists,
+        "sha256": _hash_text(text) if exists else None,
+        "schema_version": memory.get("schema_version"),
+        "pipeline_status": memory.get("pipeline_status"),
+        "stage_status": memory.get("stage_status") or {},
+        "admission": memory.get("admission") or {},
+        "benchmark_signal": memory.get("benchmark_signal") or {},
+        "worker_signal": _compact_worker_signal(memory.get("worker_signal") or {}),
+        "evidence_signal": memory.get("evidence_signal") or {},
+        "recommendations": (memory.get("recommendations") or [])[:20],
+        "artifacts": memory.get("artifacts") or {},
+        "error": error,
+    }
+
+
+def _compact_worker_signal(worker_signal: dict[str, Any]) -> dict[str, Any]:
+    rounds = []
+    for item in worker_signal.get("rounds") or []:
+        if not isinstance(item, dict):
+            continue
+        rounds.append(
+            {
+                "round_index": item.get("round_index"),
+                "decision": item.get("decision"),
+                "worker_status": item.get("worker_status"),
+                "duplicate_proposal": item.get("duplicate_proposal"),
+                "candidate_key": item.get("candidate_key"),
+                "incumbent_key_after": item.get("incumbent_key_after"),
+                "changed_files": (item.get("changed_files") or [])[:20],
+                "proposal_diagnostics": item.get("proposal_diagnostics") or {},
+            }
+        )
+        if len(rounds) >= 20:
+            break
+    return {
+        "baseline_key": worker_signal.get("baseline_key"),
+        "final_key": worker_signal.get("final_key"),
+        "improved": worker_signal.get("improved"),
+        "round_count": worker_signal.get("round_count", 0),
+        "promoted_rounds": worker_signal.get("promoted_rounds", 0),
+        "rounds": rounds,
     }
 
 

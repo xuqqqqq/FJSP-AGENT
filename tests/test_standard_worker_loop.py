@@ -26,6 +26,7 @@ class StandardWorkerLoopTests(unittest.TestCase):
                 )
             )
             output_dir = Path(tmp) / "standard_worker"
+            previous_memory = _write_previous_memory(tmp_path)
 
             manifest = run_standard_worker_loop(
                 StandardWorkerLoopRequest(
@@ -37,6 +38,7 @@ class StandardWorkerLoopTests(unittest.TestCase):
                     project_root=ROOT,
                     worker=NullWorker(),
                     project_intake_manifest=Path(intake["artifacts"]["manifest"]),
+                    previous_pipeline_memory=previous_memory,
                     max_instances=1,
                     seeds=[0],
                     timeout_seconds=30,
@@ -60,13 +62,36 @@ class StandardWorkerLoopTests(unittest.TestCase):
             self.assertEqual("rolled_back", manifest["rounds"][0]["decision"])
             self.assertEqual("missing", manifest["rounds"][0]["proposal_diagnostics"]["status"])
             self.assertEqual(str(Path(intake["artifacts"]["manifest"])), manifest["request"]["project_intake_manifest"])
+            self.assertEqual(str(previous_memory), manifest["request"]["previous_pipeline_memory"])
             self.assertTrue((output_dir / "standard_worker_contract.json").exists())
             self.assertTrue((output_dir / "context_packet.json").exists())
             context_packet = json.loads((output_dir / "context_packet.json").read_text(encoding="utf-8"))
             self.assertTrue(context_packet["project_intake"]["exists"])
+            self.assertEqual("ok", context_packet["previous_pipeline_memory"]["pipeline_status"])
             self.assertTrue((output_dir / "standard_worker_loop_manifest.json").exists())
             self.assertTrue((output_dir / "standard_worker_loop_report.md").exists())
             self.assertTrue((output_dir / "worker_loop" / "loop_result.json").exists())
+
+
+def _write_previous_memory(tmp_path: Path) -> Path:
+    memory_path = tmp_path / "previous_standard_pipeline_memory.json"
+    memory_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "pipeline_status": "ok",
+                "stage_status": {"admission_gate": "passed"},
+                "admission": {"gate": "passed"},
+                "benchmark_signal": {"avg_reported_gap_pct": 12.5},
+                "worker_signal": {"round_count": 1, "promoted_rounds": 0, "rounds": []},
+                "recommendations": ["Try a materially different solver rule."],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return memory_path
 
 
 if __name__ == "__main__":

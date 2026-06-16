@@ -24,6 +24,7 @@ class StandardPipelineRequest:
     worker: CodingWorker
     worker_docs: list[Path]
     worker_instance_dir: Path
+    previous_pipeline_memory: Path | None = None
     run_project_intake: bool = True
     project_intake_max_files: int = 200
     health_contract: Path | None = None
@@ -135,6 +136,7 @@ def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
                 project_intake_manifest=Path(str(intake_manifest["artifacts"]["manifest"]))
                 if intake_manifest
                 else None,
+                previous_pipeline_memory=request.previous_pipeline_memory,
                 seeds=request.worker_seeds or [0],
                 timeout_seconds=max(1, request.worker_timeout_seconds),
                 max_workers=max(1, request.worker_max_workers),
@@ -235,6 +237,7 @@ def standard_pipeline_manifest(
             "health_repeats": max(1, request.health_repeats),
             "benchmark_source": request.benchmark_source,
             "worker_docs": [str(path) for path in request.worker_docs],
+            "previous_pipeline_memory": str(request.previous_pipeline_memory) if request.previous_pipeline_memory else None,
             "worker_instance_dir": str(request.worker_instance_dir),
             "worker_pattern": request.worker_pattern,
             "worker_best_known_csv": str(request.worker_best_known_csv) if request.worker_best_known_csv else None,

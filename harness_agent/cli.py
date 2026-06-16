@@ -45,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     context.add_argument("--knowledge-card", action="append", type=Path, default=[])
     context.add_argument("--hypothesis", default="")
     context.add_argument("--previous-report", type=Path)
+    context.add_argument("--previous-memory", type=Path, help="previous standard_pipeline_memory.json handoff")
     context.add_argument("--project-intake-manifest", type=Path)
     context.add_argument("--max-chars-per-source", type=int, default=12000)
 
@@ -258,6 +259,7 @@ def build_parser() -> argparse.ArgumentParser:
     standard_worker.add_argument("--instance-dir", required=True, type=Path)
     standard_worker.add_argument("--pattern", default="*.txt")
     standard_worker.add_argument("--best-known-csv", type=Path)
+    standard_worker.add_argument("--previous-memory", type=Path, help="previous standard_pipeline_memory.json handoff")
     standard_worker.add_argument("--output-dir", required=True, type=Path)
     standard_worker.add_argument("--project-root", type=Path, default=Path.cwd())
     standard_worker.add_argument("--max-instances", type=int)
@@ -305,6 +307,7 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--worker", choices=["null", "deepseek", "opencode"], default="null")
     pipeline.add_argument("--worker-doc", action="append", type=Path, default=[])
     pipeline.add_argument("--worker-knowledge-card", action="append", type=Path, default=[])
+    pipeline.add_argument("--previous-memory", type=Path, help="previous standard_pipeline_memory.json handoff")
     pipeline.add_argument("--worker-instance-dir", required=True, type=Path)
     pipeline.add_argument("--worker-pattern", default="*.txt")
     pipeline.add_argument("--worker-best-known-csv", type=Path)
@@ -421,6 +424,7 @@ def build_context_packet_cmd(args: argparse.Namespace) -> int:
         knowledge_cards=args.knowledge_card,
         hypothesis=args.hypothesis,
         previous_report=args.previous_report,
+        previous_pipeline_memory=args.previous_memory,
         project_intake_manifest=args.project_intake_manifest,
         max_chars_per_source=max(1000, args.max_chars_per_source),
     )
@@ -436,6 +440,7 @@ def build_context_packet_cmd(args: argparse.Namespace) -> int:
                 "documents": len(payload["documents"]),
                 "knowledge_cards": len(payload["knowledge_cards"]),
                 "project_intake": bool(payload.get("project_intake")),
+                "previous_pipeline_memory": bool(payload.get("previous_pipeline_memory")),
                 "packet_hash": payload["packet_hash"],
             },
             ensure_ascii=False,
@@ -949,6 +954,7 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
             project_root=args.project_root,
             worker=worker,
             best_known_csv=args.best_known_csv,
+            previous_pipeline_memory=args.previous_memory,
             max_instances=args.max_instances,
             seeds=seeds or [0],
             timeout_seconds=args.timeout_seconds,
@@ -1001,6 +1007,7 @@ def run_standard_pipeline_cmd(args: argparse.Namespace) -> int:
             worker=worker,
             worker_docs=args.worker_doc,
             worker_knowledge_cards=args.worker_knowledge_card,
+            previous_pipeline_memory=args.previous_memory,
             worker_instance_dir=args.worker_instance_dir,
             run_project_intake=not bool(args.skip_project_intake),
             project_intake_max_files=max(1, args.project_intake_max_files),
@@ -1047,6 +1054,7 @@ def run_standard_pipeline_cmd(args: argparse.Namespace) -> int:
                 "evidence_index": manifest["artifacts"]["evidence_index_markdown"],
                 "manifest": manifest["artifacts"]["manifest"],
                 "report": manifest["artifacts"]["report"],
+                "memory": manifest["artifacts"].get("standard_pipeline_memory_json"),
             },
             ensure_ascii=False,
             indent=2,

@@ -24,6 +24,7 @@ class StandardWorkerLoopRequest:
     best_known_csv: Path | None = None
     knowledge_cards: list[Path] | None = None
     project_intake_manifest: Path | None = None
+    previous_pipeline_memory: Path | None = None
     max_instances: int | None = None
     seeds: list[int] | None = None
     timeout_seconds: int = 60
@@ -68,6 +69,7 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
             docs=request.docs,
             knowledge_cards=request.knowledge_cards or [],
             project_intake_manifest=request.project_intake_manifest,
+            previous_pipeline_memory=request.previous_pipeline_memory,
             hypothesis=request.hypothesis,
         )
     )
@@ -196,6 +198,7 @@ def standard_worker_manifest(
             "pattern": request.pattern,
             "best_known_csv": str(request.best_known_csv) if request.best_known_csv else None,
             "project_intake_manifest": str(request.project_intake_manifest) if request.project_intake_manifest else None,
+            "previous_pipeline_memory": str(request.previous_pipeline_memory) if request.previous_pipeline_memory else None,
             "seeds": request.seeds or [0],
             "solver": request.solver,
             "iterations": max(0, request.iterations),

@@ -305,6 +305,10 @@ The `standard_pipeline_memory.*` files are compact handoff artifacts for the
 next loop iteration.  They combine admission status, benchmark gap signal,
 worker-loop promotion/rollback evidence, proposal diagnostics, and deterministic
 next-step recommendations without replacing the underlying evaluator manifests.
+On a later run, pass the prior JSON back with `--previous-memory
+outputs\standard_pipeline_demo\standard_pipeline_memory.json`; the standard
+worker context packet will expose it as `previous_pipeline_memory` before the
+coding backend proposes another solver change.
 
 ## Evidence Index
 

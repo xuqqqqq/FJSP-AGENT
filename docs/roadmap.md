@@ -77,6 +77,9 @@ The repository has reached the first harness milestone:
   compact next-round handoff with admission status, benchmark gap signal,
   worker-loop round diagnostics, evidence completeness, and deterministic
   recommendations.
+- `build-context-packet`, `run-standard-worker-loop`, and
+  `run-standard-pipeline` can now consume a prior `standard_pipeline_memory.json`
+  and expose it to the next coding-worker proposal as `previous_pipeline_memory`.
 
 This is not yet the full MD requirement.  It is the engineering base that makes
 the later self-evolution loop measurable and auditable.

@@ -190,6 +190,12 @@ recommendations.  It is a prompt handoff and reporting aid, not a scoring layer:
 all acceptance decisions remain tied to the source manifests and fixed
 evaluator metrics.
 
+The handoff is also consumable by the next run.  `build-context-packet`,
+`run-standard-worker-loop`, and `run-standard-pipeline` accept a previous memory
+file and embed a compact `previous_pipeline_memory` object in the worker context
+packet.  This closes the loop between one evaluator-backed pipeline run and the
+next proposal round while keeping the original reports and manifests auditable.
+
 ## 5. Hypothesis Memory
 
 The self-evolution loop needs more than free-form reflection text.  Each

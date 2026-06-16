@@ -15,7 +15,9 @@ ROOT = Path(__file__).resolve().parents[1]
 class StandardPipelineTests(unittest.TestCase):
     def test_standard_pipeline_runs_all_core_stages(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            output_dir = Path(tmp) / "standard_pipeline"
+            tmp_path = Path(tmp)
+            output_dir = tmp_path / "standard_pipeline"
+            previous_memory = _write_previous_memory(tmp_path)
 
             manifest = run_standard_pipeline(
                 StandardPipelineRequest(
@@ -25,6 +27,7 @@ class StandardPipelineTests(unittest.TestCase):
                     worker=NullWorker(),
                     worker_docs=[ROOT / "README.md"],
                     worker_instance_dir=ROOT / "examples",
+                    previous_pipeline_memory=previous_memory,
                     health_contract=ROOT / "configs" / "standard_fjsp_tiny.example.json",
                     health_repeats=2,
                     worker_pattern="standard_fjsp_tiny.fjs",
@@ -76,6 +79,12 @@ class StandardPipelineTests(unittest.TestCase):
             self.assertEqual(1, len(memory["worker_signal"]["rounds"]))
             self.assertEqual("missing", memory["worker_signal"]["rounds"][0]["proposal_diagnostics"]["status"])
             self.assertTrue(any("No worker round was promoted" in item for item in memory["recommendations"]))
+            self.assertEqual(
+                "ok",
+                json.loads((output_dir / "standard_worker_loop" / "context_packet.json").read_text(encoding="utf-8"))[
+                    "previous_pipeline_memory"
+                ]["pipeline_status"],
+            )
             self.assertTrue((output_dir / "evidence_index" / "evidence_index.json").exists())
 
     def test_standard_pipeline_skips_optimization_when_admission_is_blocked(self) -> None:
@@ -116,6 +125,27 @@ class StandardPipelineTests(unittest.TestCase):
             self.assertTrue((output_dir / "standard_pipeline_memory.json").exists())
             self.assertTrue((output_dir / "project_intake" / "project_intake_manifest.json").exists())
             self.assertTrue((output_dir / "intent_alignment" / "intent_alignment_manifest.json").exists())
+
+
+def _write_previous_memory(tmp_path: Path) -> Path:
+    memory_path = tmp_path / "previous_standard_pipeline_memory.json"
+    memory_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "pipeline_status": "ok",
+                "stage_status": {"admission_gate": "passed"},
+                "admission": {"gate": "passed"},
+                "benchmark_signal": {"avg_reported_gap_pct": 13.0},
+                "worker_signal": {"round_count": 1, "promoted_rounds": 0, "rounds": []},
+                "recommendations": ["Use benchmark gap evidence in the next rule proposal."],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return memory_path
 
 
 if __name__ == "__main__":
