@@ -156,7 +156,10 @@ python -m harness_agent.cli run-worker-loop `
 
 The loop writes `loop_result.json` and `loop_report.md`, including baseline
 metrics, each round's worker status, promotion/rollback decision, and final
-incumbent worktree.
+incumbent worktree.  Each round also receives a refreshed
+`round_xxx/context_packet.json` that contains the baseline result, current
+incumbent key, previous evaluator-backed promotion/rollback decisions, and
+compact instructions for avoiding repeated failed edits.
 
 ## Project Boundary
 

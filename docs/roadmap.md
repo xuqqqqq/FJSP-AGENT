@@ -33,6 +33,9 @@ The repository has reached the first harness milestone:
   evaluator in that candidate tree.
 - `run-worker-loop` CLI that repeats candidate cycles, compares each candidate
   against the incumbent objective key, and records promotion/rollback decisions.
+- per-round context refresh in `run-worker-loop`, so each coding-worker proposal
+  can see baseline metrics, current incumbent status, and previous
+  evaluator-backed wins/losses.
 
 This is not yet the full MD requirement.  It is the engineering base that makes
 the later self-evolution loop measurable and auditable.
@@ -191,7 +194,7 @@ Two-round smoke:
 | Read requirement and IO documents | Minimal draft-contract ingestion implemented | Expand source-grounded extraction and uncertainty reporting. |
 | Derive Task Contract from documents | Draft JSON and confirmation gate implemented | Add stronger document schema extraction and web review workflow. |
 | Support multiple metrics from documents | Contract model supports it | Add evaluator schema checks and Pareto reporting. |
-| Generate solver code with an LLM worker | DeepSeek proposal-first worker, isolated worker-cycle evaluator rerun, and multi-cycle promotion/rollback implemented | Add live OpenCode adapter and stronger reflection-conditioned context refresh. |
+| Generate solver code with an LLM worker | DeepSeek proposal-first worker, isolated worker-cycle evaluator rerun, multi-cycle promotion/rollback, and per-round context refresh implemented | Add live OpenCode adapter and stronger rule/operator mutation prompts. |
 | Strategy-first evolution | DeepSeek/template profiles plus candidate ablation implemented | Extend from scoring profiles to code-level operator evolution. |
 | Self-reflection and hypothesis graph | JSONL hypothesis records implemented | Add pruning, promotion, and mutation operators. |
 | Rule/operator evolution | Local-search operator and profile-level mutation exist; LLM operator edits not enabled | Add guarded code-level mutation operators. |
@@ -215,8 +218,9 @@ The next concrete slice should be:
    - current: packages task contract hash, review status, evaluator protocol,
      knowledge cards, previous report, and current hypothesis;
    - current: keeps prompts bounded to avoid token truncation;
-   - next: wire context packets into OpenCodeWorker / DeepSeek code-edit
-     experiments.
+   - current: refreshes round context with evaluator-backed loop feedback before
+     each worker-loop candidate cycle;
+   - next: use the refreshed packets in live OpenCodeWorker experiments.
 
 3. `workers/deepseek_worker.py`
    - current: generates `strategy.md` and `strategy_profile.json`, with JSON
@@ -225,7 +229,7 @@ The next concrete slice should be:
    - current: optional apply is limited by allowed/forbidden path checks;
    - current: proposals can be evaluated through `run-worker-cycle` in an
      isolated candidate tree;
-   - next: add live OpenCode backend and reflection-conditioned context refresh;
+   - next: add live OpenCode backend and stronger proposal diversity checks;
    - returns structured result only;
    - never marks itself successful.
 

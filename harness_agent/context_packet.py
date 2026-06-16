@@ -103,6 +103,50 @@ def write_context_packet(request: ContextPacketRequest) -> Path:
     return request.output_path
 
 
+def write_refreshed_context_packet(
+    *,
+    base_context_packet_path: Path,
+    output_path: Path,
+    loop_feedback: dict[str, Any],
+) -> Path:
+    """Write a round-specific context packet with evaluator-backed loop history.
+
+    The initial context packet contains static task/document information.  A
+    multi-round coding loop also needs measured feedback from earlier rounds;
+    this helper keeps the original bounded context and appends compact,
+    machine-readable promotion/rollback evidence before recomputing the packet
+    hash.
+    """
+
+    packet = json.loads(base_context_packet_path.read_text(encoding="utf-8-sig"))
+    parent_hash = packet.get("packet_hash") or _hash_text(json.dumps(packet, ensure_ascii=False, sort_keys=True))
+
+    refreshed = dict(packet)
+    refreshed.pop("packet_hash", None)
+    refreshed["created_at"] = datetime.now(timezone.utc).isoformat()
+    refreshed["parent_packet_hash"] = parent_hash
+    refreshed["refresh_reason"] = "worker_loop_round_feedback"
+    refreshed["loop_feedback"] = loop_feedback
+
+    worker_instruction = dict(refreshed.get("worker_instruction") or {})
+    required_order = list(worker_instruction.get("required_order") or [])
+    feedback_step = "Review loop_feedback and avoid repeating rolled-back changes unless the new proposal is materially different."
+    if feedback_step not in required_order:
+        required_order.insert(1, feedback_step)
+    worker_instruction["required_order"] = required_order
+    worker_instruction["round_feedback_rule"] = (
+        "Treat loop_feedback as Core evaluator evidence.  Promoted rounds show "
+        "directions worth preserving; rolled-back rounds show directions to avoid "
+        "or modify.  Do not use worker self-claims as success evidence."
+    )
+    refreshed["worker_instruction"] = worker_instruction
+    refreshed["packet_hash"] = _hash_text(json.dumps(refreshed, ensure_ascii=False, sort_keys=True))
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(refreshed, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return output_path
+
+
 def _source_payload(path: Path, max_chars: int) -> dict[str, Any]:
     try:
         text = path.read_text(encoding="utf-8-sig", errors="replace")

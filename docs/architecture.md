@@ -109,6 +109,13 @@ worktree unchanged.  This is the first full loop-engineering path:
 context packet, worker proposal, guarded apply, Core evaluation, reflection-ready
 reporting, and promotion/rollback memory.
 
+The loop does not reuse the original context packet unchanged.  Before each
+candidate cycle, the main agent writes a refreshed packet for that round.  The
+packet preserves the original contract, document snippets, and knowledge cards,
+then appends compact evaluator evidence: baseline key, incumbent key, prior
+candidate summaries, and promotion/rollback decisions.  This makes later worker
+proposals condition on measured outcomes rather than on static prompt text.
+
 ## 5. Hypothesis Memory
 
 The self-evolution loop needs more than free-form reflection text.  Each

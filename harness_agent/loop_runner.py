@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .context_packet import write_refreshed_context_packet
 from .graph_runner import GraphHarnessRunner
 from .models import ObjectiveSpec, TaskContract
 from .runner import RunSummary
@@ -22,6 +23,7 @@ class LoopRoundRecord:
     worker_changed_files: list[str]
     candidate_summary: dict[str, Any]
     cycle_dir: str
+    context_packet_path: str
     promoted_worktree: str | None
 
 
@@ -63,11 +65,24 @@ def run_worker_loop(
     round_records: list[LoopRoundRecord] = []
     for round_index in range(max(0, iterations)):
         cycle_dir = output_dir / f"round_{round_index:03d}"
+        round_context_packet_path = write_refreshed_context_packet(
+            base_context_packet_path=context_packet_path,
+            output_path=cycle_dir / "context_packet.json",
+            loop_feedback=loop_feedback_payload(
+                round_index=round_index,
+                contract=contract,
+                baseline_summary=baseline_summary,
+                baseline_key=summary_objective_key(baseline_summary, contract.objectives),
+                incumbent_key_before=incumbent_key,
+                incumbent_worktree=incumbent_worktree,
+                previous_rounds=round_records,
+            ),
+        )
         cycle = run_worker_cycle(
             contract=contract,
             project_root=incumbent_worktree,
             output_dir=cycle_dir,
-            context_packet_path=context_packet_path,
+            context_packet_path=round_context_packet_path,
             worker=worker,
             experiment_id=f"{experiment_id}_round_{round_index:03d}",
             max_steps=max_steps,
@@ -89,6 +104,7 @@ def run_worker_loop(
                 worker_changed_files=cycle.worker_result.changed_files,
                 candidate_summary=summary_payload(cycle.summary),
                 cycle_dir=str(cycle_dir),
+                context_packet_path=str(round_context_packet_path),
                 promoted_worktree=str(cycle.worktree_path) if promoted else None,
             )
         )
@@ -145,26 +161,65 @@ def summary_payload(summary: RunSummary) -> dict[str, Any]:
     }
 
 
+def loop_feedback_payload(
+    *,
+    round_index: int,
+    contract: TaskContract,
+    baseline_summary: RunSummary,
+    baseline_key: tuple[float, ...],
+    incumbent_key_before: tuple[float, ...],
+    incumbent_worktree: Path,
+    previous_rounds: list[LoopRoundRecord],
+) -> dict[str, Any]:
+    ordered_objectives = sorted(contract.objectives, key=lambda item: item.priority)
+    return {
+        "purpose": "Provide evaluator-backed history for the next coding-worker proposal.",
+        "round_index": round_index,
+        "objective_key_order": [
+            {
+                "name": objective.name,
+                "direction": objective.direction,
+                "priority": objective.priority,
+                "threshold": objective.threshold,
+            }
+            for objective in ordered_objectives
+        ],
+        "baseline_key": list(baseline_key),
+        "incumbent_key_before": list(incumbent_key_before),
+        "incumbent_worktree": str(incumbent_worktree),
+        "baseline_summary": summary_payload(baseline_summary),
+        "previous_rounds": [round_record_payload(item) for item in previous_rounds],
+        "instructions": [
+            "Use only Core evaluator metrics as promotion evidence.",
+            "Preserve successful ideas from promoted rounds unless a better alternative is justified.",
+            "Do not repeat rolled-back edits unchanged; explain what is materially different if revisiting them.",
+            "Prefer small, reversible solver changes whose effect can be attributed in the next evaluator run.",
+        ],
+    }
+
+
+def round_record_payload(item: LoopRoundRecord) -> dict[str, Any]:
+    return {
+        "round_index": item.round_index,
+        "decision": item.decision,
+        "candidate_key": list(item.candidate_key),
+        "incumbent_key_after": list(item.incumbent_key_after),
+        "worker_status": item.worker_status,
+        "worker_changed_files": item.worker_changed_files,
+        "candidate_summary": item.candidate_summary,
+        "cycle_dir": item.cycle_dir,
+        "context_packet_path": item.context_packet_path,
+        "promoted_worktree": item.promoted_worktree,
+    }
+
+
 def write_loop_report(*, output_dir: Path, result: WorkerLoopResult) -> None:
     payload = {
         "baseline_key": list(result.baseline_key),
         "final_key": list(result.final_key),
         "final_worktree": str(result.final_worktree),
         "baseline_summary": summary_payload(result.baseline_summary),
-        "rounds": [
-            {
-                "round_index": item.round_index,
-                "decision": item.decision,
-                "candidate_key": list(item.candidate_key),
-                "incumbent_key_after": list(item.incumbent_key_after),
-                "worker_status": item.worker_status,
-                "worker_changed_files": item.worker_changed_files,
-                "candidate_summary": item.candidate_summary,
-                "cycle_dir": item.cycle_dir,
-                "promoted_worktree": item.promoted_worktree,
-            }
-            for item in result.rounds
-        ],
+        "rounds": [round_record_payload(item) for item in result.rounds],
     }
     (output_dir / "loop_result.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -181,14 +236,15 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult) -> None:
         "",
         "## Rounds",
         "",
-        "| Round | Decision | Worker | Candidate Key | Incumbent Key After | Changed Files |",
-        "| ---: | --- | --- | --- | --- | --- |",
+        "| Round | Decision | Worker | Candidate Key | Incumbent Key After | Context Packet | Changed Files |",
+        "| ---: | --- | --- | --- | --- | --- | --- |",
     ]
     for item in result.rounds:
         lines.append(
             f"| {item.round_index} | {item.decision} | {item.worker_status} | "
             f"`{json.dumps(item.candidate_key, ensure_ascii=False)}` | "
             f"`{json.dumps(item.incumbent_key_after, ensure_ascii=False)}` | "
+            f"`{item.context_packet_path}` | "
             f"`{json.dumps(item.worker_changed_files, ensure_ascii=False)}` |"
         )
     lines.extend(
