@@ -339,6 +339,14 @@ focused instruction such as "increase rule/operator diversity" or "target
 best-known gap quality" instead of the same generic prompt every round.  Use
 `--no-adapt-worker-hypothesis` for an ablation that keeps the hypothesis fixed
 while still passing `previous_pipeline_memory`.
+For a paired controller ablation, add `--ablation memory-vs-fixed` and set
+`--loop-rounds 2` or larger.  The command runs two lanes under the same fixed
+evaluator: `memory_guided` chains `standard_pipeline_memory.json` and adapts the
+next hypothesis, while `fixed_no_memory` keeps the initial prompt and withholds
+previous memory from later iterations.  It writes
+`standard_pipeline_ablation_manifest.json` and
+`standard_pipeline_ablation_report.md`, including gap and promotion deltas
+between the lanes.
 
 ## Evidence Index
 

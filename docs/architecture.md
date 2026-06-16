@@ -233,6 +233,14 @@ recommendations.  This is the first closed control loop: evidence changes the
 next prompt while evaluation, promotion, and admission gates remain unchanged.
 `--no-adapt-worker-hypothesis` disables that control link for ablation studies.
 
+The pipeline also supports a paired controller ablation.  The `memory_guided`
+lane chains previous memory and adapts the worker hypothesis; the
+`fixed_no_memory` lane runs the same evaluator workload with the original
+hypothesis and without prior memory in later iterations.  The ablation manifest
+reports lane-level gap and promotion deltas.  This creates a first-class
+experimental surface for answering whether loop memory improves proposals,
+without relying on informal manual comparisons.
+
 ## 5. Hypothesis Memory
 
 The self-evolution loop needs more than free-form reflection text.  Each

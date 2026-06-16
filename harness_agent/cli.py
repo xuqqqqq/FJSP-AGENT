@@ -24,8 +24,10 @@ from .project_intake import ProjectIntakeRequest, write_project_intake
 from .runner import HarnessRunner
 from .standard_agent import StandardFjspAgentRunner
 from .standard_pipeline import (
+    StandardPipelineAblationRequest,
     StandardPipelineLoopRequest,
     StandardPipelineRequest,
+    run_standard_pipeline_ablation,
     run_standard_pipeline,
     run_standard_pipeline_loop,
 )
@@ -306,6 +308,12 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--output-dir", required=True, type=Path)
     pipeline.add_argument("--project-root", type=Path, default=Path.cwd())
     pipeline.add_argument("--loop-rounds", type=int, default=1, help="run multiple pipeline iterations and chain memory")
+    pipeline.add_argument(
+        "--ablation",
+        choices=["none", "memory-vs-fixed"],
+        default="none",
+        help="run a paired pipeline-loop ablation instead of a single pipeline",
+    )
     pipeline.add_argument(
         "--no-adapt-worker-hypothesis",
         action="store_true",
@@ -1057,12 +1065,37 @@ def run_standard_pipeline_cmd(args: argparse.Namespace) -> int:
         or "Improve the standard FJSP solver under the fixed evaluator. State the rule-level idea before editing code.",
         title=args.title,
     )
+    if args.ablation == "memory-vs-fixed":
+        manifest = run_standard_pipeline_ablation(
+            StandardPipelineAblationRequest(
+                base_request=request,
+                rounds=max(2, args.loop_rounds),
+                ablation_name=args.ablation,
+            )
+        )
+        print(
+            json.dumps(
+                {
+                    "status": manifest["status"],
+                    "ablation_name": manifest["ablation_name"],
+                    "round_count": manifest["round_count"],
+                    "comparison": manifest["comparison"],
+                    "manifest": manifest["artifacts"]["manifest"],
+                    "report": manifest["artifacts"]["report"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 0 if manifest["status"] == "ok" else 1
+
     if max(1, args.loop_rounds) > 1:
         manifest = run_standard_pipeline_loop(
             StandardPipelineLoopRequest(
                 base_request=request,
                 rounds=args.loop_rounds,
                 adapt_worker_hypothesis=not bool(args.no_adapt_worker_hypothesis),
+                chain_previous_memory=True,
             )
         )
         print(

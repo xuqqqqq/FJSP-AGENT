@@ -107,6 +107,9 @@ The repository has reached the first harness milestone:
 - Multi-round pipeline runs now adapt each next iteration's worker hypothesis
   from the previous iteration's memory by default, with
   `--no-adapt-worker-hypothesis` available for fixed-prompt ablations.
+- `run-standard-pipeline --ablation memory-vs-fixed` now runs paired
+  controller lanes so memory-guided looping can be compared against a fixed
+  no-memory lane under the same evaluator.
 
 This is not yet the full MD requirement.  It is the engineering base that makes
 the later self-evolution loop measurable and auditable.
@@ -268,7 +271,7 @@ Two-round smoke:
 | Generate solver code with an LLM worker | DeepSeek proposal-first worker with project-intake proposal audit, rule/operator hypotheses, non-interactive OpenCodeWorker adapter, project-intake-aware context packets, isolated worker-cycle evaluator rerun, multi-cycle promotion/rollback, and per-round context refresh implemented | Add stronger code-level mutation prompts. |
 | Admission and intent gates | Project-intake, health-check, and intent-alignment readiness implemented; standard pipeline skips optimization stages when admission fails | Add UI confirmation flow around the generated readiness card. |
 | Strategy-first evolution | DeepSeek/template profiles plus candidate ablation implemented | Extend from scoring profiles to code-level operator evolution. |
-| Self-reflection and hypothesis graph | JSONL records plus promote/prune/mutate graph summaries, worker proposal operator-lineage diagnostics, and context-packet operator guidance implemented | Use lineage guidance in live DeepSeek/OpenCode runs and compare ablations. |
+| Self-reflection and hypothesis graph | JSONL records plus promote/prune/mutate graph summaries, worker proposal operator-lineage diagnostics, context-packet operator guidance, and memory-vs-fixed controller ablation implemented | Run live DeepSeek/OpenCode ablations on larger benchmark batches. |
 | Rule/operator evolution | Local-search operator, profile-level mutation, and LLM proposal-time rule/operator hypotheses exist | Add guarded code-level mutation operators and evaluate their lineage. |
 | Standard FJSP benchmark testing | Smoke path and best-known gap reporting implemented | Add larger benchmark batches and regression baselines. |
 | Industrial FJSP variant testing | Not implemented here | Add adapter to external industrial evaluator. |

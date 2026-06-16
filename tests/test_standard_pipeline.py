@@ -6,9 +6,11 @@ import unittest
 from pathlib import Path
 
 from harness_agent.standard_pipeline import (
+    StandardPipelineAblationRequest,
     StandardPipelineLoopRequest,
     StandardPipelineRequest,
     run_standard_pipeline,
+    run_standard_pipeline_ablation,
     run_standard_pipeline_loop,
     summarize_operator_lineage,
 )
@@ -249,6 +251,67 @@ class StandardPipelineTests(unittest.TestCase):
             self.assertTrue(any("evaluator" in item.lower() for item in brief["proposal_requirements"]))
             self.assertTrue((output_dir / "standard_pipeline_loop_manifest.json").exists())
             self.assertTrue((output_dir / "standard_pipeline_loop_report.md").exists())
+
+    def test_standard_pipeline_ablation_compares_memory_guided_and_fixed_lanes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp) / "pipeline_ablation"
+            manifest = run_standard_pipeline_ablation(
+                StandardPipelineAblationRequest(
+                    base_request=StandardPipelineRequest(
+                        suite_config=ROOT / "configs" / "standard_fjsp_suite.example.json",
+                        output_dir=output_dir,
+                        project_root=ROOT,
+                        worker=NullWorker(),
+                        worker_docs=[ROOT / "README.md"],
+                        worker_instance_dir=ROOT / "examples",
+                        worker_pattern="standard_fjsp_tiny.fjs",
+                        worker_best_known_csv=ROOT / "configs" / "standard_fjsp_tiny_best.csv",
+                        worker_max_instances=1,
+                        worker_seeds=[0],
+                        worker_timeout_seconds=30,
+                        worker_solver="portfolio",
+                        worker_portfolio_size=4,
+                        worker_iterations=1,
+                        worker_max_steps=1,
+                        worker_max_runtime_seconds=30,
+                    ),
+                    rounds=2,
+                )
+            )
+
+            self.assertEqual("ok", manifest["status"])
+            self.assertEqual("memory-vs-fixed", manifest["ablation_name"])
+            self.assertEqual(2, manifest["round_count"])
+            self.assertEqual(2, len(manifest["lanes"]))
+            lanes = {item["lane"]: item for item in manifest["lanes"]}
+            self.assertTrue(lanes["memory_guided"]["chain_previous_memory"])
+            self.assertTrue(lanes["memory_guided"]["adapt_worker_hypothesis"])
+            self.assertFalse(lanes["fixed_no_memory"]["chain_previous_memory"])
+            self.assertFalse(lanes["fixed_no_memory"]["adapt_worker_hypothesis"])
+            self.assertIn("memory_minus_fixed_gap_pct", manifest["comparison"])
+            self.assertTrue(Path(manifest["artifacts"]["manifest"]).exists())
+            self.assertTrue(Path(manifest["artifacts"]["report"]).exists())
+
+            memory_context = json.loads(
+                (
+                    output_dir
+                    / "memory_guided"
+                    / "iteration_001"
+                    / "standard_worker_loop"
+                    / "context_packet.json"
+                ).read_text(encoding="utf-8")
+            )
+            fixed_context = json.loads(
+                (
+                    output_dir
+                    / "fixed_no_memory"
+                    / "iteration_001"
+                    / "standard_worker_loop"
+                    / "context_packet.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertTrue(memory_context["previous_pipeline_memory"])
+            self.assertFalse(fixed_context["previous_pipeline_memory"])
 
 
 def _write_previous_memory(tmp_path: Path) -> Path:

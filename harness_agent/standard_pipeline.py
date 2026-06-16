@@ -70,6 +70,16 @@ class StandardPipelineLoopRequest:
     base_request: StandardPipelineRequest
     rounds: int = 2
     adapt_worker_hypothesis: bool = True
+    chain_previous_memory: bool = True
+
+
+@dataclass(frozen=True)
+class StandardPipelineAblationRequest:
+    """Request for paired standard-pipeline loop ablations."""
+
+    base_request: StandardPipelineRequest
+    rounds: int = 2
+    ablation_name: str = "memory-vs-fixed"
 
 
 def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
@@ -218,9 +228,9 @@ def run_standard_pipeline_loop(request: StandardPipelineLoopRequest) -> dict[str
     output_dir = request.base_request.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     rounds = max(1, request.rounds)
-    previous_memory = request.base_request.previous_pipeline_memory
+    previous_memory = request.base_request.previous_pipeline_memory if request.chain_previous_memory else None
     worker_hypothesis = request.base_request.worker_hypothesis
-    if request.adapt_worker_hypothesis and previous_memory:
+    if request.chain_previous_memory and request.adapt_worker_hypothesis and previous_memory:
         worker_hypothesis = standard_pipeline_memory_to_worker_hypothesis(
             read_json_if_exists(previous_memory),
             fallback=worker_hypothesis,
@@ -232,7 +242,7 @@ def run_standard_pipeline_loop(request: StandardPipelineLoopRequest) -> dict[str
         iteration_request = replace(
             request.base_request,
             output_dir=iteration_dir,
-            previous_pipeline_memory=previous_memory,
+            previous_pipeline_memory=previous_memory if request.chain_previous_memory else None,
             worker_hypothesis=worker_hypothesis,
             worker_experiment_id=f"{request.base_request.worker_experiment_id}_iter_{index:03d}",
             title=f"{request.base_request.title} Iteration {index + 1}/{rounds}",
@@ -242,8 +252,8 @@ def run_standard_pipeline_loop(request: StandardPipelineLoopRequest) -> dict[str
         iterations.append(iteration_record)
 
         memory_path = iteration_record.get("memory_path")
-        previous_memory = Path(str(memory_path)) if memory_path else None
-        if request.adapt_worker_hypothesis:
+        previous_memory = Path(str(memory_path)) if request.chain_previous_memory and memory_path else None
+        if request.chain_previous_memory and request.adapt_worker_hypothesis:
             memory = read_json_if_exists(previous_memory) if previous_memory else {}
             worker_hypothesis = standard_pipeline_memory_to_worker_hypothesis(memory, fallback=worker_hypothesis)
 
@@ -266,6 +276,67 @@ def run_standard_pipeline_loop(request: StandardPipelineLoopRequest) -> dict[str
     manifest_path.write_text(json.dumps(loop_manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     report_path.write_text(render_standard_pipeline_loop_report(loop_manifest), encoding="utf-8")
     return loop_manifest
+
+
+def run_standard_pipeline_ablation(request: StandardPipelineAblationRequest) -> dict[str, Any]:
+    """Run paired loop variants to compare memory-guided and fixed-prompt control."""
+
+    output_dir = request.base_request.output_dir.resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    rounds = max(2, request.rounds)
+    lanes = [
+        {
+            "lane": "memory_guided",
+            "description": "Chains previous standard_pipeline_memory and adapts worker_hypothesis from evaluator-grounded recommendations.",
+            "chain_previous_memory": True,
+            "adapt_worker_hypothesis": True,
+        },
+        {
+            "lane": "fixed_no_memory",
+            "description": "Keeps the initial worker_hypothesis fixed and withholds previous_pipeline_memory from later iterations.",
+            "chain_previous_memory": False,
+            "adapt_worker_hypothesis": False,
+        },
+    ]
+    lane_records: list[dict[str, Any]] = []
+    for lane in lanes:
+        lane_name = str(lane["lane"])
+        lane_output_dir = output_dir / lane_name
+        lane_request = replace(
+            request.base_request,
+            output_dir=lane_output_dir,
+            worker_experiment_id=f"{request.base_request.worker_experiment_id}_{lane_name}",
+            title=f"{request.base_request.title} Ablation: {lane_name}",
+        )
+        loop_manifest = run_standard_pipeline_loop(
+            StandardPipelineLoopRequest(
+                base_request=lane_request,
+                rounds=rounds,
+                adapt_worker_hypothesis=bool(lane["adapt_worker_hypothesis"]),
+                chain_previous_memory=bool(lane["chain_previous_memory"]),
+            )
+        )
+        lane_records.append(standard_pipeline_ablation_lane_record(lane=lane, manifest=loop_manifest))
+
+    manifest_path = output_dir / "standard_pipeline_ablation_manifest.json"
+    report_path = output_dir / "standard_pipeline_ablation_report.md"
+    manifest = {
+        "schema_version": 1,
+        "status": "ok" if all(item.get("status") == "ok" for item in lane_records) else "partial_failed",
+        "ablation_name": request.ablation_name,
+        "round_count": rounds,
+        "purpose": "Compare loop-control variants under the same fixed evaluator and task contract.",
+        "lanes": lane_records,
+        "comparison": standard_pipeline_ablation_comparison(lane_records),
+        "artifacts": {
+            "manifest": str(manifest_path.resolve()),
+            "report": str(report_path.resolve()),
+        },
+        "output_dir": str(output_dir),
+    }
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    report_path.write_text(render_standard_pipeline_ablation_report(manifest), encoding="utf-8")
+    return manifest
 
 
 def standard_pipeline_loop_iteration(
@@ -319,6 +390,7 @@ def standard_pipeline_loop_manifest(
         "request": {
             "loop_rounds": max(1, request.rounds),
             "adapt_worker_hypothesis": bool(request.adapt_worker_hypothesis),
+            "chain_previous_memory": bool(request.chain_previous_memory),
             "initial_previous_memory": str(request.base_request.previous_pipeline_memory)
             if request.base_request.previous_pipeline_memory
             else None,
@@ -349,6 +421,56 @@ def standard_pipeline_loop_manifest(
             "iteration_reports": [item.get("report") for item in iterations if item.get("report")],
         },
         "output_dir": str(output_dir.resolve()),
+    }
+
+
+def standard_pipeline_ablation_lane_record(*, lane: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
+    final = manifest.get("final") or {}
+    benchmark_signal = final.get("benchmark_signal") or {}
+    worker_signal = final.get("worker_signal") or {}
+    artifacts = manifest.get("artifacts") or {}
+    return {
+        "lane": lane.get("lane"),
+        "description": lane.get("description"),
+        "status": manifest.get("status"),
+        "chain_previous_memory": bool(lane.get("chain_previous_memory")),
+        "adapt_worker_hypothesis": bool(lane.get("adapt_worker_hypothesis")),
+        "avg_reported_gap_pct": benchmark_signal.get("avg_reported_gap_pct"),
+        "final_worker_rounds": worker_signal.get("round_count", 0),
+        "final_promoted_rounds": worker_signal.get("promoted_rounds", 0),
+        "final_improved": worker_signal.get("improved"),
+        "final_memory": artifacts.get("final_memory"),
+        "manifest": artifacts.get("manifest"),
+        "report": artifacts.get("report"),
+        "next_action_brief": artifacts.get("next_action_brief_json"),
+    }
+
+
+def standard_pipeline_ablation_comparison(lanes: list[dict[str, Any]]) -> dict[str, Any]:
+    comparable_gap_lanes = [
+        item
+        for item in lanes
+        if isinstance(item.get("avg_reported_gap_pct"), (int, float))
+    ]
+    best_gap_lane = min(comparable_gap_lanes, key=lambda item: item["avg_reported_gap_pct"]) if comparable_gap_lanes else None
+    lane_by_name = {str(item.get("lane")): item for item in lanes}
+    memory_lane = lane_by_name.get("memory_guided") or {}
+    fixed_lane = lane_by_name.get("fixed_no_memory") or {}
+    gap_delta = None
+    if isinstance(memory_lane.get("avg_reported_gap_pct"), (int, float)) and isinstance(
+        fixed_lane.get("avg_reported_gap_pct"),
+        (int, float),
+    ):
+        gap_delta = float(memory_lane["avg_reported_gap_pct"]) - float(fixed_lane["avg_reported_gap_pct"])
+    return {
+        "best_gap_lane": best_gap_lane.get("lane") if best_gap_lane else None,
+        "memory_minus_fixed_gap_pct": gap_delta,
+        "memory_minus_fixed_promoted_rounds": int(memory_lane.get("final_promoted_rounds", 0) or 0)
+        - int(fixed_lane.get("final_promoted_rounds", 0) or 0),
+        "interpretation": (
+            "Negative memory_minus_fixed_gap_pct means the memory-guided lane produced a lower reported best-known gap. "
+            "Promotion deltas remain evaluator-backed and should be interpreted with lane reports."
+        ),
     }
 
 
@@ -778,6 +900,57 @@ def render_standard_pipeline_loop_report(manifest: dict[str, Any]) -> str:
             "Each iteration is a full standard pipeline run.  The next iteration receives only the previous round's compact memory artifact; evaluator and promotion decisions remain owned by the referenced per-iteration manifests.",
         ]
     )
+    return "\n".join(lines).strip() + "\n"
+
+
+def render_standard_pipeline_ablation_report(manifest: dict[str, Any]) -> str:
+    comparison = manifest.get("comparison") or {}
+    lines = [
+        "# Standard FJSP Pipeline Ablation Report",
+        "",
+        f"- Status: `{manifest.get('status')}`",
+        f"- Ablation: `{manifest.get('ablation_name')}`",
+        f"- Rounds per lane: `{manifest.get('round_count')}`",
+        f"- Best gap lane: `{comparison.get('best_gap_lane')}`",
+        f"- Memory minus fixed gap pct: `{comparison.get('memory_minus_fixed_gap_pct')}`",
+        f"- Memory minus fixed promoted rounds: `{comparison.get('memory_minus_fixed_promoted_rounds')}`",
+        "",
+        "## Lanes",
+        "",
+        "| Lane | Status | Chain Memory | Adapt Hypothesis | Avg Gap % | Promoted | Improved | Report |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for lane in manifest.get("lanes") or []:
+        lines.append(
+            " | ".join(
+                [
+                    f"| `{lane.get('lane')}`",
+                    f"`{lane.get('status')}`",
+                    f"`{lane.get('chain_previous_memory')}`",
+                    f"`{lane.get('adapt_worker_hypothesis')}`",
+                    f"`{lane.get('avg_reported_gap_pct')}`",
+                    f"`{lane.get('final_promoted_rounds')}/{lane.get('final_worker_rounds')}`",
+                    f"`{lane.get('final_improved')}`",
+                    f"`{short_path(lane.get('report'))}` |",
+                ]
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Interpretation",
+            "",
+            comparison.get("interpretation") or "",
+            "",
+            "This ablation compares controller behavior only.  Each lane still uses the same fixed evaluator and promotion semantics, so the report is safe for loop-control experiments but is not a new objective function.",
+            "",
+            "## Artifacts",
+            "",
+        ]
+    )
+    for lane in manifest.get("lanes") or []:
+        lines.append(f"- {lane.get('lane')} manifest: `{lane.get('manifest')}`")
+        lines.append(f"- {lane.get('lane')} final memory: `{lane.get('final_memory')}`")
     return "\n".join(lines).strip() + "\n"
 
 
