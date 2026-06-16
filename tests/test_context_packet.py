@@ -108,9 +108,17 @@ class ContextPacketTests(unittest.TestCase):
 
 目标包括产量和 setup 切换次数。
 
+## 约束清单
+
+需要满足释放时间、维修窗口和组批约束。
+
 ## 输入输出结构
 
 输入包含工序、候选机器和维修窗口。
+
+## 算法提示
+
+优先考虑局部搜索和强化学习风格的策略迭代。
                 """.strip(),
                 encoding="utf-8",
             )
@@ -149,6 +157,18 @@ class ContextPacketTests(unittest.TestCase):
             self.assertIn("目标指标", headings)
             self.assertTrue(any(item["metric"] == "completed_weight" for item in evidence["metric_hints"]))
             self.assertIn("Review contract_review_evidence", " ".join(packet["worker_instruction"]["required_order"]))
+            self.assertIn(
+                "role_prioritized_sections",
+                " ".join(packet["worker_instruction"]["required_order"]),
+            )
+
+            prioritized = evidence["role_prioritized_sections"]
+            self.assertGreaterEqual(len(prioritized), 3)
+            self.assertEqual("目标指标", prioritized[0]["heading"])
+            prioritized_headings = [item["heading"] for item in prioritized]
+            self.assertIn("约束清单", prioritized_headings)
+            self.assertIn("输入输出结构", prioritized_headings)
+            self.assertTrue(prioritized[0]["priority_reason"].startswith("roles=objectives"))
 
 
 if __name__ == "__main__":

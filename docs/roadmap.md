@@ -42,6 +42,9 @@ The repository has reached the first harness milestone:
 - context-packet CLI that packages confirmed evaluator semantics, bounded docs,
   compact contract-review evidence, knowledge cards, previous reports, and
   hypotheses for coding workers.
+- context packets now include role-prioritized Markdown sections, so worker
+  prompts inspect objective, constraint, IO, acceptance, and algorithm-guidance
+  evidence before generic long-document snippets.
 - `run-worker` CLI that executes a coding backend against a context packet and
   stores proposal artifacts, with optional guarded apply inside a specified
   worktree.
@@ -250,7 +253,7 @@ Two-round smoke:
 
 | Requirement | Current status | Next action |
 | --- | --- | --- |
-| Read requirement and IO documents | Draft-contract ingestion with source-grounded feature/metric hints, Markdown section schema, uncertainty reporting, project intake, and intent-alignment cards implemented | Add optional LLM-assisted extraction and long-document compression. |
+| Read requirement and IO documents | Draft-contract ingestion with source-grounded feature/metric hints, Markdown section schema, role-prioritized context sections, uncertainty reporting, project intake, and intent-alignment cards implemented | Add optional LLM-assisted extraction and stronger long-document summarization. |
 | Derive Task Contract from documents | Draft JSON, evidence fields, command checks, section roles, Markdown review card, and confirmation gate implemented | Add optional interactive web review workflow. |
 | Support multiple metrics from documents | Contract model, evaluator schema checks, validation summary, and Pareto frontier reporting implemented | Add richer evaluator schema declarations and visual Pareto exports. |
 | Generate solver code with an LLM worker | DeepSeek proposal-first worker with project-intake proposal audit, non-interactive OpenCodeWorker adapter, project-intake-aware context packets, isolated worker-cycle evaluator rerun, multi-cycle promotion/rollback, and per-round context refresh implemented | Add stronger rule/operator mutation prompts. |
@@ -282,7 +285,10 @@ The next concrete slice should be:
    - current: keeps prompts bounded to avoid token truncation;
    - current: refreshes round context with evaluator-backed loop feedback before
      each worker-loop candidate cycle;
-   - next: make refreshed packets more compact for long industrial documents.
+   - current: exposes role-prioritized Markdown sections for long-document
+     grounding;
+   - next: add optional LLM-assisted compression for very large industrial
+     documents.
 
 3. `workers/deepseek_worker.py`
    - current: generates `strategy.md` and `strategy_profile.json`, with JSON

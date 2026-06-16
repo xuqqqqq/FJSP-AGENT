@@ -274,6 +274,13 @@ document-driven loop grounded in the source Markdown while avoiding long prompt
 payloads and preserving the rule that generated evaluator semantics require
 review before formal optimization.
 
+For long requirement documents, the context packet also derives
+`role_prioritized_sections` from the same schema.  This list ranks sections by
+their inferred role, so objectives, hard constraints, input/output semantics,
+acceptance criteria, and algorithm guidance are surfaced before general prose.
+It is a prompt-compression aid only: the full compact schema remains available,
+and evaluator acceptance remains unchanged.
+
 The evaluator output is expected to contain:
 
 ```json

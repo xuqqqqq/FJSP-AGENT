@@ -425,9 +425,13 @@ policy, compact contract-review evidence, project-intake summary, bounded
 document snippets, knowledge cards, previous report, and worker instructions.
 When the contract was generated from Markdown, the review evidence includes the
 section schema produced by `draft-contract`, so a worker can cite objective,
-constraint, or IO sections without relying on an unstructured blob.  A worker
-may self-test against it, but AlgoForge Core still owns the final evaluator run
-and success verdict.
+constraint, or IO sections without relying on an unstructured blob.  The packet
+also derives `role_prioritized_sections`: a bounded reading order that surfaces
+objective, constraint, input-output, acceptance, and algorithm-guidance sections
+before generic prose.  This keeps long industrial documents useful to a coding
+worker without expanding the prompt into an uncontrolled full-document dump.  A
+worker may self-test against it, but AlgoForge Core still owns the final
+evaluator run and success verdict.
 
 ## Coding Worker Run
 

@@ -498,7 +498,21 @@ def _extract_document_schema(sources: list[DraftSource]) -> dict[str, Any]:
 def _markdown_sections(source: DraftSource) -> list[dict[str, Any]]:
     lines = source.text.splitlines()
     headings: list[tuple[int, int, str]] = []
+    in_fenced_code = False
+    fence_marker = ""
     for line_number, line in enumerate(lines, start=1):
+        fence_match = re.match(r"^\s*(```+|~~~+)", line)
+        if fence_match:
+            marker = fence_match.group(1)[:3]
+            if not in_fenced_code:
+                in_fenced_code = True
+                fence_marker = marker
+            elif marker == fence_marker:
+                in_fenced_code = False
+                fence_marker = ""
+            continue
+        if in_fenced_code:
+            continue
         match = re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
         if match:
             headings.append((line_number, len(match.group(1)), match.group(2).strip()))

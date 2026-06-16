@@ -147,6 +147,50 @@ class ContractBuilderTests(unittest.TestCase):
             self.assertIn("Confirmation Checklist", report)
             self.assertIn("setup_count", report)
 
+    def test_markdown_schema_ignores_headings_inside_code_fences(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            doc = tmp_path / "requirements.md"
+            instance = tmp_path / "case.json"
+            doc.write_text(
+                """
+# 正式需求
+
+## 目标指标
+
+目标包括产量。
+
+```powershell
+# 这不是 Markdown 标题
+python solver.py --input case.json
+```
+
+## 输入输出结构
+
+输出包含每道工序的开始结束时间。
+                """.strip(),
+                encoding="utf-8",
+            )
+            instance.write_text("{}", encoding="utf-8")
+
+            payload = build_draft_contract(
+                DraftContractRequest(
+                    task_id="fenced_heading_case",
+                    docs=[doc],
+                    instances=[instance],
+                    output=tmp_path / "draft.json",
+                )
+            )
+
+            headings = [
+                section["heading"]
+                for document in payload["review"]["document_schema"]["documents"]
+                for section in document["sections"]
+            ]
+            self.assertIn("目标指标", headings)
+            self.assertIn("输入输出结构", headings)
+            self.assertNotIn("这不是 Markdown 标题", headings)
+
 
 if __name__ == "__main__":
     unittest.main()

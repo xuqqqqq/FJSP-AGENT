@@ -10,6 +10,17 @@ from typing import Any
 from .models import TaskContract
 
 
+SECTION_ROLE_PRIORITY = {
+    "objectives": 0,
+    "constraints": 1,
+    "input_output": 2,
+    "acceptance": 3,
+    "algorithm_guidance": 4,
+    "instance_data": 5,
+    "general": 9,
+}
+
+
 @dataclass(frozen=True)
 class ContextPacketRequest:
     contract_path: Path
@@ -53,6 +64,8 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
     ]
     if contract_review_evidence.get("has_document_schema"):
         required_order.insert(1, "Review contract_review_evidence before interpreting document snippets.")
+    if contract_review_evidence.get("role_prioritized_sections"):
+        required_order.insert(2, "Start document grounding from contract_review_evidence.role_prioritized_sections.")
     if project_intake:
         required_order.insert(1, "Review project_intake before proposing code changes.")
     if previous_pipeline_memory:
@@ -249,12 +262,14 @@ def _pipeline_memory_payload(path: Path) -> dict[str, Any]:
 
 def _contract_review_payload(review: dict[str, Any]) -> dict[str, Any]:
     document_schema = _compact_document_schema(review.get("document_schema") or {})
+    role_prioritized_sections = _role_prioritized_sections(document_schema, limit=16)
     return {
         "status": review.get("status"),
         "uncertain_fields": (review.get("uncertain_fields") or [])[:30],
         "extracted_problem_features": _compact_feature_hints(review.get("extracted_problem_features") or [], limit=30),
         "metric_hints": _compact_metric_hints(review.get("metric_hints") or [], limit=30),
         "document_schema": document_schema,
+        "role_prioritized_sections": role_prioritized_sections,
         "has_document_schema": bool(document_schema.get("section_count")),
         "extraction_method": review.get("extraction_method"),
     }
@@ -300,6 +315,48 @@ def _compact_document_schema(schema: dict[str, Any]) -> dict[str, Any]:
         "documents": compact_documents,
         "truncated": section_budget <= 0,
     }
+
+
+def _role_prioritized_sections(schema: dict[str, Any], *, limit: int) -> list[dict[str, Any]]:
+    """Return the most useful Markdown sections for a worker's first read.
+
+    The full schema is preserved for auditability.  This derived list is a
+    bounded reading order for long documents, so workers inspect objective,
+    constraint, IO, and acceptance evidence before generic prose.
+    """
+
+    candidates: list[dict[str, Any]] = []
+    for document_index, document in enumerate(schema.get("documents") or []):
+        for section_index, section in enumerate(document.get("sections") or []):
+            roles = list(section.get("roles") or ["general"])
+            best_role_rank = min(SECTION_ROLE_PRIORITY.get(str(role), 8) for role in roles)
+            hint_bonus = len(section.get("feature_hints") or []) + len(section.get("metric_hints") or [])
+            candidates.append(
+                {
+                    "sort_key": (best_role_rank, -hint_bonus, document_index, section_index),
+                    "payload": {
+                        "source": document.get("path"),
+                        "heading": section.get("heading"),
+                        "line_start": section.get("line_start"),
+                        "line_end": section.get("line_end"),
+                        "roles": roles,
+                        "feature_hints": _compact_feature_hints(section.get("feature_hints") or [], limit=8),
+                        "metric_hints": _compact_metric_hints(section.get("metric_hints") or [], limit=8),
+                        "evidence_excerpt": str(section.get("evidence_excerpt") or "")[:220],
+                        "priority_reason": _priority_reason(roles, hint_bonus),
+                    },
+                }
+            )
+
+    candidates.sort(key=lambda item: item["sort_key"])
+    return [item["payload"] for item in candidates[:limit]]
+
+
+def _priority_reason(roles: list[str], hint_bonus: int) -> str:
+    role_text = ", ".join(roles) if roles else "general"
+    if hint_bonus:
+        return f"roles={role_text}; contains {hint_bonus} extracted feature/metric hints"
+    return f"roles={role_text}"
 
 
 def _compact_feature_hints(hints: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
