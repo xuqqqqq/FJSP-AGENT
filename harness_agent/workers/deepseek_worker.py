@@ -27,6 +27,13 @@ FEATURES = [
 ]
 
 LOCAL_SEARCH_NEIGHBORHOODS = ["random", "critical-block", "combined", "hgtsa-lite", "hybrid"]
+RULE_OPERATOR_TYPES = [
+    "dispatch_rule",
+    "local_search_operator",
+    "path_selection",
+    "repair_rule",
+    "parameter_policy",
+]
 
 
 def extract_json_object(text: str) -> dict[str, Any]:
@@ -306,6 +313,17 @@ Return JSON only with this schema:
 {{
   "summary": "one paragraph summary",
   "strategy_intent": "natural-language strategy before editing code",
+  "rule_operator_hypotheses": [
+    {{
+      "name": "unique_rule_or_operator_name",
+      "type": "dispatch_rule",
+      "novelty": "how this differs from prior rolled-back or baseline behavior",
+      "expected_effect": "which evaluator metric should improve and why",
+      "evidence_used": ["contract_review_evidence.role_prioritized_sections", "loop_feedback.previous_rounds"],
+      "target_files": ["examples/standard_fjsp_local_search_solver.py"],
+      "ablation_plan": "how Core can isolate this rule/operator effect in a later run"
+    }}
+  ],
   "changes": [
     {{
       "path": "relative/path.py",
@@ -332,6 +350,14 @@ Rules:
   files, evaluator/validator files, and test commands before choosing edits.
 - In context_usage, explicitly list the project_intake files or commands that
   shaped the proposal.  If project_intake was not useful, explain why.
+- State 1 to 3 materially different rule_operator_hypotheses before changes.
+  These are rule/operator lineage records, not success claims.  Use types only
+  from: {", ".join(RULE_OPERATOR_TYPES)}.
+- If loop_feedback or previous_pipeline_memory reports rolled-back or duplicate
+  proposals, novelty must explain what is materially different this time.
+- If contract_review_evidence.role_prioritized_sections is present, cite it in
+  evidence_used when the rule/operator comes from objectives, constraints, IO,
+  acceptance, or algorithm-guidance sections.
 - If the task contract requires human confirmation, say so in risk_notes and
   avoid claiming formal success.
 - Do not include Markdown fences or commentary outside JSON.
@@ -371,6 +397,9 @@ Context packet:
         normalized = {
             "summary": str(proposal.get("summary", ""))[:4000],
             "strategy_intent": str(proposal.get("strategy_intent", ""))[:4000],
+            "rule_operator_hypotheses": normalize_rule_operator_hypotheses(
+                proposal.get("rule_operator_hypotheses")
+            ),
             "changes": normalized_changes,
             "rejected_changes": rejected_changes,
             "context_usage": normalize_context_usage(proposal.get("context_usage")),
@@ -494,6 +523,46 @@ def normalize_context_usage(value: Any) -> dict[str, Any]:
     }
 
 
+def normalize_rule_operator_hypotheses(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    hypotheses: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            continue
+        raw_name = str(item.get("name", f"hypothesis_{index:02d}")).strip()
+        name = safe_profile_name(raw_name) or f"hypothesis_{index:02d}"
+        if name in seen_names:
+            name = f"{name}_{index:02d}"
+        seen_names.add(name)
+        hypothesis_type = str(item.get("type", "")).strip()
+        if hypothesis_type not in RULE_OPERATOR_TYPES:
+            hypothesis_type = "dispatch_rule"
+        target_files = []
+        for target in item.get("target_files", []):
+            if isinstance(target, str) and target.strip():
+                target_files.append(normalize_relative_path(target))
+        evidence_used = []
+        for evidence in item.get("evidence_used", []):
+            if isinstance(evidence, str) and evidence.strip():
+                evidence_used.append(evidence.strip()[:240])
+        hypotheses.append(
+            {
+                "name": name[:80],
+                "type": hypothesis_type,
+                "novelty": str(item.get("novelty", ""))[:1000],
+                "expected_effect": str(item.get("expected_effect", ""))[:1000],
+                "evidence_used": sorted(set(evidence_used))[:12],
+                "target_files": sorted(set(path for path in target_files if path))[:20],
+                "ablation_plan": str(item.get("ablation_plan", ""))[:1000],
+            }
+        )
+        if len(hypotheses) >= 6:
+            break
+    return hypotheses
+
+
 def build_proposal_audit(proposal: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     project_intake = context.get("project_intake") or {}
     intake_summary = project_intake.get("summary") or {}
@@ -529,10 +598,31 @@ def build_proposal_audit(proposal: dict[str, Any], context: dict[str, Any]) -> d
     ]
     quick_test_plan = str(proposal.get("quick_test_plan", ""))
     referenced_test_commands = [command for command in test_commands if command and command in quick_test_plan]
+    hypotheses = proposal.get("rule_operator_hypotheses") or []
+    if not isinstance(hypotheses, list):
+        hypotheses = []
+    hypothesis_target_files = sorted(
+        {
+            normalize_relative_path(str(target))
+            for item in hypotheses
+            if isinstance(item, dict)
+            for target in item.get("target_files", [])
+            if isinstance(target, str) and target.strip()
+        }
+    )
+    hypothesis_types = sorted(
+        {
+            str(item.get("type"))
+            for item in hypotheses
+            if isinstance(item, dict) and item.get("type")
+        }
+    )
 
     warnings = []
     if project_intake and not (declared_usage.get("used_project_intake") or referenced_paths or touched_intake_paths):
         warnings.append("project_intake_present_but_not_referenced")
+    if accepted_paths and not hypotheses:
+        warnings.append("missing_rule_operator_hypotheses")
     if changed_validators:
         warnings.append("proposal_touches_validator_candidates")
     if changed_benchmarks:
@@ -555,6 +645,14 @@ def build_proposal_audit(proposal: dict[str, Any], context: dict[str, Any]) -> d
         "changed_files_seen_in_intake": touched_intake_paths,
         "referenced_test_commands": referenced_test_commands,
         "project_intake_risk_codes": risk_codes,
+        "operator_lineage": {
+            "hypothesis_count": len(hypotheses),
+            "hypothesis_types": hypothesis_types,
+            "hypothesis_target_files": hypothesis_target_files[:40],
+            "target_files_overlap_changes": sorted(
+                path for path in accepted_paths if path_matches_any(path, set(hypothesis_target_files))
+            ),
+        },
         "warnings": warnings,
     }
 
@@ -583,6 +681,20 @@ def proposal_search_text(proposal: dict[str, Any]) -> str:
         str(proposal.get("quick_test_plan", "")),
         str((proposal.get("context_usage") or {}).get("notes", "")),
     ]
+    for item in proposal.get("rule_operator_hypotheses", []):
+        if not isinstance(item, dict):
+            continue
+        parts.extend(
+            [
+                str(item.get("name", "")),
+                str(item.get("type", "")),
+                str(item.get("novelty", "")),
+                str(item.get("expected_effect", "")),
+                str(item.get("ablation_plan", "")),
+                " ".join(str(value) for value in item.get("target_files", []) if isinstance(value, str)),
+                " ".join(str(value) for value in item.get("evidence_used", []) if isinstance(value, str)),
+            ]
+        )
     for item in proposal.get("changes", []):
         parts.append(str(item.get("path", "")))
         parts.append(str(item.get("rationale", "")))
@@ -674,6 +786,24 @@ def render_code_edit_markdown(proposal: dict[str, Any]) -> str:
                 "",
                 f"- action: `{change.get('action')}`",
                 f"- rationale: {change.get('rationale', '')}",
+                "",
+            ]
+        )
+    hypotheses = proposal.get("rule_operator_hypotheses") or []
+    lines.extend(["", "## Rule / Operator Hypotheses", ""])
+    if not hypotheses:
+        lines.append("No rule/operator hypotheses were provided.")
+    for hypothesis in hypotheses:
+        lines.extend(
+            [
+                f"### {hypothesis.get('name')}",
+                "",
+                f"- type: `{hypothesis.get('type')}`",
+                f"- novelty: {hypothesis.get('novelty') or 'N/A'}",
+                f"- expected_effect: {hypothesis.get('expected_effect') or 'N/A'}",
+                f"- evidence_used: `{json.dumps(hypothesis.get('evidence_used') or [], ensure_ascii=False)}`",
+                f"- target_files: `{json.dumps(hypothesis.get('target_files') or [], ensure_ascii=False)}`",
+                f"- ablation_plan: {hypothesis.get('ablation_plan') or 'N/A'}",
                 "",
             ]
         )

@@ -59,6 +59,17 @@ class ProposalAuditWorker:
                 {
                     "summary": "Try a solver-rule change based on the project intake.",
                     "strategy_intent": "Prefer solver-side changes and leave validators untouched.",
+                    "rule_operator_hypotheses": [
+                        {
+                            "name": "dummy_finish_shift",
+                            "type": "dispatch_rule",
+                            "novelty": "Changes the dummy solver expression rather than repeating a no-op proposal.",
+                            "expected_effect": "Increase primary_score in the fixed dummy evaluator.",
+                            "evidence_used": ["project_intake.summary.entry_files"],
+                            "target_files": ["examples/dummy_solver.py"],
+                            "ablation_plan": "Compare the candidate key against the baseline key.",
+                        }
+                    ],
                     "context_usage": {
                         "used_project_intake": True,
                         "referenced_files": ["examples/dummy_solver.py", "configs/task_contract.example.json"],
@@ -73,6 +84,12 @@ class ProposalAuditWorker:
                         "changed_validator_files": [],
                         "changed_benchmark_files": [],
                         "referenced_test_commands": ["python -m compileall harness_agent examples"],
+                        "operator_lineage": {
+                            "hypothesis_count": 1,
+                            "hypothesis_types": ["dispatch_rule"],
+                            "hypothesis_target_files": ["examples/dummy_solver.py"],
+                            "target_files_overlap_changes": [],
+                        },
                         "warnings": [],
                     },
                 },
@@ -177,12 +194,22 @@ class WorkerLoopTests(unittest.TestCase):
 
             diagnostics = result.rounds[0].proposal_diagnostics
             self.assertEqual("ok", diagnostics["status"])
+            self.assertEqual("dummy_finish_shift", diagnostics["rule_operator_hypotheses"][0]["name"])
+            self.assertEqual(1, diagnostics["proposal_audit"]["operator_lineage"]["hypothesis_count"])
             self.assertTrue(diagnostics["context_usage"]["used_project_intake"])
             self.assertEqual(["examples/dummy_solver.py"], diagnostics["proposal_audit"]["changed_core_algorithm_files"])
 
             round_001_context = json.loads((tmp_path / "loop" / "round_001" / "context_packet.json").read_text(encoding="utf-8"))
             previous = round_001_context["loop_feedback"]["previous_rounds"][0]
             self.assertEqual("ok", previous["proposal_diagnostics"]["status"])
+            self.assertEqual(
+                "dummy_finish_shift",
+                previous["proposal_diagnostics"]["rule_operator_hypotheses"][0]["name"],
+            )
+            self.assertEqual(
+                1,
+                previous["proposal_diagnostics"]["proposal_audit"]["operator_lineage"]["hypothesis_count"],
+            )
             self.assertTrue(previous["proposal_diagnostics"]["context_usage"]["used_project_intake"])
             self.assertEqual(
                 ["examples/dummy_solver.py"],

@@ -78,6 +78,8 @@ The repository has reached the first harness milestone:
 - DeepSeek code-edit proposals now include deterministic proposal-audit fields
   that show project-intake usage, referenced files, solver/validator touch
   points, test-command references, and warnings.
+- DeepSeek code-edit proposals now require normalized rule/operator hypotheses,
+  and proposal audit records operator-lineage summaries for later reflection.
 - `run-worker-loop` now feeds compact proposal diagnostics from each worker
   proposal into later round context packets, so standard FJSP self-evolution can
   learn from prior proposal quality as well as evaluator outcomes.
@@ -256,11 +258,11 @@ Two-round smoke:
 | Read requirement and IO documents | Draft-contract ingestion with source-grounded feature/metric hints, Markdown section schema, role-prioritized context sections, uncertainty reporting, project intake, and intent-alignment cards implemented | Add optional LLM-assisted extraction and stronger long-document summarization. |
 | Derive Task Contract from documents | Draft JSON, evidence fields, command checks, section roles, Markdown review card, and confirmation gate implemented | Add optional interactive web review workflow. |
 | Support multiple metrics from documents | Contract model, evaluator schema checks, validation summary, and Pareto frontier reporting implemented | Add richer evaluator schema declarations and visual Pareto exports. |
-| Generate solver code with an LLM worker | DeepSeek proposal-first worker with project-intake proposal audit, non-interactive OpenCodeWorker adapter, project-intake-aware context packets, isolated worker-cycle evaluator rerun, multi-cycle promotion/rollback, and per-round context refresh implemented | Add stronger rule/operator mutation prompts. |
+| Generate solver code with an LLM worker | DeepSeek proposal-first worker with project-intake proposal audit, rule/operator hypotheses, non-interactive OpenCodeWorker adapter, project-intake-aware context packets, isolated worker-cycle evaluator rerun, multi-cycle promotion/rollback, and per-round context refresh implemented | Add stronger code-level mutation prompts. |
 | Admission and intent gates | Project-intake, health-check, and intent-alignment readiness implemented; standard pipeline skips optimization stages when admission fails | Add UI confirmation flow around the generated readiness card. |
 | Strategy-first evolution | DeepSeek/template profiles plus candidate ablation implemented | Extend from scoring profiles to code-level operator evolution. |
-| Self-reflection and hypothesis graph | JSONL records plus promote/prune/mutate graph summaries implemented | Add richer operator-level lineage and graph-aware code mutation. |
-| Rule/operator evolution | Local-search operator and profile-level mutation exist; LLM operator edits not enabled | Add guarded code-level mutation operators. |
+| Self-reflection and hypothesis graph | JSONL records plus promote/prune/mutate graph summaries and worker proposal operator-lineage diagnostics implemented | Attach graph decisions to code mutation proposals. |
+| Rule/operator evolution | Local-search operator, profile-level mutation, and LLM proposal-time rule/operator hypotheses exist | Add guarded code-level mutation operators and evaluate their lineage. |
 | Standard FJSP benchmark testing | Smoke path and best-known gap reporting implemented | Add larger benchmark batches and regression baselines. |
 | Industrial FJSP variant testing | Not implemented here | Add adapter to external industrial evaluator. |
 | Full auditability | Ledger, context packet hash, candidate worktree copy, worktree delta JSON, text patch artifacts, and evidence index implemented | Add optional Git worktree/branch archival for long-running external experiments. |
@@ -294,10 +296,12 @@ The next concrete slice should be:
    - current: generates `strategy.md` and `strategy_profile.json`, with JSON
      repair and model-name aliasing;
    - current: consumes context packets and writes guarded code-edit proposals;
+   - current: requires rule/operator hypotheses before code edits and records
+     operator-lineage audit fields;
    - current: optional apply is limited by allowed/forbidden path checks;
    - current: proposals can be evaluated through `run-worker-cycle` in an
      isolated candidate tree;
-   - next: add stronger proposal diversity checks;
+   - next: add stronger code-level mutation prompts;
    - returns structured result only;
    - never marks itself successful.
 
@@ -306,8 +310,7 @@ The next concrete slice should be:
      and artifact paths;
    - current: summarizes records into promote/prune/mutate guidance for the next
      round;
-   - next: track operator-level lineage and attach graph decisions to code
-     mutation proposals.
+   - next: attach graph decisions to code mutation proposals.
 
 5. `strategy_variants.py`
    - current: creates full-profile, single-strategy, and deterministic mutated

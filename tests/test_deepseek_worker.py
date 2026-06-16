@@ -13,6 +13,17 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
             {
                 "summary": "Adjust examples/standard_fjsp_solver.py using the project map.",
                 "strategy_intent": "Use project_intake to locate the constructive solver and leave evaluator files unchanged.",
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "critical_block_bias",
+                        "type": "local_search_operator",
+                        "novelty": "Biases the existing search toward critical-block moves instead of another dispatch-only tweak.",
+                        "expected_effect": "Reduce average makespan under the fixed evaluator.",
+                        "evidence_used": ["project_intake.core_algorithm_files", "loop_feedback.previous_rounds"],
+                        "target_files": ["examples/standard_fjsp_solver.py"],
+                        "ablation_plan": "Run the same suite with and without the critical-block bias.",
+                    }
+                ],
                 "changes": [
                     {
                         "path": "examples/standard_fjsp_solver.py",
@@ -36,6 +47,12 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertTrue(audit["project_intake_present"])
         self.assertTrue(audit["declared_project_intake_used"])
         self.assertIn("examples/standard_fjsp_solver.py", audit["detected_referenced_intake_files"])
+        self.assertEqual(1, audit["operator_lineage"]["hypothesis_count"])
+        self.assertEqual(["local_search_operator"], audit["operator_lineage"]["hypothesis_types"])
+        self.assertEqual(
+            ["examples/standard_fjsp_solver.py"],
+            audit["operator_lineage"]["target_files_overlap_changes"],
+        )
         self.assertEqual(["examples/standard_fjsp_solver.py"], audit["changed_core_algorithm_files"])
         self.assertEqual([], audit["changed_validator_files"])
         self.assertIn("python -m compileall harness_agent examples", audit["referenced_test_commands"])
@@ -43,6 +60,8 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
 
         markdown = render_code_edit_markdown(normalized)
         self.assertIn("## Context Usage", markdown)
+        self.assertIn("## Rule / Operator Hypotheses", markdown)
+        self.assertIn("critical_block_bias", markdown)
         self.assertIn("## Proposal Audit", markdown)
         self.assertIn("changed_core_algorithm_files", markdown)
 

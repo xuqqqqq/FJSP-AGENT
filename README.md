@@ -457,10 +457,14 @@ allowlist and forbidden-path checks pass.  Even after `--apply`, the worker
 result is not a success verdict; the harness must still run quick tests and the
 fixed evaluator.
 For DeepSeek proposals, the normalized `proposal.json` also contains
-`proposal_audit`: a deterministic check of whether the proposal used
-`project_intake`, which intake files it referenced, whether accepted edits touch
-core solver files, and whether they touch validator or benchmark candidates.
-This audit is diagnostic evidence only; it never replaces evaluator promotion.
+`rule_operator_hypotheses` and `proposal_audit`.  The hypotheses are the
+worker's natural-language lineage records for dispatch rules, local-search
+operators, repair rules, path-selection logic, or parameter policies before any
+code edit is applied.  The audit deterministically checks whether the proposal
+used `project_intake`, which intake files it referenced, whether accepted edits
+touch core solver files, whether they touch validator or benchmark candidates,
+and which rule/operator hypotheses target the changed files.  This audit is
+diagnostic evidence only; it never replaces evaluator promotion.
 
 For a full single-iteration loop, use `run-worker-cycle`. It creates an
 isolated candidate worktree, runs the worker against the context packet, then
@@ -511,9 +515,10 @@ homogeneous worker outputs are visible without replacing the evaluator-based
 promotion rule.  If the worker writes a structured proposal artifact, the loop
 also carries compact proposal diagnostics into the next round: project-intake
 usage, referenced files, core-solver touch points, validator/benchmark touch
-points, quick-test references, and warnings.  These fields are reflection input
-only; promotion remains evaluator-only.  The loop report links to each round's
-worktree delta artifact and text patch for audit and later reflection.
+points, quick-test references, rule/operator hypotheses, operator-lineage
+summaries, and warnings.  These fields are reflection input only; promotion
+remains evaluator-only.  The loop report links to each round's worktree delta
+artifact and text patch for audit and later reflection.
 
 ## Project Boundary
 

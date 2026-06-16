@@ -116,12 +116,16 @@ If `--apply` is explicitly requested, only full-file `create_or_replace` edits
 that pass allowed-path and forbidden-path checks are written into the specified
 worktree.  This keeps code generation useful while preventing a worker from
 silently editing evaluator artifacts, output directories, or Git metadata.
-DeepSeek proposals are normalized with a deterministic `proposal_audit` section:
-the harness records whether project intake was present, whether the worker
-declared that it used it, which intake files were referenced, whether accepted
-edits touch core solver files, and whether they touch validator or benchmark
-candidates.  These fields support diagnosis and later reflection; they do not
-change the evaluator-backed promotion rule.
+DeepSeek proposals are normalized with `rule_operator_hypotheses` plus a
+deterministic `proposal_audit` section.  The hypotheses record the worker's
+rule/operator-level idea before code changes: dispatch-rule edits,
+local-search operators, repair rules, path-selection logic, or parameter
+policies.  The harness records whether project intake was present, whether the
+worker declared that it used it, which intake files were referenced, whether
+accepted edits touch core solver files, whether they touch validator or
+benchmark candidates, and which hypotheses target changed files.  These fields
+support diagnosis and later reflection; they do not change the evaluator-backed
+promotion rule.
 
 `run-worker-cycle` turns that proposal protocol into one evaluator-backed loop:
 copy the allowed project surface into an isolated candidate worktree, run the
@@ -153,7 +157,8 @@ When a worker produces a structured proposal artifact, the refreshed packet also
 receives compact proposal diagnostics from prior rounds.  The diagnostics record
 whether the proposal declared project-intake usage, which files were referenced,
 whether edits targeted core solver files, whether validator or benchmark files
-were touched, which quick-test commands were referenced, and any deterministic
+were touched, which quick-test commands were referenced, the rule/operator
+hypotheses behind the edit, operator-lineage summaries, and any deterministic
 audit warnings.  This gives the next worker round concrete reflection material
 without turning proposal quality into an acceptance rule.
 

@@ -304,6 +304,10 @@ def worker_proposal_diagnostics(worker_result: WorkerResult) -> dict[str, Any]:
         "proposal_path": str(proposal_path),
         "summary": _bounded_text(proposal.get("summary")),
         "strategy_intent": _bounded_text(proposal.get("strategy_intent")),
+        "rule_operator_hypotheses": compact_rule_operator_hypotheses(
+            proposal.get("rule_operator_hypotheses") or [],
+            limit=12,
+        ),
         "context_usage": {
             "used_project_intake": bool(context_usage.get("used_project_intake")),
             "referenced_files": _bounded_list(context_usage.get("referenced_files"), limit=40),
@@ -320,6 +324,7 @@ def worker_proposal_diagnostics(worker_result: WorkerResult) -> dict[str, Any]:
             "changed_validator_files": _bounded_list(audit.get("changed_validator_files"), limit=40),
             "changed_benchmark_files": _bounded_list(audit.get("changed_benchmark_files"), limit=40),
             "referenced_test_commands": _bounded_list(audit.get("referenced_test_commands"), limit=20),
+            "operator_lineage": audit.get("operator_lineage") or {},
             "warnings": _bounded_list(audit.get("warnings"), limit=20),
         },
     }
@@ -385,10 +390,45 @@ def compact_proposal_audit(diagnostics: dict[str, Any]) -> dict[str, Any]:
         "used_intake": (diagnostics.get("context_usage") or {}).get("used_project_intake")
         if isinstance(diagnostics.get("context_usage"), dict)
         else None,
+        "hypotheses": [
+            {
+                "name": item.get("name"),
+                "type": item.get("type"),
+                "target_files": item.get("target_files") or [],
+            }
+            for item in compact_rule_operator_hypotheses(
+                diagnostics.get("rule_operator_hypotheses") or [],
+                limit=6,
+            )
+        ],
+        "operator_lineage": audit.get("operator_lineage") or {},
         "changed_core": audit.get("changed_core_algorithm_files") or [],
         "changed_validators": audit.get("changed_validator_files") or [],
         "warnings": audit.get("warnings") or [],
     }
+
+
+def compact_rule_operator_hypotheses(value: Any, *, limit: int) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    compact: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        compact.append(
+            {
+                "name": _bounded_text(item.get("name"), limit=120),
+                "type": _bounded_text(item.get("type"), limit=80),
+                "novelty": _bounded_text(item.get("novelty"), limit=240),
+                "expected_effect": _bounded_text(item.get("expected_effect"), limit=240),
+                "target_files": _bounded_list(item.get("target_files"), limit=12),
+                "evidence_used": _bounded_list(item.get("evidence_used"), limit=12),
+                "ablation_plan": _bounded_text(item.get("ablation_plan"), limit=240),
+            }
+        )
+        if len(compact) >= limit:
+            break
+    return compact
 
 
 def _run_harness(*, contract: TaskContract, project_root: Path, output_dir: Path) -> RunSummary:
