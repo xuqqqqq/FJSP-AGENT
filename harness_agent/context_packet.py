@@ -18,6 +18,7 @@ class ContextPacketRequest:
     knowledge_cards: list[Path] = field(default_factory=list)
     hypothesis: str = ""
     previous_report: Path | None = None
+    project_intake_manifest: Path | None = None
     max_chars_per_source: int = 12000
 
 
@@ -31,6 +32,20 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         if request.previous_report
         else None
     )
+    project_intake = (
+        _project_intake_payload(request.project_intake_manifest, request.max_chars_per_source)
+        if request.project_intake_manifest
+        else None
+    )
+    required_order = [
+        "Read this context packet.",
+        "State a natural-language strategy before editing code.",
+        "Modify only allowed files.",
+        "Run the quick test before benchmark self-evaluation.",
+        "Return structured changed files, test results, benchmark summary, and failure analysis.",
+    ]
+    if project_intake:
+        required_order.insert(1, "Review project_intake before proposing code changes.")
     packet = {
         "packet_type": "algoforge_context_packet",
         "schema_version": 1,
@@ -78,16 +93,11 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         },
         "worker_instruction": {
             "role": "Coding Agent / CodingWorker",
-            "required_order": [
-                "Read this context packet.",
-                "State a natural-language strategy before editing code.",
-                "Modify only allowed files.",
-                "Run the quick test before benchmark self-evaluation.",
-                "Return structured changed files, test results, benchmark summary, and failure analysis.",
-            ],
+            "required_order": required_order,
             "success_rule": "Do not claim success unless AlgoForge Core reruns evaluator/validator and accepts the result.",
         },
         "hypothesis": request.hypothesis,
+        "project_intake": project_intake,
         "documents": docs,
         "knowledge_cards": knowledge_cards,
         "previous_report": previous_report,
@@ -166,6 +176,71 @@ def _source_payload(path: Path, max_chars: int) -> dict[str, Any]:
         "truncated": truncated,
         "snippet": snippet,
         "error": error,
+    }
+
+
+def _project_intake_payload(path: Path, max_chars: int) -> dict[str, Any]:
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+        manifest = json.loads(text)
+        exists = True
+        error = None
+    except (OSError, json.JSONDecodeError) as exc:
+        text = ""
+        manifest = {}
+        exists = False
+        error = str(exc)
+
+    artifacts = manifest.get("artifacts") or {}
+    report_path = Path(str(artifacts["report"])) if artifacts.get("report") else None
+    report = _source_payload(report_path, max_chars) if report_path else None
+    return {
+        "path": str(path),
+        "exists": exists,
+        "sha256": _hash_text(text) if exists else None,
+        "status": manifest.get("status"),
+        "error": error,
+        "summary": _compact_project_intake(manifest),
+        "report": report,
+    }
+
+
+def _compact_project_intake(manifest: dict[str, Any]) -> dict[str, Any]:
+    if not manifest:
+        return {}
+    context_index = []
+    for item in manifest.get("context_index") or []:
+        context_index.append(
+            {
+                "path": item.get("path"),
+                "line_count": item.get("line_count"),
+                "symbols": item.get("symbols") or [],
+                "imports": item.get("imports") or [],
+            }
+        )
+        if len(context_index) >= 40:
+            break
+    return {
+        "project_root": manifest.get("project_root"),
+        "git": {
+            "branch": (manifest.get("git") or {}).get("branch"),
+            "commit": (manifest.get("git") or {}).get("commit"),
+            "dirty": (manifest.get("git") or {}).get("dirty"),
+            "recent_hotspots": (manifest.get("git") or {}).get("recent_hotspots") or [],
+        },
+        "language_summary": manifest.get("language_summary") or {},
+        "file_tree_summary": manifest.get("file_tree_summary") or {},
+        "entry_files": (manifest.get("entry_files") or [])[:20],
+        "core_algorithm_files": (manifest.get("core_algorithm_files") or [])[:30],
+        "dependency_files": manifest.get("dependency_files") or [],
+        "benchmark_files": (manifest.get("benchmark_files") or [])[:20],
+        "validator_files": (manifest.get("validator_files") or [])[:20],
+        "test_commands": manifest.get("test_commands") or [],
+        "data_dirs": manifest.get("data_dirs") or [],
+        "output_format_hints": manifest.get("output_format_hints") or {},
+        "edit_policy": manifest.get("edit_policy") or {},
+        "risk_flags": manifest.get("risk_flags") or [],
+        "context_index": context_index,
     }
 
 

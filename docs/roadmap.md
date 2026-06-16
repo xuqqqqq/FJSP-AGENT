@@ -64,6 +64,9 @@ The repository has reached the first harness milestone:
   risk flags.
 - `run-standard-pipeline` now starts with project intake and includes that
   manifest in the final evidence index.
+- context packets can embed a compact project-intake summary and report snippet;
+  the standard worker loop receives this intake context automatically from the
+  full pipeline.
 
 This is not yet the full MD requirement.  It is the engineering base that makes
 the later self-evolution loop measurable and auditable.
@@ -222,7 +225,7 @@ Two-round smoke:
 | Read requirement and IO documents | Draft-contract ingestion with source-grounded feature/metric hints, uncertainty reporting, project intake, and intent-alignment cards implemented | Add richer section-level parsing and optional LLM-assisted extraction. |
 | Derive Task Contract from documents | Draft JSON, evidence fields, command checks, and confirmation gate implemented | Add stronger document schema extraction and web review workflow. |
 | Support multiple metrics from documents | Contract model, evaluator schema checks, validation summary, and Pareto frontier reporting implemented | Add richer evaluator schema declarations and visual Pareto exports. |
-| Generate solver code with an LLM worker | DeepSeek proposal-first worker, non-interactive OpenCodeWorker adapter, isolated worker-cycle evaluator rerun, multi-cycle promotion/rollback, and per-round context refresh implemented | Add stronger rule/operator mutation prompts. |
+| Generate solver code with an LLM worker | DeepSeek proposal-first worker, non-interactive OpenCodeWorker adapter, project-intake-aware context packets, isolated worker-cycle evaluator rerun, multi-cycle promotion/rollback, and per-round context refresh implemented | Add stronger rule/operator mutation prompts. |
 | Admission and intent gates | Project-intake, health-check, and intent-alignment readiness implemented; standard pipeline skips optimization stages when admission fails | Add UI confirmation flow around the generated readiness card. |
 | Strategy-first evolution | DeepSeek/template profiles plus candidate ablation implemented | Extend from scoring profiles to code-level operator evolution. |
 | Self-reflection and hypothesis graph | JSONL records plus promote/prune/mutate graph summaries implemented | Add richer operator-level lineage and graph-aware code mutation. |

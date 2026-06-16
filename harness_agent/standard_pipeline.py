@@ -132,6 +132,9 @@ def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
                 worker=request.worker,
                 best_known_csv=request.worker_best_known_csv,
                 max_instances=request.worker_max_instances,
+                project_intake_manifest=Path(str(intake_manifest["artifacts"]["manifest"]))
+                if intake_manifest
+                else None,
                 seeds=request.worker_seeds or [0],
                 timeout_seconds=max(1, request.worker_timeout_seconds),
                 max_workers=max(1, request.worker_max_workers),

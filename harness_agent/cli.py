@@ -45,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     context.add_argument("--knowledge-card", action="append", type=Path, default=[])
     context.add_argument("--hypothesis", default="")
     context.add_argument("--previous-report", type=Path)
+    context.add_argument("--project-intake-manifest", type=Path)
     context.add_argument("--max-chars-per-source", type=int, default=12000)
 
     run_worker = subparsers.add_parser("run-worker", help="run a coding worker against a context packet")
@@ -420,6 +421,7 @@ def build_context_packet_cmd(args: argparse.Namespace) -> int:
         knowledge_cards=args.knowledge_card,
         hypothesis=args.hypothesis,
         previous_report=args.previous_report,
+        project_intake_manifest=args.project_intake_manifest,
         max_chars_per_source=max(1000, args.max_chars_per_source),
     )
     output = write_context_packet(request)
@@ -433,6 +435,7 @@ def build_context_packet_cmd(args: argparse.Namespace) -> int:
                 "review_status": payload["task"]["review_status"],
                 "documents": len(payload["documents"]),
                 "knowledge_cards": len(payload["knowledge_cards"]),
+                "project_intake": bool(payload.get("project_intake")),
                 "packet_hash": payload["packet_hash"],
             },
             ensure_ascii=False,

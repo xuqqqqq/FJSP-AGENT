@@ -137,10 +137,11 @@ reporting, and promotion/rollback memory.
 
 The loop does not reuse the original context packet unchanged.  Before each
 candidate cycle, the main agent writes a refreshed packet for that round.  The
-packet preserves the original contract, document snippets, and knowledge cards,
-then appends compact evaluator evidence: baseline key, incumbent key, prior
-candidate summaries, and promotion/rollback decisions.  This makes later worker
-proposals condition on measured outcomes rather than on static prompt text.
+packet preserves the original contract, project-intake summary, document
+snippets, and knowledge cards, then appends compact evaluator evidence:
+baseline key, incumbent key, prior candidate summaries, and promotion/rollback
+decisions.  This makes later worker proposals condition on measured outcomes
+rather than on static prompt text.
 
 Proposal diversity is tracked as an audit signal.  The loop computes a stable
 fingerprint from the worker proposal artifact, or from the worker status and
@@ -163,7 +164,9 @@ loop, and evidence-index commands into one reproducible entrypoint.  The
 pipeline has no independent scoring authority.  If the admission stages fail,
 the pipeline skips benchmark-suite and worker-loop execution; if they pass, it
 succeeds only when the underlying evaluator-backed stages produce complete
-manifests and referenced artifacts.
+manifests and referenced artifacts.  The generated project-intake manifest is
+also passed into the standard worker-loop context packet, so code-generation
+backends receive a bounded repository map before proposing edits.
 
 ## 5. Hypothesis Memory
 

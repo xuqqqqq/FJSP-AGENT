@@ -61,6 +61,9 @@ class StandardPipelineTests(unittest.TestCase):
             self.assertTrue((output_dir / "intent_alignment" / "intent_alignment_manifest.json").exists())
             self.assertTrue((output_dir / "benchmark_suite" / "suite_manifest.json").exists())
             self.assertTrue((output_dir / "standard_worker_loop" / "standard_worker_loop_manifest.json").exists())
+            context_packet = json.loads((output_dir / "standard_worker_loop" / "context_packet.json").read_text(encoding="utf-8"))
+            self.assertTrue(context_packet["project_intake"]["exists"])
+            self.assertEqual("ok", context_packet["project_intake"]["status"])
             self.assertTrue((output_dir / "evidence_index" / "evidence_index.json").exists())
 
     def test_standard_pipeline_skips_optimization_when_admission_is_blocked(self) -> None:

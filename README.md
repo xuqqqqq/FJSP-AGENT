@@ -296,6 +296,9 @@ The pipeline is intentionally only orchestration glue.  It does not override
 health-check status, intent-readiness decisions, suite metrics, worker-loop
 promotion decisions, or evidence-index checks; those remain owned by the
 evaluator-backed components that produced the referenced manifests.
+When project intake is enabled, the standard worker-loop context packet receives
+the generated intake manifest summary and report snippet automatically, so the
+coding backend sees the repository map before proposing code changes.
 
 ## Evidence Index
 
@@ -375,15 +378,16 @@ python -m harness_agent.cli build-context-packet `
   --contract outputs\confirmed_contract.json `
   --doc docs\architecture.md `
   --knowledge-card knowledge\principles\harness_agent_design.md `
+  --project-intake-manifest outputs\standard_project_intake\project_intake_manifest.json `
   --previous-report outputs\demo\report.md `
   --hypothesis "Try a conservative solver improvement under confirmed evaluator semantics." `
   --output outputs\context_packet.json
 ```
 
 The packet records the contract hash, review status, evaluator protocol, edit
-policy, bounded document snippets, knowledge cards, previous report, and worker
-instructions.  A worker may self-test against it, but AlgoForge Core still owns
-the final evaluator run and success verdict.
+policy, project-intake summary, bounded document snippets, knowledge cards,
+previous report, and worker instructions.  A worker may self-test against it,
+but AlgoForge Core still owns the final evaluator run and success verdict.
 
 ## Coding Worker Run
 

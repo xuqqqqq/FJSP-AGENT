@@ -23,6 +23,7 @@ class StandardWorkerLoopRequest:
     worker: CodingWorker
     best_known_csv: Path | None = None
     knowledge_cards: list[Path] | None = None
+    project_intake_manifest: Path | None = None
     max_instances: int | None = None
     seeds: list[int] | None = None
     timeout_seconds: int = 60
@@ -66,6 +67,7 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
             output_path=context_path,
             docs=request.docs,
             knowledge_cards=request.knowledge_cards or [],
+            project_intake_manifest=request.project_intake_manifest,
             hypothesis=request.hypothesis,
         )
     )
@@ -193,6 +195,7 @@ def standard_worker_manifest(
             "instance_dir": str(request.instance_dir),
             "pattern": request.pattern,
             "best_known_csv": str(request.best_known_csv) if request.best_known_csv else None,
+            "project_intake_manifest": str(request.project_intake_manifest) if request.project_intake_manifest else None,
             "seeds": request.seeds or [0],
             "solver": request.solver,
             "iterations": max(0, request.iterations),
