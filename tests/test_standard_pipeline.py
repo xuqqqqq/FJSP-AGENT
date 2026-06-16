@@ -228,6 +228,11 @@ class StandardPipelineTests(unittest.TestCase):
             )
             self.assertEqual(str(first_memory), second_context["previous_pipeline_memory"]["path"])
             self.assertEqual("ok", second_context["previous_pipeline_memory"]["pipeline_status"])
+            self.assertEqual("available", second_context["previous_pipeline_memory"]["operator_guidance"]["status"])
+            self.assertIn(
+                "include 1 to 3 concrete hypotheses",
+                " ".join(second_context["previous_pipeline_memory"]["operator_guidance"]["must_do"]),
+            )
             self.assertTrue(manifest["request"]["adapt_worker_hypothesis"])
             self.assertIn("Use the previous pipeline memory as measured evidence", second_context["hypothesis"])
             self.assertIn("target_best_known_gap_quality", second_context["hypothesis"])

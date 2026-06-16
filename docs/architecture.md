@@ -219,6 +219,13 @@ their declared target files and expected effects.  The controller uses this
 lineage only to steer the next natural-language strategy and diversity
 requirements.  It does not change objective keys, benchmark metrics, evaluator
 contracts, or promotion rules.
+When a later context packet consumes that memory, the packet derives
+`operator_guidance` from the lineage.  This is the worker-facing instruction
+form of the signal: `must_do` requirements keep proposals auditable,
+`preserve` highlights prior promoted ideas, `mutate` identifies rolled-back
+ideas that must not be repeated unchanged, and `avoid` lists duplicate
+lineages.  DeepSeek code-edit prompts are required to consider this guidance
+when writing the next rule/operator hypotheses and novelty explanation.
 The same focus extraction is used inside a multi-round pipeline run.  After
 iteration `k`, the controller reads iteration `k`'s memory artifact and derives
 iteration `k + 1`'s `worker_hypothesis` from evaluator-grounded

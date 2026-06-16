@@ -353,6 +353,9 @@ Rules:
 - State 1 to 3 materially different rule_operator_hypotheses before changes.
   These are rule/operator lineage records, not success claims.  Use types only
   from: {", ".join(RULE_OPERATOR_TYPES)}.
+- If previous_pipeline_memory.operator_guidance is present, use its must_do,
+  preserve, mutate, and avoid lists when forming rule_operator_hypotheses and
+  novelty statements.
 - If loop_feedback or previous_pipeline_memory reports rolled-back or duplicate
   proposals, novelty must explain what is materially different this time.
 - If contract_review_evidence.role_prioritized_sections is present, cite it in

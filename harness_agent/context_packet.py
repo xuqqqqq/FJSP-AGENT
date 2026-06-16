@@ -70,6 +70,11 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         required_order.insert(1, "Review project_intake before proposing code changes.")
     if previous_pipeline_memory:
         required_order.insert(1, "Review previous_pipeline_memory before proposing the next loop change.")
+        if previous_pipeline_memory.get("operator_guidance"):
+            required_order.insert(
+                2,
+                "Apply previous_pipeline_memory.operator_guidance when choosing rule/operator hypotheses.",
+            )
     packet = {
         "packet_type": "algoforge_context_packet",
         "schema_version": 1,
@@ -253,11 +258,120 @@ def _pipeline_memory_payload(path: Path) -> dict[str, Any]:
         "admission": memory.get("admission") or {},
         "benchmark_signal": memory.get("benchmark_signal") or {},
         "worker_signal": _compact_worker_signal(memory.get("worker_signal") or {}),
+        "operator_lineage_signal": _compact_operator_lineage_signal(memory.get("operator_lineage_signal") or {}),
+        "operator_guidance": _operator_guidance_from_memory(memory),
         "evidence_signal": memory.get("evidence_signal") or {},
         "recommendations": (memory.get("recommendations") or [])[:20],
         "artifacts": memory.get("artifacts") or {},
         "error": error,
     }
+
+
+def _compact_operator_lineage_signal(signal: dict[str, Any]) -> dict[str, Any]:
+    if not signal:
+        return {}
+    return {
+        "hypothesis_count": signal.get("hypothesis_count", 0),
+        "missing_hypothesis_rounds": signal.get("missing_hypothesis_rounds", 0),
+        "type_counts": signal.get("type_counts") or {},
+        "decision_counts": signal.get("decision_counts") or {},
+        "target_file_counts": signal.get("target_file_counts") or {},
+        "promoted_hypotheses": _compact_lineage_records(signal.get("promoted_hypotheses") or [], limit=8),
+        "rolled_back_hypotheses": _compact_lineage_records(signal.get("rolled_back_hypotheses") or [], limit=8),
+        "duplicate_hypotheses": _compact_lineage_records(signal.get("duplicate_hypotheses") or [], limit=8),
+    }
+
+
+def _operator_guidance_from_memory(memory: dict[str, Any]) -> dict[str, Any]:
+    """Translate pipeline memory into worker-facing rule/operator instructions.
+
+    The guidance is prompt material only.  It helps a coding worker produce more
+    auditable and diverse hypotheses while leaving evaluator acceptance
+    unchanged.
+    """
+
+    signal = _compact_operator_lineage_signal(memory.get("operator_lineage_signal") or {})
+    if not signal:
+        return {
+            "status": "missing_lineage",
+            "must_do": ["Declare explicit rule_operator_hypotheses before code changes."],
+            "preserve": [],
+            "mutate": [],
+            "avoid": [],
+            "evidence": [],
+        }
+
+    promoted = signal.get("promoted_hypotheses") or []
+    rolled_back = signal.get("rolled_back_hypotheses") or []
+    duplicate = signal.get("duplicate_hypotheses") or []
+    missing_rounds = int(signal.get("missing_hypothesis_rounds", 0) or 0)
+    must_do = [
+        "Use Core evaluator metrics as the only success evidence.",
+        "State the natural-language rule/operator idea before editing code.",
+    ]
+    if missing_rounds > 0:
+        must_do.append(
+            "Previous rounds lacked auditable rule/operator hypotheses; include 1 to 3 concrete hypotheses with target files."
+        )
+
+    return {
+        "status": "available",
+        "must_do": must_do,
+        "preserve": [
+            {
+                "name": item.get("name"),
+                "type": item.get("type"),
+                "target_files": item.get("target_files") or [],
+                "reason": "Promoted in prior evaluator-backed loop; preserve or ablate before replacing.",
+            }
+            for item in promoted[:5]
+        ],
+        "mutate": [
+            {
+                "name": item.get("name"),
+                "type": item.get("type"),
+                "target_files": item.get("target_files") or [],
+                "reason": "Rolled back in prior evaluator-backed loop; do not repeat unchanged.",
+            }
+            for item in rolled_back[:5]
+        ],
+        "avoid": [
+            {
+                "name": item.get("name"),
+                "type": item.get("type"),
+                "target_files": item.get("target_files") or [],
+                "reason": "Duplicate proposal lineage; novelty must explain a material difference.",
+            }
+            for item in duplicate[:5]
+        ],
+        "evidence": [
+            f"hypothesis_count={signal.get('hypothesis_count', 0)}",
+            f"missing_hypothesis_rounds={missing_rounds}",
+            f"type_counts={json.dumps(signal.get('type_counts') or {}, ensure_ascii=False)}",
+        ],
+    }
+
+
+def _compact_lineage_records(records: list[Any], *, limit: int) -> list[dict[str, Any]]:
+    compact: list[dict[str, Any]] = []
+    for item in records:
+        if not isinstance(item, dict):
+            continue
+        compact.append(
+            {
+                "round_index": item.get("round_index"),
+                "decision": item.get("decision"),
+                "duplicate_proposal": item.get("duplicate_proposal"),
+                "name": str(item.get("name") or "")[:120],
+                "type": str(item.get("type") or "")[:80],
+                "target_files": [str(value) for value in (item.get("target_files") or [])[:12]],
+                "expected_effect": str(item.get("expected_effect") or "")[:240],
+                "novelty": str(item.get("novelty") or "")[:240],
+            }
+        )
+        if len(compact) >= limit:
+            break
+    return compact
 
 
 def _contract_review_payload(review: dict[str, Any]) -> dict[str, Any]:

@@ -310,6 +310,11 @@ They also aggregate worker-declared rule/operator hypotheses into an
 missing-hypothesis patterns.  This lets the next coding backend distinguish
 "preserve and ablate this idea" from "do not repeat this failed idea unchanged"
 without turning reflection text into an acceptance metric.
+When this memory is embedded into a later context packet, the packet derives an
+`operator_guidance` field from that lineage.  The field gives the coding worker
+explicit `must_do`, `preserve`, `mutate`, and `avoid` lists, so the next proposal
+can state why its rule/operator hypotheses are preserving useful ideas,
+mutating failed ones, or avoiding duplicate attempts.
 On a later run, pass the prior JSON back with `--previous-memory
 outputs\standard_pipeline_demo\standard_pipeline_memory.json`; the standard
 worker context packet will expose it as `previous_pipeline_memory` before the
@@ -473,6 +478,9 @@ used `project_intake`, which intake files it referenced, whether accepted edits
 touch core solver files, whether they touch validator or benchmark candidates,
 and which rule/operator hypotheses target the changed files.  This audit is
 diagnostic evidence only; it never replaces evaluator promotion.
+If the context packet includes `previous_pipeline_memory.operator_guidance`,
+the DeepSeek prompt explicitly asks the worker to use those preserve/mutate/avoid
+lists while forming the next hypotheses and novelty statement.
 
 For a full single-iteration loop, use `run-worker-cycle`. It creates an
 isolated candidate worktree, runs the worker against the context packet, then

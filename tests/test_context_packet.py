@@ -70,6 +70,49 @@ class ContextPacketTests(unittest.TestCase):
                                 }
                             ],
                         },
+                        "operator_lineage_signal": {
+                            "hypothesis_count": 3,
+                            "missing_hypothesis_rounds": 1,
+                            "type_counts": {"local_search_operator": 2, "dispatch_rule": 1},
+                            "decision_counts": {"promoted": 1, "rolled_back": 2},
+                            "target_file_counts": {"examples/standard_fjsp_solver.py": 3},
+                            "promoted_hypotheses": [
+                                {
+                                    "round_index": 0,
+                                    "decision": "promoted",
+                                    "duplicate_proposal": False,
+                                    "name": "machine_load_insert",
+                                    "type": "dispatch_rule",
+                                    "target_files": ["examples/standard_fjsp_solver.py"],
+                                    "expected_effect": "Reduce average makespan.",
+                                    "novelty": "Uses load-aware insertion.",
+                                }
+                            ],
+                            "rolled_back_hypotheses": [
+                                {
+                                    "round_index": 1,
+                                    "decision": "rolled_back",
+                                    "duplicate_proposal": False,
+                                    "name": "critical_block_swap",
+                                    "type": "local_search_operator",
+                                    "target_files": ["examples/standard_fjsp_solver.py"],
+                                    "expected_effect": "Reduce critical path length.",
+                                    "novelty": "Swaps adjacent critical operations.",
+                                }
+                            ],
+                            "duplicate_hypotheses": [
+                                {
+                                    "round_index": 2,
+                                    "decision": "rolled_back",
+                                    "duplicate_proposal": True,
+                                    "name": "critical_block_swap",
+                                    "type": "local_search_operator",
+                                    "target_files": ["examples/standard_fjsp_solver.py"],
+                                    "expected_effect": "Reduce critical path length.",
+                                    "novelty": "Repeated the same swap.",
+                                }
+                            ],
+                        },
                         "recommendations": ["Require a materially different rule."],
                     },
                     ensure_ascii=False,
@@ -92,7 +135,19 @@ class ContextPacketTests(unittest.TestCase):
             self.assertEqual("ok", memory["pipeline_status"])
             self.assertEqual(16.67, memory["benchmark_signal"]["avg_reported_gap_pct"])
             self.assertEqual("rolled_back", memory["worker_signal"]["rounds"][0]["decision"])
+            self.assertEqual(3, memory["operator_lineage_signal"]["hypothesis_count"])
+            guidance = memory["operator_guidance"]
+            self.assertEqual("available", guidance["status"])
+            self.assertIn("Use Core evaluator metrics", " ".join(guidance["must_do"]))
+            self.assertIn("include 1 to 3 concrete hypotheses", " ".join(guidance["must_do"]))
+            self.assertEqual("machine_load_insert", guidance["preserve"][0]["name"])
+            self.assertEqual("critical_block_swap", guidance["mutate"][0]["name"])
+            self.assertEqual("critical_block_swap", guidance["avoid"][0]["name"])
             self.assertIn("Review previous_pipeline_memory", " ".join(packet["worker_instruction"]["required_order"]))
+            self.assertIn(
+                "operator_guidance",
+                " ".join(packet["worker_instruction"]["required_order"]),
+            )
 
     def test_context_packet_embeds_compact_contract_review_schema(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
