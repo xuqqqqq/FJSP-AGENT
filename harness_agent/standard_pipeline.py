@@ -7,6 +7,7 @@ from typing import Any
 
 from .benchmark_suite import BenchmarkSuiteRequest, run_benchmark_suite
 from .evidence import EvidenceIndexRequest, build_evidence_index
+from .health_check import HealthCheckRequest, run_health_check
 from .standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop
 from .worker import CodingWorker
 
@@ -21,6 +22,11 @@ class StandardPipelineRequest:
     worker: CodingWorker
     worker_docs: list[Path]
     worker_instance_dir: Path
+    health_contract: Path | None = None
+    health_repeats: int = 2
+    health_max_instances: int = 1
+    health_max_seeds: int = 1
+    health_allow_draft: bool = False
     worker_pattern: str = "*.txt"
     worker_best_known_csv: Path | None = None
     worker_knowledge_cards: list[Path] | None = None
@@ -57,7 +63,21 @@ def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
     suite_dir = output_dir / "benchmark_suite"
     worker_dir = output_dir / "standard_worker_loop"
     evidence_dir = output_dir / "evidence_index"
+    health_dir = output_dir / "health_check"
 
+    health_manifest = None
+    if request.health_contract:
+        health_manifest = run_health_check(
+            HealthCheckRequest(
+                contract_path=request.health_contract,
+                output_dir=health_dir,
+                project_root=request.project_root,
+                repeats=request.health_repeats,
+                max_instances=request.health_max_instances,
+                max_seeds=request.health_max_seeds,
+                allow_draft=request.health_allow_draft,
+            )
+        )
     suite_manifest = run_benchmark_suite(
         BenchmarkSuiteRequest(
             config_path=request.suite_config,
@@ -96,9 +116,12 @@ def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
             hypothesis=request.worker_hypothesis,
         )
     )
+    evidence_input_dirs = [suite_dir, worker_dir]
+    if health_manifest:
+        evidence_input_dirs.insert(0, health_dir)
     evidence_index = build_evidence_index(
         EvidenceIndexRequest(
-            input_dirs=[suite_dir, worker_dir],
+            input_dirs=evidence_input_dirs,
             output_dir=evidence_dir,
             title=request.title,
         )
@@ -108,6 +131,7 @@ def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
     report_path = output_dir / "standard_pipeline_report.md"
     manifest = standard_pipeline_manifest(
         request=request,
+        health_manifest=health_manifest,
         suite_manifest=suite_manifest,
         worker_manifest=worker_manifest,
         evidence_index=evidence_index,
@@ -123,6 +147,7 @@ def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
 def standard_pipeline_manifest(
     *,
     request: StandardPipelineRequest,
+    health_manifest: dict[str, Any] | None,
     suite_manifest: dict[str, Any],
     worker_manifest: dict[str, Any],
     evidence_index: dict[str, Any],
@@ -131,12 +156,14 @@ def standard_pipeline_manifest(
     report_path: Path,
 ) -> dict[str, Any]:
     evidence_summary = evidence_index.get("summary") or {}
-    status = pipeline_status(suite_manifest, worker_manifest, evidence_index)
+    status = pipeline_status(health_manifest, suite_manifest, worker_manifest, evidence_index)
     return {
         "status": status,
         "request": {
             "suite_config": str(request.suite_config),
             "max_suites": request.max_suites,
+            "health_contract": str(request.health_contract) if request.health_contract else None,
+            "health_repeats": max(1, request.health_repeats),
             "worker_docs": [str(path) for path in request.worker_docs],
             "worker_instance_dir": str(request.worker_instance_dir),
             "worker_pattern": request.worker_pattern,
@@ -147,10 +174,17 @@ def standard_pipeline_manifest(
             "worker_apply_changes": bool(request.worker_apply_changes),
         },
         "stage_status": {
+            "health_check": health_manifest.get("status") if health_manifest else None,
             "benchmark_suite": suite_manifest.get("status"),
             "standard_worker_loop": worker_manifest.get("status"),
             "evidence_index_entries": evidence_index.get("entry_count", 0),
             "missing_artifact_count": evidence_summary.get("missing_artifact_count", 0),
+        },
+        "health_check": {
+            "status": health_manifest.get("status") if health_manifest else None,
+            "quick_test": (health_manifest.get("quick_test") if health_manifest else None),
+            "stability_probe": (health_manifest.get("stability_probe") if health_manifest else None),
+            "artifacts": (health_manifest.get("artifacts") if health_manifest else {}),
         },
         "benchmark_suite": {
             "suite_count": suite_manifest.get("suite_count", 0),
@@ -173,6 +207,12 @@ def standard_pipeline_manifest(
         "artifacts": {
             "manifest": str(manifest_path.resolve()),
             "report": str(report_path.resolve()),
+            "health_check_manifest": str((output_dir / "health_check" / "health_check_manifest.json").resolve())
+            if health_manifest
+            else None,
+            "health_check_report": str((output_dir / "health_check" / "health_check_report.md").resolve())
+            if health_manifest
+            else None,
             "benchmark_suite_manifest": str((output_dir / "benchmark_suite" / "suite_manifest.json").resolve()),
             "benchmark_suite_report": str((output_dir / "benchmark_suite" / "suite_report.md").resolve()),
             "standard_worker_loop_manifest": str(
@@ -188,11 +228,14 @@ def standard_pipeline_manifest(
 
 
 def pipeline_status(
+    health_manifest: dict[str, Any] | None,
     suite_manifest: dict[str, Any],
     worker_manifest: dict[str, Any],
     evidence_index: dict[str, Any],
 ) -> str:
     evidence_summary = evidence_index.get("summary") or {}
+    if health_manifest and health_manifest.get("status") != "ok":
+        return "partial_failed"
     if suite_manifest.get("status") != "ok":
         return "partial_failed"
     if worker_manifest.get("status") != "ok":
@@ -206,6 +249,7 @@ def pipeline_status(
 
 def render_standard_pipeline_report(manifest: dict[str, Any]) -> str:
     stage_status = manifest.get("stage_status") or {}
+    health = manifest.get("health_check") or {}
     benchmark = manifest.get("benchmark_suite") or {}
     worker = manifest.get("standard_worker_loop") or {}
     evidence = manifest.get("evidence_index") or {}
@@ -213,6 +257,7 @@ def render_standard_pipeline_report(manifest: dict[str, Any]) -> str:
         "# Standard FJSP Loop Pipeline Report",
         "",
         f"- Status: `{manifest.get('status')}`",
+        f"- Health-check status: `{stage_status.get('health_check')}`",
         f"- Benchmark suite status: `{stage_status.get('benchmark_suite')}`",
         f"- Worker-loop status: `{stage_status.get('standard_worker_loop')}`",
         f"- Evidence entries: `{stage_status.get('evidence_index_entries', 0)}`",
@@ -222,6 +267,7 @@ def render_standard_pipeline_report(manifest: dict[str, Any]) -> str:
         "",
         "| Stage | Key Evidence |",
         "| --- | --- |",
+        f"| Health check | `{json.dumps(compact_health_summary(health), ensure_ascii=False)}` |",
         f"| Benchmark suite | `{json.dumps(benchmark.get('aggregate') or {}, ensure_ascii=False)}` |",
         f"| Coding-worker loop | baseline `{json.dumps(worker.get('baseline_key'), ensure_ascii=False)}`, "
         f"final `{json.dumps(worker.get('final_key'), ensure_ascii=False)}`, "
@@ -240,3 +286,18 @@ def render_standard_pipeline_report(manifest: dict[str, Any]) -> str:
         ]
     )
     return "\n".join(lines).strip() + "\n"
+
+
+def compact_health_summary(health: dict[str, Any]) -> dict[str, Any]:
+    if not health or health.get("status") is None:
+        return {"enabled": False}
+    probe = health.get("stability_probe") or {}
+    return {
+        "enabled": True,
+        "status": health.get("status"),
+        "quick_test_status": (health.get("quick_test") or {}).get("status"),
+        "stability_status": probe.get("status"),
+        "stable": probe.get("stable"),
+        "valid": probe.get("valid"),
+        "total": probe.get("total"),
+    }

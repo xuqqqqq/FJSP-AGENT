@@ -15,6 +15,20 @@ class EvidenceIndexTests(unittest.TestCase):
             report = root / "report.md"
             report.write_text("# report\n", encoding="utf-8")
             _write_json(
+                root / "health" / "health_check_manifest.json",
+                {
+                    "status": "ok",
+                    "artifacts": {"report": str(report)},
+                    "quick_test": {"status": "ok"},
+                    "stability_probe": {
+                        "status": "ok",
+                        "stable": True,
+                        "valid": 2,
+                        "total": 2,
+                    },
+                },
+            )
+            _write_json(
                 root / "demo" / "demo_manifest.json",
                 {
                     "status": "ok",
@@ -62,13 +76,13 @@ class EvidenceIndexTests(unittest.TestCase):
                 )
             )
 
-            self.assertEqual(3, index["entry_count"])
+            self.assertEqual(4, index["entry_count"])
             self.assertEqual(
-                {"benchmark_suite": 1, "standard_demo": 1, "standard_worker_loop": 1},
+                {"benchmark_suite": 1, "health_check": 1, "standard_demo": 1, "standard_worker_loop": 1},
                 index["summary"]["type_counts"],
             )
-            self.assertEqual(4, index["summary"]["valid_experiments"])
-            self.assertEqual(4, index["summary"]["total_experiments"])
+            self.assertEqual(6, index["summary"]["valid_experiments"])
+            self.assertEqual(6, index["summary"]["total_experiments"])
             self.assertEqual(1, index["summary"]["missing_artifact_count"])
             self.assertEqual(1, index["summary"]["improved_worker_loops"])
             self.assertAlmostEqual(11.0, index["summary"]["avg_gap_metric"])

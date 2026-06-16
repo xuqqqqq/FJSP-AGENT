@@ -42,6 +42,32 @@ Run the lightweight regression suite with:
 python -m unittest discover -s tests -v
 ```
 
+## Contract Health Check
+
+Before running a self-evolution loop, use `health-check` to verify that the task
+contract is runnable.  The command validates referenced paths, executes the
+contract quick test, and repeats a small solver/evaluator probe with the same
+instance and seed to detect unstable benchmark behavior.
+
+```powershell
+python -m harness_agent.cli health-check `
+  --contract configs\standard_fjsp_tiny.example.json `
+  --output-dir outputs\standard_fjsp_health `
+  --repeats 2 `
+  --max-instances 1 `
+  --max-seeds 1
+```
+
+Expected outputs:
+
+- `outputs/standard_fjsp_health/health_check_manifest.json`
+- `outputs/standard_fjsp_health/health_check_report.md`
+- `outputs/standard_fjsp_health/stability_probe/report.md`
+
+The health check is a preflight gate, not an optimization score.  It proves that
+the evaluator path is usable and repeatable enough to start a loop; later
+benchmark and worker-loop stages still own candidate quality decisions.
+
 ## Standard FJSP End-To-End Demo
 
 `run-demo` is the compact closed-loop entry point for the current standard-FJSP
@@ -190,6 +216,8 @@ document-to-evaluator-to-reflection chain is wired correctly.
 python -m harness_agent.cli run-standard-pipeline `
   --suite-config configs\standard_fjsp_suite.example.json `
   --output-dir outputs\standard_pipeline_demo `
+  --health-contract configs\standard_fjsp_tiny.example.json `
+  --health-repeats 2 `
   --worker null `
   --worker-doc README.md `
   --worker-instance-dir examples `
@@ -208,14 +236,15 @@ Expected outputs:
 
 - `outputs/standard_pipeline_demo/standard_pipeline_manifest.json`
 - `outputs/standard_pipeline_demo/standard_pipeline_report.md`
+- `outputs/standard_pipeline_demo/health_check/health_check_report.md`
 - `outputs/standard_pipeline_demo/benchmark_suite/suite_report.md`
 - `outputs/standard_pipeline_demo/standard_worker_loop/standard_worker_loop_report.md`
 - `outputs/standard_pipeline_demo/evidence_index/evidence_index.md`
 
 The pipeline is intentionally only orchestration glue.  It does not override
-suite metrics, worker-loop promotion decisions, or evidence-index checks; those
-remain owned by the evaluator-backed components that produced the referenced
-manifests.
+health-check status, suite metrics, worker-loop promotion decisions, or
+evidence-index checks; those remain owned by the evaluator-backed components
+that produced the referenced manifests.
 
 ## Evidence Index
 
@@ -235,10 +264,11 @@ Expected outputs:
 - `outputs/evidence_index/evidence_index.json`
 - `outputs/evidence_index/evidence_index.md`
 
-The index does not rerun solvers.  It scans `demo_manifest.json`,
-`suite_manifest.json`, and `standard_worker_loop_manifest.json`, then summarizes
-status counts, valid/total experiments, best-known gap metrics, coding-worker
-improvement flags, and missing referenced artifacts.
+The index does not rerun solvers.  It scans `health_check_manifest.json`,
+`demo_manifest.json`, `suite_manifest.json`, and
+`standard_worker_loop_manifest.json`, then summarizes status counts,
+valid/total experiments, best-known gap metrics, coding-worker improvement
+flags, health-check stability, and missing referenced artifacts.
 
 ## Document To Draft Contract
 

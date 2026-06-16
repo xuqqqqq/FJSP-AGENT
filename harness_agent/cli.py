@@ -11,6 +11,7 @@ from .contract_builder import DraftContractRequest, write_confirmed_contract, wr
 from .demo import StandardDemoRequest, run_standard_demo
 from .evidence import EvidenceIndexRequest, build_evidence_index
 from .graph_runner import GraphHarnessRunner
+from .health_check import HealthCheckRequest, run_health_check
 from .loop_runner import run_worker_loop
 from .models import TaskContract
 from .runner import HarnessRunner
@@ -146,6 +147,15 @@ def build_parser() -> argparse.ArgumentParser:
         default="random",
     )
 
+    health = subparsers.add_parser("health-check", help="run contract quick-test and benchmark stability probes")
+    health.add_argument("--contract", required=True, type=Path)
+    health.add_argument("--output-dir", required=True, type=Path)
+    health.add_argument("--project-root", type=Path, default=Path.cwd())
+    health.add_argument("--repeats", type=int, default=2)
+    health.add_argument("--max-instances", type=int, default=1)
+    health.add_argument("--max-seeds", type=int, default=1)
+    health.add_argument("--allow-draft", action="store_true")
+
     subparsers.add_parser("worker-status", help="show available coding worker backends")
 
     standard_agent = subparsers.add_parser("run-standard-agent", help="run the document-driven standard FJSP agent loop")
@@ -265,6 +275,11 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--output-dir", required=True, type=Path)
     pipeline.add_argument("--project-root", type=Path, default=Path.cwd())
     pipeline.add_argument("--max-suites", type=int)
+    pipeline.add_argument("--health-contract", type=Path)
+    pipeline.add_argument("--health-repeats", type=int, default=2)
+    pipeline.add_argument("--health-max-instances", type=int, default=1)
+    pipeline.add_argument("--health-max-seeds", type=int, default=1)
+    pipeline.add_argument("--health-allow-draft", action="store_true")
     pipeline.add_argument("--worker", choices=["null", "deepseek", "opencode"], default="null")
     pipeline.add_argument("--worker-doc", action="append", type=Path, default=[])
     pipeline.add_argument("--worker-knowledge-card", action="append", type=Path, default=[])
@@ -697,6 +712,35 @@ def worker_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def health_check_cmd(args: argparse.Namespace) -> int:
+    manifest = run_health_check(
+        HealthCheckRequest(
+            contract_path=args.contract,
+            output_dir=args.output_dir,
+            project_root=args.project_root,
+            repeats=max(1, args.repeats),
+            max_instances=max(1, args.max_instances),
+            max_seeds=max(1, args.max_seeds),
+            allow_draft=bool(args.allow_draft),
+        )
+    )
+    print(
+        json.dumps(
+            {
+                "status": manifest["status"],
+                "quick_test": (manifest["quick_test"] or {}).get("status"),
+                "stability_probe": (manifest.get("stability_probe") or {}).get("status"),
+                "stable": (manifest.get("stability_probe") or {}).get("stable"),
+                "manifest": manifest["artifacts"]["manifest"],
+                "report": manifest["artifacts"]["report"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0 if manifest["status"] == "ok" else 1
+
+
 def run_standard_agent(args: argparse.Namespace) -> int:
     seeds = [int(item.strip()) for item in str(args.seeds).split(",") if item.strip()]
     neighborhood_profiles = parse_neighborhood_profiles(
@@ -877,6 +921,11 @@ def run_standard_pipeline_cmd(args: argparse.Namespace) -> int:
             worker_docs=args.worker_doc,
             worker_knowledge_cards=args.worker_knowledge_card,
             worker_instance_dir=args.worker_instance_dir,
+            health_contract=args.health_contract,
+            health_repeats=max(1, args.health_repeats),
+            health_max_instances=max(1, args.health_max_instances),
+            health_max_seeds=max(1, args.health_max_seeds),
+            health_allow_draft=bool(args.health_allow_draft),
             worker_pattern=args.worker_pattern,
             worker_best_known_csv=args.worker_best_known_csv,
             max_suites=args.max_suites,
@@ -1062,6 +1111,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_contract(args)
     if args.command == "build-standard-contract":
         return build_standard_contract(args)
+    if args.command == "health-check":
+        return health_check_cmd(args)
     if args.command == "worker-status":
         return worker_status(args)
     if args.command == "run-standard-agent":

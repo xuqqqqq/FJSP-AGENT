@@ -87,6 +87,14 @@ The harness remains responsible for validity, metrics, best-known gap
 calculation, and final reporting.  No worker result is accepted without an
 evaluator run.
 
+Before worker evolution begins, the harness can run a contract health check.
+This preflight validates referenced instance/resource paths, executes the
+contract quick test, and repeats a small fixed-seed solver/evaluator probe.  The
+probe is designed to detect unusable commands, missing metrics, and unstable
+benchmark behavior before any coding worker spends budget on algorithm changes.
+It is not an optimization result; it is an admission check for the evaluator
+surface.
+
 Code-edit workers follow a proposal-first protocol.  The default behavior is to
 write `proposal.json` / `proposal.md` artifacts without touching the worktree.
 If `--apply` is explicitly requested, only full-file `create_or_replace` edits
@@ -126,17 +134,18 @@ flagged in reports and fed into the next context packet.  They are not used as a
 success or failure verdict; promotion remains evaluator-only.
 
 Generated loop artifacts can be indexed after the fact with the evidence-index
-command.  The index scans demo, benchmark-suite, and standard worker-loop
-manifests, checks whether referenced reports still exist, and writes one
-JSON/Markdown table of statuses, valid experiment counts, gap metrics, and
-worker-loop promotion evidence.  This is intentionally read-only: it is an audit
-surface over existing evaluator-backed outputs, not a new evaluator.
+command.  The index scans health-check, demo, benchmark-suite, and standard
+worker-loop manifests, checks whether referenced reports still exist, and
+writes one JSON/Markdown table of statuses, valid experiment counts, gap
+metrics, stability probes, and worker-loop promotion evidence.  This is
+intentionally read-only: it is an audit surface over existing evaluator-backed
+outputs, not a new evaluator.
 
 For standard FJSP smoke tests, `run-standard-pipeline` composes the benchmark
-suite, coding-worker loop, and evidence-index commands into one reproducible
-entrypoint.  The pipeline has no independent scoring authority; it succeeds only
-when the underlying evaluator-backed stages produce complete manifests and
-referenced artifacts.
+health check, benchmark suite, coding-worker loop, and evidence-index commands
+into one reproducible entrypoint.  The pipeline has no independent scoring
+authority; it succeeds only when the underlying evaluator-backed stages produce
+complete manifests and referenced artifacts.
 
 ## 5. Hypothesis Memory
 

@@ -29,6 +29,9 @@ The repository has reached the first harness milestone:
   command-template checks, document statistics, and confirmation checklist.
 - formal run gate that refuses unconfirmed generated contracts unless the user
   explicitly requests exploratory `--allow-draft` execution.
+- contract health-check CLI that validates referenced inputs, runs the quick
+  test, and repeats a small benchmark probe to detect unstable evaluator
+  behavior before optimization.
 - context-packet CLI that packages confirmed evaluator semantics, bounded docs,
   knowledge cards, previous reports, and hypotheses for coding workers.
 - `run-worker` CLI that executes a coding backend against a context packet and
@@ -42,15 +45,15 @@ The repository has reached the first harness milestone:
 - per-round context refresh in `run-worker-loop`, so each coding-worker proposal
   can see baseline metrics, current incumbent status, and previous
   evaluator-backed wins/losses.
-- `run-standard-pipeline` CLI that runs the standard benchmark suite,
-  evaluator-backed coding-worker loop, and evidence index as one reproducible
-  standard-FJSP smoke workflow.
+- `run-standard-pipeline` CLI that optionally runs health-check first, then the
+  standard benchmark suite, evaluator-backed coding-worker loop, and evidence
+  index as one reproducible standard-FJSP smoke workflow.
 - harness-generated worktree delta and unified patch artifacts for each
   worker-cycle candidate.
 - non-interactive OpenCodeWorker adapter that can execute `opencode run` inside
   guarded candidate worktrees when OpenCode is installed.
-- evidence-index CLI that scans generated demo, suite, and worker-loop manifests
-  and writes one JSON/Markdown audit index.
+- evidence-index CLI that scans generated health-check, demo, suite, and
+  worker-loop manifests and writes one JSON/Markdown audit index.
 
 This is not yet the full MD requirement.  It is the engineering base that makes
 the later self-evolution loop measurable and auditable.

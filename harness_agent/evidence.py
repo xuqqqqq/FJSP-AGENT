@@ -7,6 +7,7 @@ from typing import Any
 
 
 MANIFEST_NAMES = {
+    "health_check_manifest.json": "health_check",
     "demo_manifest.json": "standard_demo",
     "suite_manifest.json": "benchmark_suite",
     "standard_worker_loop_manifest.json": "standard_worker_loop",
@@ -81,7 +82,22 @@ def evidence_entry(manifest_path: Path, entry_type: str) -> dict[str, Any]:
         entry.update(benchmark_suite_fields(payload))
     elif entry_type == "standard_worker_loop":
         entry.update(standard_worker_loop_fields(payload))
+    elif entry_type == "health_check":
+        entry.update(health_check_fields(payload))
     return entry
+
+
+def health_check_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    quick_test = dict(payload.get("quick_test") or {})
+    probe = dict(payload.get("stability_probe") or {})
+    return {
+        "quick_test_status": quick_test.get("status"),
+        "stability_status": probe.get("status"),
+        "stable": probe.get("stable"),
+        "valid_experiments": probe.get("valid"),
+        "total_experiments": probe.get("total"),
+        "gap_metrics": {},
+    }
 
 
 def standard_demo_fields(payload: dict[str, Any]) -> dict[str, Any]:
