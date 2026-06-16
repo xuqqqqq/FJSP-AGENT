@@ -68,6 +68,30 @@ The health check is a preflight gate, not an optimization score.  It proves that
 the evaluator path is usable and repeatable enough to start a loop; later
 benchmark and worker-loop stages still own candidate quality decisions.
 
+## Intent Alignment Summary
+
+After health-check evidence is available, generate an intent-alignment card.
+This card is the reviewable translation from documents and task contract into
+optimization intent: objectives, hard constraints, commands, benchmark source,
+budget, health status, overfitting risk, blockers, and warnings.
+
+```powershell
+python -m harness_agent.cli intent-alignment `
+  --contract configs\standard_fjsp_tiny.example.json `
+  --health-manifest outputs\standard_fjsp_health\health_check_manifest.json `
+  --output-dir outputs\standard_fjsp_intent
+```
+
+Expected outputs:
+
+- `outputs/standard_fjsp_intent/intent_alignment_manifest.json`
+- `outputs/standard_fjsp_intent/intent_alignment_report.md`
+
+Formal optimization should start only when the card reports
+`ready_for_optimization=true`.  Draft contracts, missing health evidence, failed
+health checks, or invalid task references are reported as blockers instead of
+being silently ignored.
+
 ## Standard FJSP End-To-End Demo
 
 `run-demo` is the compact closed-loop entry point for the current standard-FJSP
@@ -208,9 +232,10 @@ otherwise the candidate is rolled back.
 
 `run-standard-pipeline` is the current one-command smoke path for the standard
 FJSP loop-engineering flow.  It runs the configured benchmark suite, runs the
-coding-worker loop, and then builds a single evidence index over both stages.
-This is the recommended command when the goal is to verify that the full
-document-to-evaluator-to-reflection chain is wired correctly.
+coding-worker loop, and then builds a single evidence index over all stages.
+When a health contract is provided, the pipeline first runs health-check and
+intent-alignment.  If either stage blocks, suite and worker-loop execution are
+skipped instead of spending optimization budget after a failed admission gate.
 
 ```powershell
 python -m harness_agent.cli run-standard-pipeline `
@@ -237,14 +262,15 @@ Expected outputs:
 - `outputs/standard_pipeline_demo/standard_pipeline_manifest.json`
 - `outputs/standard_pipeline_demo/standard_pipeline_report.md`
 - `outputs/standard_pipeline_demo/health_check/health_check_report.md`
+- `outputs/standard_pipeline_demo/intent_alignment/intent_alignment_report.md`
 - `outputs/standard_pipeline_demo/benchmark_suite/suite_report.md`
 - `outputs/standard_pipeline_demo/standard_worker_loop/standard_worker_loop_report.md`
 - `outputs/standard_pipeline_demo/evidence_index/evidence_index.md`
 
 The pipeline is intentionally only orchestration glue.  It does not override
-health-check status, suite metrics, worker-loop promotion decisions, or
-evidence-index checks; those remain owned by the evaluator-backed components
-that produced the referenced manifests.
+health-check status, intent-readiness decisions, suite metrics, worker-loop
+promotion decisions, or evidence-index checks; those remain owned by the
+evaluator-backed components that produced the referenced manifests.
 
 ## Evidence Index
 
@@ -265,10 +291,11 @@ Expected outputs:
 - `outputs/evidence_index/evidence_index.md`
 
 The index does not rerun solvers.  It scans `health_check_manifest.json`,
-`demo_manifest.json`, `suite_manifest.json`, and
-`standard_worker_loop_manifest.json`, then summarizes status counts,
+`intent_alignment_manifest.json`, `demo_manifest.json`, `suite_manifest.json`,
+and `standard_worker_loop_manifest.json`, then summarizes status counts,
 valid/total experiments, best-known gap metrics, coding-worker improvement
-flags, health-check stability, and missing referenced artifacts.
+flags, health-check stability, intent-readiness flags, and missing referenced
+artifacts.
 
 ## Document To Draft Contract
 

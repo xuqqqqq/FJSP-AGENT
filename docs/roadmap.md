@@ -32,6 +32,9 @@ The repository has reached the first harness milestone:
 - contract health-check CLI that validates referenced inputs, runs the quick
   test, and repeats a small benchmark probe to detect unstable evaluator
   behavior before optimization.
+- intent-alignment CLI that turns a contract plus health-check evidence into a
+  reviewable optimization intent card with objectives, constraints, risks,
+  blockers, warnings, and readiness status.
 - context-packet CLI that packages confirmed evaluator semantics, bounded docs,
   knowledge cards, previous reports, and hypotheses for coding workers.
 - `run-worker` CLI that executes a coding backend against a context packet and
@@ -45,15 +48,16 @@ The repository has reached the first harness milestone:
 - per-round context refresh in `run-worker-loop`, so each coding-worker proposal
   can see baseline metrics, current incumbent status, and previous
   evaluator-backed wins/losses.
-- `run-standard-pipeline` CLI that optionally runs health-check first, then the
-  standard benchmark suite, evaluator-backed coding-worker loop, and evidence
-  index as one reproducible standard-FJSP smoke workflow.
+- `run-standard-pipeline` CLI that optionally runs health-check and
+  intent-alignment first, blocks optimization stages when admission fails, then
+  runs the standard benchmark suite, evaluator-backed coding-worker loop, and
+  evidence index as one reproducible standard-FJSP smoke workflow.
 - harness-generated worktree delta and unified patch artifacts for each
   worker-cycle candidate.
 - non-interactive OpenCodeWorker adapter that can execute `opencode run` inside
   guarded candidate worktrees when OpenCode is installed.
-- evidence-index CLI that scans generated health-check, demo, suite, and
-  worker-loop manifests and writes one JSON/Markdown audit index.
+- evidence-index CLI that scans generated health-check, intent-alignment, demo,
+  suite, and worker-loop manifests and writes one JSON/Markdown audit index.
 
 This is not yet the full MD requirement.  It is the engineering base that makes
 the later self-evolution loop measurable and auditable.
@@ -209,10 +213,11 @@ Two-round smoke:
 
 | Requirement | Current status | Next action |
 | --- | --- | --- |
-| Read requirement and IO documents | Draft-contract ingestion with source-grounded feature/metric hints and uncertainty reporting implemented | Add richer section-level parsing and optional LLM-assisted extraction. |
+| Read requirement and IO documents | Draft-contract ingestion with source-grounded feature/metric hints, uncertainty reporting, and intent-alignment cards implemented | Add richer section-level parsing and optional LLM-assisted extraction. |
 | Derive Task Contract from documents | Draft JSON, evidence fields, command checks, and confirmation gate implemented | Add stronger document schema extraction and web review workflow. |
 | Support multiple metrics from documents | Contract model, evaluator schema checks, validation summary, and Pareto frontier reporting implemented | Add richer evaluator schema declarations and visual Pareto exports. |
 | Generate solver code with an LLM worker | DeepSeek proposal-first worker, non-interactive OpenCodeWorker adapter, isolated worker-cycle evaluator rerun, multi-cycle promotion/rollback, and per-round context refresh implemented | Add stronger rule/operator mutation prompts. |
+| Admission and intent gates | Health-check plus intent-alignment readiness implemented; standard pipeline skips optimization stages when admission fails | Add UI confirmation flow around the generated readiness card. |
 | Strategy-first evolution | DeepSeek/template profiles plus candidate ablation implemented | Extend from scoring profiles to code-level operator evolution. |
 | Self-reflection and hypothesis graph | JSONL records plus promote/prune/mutate graph summaries implemented | Add richer operator-level lineage and graph-aware code mutation. |
 | Rule/operator evolution | Local-search operator and profile-level mutation exist; LLM operator edits not enabled | Add guarded code-level mutation operators. |

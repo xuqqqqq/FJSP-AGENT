@@ -12,6 +12,7 @@ from .demo import StandardDemoRequest, run_standard_demo
 from .evidence import EvidenceIndexRequest, build_evidence_index
 from .graph_runner import GraphHarnessRunner
 from .health_check import HealthCheckRequest, run_health_check
+from .intent_alignment import IntentAlignmentRequest, write_intent_alignment
 from .loop_runner import run_worker_loop
 from .models import TaskContract
 from .runner import HarnessRunner
@@ -156,6 +157,15 @@ def build_parser() -> argparse.ArgumentParser:
     health.add_argument("--max-seeds", type=int, default=1)
     health.add_argument("--allow-draft", action="store_true")
 
+    intent = subparsers.add_parser("intent-alignment", help="write a reviewable optimization intent summary")
+    intent.add_argument("--contract", required=True, type=Path)
+    intent.add_argument("--output-dir", required=True, type=Path)
+    intent.add_argument("--project-root", type=Path, default=Path.cwd())
+    intent.add_argument("--health-manifest", type=Path)
+    intent.add_argument("--benchmark-source", default="user_provided")
+    intent.add_argument("--allow-draft", action="store_true")
+    intent.add_argument("--no-require-health", action="store_true")
+
     subparsers.add_parser("worker-status", help="show available coding worker backends")
 
     standard_agent = subparsers.add_parser("run-standard-agent", help="run the document-driven standard FJSP agent loop")
@@ -280,6 +290,7 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--health-max-instances", type=int, default=1)
     pipeline.add_argument("--health-max-seeds", type=int, default=1)
     pipeline.add_argument("--health-allow-draft", action="store_true")
+    pipeline.add_argument("--benchmark-source", default="user_provided")
     pipeline.add_argument("--worker", choices=["null", "deepseek", "opencode"], default="null")
     pipeline.add_argument("--worker-doc", action="append", type=Path, default=[])
     pipeline.add_argument("--worker-knowledge-card", action="append", type=Path, default=[])
@@ -741,6 +752,35 @@ def health_check_cmd(args: argparse.Namespace) -> int:
     return 0 if manifest["status"] == "ok" else 1
 
 
+def intent_alignment_cmd(args: argparse.Namespace) -> int:
+    manifest = write_intent_alignment(
+        IntentAlignmentRequest(
+            contract_path=args.contract,
+            output_dir=args.output_dir,
+            project_root=args.project_root,
+            health_manifest_path=args.health_manifest,
+            benchmark_source=args.benchmark_source,
+            allow_draft=bool(args.allow_draft),
+            require_health=not bool(args.no_require_health),
+        )
+    )
+    print(
+        json.dumps(
+            {
+                "status": manifest["status"],
+                "ready_for_optimization": manifest["ready_for_optimization"],
+                "blockers": manifest["blockers"],
+                "warnings": manifest["warnings"],
+                "manifest": manifest["artifacts"]["manifest"],
+                "report": manifest["artifacts"]["report"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0 if manifest["status"] == "ready" else 1
+
+
 def run_standard_agent(args: argparse.Namespace) -> int:
     seeds = [int(item.strip()) for item in str(args.seeds).split(",") if item.strip()]
     neighborhood_profiles = parse_neighborhood_profiles(
@@ -926,6 +966,7 @@ def run_standard_pipeline_cmd(args: argparse.Namespace) -> int:
             health_max_instances=max(1, args.health_max_instances),
             health_max_seeds=max(1, args.health_max_seeds),
             health_allow_draft=bool(args.health_allow_draft),
+            benchmark_source=args.benchmark_source,
             worker_pattern=args.worker_pattern,
             worker_best_known_csv=args.worker_best_known_csv,
             max_suites=args.max_suites,
@@ -956,6 +997,7 @@ def run_standard_pipeline_cmd(args: argparse.Namespace) -> int:
             {
                 "status": manifest["status"],
                 "stage_status": manifest["stage_status"],
+                "intent_alignment": manifest["artifacts"].get("intent_alignment_report"),
                 "benchmark_suite": manifest["artifacts"]["benchmark_suite_report"],
                 "standard_worker_loop": manifest["artifacts"]["standard_worker_loop_report"],
                 "evidence_index": manifest["artifacts"]["evidence_index_markdown"],
@@ -1113,6 +1155,8 @@ def main(argv: list[str] | None = None) -> int:
         return build_standard_contract(args)
     if args.command == "health-check":
         return health_check_cmd(args)
+    if args.command == "intent-alignment":
+        return intent_alignment_cmd(args)
     if args.command == "worker-status":
         return worker_status(args)
     if args.command == "run-standard-agent":

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -41,20 +42,59 @@ class StandardPipelineTests(unittest.TestCase):
 
             self.assertEqual("ok", manifest["status"])
             self.assertEqual("ok", manifest["stage_status"]["health_check"])
+            self.assertEqual("ready", manifest["stage_status"]["intent_alignment"])
             self.assertEqual("ok", manifest["stage_status"]["benchmark_suite"])
             self.assertEqual("ok", manifest["stage_status"]["standard_worker_loop"])
-            self.assertGreaterEqual(manifest["stage_status"]["evidence_index_entries"], 4)
+            self.assertGreaterEqual(manifest["stage_status"]["evidence_index_entries"], 5)
             self.assertEqual(0, manifest["stage_status"]["missing_artifact_count"])
             self.assertEqual("ok", manifest["health_check"]["status"])
+            self.assertTrue(manifest["intent_alignment"]["ready_for_optimization"])
             self.assertTrue(manifest["health_check"]["stability_probe"]["stable"])
             self.assertEqual(1, manifest["benchmark_suite"]["aggregate"]["valid_experiments"])
             self.assertEqual(1, manifest["standard_worker_loop"]["round_count"])
             self.assertTrue((output_dir / "standard_pipeline_manifest.json").exists())
             self.assertTrue((output_dir / "standard_pipeline_report.md").exists())
             self.assertTrue((output_dir / "health_check" / "health_check_manifest.json").exists())
+            self.assertTrue((output_dir / "intent_alignment" / "intent_alignment_manifest.json").exists())
             self.assertTrue((output_dir / "benchmark_suite" / "suite_manifest.json").exists())
             self.assertTrue((output_dir / "standard_worker_loop" / "standard_worker_loop_manifest.json").exists())
             self.assertTrue((output_dir / "evidence_index" / "evidence_index.json").exists())
+
+    def test_standard_pipeline_skips_optimization_when_admission_is_blocked(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            draft_contract = root / "draft_standard_contract.json"
+            payload = json.loads((ROOT / "configs" / "standard_fjsp_tiny.example.json").read_text(encoding="utf-8"))
+            payload["review"] = {"status": "draft_requires_human_confirmation"}
+            draft_contract.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+            output_dir = root / "blocked_pipeline"
+            manifest = run_standard_pipeline(
+                StandardPipelineRequest(
+                    suite_config=ROOT / "configs" / "standard_fjsp_suite.example.json",
+                    output_dir=output_dir,
+                    project_root=ROOT,
+                    worker=NullWorker(),
+                    worker_docs=[ROOT / "README.md"],
+                    worker_instance_dir=ROOT / "examples",
+                    health_contract=draft_contract,
+                    worker_pattern="standard_fjsp_tiny.fjs",
+                    worker_best_known_csv=ROOT / "configs" / "standard_fjsp_tiny_best.csv",
+                    worker_iterations=1,
+                    worker_max_steps=1,
+                    worker_max_runtime_seconds=30,
+                )
+            )
+
+            self.assertEqual("partial_failed", manifest["status"])
+            self.assertEqual("blocked", manifest["stage_status"]["admission_gate"])
+            self.assertEqual("requires_confirmation", manifest["stage_status"]["health_check"])
+            self.assertEqual("blocked", manifest["stage_status"]["intent_alignment"])
+            self.assertEqual("skipped_admission_gate", manifest["stage_status"]["benchmark_suite"])
+            self.assertEqual("skipped_admission_gate", manifest["stage_status"]["standard_worker_loop"])
+            self.assertFalse((output_dir / "benchmark_suite" / "suite_manifest.json").exists())
+            self.assertFalse((output_dir / "standard_worker_loop" / "standard_worker_loop_manifest.json").exists())
+            self.assertTrue((output_dir / "intent_alignment" / "intent_alignment_manifest.json").exists())
 
 
 if __name__ == "__main__":

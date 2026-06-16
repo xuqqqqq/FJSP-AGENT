@@ -95,6 +95,14 @@ benchmark behavior before any coding worker spends budget on algorithm changes.
 It is not an optimization result; it is an admission check for the evaluator
 surface.
 
+After health evidence exists, the harness can write an intent-alignment card.
+This card is the auditable translation from documents and task contract into the
+optimization target: primary and secondary objectives, hard constraints,
+commands, budget, benchmark source, health status, overfitting risk, blockers,
+and warnings.  Formal optimization should proceed only when the card reports
+that the task is ready.  Draft contracts, missing health evidence, failed
+preflight checks, or invalid paths remain blockers until explicitly addressed.
+
 Code-edit workers follow a proposal-first protocol.  The default behavior is to
 write `proposal.json` / `proposal.md` artifacts without touching the worktree.
 If `--apply` is explicitly requested, only full-file `create_or_replace` edits
@@ -134,18 +142,21 @@ flagged in reports and fed into the next context packet.  They are not used as a
 success or failure verdict; promotion remains evaluator-only.
 
 Generated loop artifacts can be indexed after the fact with the evidence-index
-command.  The index scans health-check, demo, benchmark-suite, and standard
-worker-loop manifests, checks whether referenced reports still exist, and
+command.  The index scans health-check, intent-alignment, demo,
+benchmark-suite, and standard worker-loop manifests, checks whether referenced
+reports still exist, and
 writes one JSON/Markdown table of statuses, valid experiment counts, gap
-metrics, stability probes, and worker-loop promotion evidence.  This is
-intentionally read-only: it is an audit surface over existing evaluator-backed
-outputs, not a new evaluator.
+metrics, stability probes, intent-readiness flags, and worker-loop promotion
+evidence.  This is intentionally read-only: it is an audit surface over existing
+evaluator-backed outputs, not a new evaluator.
 
 For standard FJSP smoke tests, `run-standard-pipeline` composes the benchmark
-health check, benchmark suite, coding-worker loop, and evidence-index commands
-into one reproducible entrypoint.  The pipeline has no independent scoring
-authority; it succeeds only when the underlying evaluator-backed stages produce
-complete manifests and referenced artifacts.
+health check, intent alignment, benchmark suite, coding-worker loop, and
+evidence-index commands into one reproducible entrypoint.  The pipeline has no
+independent scoring authority.  If the admission stages fail, the pipeline
+skips benchmark-suite and worker-loop execution; if they pass, it succeeds only
+when the underlying evaluator-backed stages produce complete manifests and
+referenced artifacts.
 
 ## 5. Hypothesis Memory
 

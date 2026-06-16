@@ -29,6 +29,17 @@ class EvidenceIndexTests(unittest.TestCase):
                 },
             )
             _write_json(
+                root / "intent" / "intent_alignment_manifest.json",
+                {
+                    "status": "ready",
+                    "artifacts": {"report": str(report)},
+                    "ready_for_optimization": True,
+                    "blockers": [],
+                    "warnings": ["only one instance is configured; overfitting risk is high"],
+                    "budget": {"planned_evaluator_runs": 2},
+                },
+            )
+            _write_json(
                 root / "demo" / "demo_manifest.json",
                 {
                     "status": "ok",
@@ -76,9 +87,15 @@ class EvidenceIndexTests(unittest.TestCase):
                 )
             )
 
-            self.assertEqual(4, index["entry_count"])
+            self.assertEqual(5, index["entry_count"])
             self.assertEqual(
-                {"benchmark_suite": 1, "health_check": 1, "standard_demo": 1, "standard_worker_loop": 1},
+                {
+                    "benchmark_suite": 1,
+                    "health_check": 1,
+                    "intent_alignment": 1,
+                    "standard_demo": 1,
+                    "standard_worker_loop": 1,
+                },
                 index["summary"]["type_counts"],
             )
             self.assertEqual(6, index["summary"]["valid_experiments"])
