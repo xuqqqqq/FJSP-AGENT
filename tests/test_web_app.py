@@ -16,7 +16,7 @@ class WebAppTests(unittest.TestCase):
             "io": demo["io"],
             "instance": demo["instance"],
             "best_known_csv": demo["best_known_csv"],
-            "max_rounds": 1,
+            "max_rounds": 2,
             "seeds": "0",
             "solver": "portfolio",
             "profile_mode": "template",
@@ -33,6 +33,8 @@ class WebAppTests(unittest.TestCase):
             self.assertTrue(Path(finished["artifacts"]["report"]).exists())
             self.assertTrue(Path(finished["artifacts"]["standard_agent_report"]).exists())
             self.assertEqual(1, finished["summary"]["last_summary"]["valid"])
+            self.assertEqual(2, finished["summary"]["round_summary"]["completed_round_count"])
+            self.assertEqual(2, finished["summary"]["round_summary"]["reflection_count"])
 
 
 if __name__ == "__main__":

@@ -250,6 +250,7 @@ def run_job(job_id: str) -> None:
                 deepseek_model=config["deepseek_model"],
             )
         )
+        round_summary = summarize_round_artifacts(output_dir)
         with _LOCK:
             job["status"] = "completed" if manifest.get("status") == "ok" else "completed_with_warnings"
             job["summary"] = {
@@ -257,9 +258,13 @@ def run_job(job_id: str) -> None:
                 "benchmark_summary": manifest.get("benchmark_summary", {}),
                 "last_summary": (manifest.get("agent_result") or {}).get("last_summary", {}),
                 "artifact_checks": manifest.get("artifact_checks", {}),
+                "round_summary": round_summary,
             }
             job["artifacts"] = manifest.get("artifacts", {})
-            append_event(job, f"循环结束，状态：{job['status']}。")
+            append_event(
+                job,
+                f"循环结束，状态：{job['status']}；实际完成 {round_summary['completed_round_count']} 轮。",
+            )
             write_job_status(job)
     except Exception as exc:  # noqa: BLE001 - web jobs should preserve failures as inspectable artifacts.
         trace_path = Path(job["job_dir"]) / "web_job_exception.txt"
@@ -287,6 +292,19 @@ def read_artifact(job: dict[str, Any], name: str) -> dict[str, Any]:
         "path": str(path.resolve()),
         "text": text[:MAX_ARTIFACT_CHARS],
         "truncated": truncated,
+    }
+
+
+def summarize_round_artifacts(output_dir: Path) -> dict[str, Any]:
+    agent_dir = output_dir / "standard_agent"
+    round_dirs = sorted(path for path in agent_dir.glob("round_*") if path.is_dir())
+    reflection_paths = [path / "reflection.md" for path in round_dirs if (path / "reflection.md").exists()]
+    harness_reports = sorted(agent_dir.glob("round_*/candidates/*/harness/report.md"))
+    return {
+        "completed_round_count": len(round_dirs),
+        "reflection_count": len(reflection_paths),
+        "harness_report_count": len(harness_reports),
+        "round_dirs": [str(path.resolve()) for path in round_dirs],
     }
 
 

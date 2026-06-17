@@ -132,8 +132,10 @@ function renderJob(job) {
 
   const summary = job.summary?.last_summary || {};
   const benchmark = job.summary?.benchmark_summary || {};
+  const roundSummary = job.summary?.round_summary || {};
   const makespan = summary.best_metrics?.makespan ?? summary.best_candidate_metrics?.avg_makespan;
   const gap = benchmark.gap_metrics?.avg_gap_pct ?? summary.best_metrics?.avg_gap_pct;
+  $("metric-rounds").textContent = roundSummary.completed_round_count ?? job.config?.max_rounds ?? "-";
   $("metric-valid").textContent = summary.valid ?? benchmark.valid_experiments ?? "-";
   $("metric-makespan").textContent = formatMetric(makespan);
   $("metric-gap").textContent = gap === undefined ? "-" : `${Number(gap).toFixed(2)}%`;
