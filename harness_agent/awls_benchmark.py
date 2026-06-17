@@ -110,6 +110,7 @@ def write_awls_manifest(
         "status": status,
         "request": request_to_json(request),
         "instance_count": len(instances),
+        "selected_instance_names": [path.name for path in instances],
         "run_count": len(sorted_runs),
         "aggregate": aggregate,
         "instances": instance_results,

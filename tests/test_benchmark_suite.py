@@ -58,6 +58,7 @@ class BenchmarkSuiteTests(unittest.TestCase):
             self.assertEqual("ok", manifest["status"])
             self.assertEqual(5, manifest["request"]["critical_block_exhaustive_pct"])
             self.assertEqual(1, manifest["aggregate"]["instance_count"])
+            self.assertEqual(["standard_fjsp_tiny.fjs"], manifest["selected_instance_names"])
             self.assertEqual(1, manifest["aggregate"]["valid_instance_count"])
             self.assertEqual(0, manifest["aggregate"]["invalid_run_count"])
             self.assertIsNotNone(manifest["aggregate"]["avg_gap_pct"])
