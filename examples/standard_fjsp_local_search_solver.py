@@ -32,6 +32,7 @@ from standard_fjsp_portfolio_solver import build_portfolio, build_schedule
 
 
 OpKey = tuple[int, int]
+NEIGHBORHOOD_PROFILES = ("random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid")
 
 
 @dataclass(frozen=True)
@@ -1167,6 +1168,80 @@ def solve_with_restarts(
     return list(best[2].schedule), best[3]
 
 
+def parse_neighborhood_profile_list(value: str | None, fallback: str) -> list[str]:
+    raw_items = [fallback] if not value else [item.strip() for item in value.split(",") if item.strip()]
+    profiles: list[str] = []
+    for item in raw_items:
+        if item not in NEIGHBORHOOD_PROFILES:
+            raise ValueError(f"unknown neighborhood profile: {item}")
+        if item not in profiles:
+            profiles.append(item)
+    return profiles or [fallback]
+
+
+def solve_profile_portfolio(
+    instance: StandardFjspInstance,
+    *,
+    seed: int,
+    portfolio_size: int,
+    strategy_profile: Path | None,
+    restarts: int,
+    initial_pool_size: int,
+    iterations: int,
+    neighbor_limit: int,
+    time_limit_sec: float,
+    neighborhood_profiles: list[str],
+) -> tuple[list[ScheduleRecord], str]:
+    """Run several neighborhood profiles and keep the best validated schedule.
+
+    Different FJSP instances respond differently to broad random moves,
+    critical-block moves, and AWLS/HGTSA-biased moves.  This portfolio keeps the
+    solver deterministic for a seed while letting the evaluator-backed makespan
+    decide which neighborhood family is most useful for the current instance.
+    """
+
+    if len(neighborhood_profiles) == 1:
+        return solve_with_restarts(
+            instance,
+            seed=seed,
+            portfolio_size=portfolio_size,
+            strategy_profile=strategy_profile,
+            restarts=restarts,
+            initial_pool_size=initial_pool_size,
+            iterations=iterations,
+            neighbor_limit=neighbor_limit,
+            time_limit_sec=time_limit_sec,
+            neighborhood_profile=neighborhood_profiles[0],
+        )
+
+    best: tuple[int, int, str, list[ScheduleRecord], str] | None = None
+    for profile_index, profile in enumerate(neighborhood_profiles):
+        profile_schedule, profile_label = solve_with_restarts(
+            instance,
+            seed=seed + profile_index * 9_176_291,
+            portfolio_size=portfolio_size,
+            strategy_profile=strategy_profile,
+            restarts=restarts,
+            initial_pool_size=initial_pool_size,
+            iterations=iterations,
+            neighbor_limit=neighbor_limit,
+            time_limit_sec=time_limit_sec,
+            neighborhood_profile=profile,
+        )
+        errors, metrics = validate_standard_schedule(instance, profile_schedule)
+        if errors:
+            continue
+        key = (int(metrics["makespan"]), profile_index, profile, profile_schedule, profile_label)
+        if best is None or key[:3] < best[:3]:
+            best = key
+
+    if best is None:
+        raise RuntimeError("profile portfolio failed to produce a valid candidate")
+    profile_names = ",".join(neighborhood_profiles)
+    label = f"profile_portfolio:{profile_names}:winner={best[2]}:{best[4]}"
+    return best[3], label
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Critical-path local-search solver for standard FJSP instances.")
     parser.add_argument("--input", required=True, type=Path)
@@ -1181,14 +1256,19 @@ def main() -> int:
     parser.add_argument("--time-limit-sec", type=float, default=4.0)
     parser.add_argument(
         "--neighborhood-profile",
-        choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid"],
+        choices=list(NEIGHBORHOOD_PROFILES),
         default="random",
+    )
+    parser.add_argument(
+        "--neighborhood-profiles",
+        help="Comma-separated neighborhood-profile portfolio. Each profile uses the normal per-profile search budget.",
     )
     args = parser.parse_args()
 
     start_time = time.perf_counter()
     instance = parse_standard_fjsp(args.input)
-    schedule, label = solve_with_restarts(
+    neighborhood_profiles = parse_neighborhood_profile_list(args.neighborhood_profiles, args.neighborhood_profile)
+    schedule, label = solve_profile_portfolio(
         instance,
         seed=args.seed,
         portfolio_size=max(1, args.portfolio_size),
@@ -1198,7 +1278,7 @@ def main() -> int:
         iterations=max(0, args.iterations),
         neighbor_limit=max(1, args.neighbor_limit),
         time_limit_sec=max(0.0, args.time_limit_sec),
-        neighborhood_profile=args.neighborhood_profile,
+        neighborhood_profiles=neighborhood_profiles,
     )
     runtime_sec = time.perf_counter() - start_time
     write_solution(args.output, instance, schedule, strategy=f"{label}:runtime={runtime_sec:.6f}")

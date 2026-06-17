@@ -757,9 +757,17 @@ to the agent layer.  `--local-search-neighborhood-profiles` accepts a
 comma-separated list and cross-evaluates those operator families against every
 strategy candidate in the round.  `random` preserves the broad legacy
 critical-operation neighborhood, `critical-block` evaluates critical-path
-machine-block moves, and `combined` uses the legacy sampler with a bounded
-critical-block supplement.  This makes neighborhood selection an evolvable rule
-choice instead of a hidden implementation constant.
+machine-block moves, `combined` uses the legacy sampler with a bounded
+critical-block supplement, and `awls-hybrid` adds the current AWLS/HGTSA-biased
+critical-block/k-insertion candidate generator.  This makes neighborhood
+selection an evolvable rule choice instead of a hidden implementation constant.
+
+The standalone local-search solver also accepts `--neighborhood-profiles`, for
+example `--neighborhood-profiles combined,hybrid,awls-hybrid`.  It runs each
+profile with the normal per-profile budget, validates each result with the same
+standard-FJSP schedule checker, and writes the best makespan winner.  This is a
+simple strong-solver template for cases where AWLS-biased moves help some seeds
+but broader combined/hybrid neighborhoods are more stable on others.
 
 DeepSeek/template profiles may now include `local_search_profiles`.  When
 `--local-search-run-profiles` is not provided, each strategy candidate uses those
