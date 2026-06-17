@@ -318,6 +318,11 @@ def build_parser() -> argparse.ArgumentParser:
     awls_benchmark.add_argument("--output-dir", required=True, type=Path)
     awls_benchmark.add_argument("--best-known-csv", type=Path)
     awls_benchmark.add_argument("--max-instances", type=int)
+    awls_benchmark.add_argument(
+        "--include-families",
+        default="",
+        help="Optional comma-separated FJSP family filter, for example barnes,brandimarte,dauzere,hurink.",
+    )
     awls_benchmark.add_argument("--seeds", default="0")
     awls_benchmark.add_argument("--max-workers", type=int, default=1)
     add_awls_arguments(awls_benchmark, default_time_limit=10.0)
@@ -1301,6 +1306,7 @@ def run_awls_benchmark_cmd(args: argparse.Namespace) -> int:
             output_dir=args.output_dir,
             best_known_csv=args.best_known_csv,
             max_instances=args.max_instances,
+            include_families=parse_csv_list(args.include_families),
             seeds=parse_seed_list(args.seeds),
             max_workers=max(1, args.max_workers),
             restarts=args.awls_restarts,
@@ -1336,6 +1342,11 @@ def run_awls_benchmark_cmd(args: argparse.Namespace) -> int:
 def parse_seed_list(value: str) -> list[int]:
     seeds = [int(item.strip()) for item in str(value).split(",") if item.strip()]
     return seeds or [0]
+
+
+def parse_csv_list(value: str) -> list[str] | None:
+    items = [item.strip() for item in str(value).split(",") if item.strip()]
+    return items or None
 
 
 def parse_neighborhood_profiles(value: str | None, *, fallback: str) -> list[str]:

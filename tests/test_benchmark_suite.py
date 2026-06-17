@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from harness_agent.awls_benchmark import AwlsBenchmarkRequest, effective_time_limit_sec, run_awls_benchmark
+from harness_agent.awls_benchmark import AwlsBenchmarkRequest, effective_time_limit_sec, instance_family, run_awls_benchmark, selected_instances
 from harness_agent.benchmark_suite import BenchmarkSuiteRequest, run_benchmark_suite
 
 
@@ -93,6 +93,37 @@ class BenchmarkSuiteTests(unittest.TestCase):
         self.assertEqual(300.0, effective_time_limit_sec(request, Path("fjsp.dauzere.01a.m5j10c3.txt")))
         self.assertEqual(300.0, effective_time_limit_sec(request, Path("fjsp.hurink.edata-la01.m5j10c2.txt")))
         self.assertEqual(12.0, effective_time_limit_sec(request, Path("other_family_case.txt")))
+
+    def test_awls_benchmark_family_filter_selects_only_named_families(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            instance_dir = Path(tmp)
+            for name in (
+                "fjsp.barnes.mt10x.m11j10c2.txt",
+                "fjsp.brandimarte.Mk01.m6j10c3.txt",
+                "fjsp.dauzere.01a.m5j10c3.txt",
+                "fjsp.hurink.edata-la01.m5j10c2.txt",
+                "fjsp.LA01.m5j10c2.txt",
+            ):
+                (instance_dir / name).write_text("placeholder", encoding="utf-8")
+
+            request = AwlsBenchmarkRequest(
+                instance_dir=instance_dir,
+                pattern="*.txt",
+                output_dir=Path(tmp) / "out",
+                include_families=["barnes", "brandimarte", "dauzere", "hurink"],
+            )
+
+            names = [path.name for path in selected_instances(request)]
+            self.assertEqual(
+                [
+                    "fjsp.barnes.mt10x.m11j10c2.txt",
+                    "fjsp.brandimarte.Mk01.m6j10c3.txt",
+                    "fjsp.dauzere.01a.m5j10c3.txt",
+                    "fjsp.hurink.edata-la01.m5j10c2.txt",
+                ],
+                names,
+            )
+            self.assertEqual("barnes", instance_family(Path("fjsp.barnes.mt10x.m11j10c2.txt")))
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ class AwlsBenchmarkRequest:
     output_dir: Path
     best_known_csv: Path | None = None
     max_instances: int | None = None
+    include_families: list[str] | None = None
     seeds: list[int] | None = None
     max_workers: int = 1
     restarts: int = 2
@@ -126,6 +127,9 @@ def write_awls_manifest(
 def selected_instances(request: AwlsBenchmarkRequest) -> list[Path]:
     instance_dir = request.instance_dir.resolve()
     paths = sorted(path for path in instance_dir.glob(request.pattern) if path.is_file())
+    if request.include_families:
+        allowed = {family.lower() for family in request.include_families}
+        paths = [path for path in paths if instance_family(path) in allowed]
     if request.max_instances is not None:
         paths = paths[: max(0, request.max_instances)]
     return paths
