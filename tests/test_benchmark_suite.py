@@ -199,6 +199,46 @@ class BenchmarkSuiteTests(unittest.TestCase):
                 names,
             )
 
+    def test_awls_benchmark_instance_names_override_sampling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            instance_dir = Path(tmp)
+            for index in range(5):
+                (instance_dir / f"fjsp.barnes.case{index:02d}.m1j1c1.txt").write_text(
+                    "placeholder",
+                    encoding="utf-8",
+                )
+
+            request = AwlsBenchmarkRequest(
+                instance_dir=instance_dir,
+                pattern="*.txt",
+                output_dir=Path(tmp) / "out",
+                instance_names=[
+                    "fjsp.barnes.case03.m1j1c1.txt",
+                    "fjsp.barnes.case01.m1j1c1.txt",
+                    "fjsp.barnes.case03.m1j1c1.txt",
+                ],
+                sample_count=1,
+                max_instances=1,
+            )
+
+            names = [path.name for path in selected_instances(request)]
+
+            self.assertEqual(["fjsp.barnes.case03.m1j1c1.txt", "fjsp.barnes.case01.m1j1c1.txt"], names)
+
+    def test_awls_benchmark_instance_names_fail_on_missing_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            instance_dir = Path(tmp)
+            (instance_dir / "fjsp.barnes.case00.m1j1c1.txt").write_text("placeholder", encoding="utf-8")
+            request = AwlsBenchmarkRequest(
+                instance_dir=instance_dir,
+                pattern="*.txt",
+                output_dir=Path(tmp) / "out",
+                instance_names=["missing.txt"],
+            )
+
+            with self.assertRaisesRegex(ValueError, "not found"):
+                selected_instances(request)
+
 
 if __name__ == "__main__":
     unittest.main()

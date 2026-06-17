@@ -31,6 +31,7 @@ class AwlsBenchmarkRequest:
     best_known_csv: Path | None = None
     max_instances: int | None = None
     include_families: list[str] | None = None
+    instance_names: list[str] | None = None
     sample_count: int | None = None
     sample_seed: int = 0
     seeds: list[int] | None = None
@@ -135,11 +136,42 @@ def selected_instances(request: AwlsBenchmarkRequest) -> list[Path]:
     if request.include_families:
         allowed = {family.lower() for family in request.include_families}
         paths = [path for path in paths if instance_family(path) in allowed]
+    if request.instance_names:
+        return select_named_instances(paths, request.instance_names)
     if request.sample_count is not None:
         paths = stratified_sample_instances(paths, request.sample_count, request.sample_seed)
     if request.max_instances is not None:
         paths = paths[: max(0, request.max_instances)]
     return paths
+
+
+def select_named_instances(paths: list[Path], names: list[str]) -> list[Path]:
+    """Select an exact, ordered benchmark subset by file name or relative path."""
+
+    by_key: dict[str, Path] = {}
+    for path in paths:
+        by_key[path.name] = path
+        by_key[path.as_posix()] = path
+
+    selected: list[Path] = []
+    missing: list[str] = []
+    seen: set[Path] = set()
+    for raw_name in names:
+        name = raw_name.strip()
+        if not name or name.startswith("#"):
+            continue
+        normalized = Path(name).as_posix()
+        path = by_key.get(name) or by_key.get(normalized)
+        if path is None:
+            missing.append(name)
+            continue
+        if path not in seen:
+            selected.append(path)
+            seen.add(path)
+    if missing:
+        missing_text = ", ".join(missing[:10])
+        raise ValueError(f"requested AWLS benchmark instances not found: {missing_text}")
+    return selected
 
 
 def stratified_sample_instances(paths: list[Path], sample_count: int, sample_seed: int) -> list[Path]:

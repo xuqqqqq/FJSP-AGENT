@@ -319,6 +319,17 @@ def build_parser() -> argparse.ArgumentParser:
     awls_benchmark.add_argument("--output-dir", required=True, type=Path)
     awls_benchmark.add_argument("--best-known-csv", type=Path)
     awls_benchmark.add_argument("--max-instances", type=int)
+    awls_benchmark.add_argument(
+        "--instance-name",
+        action="append",
+        default=[],
+        help="Exact instance file name to run; can be repeated. Overrides sample-count/max-instances.",
+    )
+    awls_benchmark.add_argument(
+        "--instance-list",
+        type=Path,
+        help="Text file with one exact instance file name per line. Overrides sample-count/max-instances.",
+    )
     awls_benchmark.add_argument("--sample-count", type=int, help="Optional family-balanced benchmark sample size.")
     awls_benchmark.add_argument("--sample-seed", type=int, default=0, help="Seed for reproducible family-balanced sampling.")
     awls_benchmark.add_argument(
@@ -1324,6 +1335,7 @@ def run_awls_benchmark_cmd(args: argparse.Namespace) -> int:
             best_known_csv=args.best_known_csv,
             max_instances=args.max_instances,
             include_families=parse_csv_list(args.include_families),
+            instance_names=parse_instance_names(args.instance_name, args.instance_list),
             sample_count=args.sample_count,
             sample_seed=args.sample_seed,
             seeds=parse_seed_list(args.seeds),
@@ -1390,6 +1402,18 @@ def parse_seed_list(value: str) -> list[int]:
 def parse_csv_list(value: str) -> list[str] | None:
     items = [item.strip() for item in str(value).split(",") if item.strip()]
     return items or None
+
+
+def parse_instance_names(values: list[str], list_path: Path | None) -> list[str] | None:
+    names: list[str] = []
+    for value in values:
+        names.extend(item.strip() for item in str(value).split(",") if item.strip())
+    if list_path is not None:
+        for line in list_path.read_text(encoding="utf-8-sig").splitlines():
+            name = line.strip()
+            if name and not name.startswith("#"):
+                names.append(name)
+    return names or None
 
 
 def parse_neighborhood_profiles(value: str | None, *, fallback: str) -> list[str]:
