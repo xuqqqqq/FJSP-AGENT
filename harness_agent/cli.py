@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .awls_benchmark import AwlsBenchmarkRequest, run_awls_benchmark
+from .awls_compare import AwlsCompareRequest, compare_awls_benchmarks
 from .benchmark_suite import BenchmarkSuiteRequest, run_benchmark_suite
 from .context_packet import ContextPacketRequest, write_context_packet
 from .contract_builder import (
@@ -342,6 +343,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Instance time budget policy. mae2019 uses 90s for Barnes/Brandimarte and 300s for Dauzere/Hurink.",
     )
     awls_benchmark.add_argument("--resume", action="store_true", help="reuse completed metrics/solutions in output-dir")
+
+    awls_compare = subparsers.add_parser(
+        "compare-awls-benchmarks",
+        help="compare two direct AWLS benchmark summary.json files instance by instance",
+    )
+    awls_compare.add_argument("--baseline-summary", required=True, type=Path)
+    awls_compare.add_argument("--candidate-summary", required=True, type=Path)
+    awls_compare.add_argument("--output-dir", required=True, type=Path)
 
     web = subparsers.add_parser("serve-web", help="serve the local document-to-loop web demo UI")
     web.add_argument("--host", default="127.0.0.1")
@@ -1350,6 +1359,29 @@ def run_awls_benchmark_cmd(args: argparse.Namespace) -> int:
     return 0 if manifest["status"] == "ok" else 1
 
 
+def compare_awls_benchmarks_cmd(args: argparse.Namespace) -> int:
+    manifest = compare_awls_benchmarks(
+        AwlsCompareRequest(
+            baseline_summary=args.baseline_summary,
+            candidate_summary=args.candidate_summary,
+            output_dir=args.output_dir,
+        )
+    )
+    print(
+        json.dumps(
+            {
+                "status": manifest["status"],
+                "aggregate": manifest["aggregate"],
+                "summary": manifest["artifacts"]["summary"],
+                "report": manifest["artifacts"]["report"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0 if manifest["status"] == "ok" else 1
+
+
 def parse_seed_list(value: str) -> list[int]:
     seeds = [int(item.strip()) for item in str(value).split(",") if item.strip()]
     return seeds or [0]
@@ -1504,6 +1536,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_benchmark_suite_cmd(args)
     if args.command == "run-awls-benchmark":
         return run_awls_benchmark_cmd(args)
+    if args.command == "compare-awls-benchmarks":
+        return compare_awls_benchmarks_cmd(args)
     if args.command == "serve-web":
         return serve_web_cmd(args)
     if args.command == "run-standard-worker-loop":
