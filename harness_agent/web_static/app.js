@@ -118,6 +118,8 @@ async function submitJob(event) {
   }
   state.currentJobId = job.id;
   renderJob(job);
+  $("artifact-preview").textContent =
+    "任务已启动，进度会持续刷新到右侧事件流。完成后会自动载入报告预览。";
   startPolling();
 }
 

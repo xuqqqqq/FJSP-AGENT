@@ -269,37 +269,49 @@ def run_job(job_id: str) -> None:
                 raise RuntimeError(
                     "DeepSeek API is not configured. Set DEEPSEEK_API_KEY or DEEPSEEK_API_KEY_FILE before code evolution."
                 )
-            manifest = run_standard_worker_loop(
-                StandardWorkerLoopRequest(
-                    docs=[Path(input_paths["requirement"]), Path(input_paths["io"])],
-                    instance_dir=Path(input_paths["instance"]).parent,
-                    pattern=Path(input_paths["instance"]).name,
-                    best_known_csv=Path(input_paths["best_known_csv"]) if input_paths.get("best_known_csv") else None,
-                    output_dir=output_dir / "standard_worker_loop",
-                    project_root=PROJECT_ROOT,
-                    worker=DeepSeekWorker(model=config["deepseek_model"]),
-                    max_instances=1,
-                    iterations=config["max_rounds"],
-                    seeds=config["seeds"],
-                    timeout_seconds=config["timeout_seconds"],
-                    max_workers=config["max_workers"],
-                    solver=config["solver"],
-                    portfolio_size=config["portfolio_size"],
-                    local_search_iterations=config["local_search_iterations"],
-                    local_search_neighbor_limit=config["local_search_neighbor_limit"],
-                    local_search_time_limit_sec=config["local_search_time_limit_sec"],
-                    local_search_neighborhood_profile=config["local_search_neighborhood_profile"],
-                    max_steps=config["worker_max_steps"],
-                    max_runtime_seconds=config["worker_max_runtime_seconds"],
-                    apply_worker_changes=config["apply_worker_changes"],
-                    experiment_id="web_deepseek_code_loop",
-                    hypothesis=(
-                        "Read the requirement and IO documents first. Propose the rule-level scheduling idea in natural "
-                        "language, then edit only allowed solver code. Preserve evaluator correctness; do not claim "
-                        "success without measured improvement."
-                    ),
-                )
+            worker_loop_root = output_dir / "standard_worker_loop" / "worker_loop"
+            progress_stop = threading.Event()
+            progress_thread = threading.Thread(
+                target=monitor_code_evolution_progress,
+                args=(job, worker_loop_root, progress_stop),
+                daemon=True,
             )
+            progress_thread.start()
+            try:
+                manifest = run_standard_worker_loop(
+                    StandardWorkerLoopRequest(
+                        docs=[Path(input_paths["requirement"]), Path(input_paths["io"])],
+                        instance_dir=Path(input_paths["instance"]).parent,
+                        pattern=Path(input_paths["instance"]).name,
+                        best_known_csv=Path(input_paths["best_known_csv"]) if input_paths.get("best_known_csv") else None,
+                        output_dir=output_dir / "standard_worker_loop",
+                        project_root=PROJECT_ROOT,
+                        worker=DeepSeekWorker(model=config["deepseek_model"]),
+                        max_instances=1,
+                        iterations=config["max_rounds"],
+                        seeds=config["seeds"],
+                        timeout_seconds=config["timeout_seconds"],
+                        max_workers=config["max_workers"],
+                        solver=config["solver"],
+                        portfolio_size=config["portfolio_size"],
+                        local_search_iterations=config["local_search_iterations"],
+                        local_search_neighbor_limit=config["local_search_neighbor_limit"],
+                        local_search_time_limit_sec=config["local_search_time_limit_sec"],
+                        local_search_neighborhood_profile=config["local_search_neighborhood_profile"],
+                        max_steps=config["worker_max_steps"],
+                        max_runtime_seconds=config["worker_max_runtime_seconds"],
+                        apply_worker_changes=config["apply_worker_changes"],
+                        experiment_id="web_deepseek_code_loop",
+                        hypothesis=(
+                            "Read the requirement and IO documents first. Propose the rule-level scheduling idea in natural "
+                            "language, then edit only allowed solver code. Preserve evaluator correctness; do not claim "
+                            "success without measured improvement."
+                        ),
+                    )
+                )
+            finally:
+                progress_stop.set()
+                progress_thread.join(timeout=2.0)
             round_summary = summarize_worker_manifest(manifest)
             summary_payload = {
                 "manifest_status": manifest.get("status"),
@@ -426,6 +438,118 @@ def objective_key_to_makespan(key: list[Any]) -> float | None:
     if not math.isfinite(value):
         return None
     return -value
+
+
+def monitor_code_evolution_progress(job: dict[str, Any], worker_root: Path, stop_event: threading.Event) -> None:
+    """Mirror coding-worker filesystem progress into the web event stream."""
+
+    seen: set[str] = set()
+    while True:
+        scan_code_evolution_progress(job, worker_root, seen)
+        if stop_event.wait(1.5):
+            scan_code_evolution_progress(job, worker_root, seen)
+            return
+
+
+def scan_code_evolution_progress(job: dict[str, Any], worker_root: Path, seen: set[str]) -> None:
+    if not worker_root.exists():
+        return
+    record_progress_event(
+        job,
+        seen,
+        "baseline-started",
+        "代码层已创建基线 worktree，正在运行 evaluator 基线。",
+    )
+    if (worker_root / "baseline_harness" / "report.md").exists():
+        record_progress_event(job, seen, "baseline-report", "基线 evaluator 已完成，开始进入 DeepSeek 代码演进轮次。")
+
+    for round_dir in sorted(path for path in worker_root.glob("round_*") if path.is_dir()):
+        label = round_dir.name
+        if (round_dir / "context_packet.json").exists():
+            record_progress_event(job, seen, f"{label}:context", f"{label} 已生成上下文包，等待 DeepSeek CodingWorker 返回方案。")
+        raw_response = round_dir / "worker" / "deepseek_code_edit_raw.json"
+        if raw_response.exists():
+            record_progress_event(job, seen, f"{label}:raw", f"{label} DeepSeek 已返回原始代码修改响应。")
+        proposal = round_dir / "worker" / "proposal.md"
+        if proposal.exists():
+            record_progress_event(job, seen, f"{label}:proposal", f"{label} 已生成结构化代码修改 proposal。")
+        exception = round_dir / "cycle_exception.txt"
+        if exception.exists():
+            record_progress_event(
+                job,
+                seen,
+                f"{label}:exception",
+                f"{label} 执行异常，已作为下一轮反馈：{summarize_exception(exception)}",
+                level="error",
+            )
+        cycle_result = round_dir / "cycle_result.json"
+        if cycle_result.exists():
+            payload = read_json_file(cycle_result)
+            worker = payload.get("worker", {}) if isinstance(payload, dict) else {}
+            summary = payload.get("summary", {}) if isinstance(payload, dict) else {}
+            best_metrics = summary.get("best_metrics") or summary.get("best_candidate_metrics") or {}
+            makespan = best_metrics.get("makespan", best_metrics.get("avg_makespan"))
+            record_progress_event(
+                job,
+                seen,
+                f"{label}:cycle-result",
+                (
+                    f"{label} evaluator 已完成：worker={worker.get('status', 'unknown')}，"
+                    f"valid={summary.get('valid', '-')}，makespan={format_progress_value(makespan)}。"
+                ),
+            )
+        patch = round_dir / "worker_changes.patch"
+        if patch.exists() and patch.stat().st_size > 0:
+            record_progress_event(job, seen, f"{label}:patch", f"{label} 产生候选代码 patch，等待提升判定。")
+
+
+def record_progress_event(
+    job: dict[str, Any],
+    seen: set[str],
+    key: str,
+    message: str,
+    *,
+    level: str = "info",
+) -> None:
+    if key in seen:
+        return
+    seen.add(key)
+    with _LOCK:
+        if job.get("status") != "running":
+            return
+        append_event(job, message, level=level)
+        write_job_status(job)
+
+
+def read_json_file(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def summarize_exception(path: Path) -> str:
+    try:
+        lines = [line.strip() for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+    except OSError:
+        return "无法读取异常详情"
+    if not lines:
+        return "异常文件为空"
+    for line in reversed(lines):
+        if "Error" in line or "Exception" in line:
+            return line[:240]
+    return lines[-1][:240]
+
+
+def format_progress_value(value: Any) -> str:
+    if value is None:
+        return "-"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return str(int(number)) if number.is_integer() else f"{number:.2f}"
 
 
 class AlgoForgeWebHandler(BaseHTTPRequestHandler):
