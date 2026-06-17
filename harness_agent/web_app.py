@@ -473,6 +473,29 @@ def scan_code_evolution_progress(job: dict[str, Any], worker_root: Path, seen: s
         proposal = round_dir / "worker" / "proposal.md"
         if proposal.exists():
             record_progress_event(job, seen, f"{label}:proposal", f"{label} 已生成结构化代码修改 proposal。")
+        judgment = round_dir / "agentic_judgment.json"
+        if judgment.exists():
+            judgment_payload = read_json_file(judgment)
+            accepted = judgment_payload.get("accepted")
+            issues = judgment_payload.get("issues") or []
+            if accepted:
+                message = f"{label} JA 代码判断通过，进入固定 evaluator。"
+                level = "info"
+            else:
+                message = f"{label} JA 代码判断未通过，已阻止 evaluator：{summarize_list(issues)}"
+                level = "error"
+            record_progress_event(job, seen, f"{label}:agentic-judgment", message, level=level)
+        error_analysis = round_dir / "agentic_error_analysis.json"
+        if error_analysis.exists():
+            analysis_payload = read_json_file(error_analysis)
+            diagnosis = analysis_payload.get("diagnosis") or []
+            record_progress_event(
+                job,
+                seen,
+                f"{label}:agentic-error-analysis",
+                f"{label} EAA 已生成错误分析：{summarize_list(diagnosis)}",
+                level="error" if diagnosis else "info",
+            )
         exception = round_dir / "cycle_exception.txt"
         if exception.exists():
             record_progress_event(
@@ -486,7 +509,7 @@ def scan_code_evolution_progress(job: dict[str, Any], worker_root: Path, seen: s
         if cycle_result.exists():
             payload = read_json_file(cycle_result)
             worker = payload.get("worker", {}) if isinstance(payload, dict) else {}
-            summary = payload.get("summary", {}) if isinstance(payload, dict) else {}
+            summary = payload.get("harness", {}) if isinstance(payload, dict) else {}
             best_metrics = summary.get("best_metrics") or summary.get("best_candidate_metrics") or {}
             makespan = best_metrics.get("makespan", best_metrics.get("avg_makespan"))
             record_progress_event(
@@ -540,6 +563,15 @@ def summarize_exception(path: Path) -> str:
         if "Error" in line or "Exception" in line:
             return line[:240]
     return lines[-1][:240]
+
+
+def summarize_list(value: Any, *, limit: int = 2, max_chars: int = 220) -> str:
+    if not isinstance(value, list) or not value:
+        return "无详情"
+    text = "；".join(str(item) for item in value[:limit])
+    if len(value) > limit:
+        text += f"；另有 {len(value) - limit} 项"
+    return text[:max_chars]
 
 
 def format_progress_value(value: Any) -> str:
