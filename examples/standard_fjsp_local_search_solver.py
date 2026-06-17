@@ -33,6 +33,14 @@ from standard_fjsp_portfolio_solver import build_portfolio, build_schedule
 
 OpKey = tuple[int, int]
 NEIGHBORHOOD_PROFILES = ("random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid")
+PROFILE_SEED_OFFSETS = {
+    "random": 0,
+    "critical-block": 3_058_763,
+    "combined": 0,
+    "hgtsa-lite": 6_117_529,
+    "hybrid": 9_176_291,
+    "awls-hybrid": 18_352_582,
+}
 
 
 @dataclass(frozen=True)
@@ -1218,7 +1226,7 @@ def solve_profile_portfolio(
     for profile_index, profile in enumerate(neighborhood_profiles):
         profile_schedule, profile_label = solve_with_restarts(
             instance,
-            seed=seed + profile_index * 9_176_291,
+            seed=seed + PROFILE_SEED_OFFSETS[profile],
             portfolio_size=portfolio_size,
             strategy_profile=strategy_profile,
             restarts=restarts,
