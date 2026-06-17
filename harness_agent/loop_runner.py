@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -85,17 +86,75 @@ def run_worker_loop(
                 previous_rounds=round_records,
             ),
         )
-        cycle = run_worker_cycle(
-            contract=contract,
-            project_root=incumbent_worktree,
-            output_dir=cycle_dir,
-            context_packet_path=round_context_packet_path,
-            worker=worker,
-            experiment_id=f"{experiment_id}_round_{round_index:03d}",
-            max_steps=max_steps,
-            max_runtime_seconds=max_runtime_seconds,
-            apply_worker_changes=apply_worker_changes,
-        )
+        try:
+            cycle = run_worker_cycle(
+                contract=contract,
+                project_root=incumbent_worktree,
+                output_dir=cycle_dir,
+                context_packet_path=round_context_packet_path,
+                worker=worker,
+                experiment_id=f"{experiment_id}_round_{round_index:03d}",
+                max_steps=max_steps,
+                max_runtime_seconds=max_runtime_seconds,
+                apply_worker_changes=apply_worker_changes,
+            )
+        except Exception as exc:  # noqa: BLE001 - failed worker rounds are feedback, not loop-ending failures.
+            exception_path = cycle_dir / "cycle_exception.txt"
+            patch_path = cycle_dir / "worker_changes.patch"
+            delta_path = cycle_dir / "worker_worktree_delta.json"
+            cycle_dir.mkdir(parents=True, exist_ok=True)
+            exception_path.write_text(
+                "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+                encoding="utf-8",
+            )
+            patch_path.write_text("", encoding="utf-8")
+            delta_path.write_text(
+                json.dumps(
+                    {
+                        "counts": {"added": 0, "modified": 0, "deleted": 0, "total_changed": 0},
+                        "error": str(exc),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            candidate_key = tuple(float("-inf") for _ in contract.objectives)
+            proposal_diagnostics = {
+                "status": "worker_exception",
+                "reason": str(exc),
+                "exception_path": str(exception_path),
+            }
+            proposal_fingerprint = _hash_json(proposal_diagnostics)
+            duplicate_proposal = proposal_fingerprint in seen_proposal_fingerprints
+            seen_proposal_fingerprints.add(proposal_fingerprint)
+            round_records.append(
+                LoopRoundRecord(
+                    round_index=round_index,
+                    decision="rolled_back",
+                    candidate_key=candidate_key,
+                    incumbent_key_after=incumbent_key,
+                    worker_status="worker_exception",
+                    worker_changed_files=[],
+                    proposal_fingerprint=proposal_fingerprint,
+                    duplicate_proposal=duplicate_proposal,
+                    proposal_diagnostics=proposal_diagnostics,
+                    candidate_summary={
+                        "total": 0,
+                        "valid": 0,
+                        "failed": 0,
+                        "error": str(exc),
+                    },
+                    cycle_dir=str(cycle_dir),
+                    context_packet_path=str(round_context_packet_path),
+                    delta_path=str(delta_path),
+                    patch_path=str(patch_path),
+                    promoted_worktree=None,
+                )
+            )
+            continue
+
         proposal_fingerprint = worker_proposal_fingerprint(cycle.worker_result)
         duplicate_proposal = proposal_fingerprint in seen_proposal_fingerprints
         seen_proposal_fingerprints.add(proposal_fingerprint)
