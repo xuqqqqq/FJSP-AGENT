@@ -407,41 +407,36 @@ def greedy_gt_init(index: OperationIndex, rng: random.Random, random_factor: flo
     return sequences, on_machine
 
 
-def one_critical_path(schedule: AwlsSchedule, rng: random.Random) -> list[int]:
-    start_candidates = [
-        node
-        for node in schedule.first_machine_operation
-        if node != -1 and schedule.is_critical_operation(node) and schedule.forward_path_length[node] == 0
-    ]
-    rng.shuffle(start_candidates)
-    for start in start_candidates:
-        path = [start]
-        seen = {start}
-        while schedule.end_time[path[-1]] != schedule.makespan:
-            node = path[-1]
-            machine_successor = schedule.machine_successor[node]
-            if (
-                machine_successor != -1
-                and machine_successor not in seen
-                and schedule.is_critical_operation(machine_successor)
-                and schedule.forward_path_length[machine_successor] == schedule.end_time[node]
-            ):
-                path.append(machine_successor)
-                seen.add(machine_successor)
-                continue
-            job_successor = schedule.job_successor[node]
-            if (
-                job_successor != schedule.index.end_node
-                and job_successor not in seen
-                and schedule.is_critical_operation(job_successor)
-                and schedule.forward_path_length[job_successor] == schedule.end_time[node]
-            ):
-                path.append(job_successor)
-                seen.add(job_successor)
-                continue
-            break
-        if path and schedule.end_time[path[-1]] == schedule.makespan:
-            return path
+def one_critical_path_from_start(schedule: AwlsSchedule, start: int) -> list[int]:
+    """Follow one tight critical path from a selected start operation."""
+
+    path = [start]
+    seen = {start}
+    while schedule.end_time[path[-1]] != schedule.makespan:
+        node = path[-1]
+        machine_successor = schedule.machine_successor[node]
+        if (
+            machine_successor != -1
+            and machine_successor not in seen
+            and schedule.is_critical_operation(machine_successor)
+            and schedule.forward_path_length[machine_successor] == schedule.end_time[node]
+        ):
+            path.append(machine_successor)
+            seen.add(machine_successor)
+            continue
+        job_successor = schedule.job_successor[node]
+        if (
+            job_successor != schedule.index.end_node
+            and job_successor not in seen
+            and schedule.is_critical_operation(job_successor)
+            and schedule.forward_path_length[job_successor] == schedule.end_time[node]
+        ):
+            path.append(job_successor)
+            seen.add(job_successor)
+            continue
+        break
+    if path and schedule.end_time[path[-1]] == schedule.makespan:
+        return path
     return []
 
 
@@ -463,12 +458,7 @@ def blocks_from_path(schedule: AwlsSchedule, path: list[int]) -> list[list[int]]
     return blocks
 
 
-def critical_blocks(schedule: AwlsSchedule, rng: random.Random, exhaustive: bool = False) -> list[list[int]]:
-    if not exhaustive:
-        blocks = blocks_from_path(schedule, one_critical_path(schedule, rng))
-        if blocks:
-            return blocks
-
+def machine_scan_critical_blocks(schedule: AwlsSchedule) -> list[list[int]]:
     blocks: list[list[int]] = []
     seen: set[tuple[int, ...]] = set()
     for sequence in schedule.machine_sequences:
@@ -491,6 +481,23 @@ def critical_blocks(schedule: AwlsSchedule, rng: random.Random, exhaustive: bool
             blocks.append(block)
             seen.add(tuple(block))
     return blocks
+
+
+def critical_blocks(schedule: AwlsSchedule, rng: random.Random, exhaustive: bool = False) -> list[list[int]]:
+    if exhaustive:
+        return machine_scan_critical_blocks(schedule)
+
+    start_candidates = [
+        node
+        for node in schedule.first_machine_operation
+        if node != -1 and schedule.is_critical_operation(node) and schedule.forward_path_length[node] == 0
+    ]
+    rng.shuffle(start_candidates)
+    for start in start_candidates:
+        blocks = blocks_from_path(schedule, one_critical_path_from_start(schedule, start))
+        if blocks:
+            return blocks
+    return machine_scan_critical_blocks(schedule)
 
 
 def weight_perturbation(schedule: AwlsSchedule, node: int, gamma: int) -> float:
