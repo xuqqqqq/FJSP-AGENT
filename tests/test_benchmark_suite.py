@@ -51,10 +51,12 @@ class BenchmarkSuiteTests(unittest.TestCase):
                     iterations=5,
                     time_limit_sec=1.0,
                     init_mode="mixed",
+                    critical_block_exhaustive_pct=5,
                 )
             )
 
             self.assertEqual("ok", manifest["status"])
+            self.assertEqual(5, manifest["request"]["critical_block_exhaustive_pct"])
             self.assertEqual(1, manifest["aggregate"]["instance_count"])
             self.assertEqual(1, manifest["aggregate"]["valid_instance_count"])
             self.assertEqual(0, manifest["aggregate"]["invalid_run_count"])

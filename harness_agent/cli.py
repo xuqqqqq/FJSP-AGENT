@@ -328,6 +328,12 @@ def build_parser() -> argparse.ArgumentParser:
     awls_benchmark.add_argument("--seeds", default="0")
     awls_benchmark.add_argument("--max-workers", type=int, default=1)
     add_awls_arguments(awls_benchmark, default_time_limit=10.0)
+    awls_benchmark.add_argument(
+        "--awls-critical-block-exhaustive-pct",
+        type=int,
+        default=0,
+        help="Percent chance to evaluate all critical blocks first; 5 approximates the C++ AWLS exploration branch.",
+    )
     awls_benchmark.add_argument("--same-machine-eval", choices=("stable", "cpp-fast"), default="stable")
     awls_benchmark.add_argument(
         "--awls-time-policy",
@@ -1323,6 +1329,7 @@ def run_awls_benchmark_cmd(args: argparse.Namespace) -> int:
             gamma=args.awls_gamma,
             theta=args.awls_theta,
             portfolio_lanes=args.awls_portfolio_lanes,
+            critical_block_exhaustive_pct=args.awls_critical_block_exhaustive_pct,
             same_machine_eval=args.same_machine_eval,
             time_policy=args.awls_time_policy,
             resume=args.resume,

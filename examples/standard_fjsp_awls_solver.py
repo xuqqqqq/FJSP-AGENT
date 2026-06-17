@@ -926,13 +926,16 @@ def find_move(
     iteration: int,
     gamma: int,
     exact_select_top_k: int,
+    critical_block_exhaustive_pct: int,
 ) -> Move | None:
     all_moves: list[Move] = []
     ranked_moves: list[tuple[float, Move]] = []
     best_moves: list[Move] = []
     best_value = [math.inf]
 
-    for exhaustive in (False, True):
+    exhaustive_first = schedule.rng.randrange(100) < max(0, min(100, critical_block_exhaustive_pct))
+    exhaustive_modes = (True, False) if exhaustive_first else (False, True)
+    for exhaustive in exhaustive_modes:
         blocks = critical_blocks(schedule, schedule.rng, exhaustive=exhaustive)
         for block in blocks:
             machine_id = schedule.on_machine[block[0]]
@@ -1195,6 +1198,7 @@ def tabu_search(
     theta: int,
     exact_select_top_k: int,
     same_machine_eval: str,
+    critical_block_exhaustive_pct: int,
 ) -> AwlsSchedule:
     current = initial
     current.same_machine_eval = same_machine_eval
@@ -1207,7 +1211,15 @@ def tabu_search(
     for iteration in range(iterations):
         if deadline is not None and time.perf_counter() >= deadline:
             break
-        move = find_move(current, best.makespan, tabu, iteration, gamma, exact_select_top_k)
+        move = find_move(
+            current,
+            best.makespan,
+            tabu,
+            iteration,
+            gamma,
+            exact_select_top_k,
+            critical_block_exhaustive_pct,
+        )
         if move is None:
             break
         previous_makespan = current.makespan
@@ -1311,6 +1323,7 @@ def solve_awls_single(
     theta: int,
     exact_select_top_k: int,
     same_machine_eval: str,
+    critical_block_exhaustive_pct: int = 0,
 ) -> AwlsSchedule:
     rng = random.Random(seed)
     best: AwlsSchedule | None = None
@@ -1341,6 +1354,7 @@ def solve_awls_single(
                 theta,
                 exact_select_top_k,
                 same_machine_eval,
+                critical_block_exhaustive_pct,
             )
             population = improved.clone()
             if best is None or improved.makespan < best.makespan:
@@ -1365,6 +1379,7 @@ def solve_awls(
     exact_select_top_k: int,
     same_machine_eval: str = "stable",
     portfolio_lanes: list[PortfolioLane] | None = None,
+    critical_block_exhaustive_pct: int = 0,
 ) -> tuple[list[ScheduleRecord], str]:
     index = OperationIndex.from_instance(instance)
     if portfolio_lanes:
@@ -1386,6 +1401,7 @@ def solve_awls(
                 theta=theta,
                 exact_select_top_k=exact_select_top_k,
                 same_machine_eval=same_machine_eval,
+                critical_block_exhaustive_pct=critical_block_exhaustive_pct,
             )
             lane_summaries.append(
                 f"{lane.seed}/{lane.init_mode}/r{lane.restarts}/t{lane_budget:.1f}=m{candidate.makespan}"
@@ -1398,7 +1414,8 @@ def solve_awls(
         label = (
             "awls-portfolio:"
             f"selected={best_lane.seed}/{best_lane.init_mode}/r{best_lane.restarts}:"
-            f"cycles={cycles_per_restart}:iterations={iterations}:eval={same_machine_eval}:makespan={best.makespan}:"
+            f"cycles={cycles_per_restart}:iterations={iterations}:eval={same_machine_eval}:"
+            f"exhaustive_pct={critical_block_exhaustive_pct}:makespan={best.makespan}:"
             f"lanes={'|'.join(lane_summaries)}"
         )
         return best.to_records(), label
@@ -1416,10 +1433,12 @@ def solve_awls(
         theta=theta,
         exact_select_top_k=exact_select_top_k,
         same_machine_eval=same_machine_eval,
+        critical_block_exhaustive_pct=critical_block_exhaustive_pct,
     )
     label = (
         f"awls:init={init_mode}:restarts={restarts}:cycles={cycles_per_restart}:"
-        f"iterations={iterations}:seed={seed}:eval={same_machine_eval}:makespan={best.makespan}"
+        f"iterations={iterations}:seed={seed}:eval={same_machine_eval}:"
+        f"exhaustive_pct={critical_block_exhaustive_pct}:makespan={best.makespan}"
     )
     return best.to_records(), label
 
@@ -1438,6 +1457,12 @@ def main() -> int:
     parser.add_argument("--gamma", type=int, default=40)
     parser.add_argument("--theta", type=int, default=5)
     parser.add_argument("--exact-select-top-k", type=int, default=0)
+    parser.add_argument(
+        "--critical-block-exhaustive-pct",
+        type=int,
+        default=0,
+        help="Percent chance to evaluate all critical blocks first; 5 approximates the C++ AWLS exploration branch.",
+    )
     parser.add_argument("--same-machine-eval", choices=("stable", "cpp-fast"), default="stable")
     parser.add_argument(
         "--portfolio-lanes",
@@ -1463,6 +1488,7 @@ def main() -> int:
         exact_select_top_k=args.exact_select_top_k,
         same_machine_eval=args.same_machine_eval,
         portfolio_lanes=portfolio_lanes,
+        critical_block_exhaustive_pct=args.critical_block_exhaustive_pct,
     )
     errors, metrics = validate_standard_schedule(instance, schedule)
     if errors:

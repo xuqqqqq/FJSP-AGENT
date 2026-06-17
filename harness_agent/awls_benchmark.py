@@ -45,6 +45,7 @@ class AwlsBenchmarkRequest:
     gamma: int = 40
     theta: int = 5
     portfolio_lanes: str = ""
+    critical_block_exhaustive_pct: int = 0
     same_machine_eval: str = "stable"
     time_policy: str = "fixed"
     resume: bool = False
@@ -212,6 +213,7 @@ def run_one_awls_job(
             exact_select_top_k=max(0, request.exact_select_top_k),
             same_machine_eval=request.same_machine_eval,
             portfolio_lanes=lane_specs,
+            critical_block_exhaustive_pct=max(0, min(100, request.critical_block_exhaustive_pct)),
         )
         errors, metrics = validate_standard_schedule(instance, schedule)
         if not errors:
