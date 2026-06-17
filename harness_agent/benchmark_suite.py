@@ -110,6 +110,16 @@ def build_demo_request(
         local_search_time_limit_sec=float(spec.get("local_search_time_limit_sec", 2.0)),
         local_search_neighborhood_profiles=list(spec.get("local_search_neighborhood_profiles") or ["random"]),
         local_search_run_profiles=list(spec.get("local_search_run_profiles") or []) or None,
+        awls_restarts=int(spec.get("awls_restarts", 2)),
+        awls_cycles_per_restart=int(spec.get("awls_cycles_per_restart", 1000)),
+        awls_iterations=int(spec.get("awls_iterations", 10000)),
+        awls_time_limit_sec=float(spec.get("awls_time_limit_sec", 5.0)),
+        awls_init=str(spec.get("awls_init", "random")),
+        awls_exact_select_top_k=int(spec.get("awls_exact_select_top_k", 0)),
+        awls_beta=int(spec.get("awls_beta", 500)),
+        awls_gamma=int(spec.get("awls_gamma", 40)),
+        awls_theta=int(spec.get("awls_theta", 5)),
+        awls_portfolio_lanes=str(spec.get("awls_portfolio_lanes", "")),
         strategy_candidates=int(spec.get("strategy_candidates", 1)),
         profile_mode=str(spec.get("profile_mode", "template")),
         deepseek_model=str(spec.get("deepseek_model", "deepseek-v4-pro")),
@@ -136,6 +146,10 @@ def aggregate_suite_results(suite_results: list[dict[str, Any]]) -> dict[str, An
         "suite_status_counts": status_counts(suite_results),
         "gap_suite_count": sum(1 for item in suite_results if (item.get("benchmark_summary") or {}).get("has_best_known_gap")),
         "avg_reported_gap_pct": sum(gap_values) / len(gap_values) if gap_values else None,
+        "max_reported_gap_pct": max(gap_values) if gap_values else None,
+        "best_reached_metric_count": sum(1 for value in gap_values if value <= 0.0),
+        "within_1pct_metric_count": sum(1 for value in gap_values if value <= 1.0),
+        "within_2pct_metric_count": sum(1 for value in gap_values if value <= 2.0),
     }
 
 

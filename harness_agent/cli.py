@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 
+from .awls_benchmark import AwlsBenchmarkRequest, run_awls_benchmark
 from .benchmark_suite import BenchmarkSuiteRequest, run_benchmark_suite
 from .context_packet import ContextPacketRequest, write_context_packet
 from .contract_builder import (
@@ -310,6 +311,24 @@ def build_parser() -> argparse.ArgumentParser:
     suite.add_argument("--output-dir", required=True, type=Path)
     suite.add_argument("--project-root", type=Path, default=Path.cwd())
     suite.add_argument("--max-suites", type=int)
+
+    awls_benchmark = subparsers.add_parser("run-awls-benchmark", help="run direct AWLS standard-FJSP benchmark")
+    awls_benchmark.add_argument("--instance-dir", required=True, type=Path)
+    awls_benchmark.add_argument("--pattern", default="*.txt")
+    awls_benchmark.add_argument("--output-dir", required=True, type=Path)
+    awls_benchmark.add_argument("--best-known-csv", type=Path)
+    awls_benchmark.add_argument("--max-instances", type=int)
+    awls_benchmark.add_argument("--seeds", default="0")
+    awls_benchmark.add_argument("--max-workers", type=int, default=1)
+    add_awls_arguments(awls_benchmark, default_time_limit=10.0)
+    awls_benchmark.add_argument("--same-machine-eval", choices=("stable", "cpp-fast"), default="stable")
+    awls_benchmark.add_argument(
+        "--awls-time-policy",
+        choices=("fixed", "mae2019", "mae2019-hour"),
+        default="fixed",
+        help="Instance time budget policy. mae2019 uses 90s for Barnes/Brandimarte and 300s for Dauzere/Hurink.",
+    )
+    awls_benchmark.add_argument("--resume", action="store_true", help="reuse completed metrics/solutions in output-dir")
 
     web = subparsers.add_parser("serve-web", help="serve the local document-to-loop web demo UI")
     web.add_argument("--host", default="127.0.0.1")
@@ -1274,6 +1293,51 @@ def serve_web_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_awls_benchmark_cmd(args: argparse.Namespace) -> int:
+    manifest = run_awls_benchmark(
+        AwlsBenchmarkRequest(
+            instance_dir=args.instance_dir,
+            pattern=args.pattern,
+            output_dir=args.output_dir,
+            best_known_csv=args.best_known_csv,
+            max_instances=args.max_instances,
+            seeds=parse_seed_list(args.seeds),
+            max_workers=max(1, args.max_workers),
+            restarts=args.awls_restarts,
+            cycles_per_restart=args.awls_cycles_per_restart,
+            iterations=args.awls_iterations,
+            time_limit_sec=args.awls_time_limit_sec,
+            init_mode=args.awls_init,
+            exact_select_top_k=args.awls_exact_select_top_k,
+            beta=args.awls_beta,
+            gamma=args.awls_gamma,
+            theta=args.awls_theta,
+            portfolio_lanes=args.awls_portfolio_lanes,
+            same_machine_eval=args.same_machine_eval,
+            time_policy=args.awls_time_policy,
+            resume=args.resume,
+        )
+    )
+    print(
+        json.dumps(
+            {
+                "status": manifest["status"],
+                "aggregate": manifest["aggregate"],
+                "summary": manifest["artifacts"]["summary"],
+                "report": manifest["artifacts"]["report"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0 if manifest["status"] == "ok" else 1
+
+
+def parse_seed_list(value: str) -> list[int]:
+    seeds = [int(item.strip()) for item in str(value).split(",") if item.strip()]
+    return seeds or [0]
+
+
 def parse_neighborhood_profiles(value: str | None, *, fallback: str) -> list[str]:
     allowed = {"random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid"}
     raw_items = [fallback] if not value else [item.strip() for item in value.split(",") if item.strip()]
@@ -1416,6 +1480,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_demo(args)
     if args.command == "run-benchmark-suite":
         return run_benchmark_suite_cmd(args)
+    if args.command == "run-awls-benchmark":
+        return run_awls_benchmark_cmd(args)
     if args.command == "serve-web":
         return serve_web_cmd(args)
     if args.command == "run-standard-worker-loop":

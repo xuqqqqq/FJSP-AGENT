@@ -1,0 +1,35 @@
+{
+  "defaults": {
+    "docs": [
+      "../README.md"
+    ],
+    "max_rounds": 1,
+    "seeds": [
+      0
+    ],
+    "timeout_seconds": 30,
+    "max_workers": 1,
+    "solver": "awls",
+    "profile_mode": "template",
+    "strategy_candidates": 1,
+    "awls_restarts": 1,
+    "awls_cycles_per_restart": 1,
+    "awls_iterations": 5,
+    "awls_time_limit_sec": 1.0,
+    "awls_init": "mixed",
+    "awls_exact_select_top_k": 0,
+    "awls_beta": 500,
+    "awls_gamma": 40,
+    "awls_theta": 5,
+    "awls_portfolio_lanes": ""
+  },
+  "suites": [
+    {
+      "name": "tiny-standard-fjsp-awls",
+      "instance_dir": "../examples",
+      "pattern": "standard_fjsp_tiny.fjs",
+      "best_known_csv": "standard_fjsp_tiny_best.csv",
+      "max_instances": 1
+    }
+  ]
+}
