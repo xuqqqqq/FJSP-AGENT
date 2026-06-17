@@ -103,15 +103,17 @@ def write_job_status(job: dict[str, Any]) -> None:
 def make_demo_examples() -> dict[str, Any]:
     requirement = (PROJECT_ROOT / "examples" / "web_demo_requirement.md").read_text(encoding="utf-8")
     io_doc = (PROJECT_ROOT / "examples" / "web_demo_io.md").read_text(encoding="utf-8")
-    instance = (PROJECT_ROOT / "examples" / "web_demo_instance.fjs").read_text(encoding="utf-8")
-    best_known = (PROJECT_ROOT / "examples" / "web_demo_best.csv").read_text(encoding="utf-8")
+    instance_name = "fjsp.brandimarte.Mk01.m6j10c3.txt"
+    best_known_name = "brandimarte_mk01_best.csv"
+    instance = (PROJECT_ROOT / "examples" / instance_name).read_text(encoding="utf-8")
+    best_known = (PROJECT_ROOT / "examples" / best_known_name).read_text(encoding="utf-8")
     return {
         "requirement": {"name": "web_demo_requirement.md", "text": requirement},
         "io": {"name": "web_demo_io.md", "text": io_doc},
-        "instance": {"name": "web_demo_instance.fjs", "text": instance},
-        "best_known_csv": {"name": "web_demo_best.csv", "text": best_known},
+        "instance": {"name": instance_name, "text": instance},
+        "best_known_csv": {"name": best_known_name, "text": best_known},
         "config": {
-            "title": "标准 FJSP 网页端闭环演示",
+            "title": "Brandimarte Mk01 标准 FJSP 闭环演示",
             "max_rounds": 2,
             "seeds": "0",
             "solver": "portfolio",

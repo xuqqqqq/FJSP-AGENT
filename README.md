@@ -175,8 +175,8 @@ Click **载入内置示例** to load the generated demo materials under `example
 
 - `examples/web_demo_requirement.md`
 - `examples/web_demo_io.md`
-- `examples/web_demo_instance.fjs`
-- `examples/web_demo_best.csv`
+- `examples/fjsp.brandimarte.Mk01.m6j10c3.txt`
+- `examples/brandimarte_mk01_best.csv`
 
 Click **启动循环迭代** to launch a background run.  Results are written under:
 
