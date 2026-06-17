@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AlgoForge Loop Console</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">AlgoForge / Loop Engineering Harness</p>
+          <h1>从需求文档到可验证算法迭代</h1>
+          <p class="hero-copy">
+            上传需求、IO 协议和 FJSP 算例，系统会生成任务卡、策略候选、调度实验与反思报告。
+            当前演示使用标准 FJSP evaluator 作为唯一裁判，适合先跑通完整闭环。
+          </p>
+        </div>
+        <div class="hero-card">
+          <span class="hero-card-label">Flow</span>
+          <strong>Document → Strategy → Solver → Evaluator → Reflection</strong>
+          <small>本地运行，所有输入与结果保存在 outputs/web_runs</small>
+        </div>
+      </section>
+
+      <section class="layout">
+        <form id="job-form" class="panel composer">
+          <div class="panel-heading">
+            <div>
+              <span class="section-kicker">Submission</span>
+              <h2>新建自演进任务</h2>
+            </div>
+            <button class="ghost" type="button" id="load-demo">载入内置示例</button>
+          </div>
+
+          <label class="field">
+            <span>任务名称</span>
+            <input id="title" name="title" value="标准 FJSP 网页端闭环演示" />
+          </label>
+
+          <div class="doc-grid">
+            <label class="field">
+              <span>需求文档 Markdown</span>
+              <input type="file" id="requirement-file" accept=".md,.txt" />
+              <textarea id="requirement-text" rows="8" placeholder="粘贴需求文档，或选择文件后自动填入"></textarea>
+            </label>
+            <label class="field">
+              <span>IO 文档 Markdown</span>
+              <input type="file" id="io-file" accept=".md,.txt" />
+              <textarea id="io-text" rows="8" placeholder="粘贴输入输出协议，或选择文件后自动填入"></textarea>
+            </label>
+          </div>
+
+          <label class="field">
+            <span>标准 FJSP 算例</span>
+            <input type="file" id="instance-file" accept=".fjs,.txt" />
+            <textarea id="instance-text" rows="5" placeholder="粘贴 .fjs 算例，或选择文件后自动填入"></textarea>
+          </label>
+
+          <details class="advanced">
+            <summary>可选：best-known CSV 与运行参数</summary>
+            <label class="field">
+              <span>Best-known CSV</span>
+              <input type="file" id="best-file" accept=".csv,.txt" />
+              <textarea id="best-text" rows="3" placeholder="例如：instance,best"></textarea>
+            </label>
+            <div class="config-grid">
+              <label class="field compact">
+                <span>迭代轮次</span>
+                <input id="max-rounds" type="number" min="1" max="20" value="2" />
+              </label>
+              <label class="field compact">
+                <span>Seeds</span>
+                <input id="seeds" value="0" />
+              </label>
+              <label class="field compact">
+                <span>Solver</span>
+                <select id="solver">
+                  <option value="portfolio">portfolio</option>
+                  <option value="local-search">local-search</option>
+                </select>
+              </label>
+              <label class="field compact">
+                <span>策略来源</span>
+                <select id="profile-mode">
+                  <option value="template">template（稳定）</option>
+                  <option value="auto">auto（有 API 时自动）</option>
+                  <option value="deepseek">deepseek</option>
+                </select>
+              </label>
+              <label class="field compact">
+                <span>候选数</span>
+                <input id="strategy-candidates" type="number" min="1" max="16" value="2" />
+              </label>
+              <label class="field compact">
+                <span>Portfolio size</span>
+                <input id="portfolio-size" type="number" min="1" max="512" value="8" />
+              </label>
+              <label class="field compact">
+                <span>超时秒数</span>
+                <input id="timeout-seconds" type="number" min="5" max="3600" value="60" />
+              </label>
+              <label class="field compact">
+                <span>邻域 profile</span>
+                <select id="neighborhood-profile">
+                  <option value="random">random</option>
+                  <option value="critical-block">critical-block</option>
+                  <option value="combined">combined</option>
+                  <option value="hgtsa-lite">hgtsa-lite</option>
+                  <option value="hybrid">hybrid</option>
+                </select>
+              </label>
+            </div>
+          </details>
+
+          <button class="primary" type="submit">启动循环迭代</button>
+          <p class="hint">建议第一次使用内置示例，确认端到端流程能跑通后，再替换成自己的文档和算例。</p>
+        </form>
+
+        <section class="panel cockpit">
+          <div class="panel-heading">
+            <div>
+              <span class="section-kicker">Run Monitor</span>
+              <h2>任务驾驶舱</h2>
+            </div>
+            <button class="ghost" type="button" id="refresh">刷新</button>
+          </div>
+
+          <div id="empty-state" class="empty-state">
+            <strong>还没有运行任务</strong>
+            <span>载入示例并启动后，这里会显示事件流、指标和报告。</span>
+          </div>
+
+          <div id="job-view" class="job-view hidden">
+            <div class="status-strip">
+              <div>
+                <span class="muted">当前任务</span>
+                <strong id="job-title">-</strong>
+              </div>
+              <span id="job-status" class="status-pill">queued</span>
+            </div>
+
+            <div class="metric-grid">
+              <div class="metric">
+                <span>Valid experiments</span>
+                <strong id="metric-valid">-</strong>
+              </div>
+              <div class="metric">
+                <span>Best makespan</span>
+                <strong id="metric-makespan">-</strong>
+              </div>
+              <div class="metric">
+                <span>Gap</span>
+                <strong id="metric-gap">-</strong>
+              </div>
+            </div>
+
+            <h3>事件流</h3>
+            <ol id="event-log" class="event-log"></ol>
+
+            <h3>报告与产物</h3>
+            <div id="artifact-list" class="artifact-list"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="panel report-panel">
+        <div class="panel-heading">
+          <div>
+            <span class="section-kicker">Artifact Preview</span>
+            <h2>报告预览</h2>
+          </div>
+          <span id="artifact-path" class="artifact-path"></span>
+        </div>
+        <pre id="artifact-preview">选择一个报告后会在这里展示。</pre>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

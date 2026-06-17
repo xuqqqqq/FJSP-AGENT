@@ -1,0 +1,213 @@
+const state = {
+  currentJobId: null,
+  pollTimer: null,
+};
+
+const $ = (id) => document.getElementById(id);
+
+async function readFileToTextarea(fileInput, textarea) {
+  const file = fileInput.files?.[0];
+  if (!file) return;
+  textarea.value = await file.text();
+  textarea.dataset.filename = file.name;
+}
+
+function setupFileMirror(inputId, textId) {
+  const fileInput = $(inputId);
+  const textarea = $(textId);
+  fileInput.addEventListener("change", () => readFileToTextarea(fileInput, textarea));
+}
+
+async function loadDemo() {
+  const response = await fetch("/api/examples");
+  const demo = await response.json();
+  $("title").value = demo.config.title;
+  $("requirement-text").value = demo.requirement.text;
+  $("requirement-text").dataset.filename = demo.requirement.name;
+  $("io-text").value = demo.io.text;
+  $("io-text").dataset.filename = demo.io.name;
+  $("instance-text").value = demo.instance.text;
+  $("instance-text").dataset.filename = demo.instance.name;
+  $("best-text").value = demo.best_known_csv.text;
+  $("best-text").dataset.filename = demo.best_known_csv.name;
+  $("max-rounds").value = demo.config.max_rounds;
+  $("seeds").value = demo.config.seeds;
+  $("solver").value = demo.config.solver;
+  $("profile-mode").value = demo.config.profile_mode;
+  $("strategy-candidates").value = demo.config.strategy_candidates;
+  $("portfolio-size").value = demo.config.portfolio_size;
+  $("timeout-seconds").value = demo.config.timeout_seconds;
+  $("artifact-preview").textContent = "内置示例已载入，可以直接启动循环迭代。";
+}
+
+function buildPayload() {
+  return {
+    title: $("title").value,
+    requirement: {
+      name: $("requirement-text").dataset.filename || "requirement.md",
+      text: $("requirement-text").value,
+    },
+    io: {
+      name: $("io-text").dataset.filename || "io_spec.md",
+      text: $("io-text").value,
+    },
+    instance: {
+      name: $("instance-text").dataset.filename || "instance.fjs",
+      text: $("instance-text").value,
+    },
+    best_known_csv: {
+      name: $("best-text").dataset.filename || "best_known.csv",
+      text: $("best-text").value,
+    },
+    max_rounds: Number($("max-rounds").value || 2),
+    seeds: $("seeds").value || "0",
+    solver: $("solver").value,
+    profile_mode: $("profile-mode").value,
+    strategy_candidates: Number($("strategy-candidates").value || 2),
+    portfolio_size: Number($("portfolio-size").value || 8),
+    timeout_seconds: Number($("timeout-seconds").value || 60),
+    local_search_neighborhood_profile: $("neighborhood-profile").value,
+  };
+}
+
+async function submitJob(event) {
+  event.preventDefault();
+  const payload = buildPayload();
+  if (!payload.requirement.text.trim() || !payload.io.text.trim() || !payload.instance.text.trim()) {
+    $("artifact-preview").textContent = "请先提供需求文档、IO 文档和算例。";
+    return;
+  }
+  $("artifact-preview").textContent = "任务已提交，等待后端启动...";
+  const response = await fetch("/api/jobs", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(payload),
+  });
+  const job = await response.json();
+  if (!response.ok) {
+    $("artifact-preview").textContent = `提交失败：${job.error || response.statusText}`;
+    return;
+  }
+  state.currentJobId = job.id;
+  renderJob(job);
+  startPolling();
+}
+
+function startPolling() {
+  if (state.pollTimer) clearInterval(state.pollTimer);
+  state.pollTimer = setInterval(refreshJob, 1800);
+  refreshJob();
+}
+
+async function refreshJob() {
+  if (!state.currentJobId) {
+    const response = await fetch("/api/jobs");
+    const payload = await response.json();
+    if (payload.jobs?.length) {
+      state.currentJobId = payload.jobs[0].id;
+      renderJob(payload.jobs[0]);
+    }
+    return;
+  }
+  const response = await fetch(`/api/jobs/${state.currentJobId}`);
+  const job = await response.json();
+  if (response.ok) {
+    renderJob(job);
+    if (!["queued", "running"].includes(job.status) && state.pollTimer) {
+      clearInterval(state.pollTimer);
+      state.pollTimer = null;
+      if (job.artifacts?.report) {
+        loadArtifact("report");
+      }
+    }
+  }
+}
+
+function renderJob(job) {
+  $("empty-state").classList.add("hidden");
+  $("job-view").classList.remove("hidden");
+  $("job-title").textContent = job.title;
+  $("job-status").textContent = job.status;
+  $("job-status").className = `status-pill ${job.status}`;
+
+  const summary = job.summary?.last_summary || {};
+  const benchmark = job.summary?.benchmark_summary || {};
+  const makespan = summary.best_metrics?.makespan ?? summary.best_candidate_metrics?.avg_makespan;
+  const gap = benchmark.gap_metrics?.avg_gap_pct ?? summary.best_metrics?.avg_gap_pct;
+  $("metric-valid").textContent = summary.valid ?? benchmark.valid_experiments ?? "-";
+  $("metric-makespan").textContent = formatMetric(makespan);
+  $("metric-gap").textContent = gap === undefined ? "-" : `${Number(gap).toFixed(2)}%`;
+
+  const log = $("event-log");
+  log.innerHTML = "";
+  for (const event of job.events || []) {
+    const item = document.createElement("li");
+    item.className = event.level || "info";
+    item.innerHTML = `<strong>${event.time}</strong>${escapeHtml(event.message)}`;
+    log.appendChild(item);
+  }
+
+  const artifactList = $("artifact-list");
+  artifactList.innerHTML = "";
+  const artifacts = {
+    status: "任务状态 JSON",
+    ...(job.artifacts || {}),
+  };
+  for (const [name, labelOrPath] of Object.entries(artifacts)) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "artifact-button";
+    button.textContent = name === "status" ? "任务状态 JSON" : labelForArtifact(name, labelOrPath);
+    button.addEventListener("click", () => loadArtifact(name));
+    artifactList.appendChild(button);
+  }
+}
+
+function labelForArtifact(name) {
+  const labels = {
+    manifest: "Manifest",
+    report: "Demo Report",
+    standard_agent_report: "Agent Report",
+    hypothesis_graph: "Hypothesis Graph",
+    exception: "Exception Trace",
+  };
+  return labels[name] || name;
+}
+
+async function loadArtifact(name) {
+  if (!state.currentJobId) return;
+  const response = await fetch(`/api/jobs/${state.currentJobId}/artifact?name=${encodeURIComponent(name)}`);
+  const payload = await response.json();
+  if (!response.ok) {
+    $("artifact-preview").textContent = payload.error || "读取产物失败";
+    return;
+  }
+  $("artifact-path").textContent = payload.path;
+  $("artifact-preview").textContent = payload.text + (payload.truncated ? "\n\n[内容过长，已截断预览]" : "");
+}
+
+function formatMetric(value) {
+  if (value === undefined || value === null || Number.isNaN(Number(value))) return "-";
+  const num = Number(value);
+  return Number.isInteger(num) ? String(num) : num.toFixed(2);
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+setupFileMirror("requirement-file", "requirement-text");
+setupFileMirror("io-file", "io-text");
+setupFileMirror("instance-file", "instance-text");
+setupFileMirror("best-file", "best-text");
+$("load-demo").addEventListener("click", loadDemo);
+$("job-form").addEventListener("submit", submitJob);
+$("refresh").addEventListener("click", refreshJob);
+
+loadDemo().catch(() => {
+  $("artifact-preview").textContent = "内置示例读取失败，但仍可手动粘贴文档和算例。";
+});

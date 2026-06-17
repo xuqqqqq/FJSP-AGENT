@@ -32,6 +32,7 @@ from .standard_pipeline import (
     run_standard_pipeline_loop,
 )
 from .standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop
+from .web_app import DEFAULT_OUTPUT_ROOT, run_web_server
 from .worker import ExperimentSpec, NullWorker, WorkerResult
 from .worker_cycle import run_worker_cycle
 
@@ -264,6 +265,11 @@ def build_parser() -> argparse.ArgumentParser:
     suite.add_argument("--output-dir", required=True, type=Path)
     suite.add_argument("--project-root", type=Path, default=Path.cwd())
     suite.add_argument("--max-suites", type=int)
+
+    web = subparsers.add_parser("serve-web", help="serve the local document-to-loop web demo UI")
+    web.add_argument("--host", default="127.0.0.1")
+    web.add_argument("--port", type=int, default=7860)
+    web.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
 
     standard_worker = subparsers.add_parser("run-standard-worker-loop", help="run a standard FJSP coding-worker evolution loop")
     standard_worker.add_argument("--doc", action="append", type=Path, default=[])
@@ -1160,6 +1166,11 @@ def build_evidence_index_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
+def serve_web_cmd(args: argparse.Namespace) -> int:
+    run_web_server(host=args.host, port=args.port, output_root=args.output_root)
+    return 0
+
+
 def parse_neighborhood_profiles(value: str | None, *, fallback: str) -> list[str]:
     allowed = {"random", "critical-block", "combined", "hgtsa-lite", "hybrid"}
     raw_items = [fallback] if not value else [item.strip() for item in value.split(",") if item.strip()]
@@ -1292,6 +1303,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_demo(args)
     if args.command == "run-benchmark-suite":
         return run_benchmark_suite_cmd(args)
+    if args.command == "serve-web":
+        return serve_web_cmd(args)
     if args.command == "run-standard-worker-loop":
         return run_standard_worker_loop_cmd(args)
     if args.command == "run-standard-pipeline":

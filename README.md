@@ -146,6 +146,49 @@ the generated harness reports remains the source of truth for solver quality.
 When `--best-known-csv` is provided and instance names match, the demo manifest
 adds `benchmark_summary.gap_metrics`, including metrics such as `avg_gap_pct`.
 
+## Local Web Demo
+
+For a click-through demonstration of the same document-to-loop flow, start the
+local web UI:
+
+```powershell
+cd F:\huawei_fjsp_llm\fjsp_harness_agent
+python -m harness_agent.cli serve-web --host 127.0.0.1 --port 7860
+```
+
+Then open:
+
+```text
+http://127.0.0.1:7860
+```
+
+The page lets a user submit:
+
+- a requirement document;
+- an input/output protocol document;
+- a standard FJSP instance;
+- an optional best-known CSV;
+- a small set of run controls such as iteration rounds, seeds, solver type, and
+  profile source.
+
+Click **载入内置示例** to load the generated demo materials under `examples/`:
+
+- `examples/web_demo_requirement.md`
+- `examples/web_demo_io.md`
+- `examples/web_demo_instance.fjs`
+- `examples/web_demo_best.csv`
+
+Click **启动循环迭代** to launch a background run.  Results are written under:
+
+```text
+outputs/web_runs/<job_id>/
+```
+
+The web cockpit shows job status, event logs, key metrics, and previews of the
+generated manifest, demo report, standard-agent report, and hypothesis graph.
+This UI is intentionally local-first and dependency-free; it uses Python's
+standard HTTP server plus the existing `run_standard_demo` evaluator path.
+
 ## Standard FJSP Benchmark Suite
 
 For repeated benchmark evidence, put one or more standard-FJSP suites in a JSON
