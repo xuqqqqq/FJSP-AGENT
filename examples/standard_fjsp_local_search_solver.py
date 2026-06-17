@@ -1015,7 +1015,7 @@ def generate_neighbors(
 
     structured = generate_structured_neighbors(instance, state, decoded, rng, neighbor_limit)
     random_moves = generate_random_neighbors(instance, state, decoded, rng, neighbor_limit)
-    hgtsa_moves = generate_hgtsa_lite_neighbors(instance, state, decoded, rng, neighbor_limit) if neighborhood_profile == "hybrid" else []
+    hgtsa_moves = generate_hgtsa_lite_neighbors(instance, state, decoded, rng, neighbor_limit) if neighborhood_profile in {"hybrid", "awls-hybrid"} else []
 
     structured_quota = min(len(structured), max(1, neighbor_limit // 4))
     combined = structured[:structured_quota]
@@ -1033,6 +1033,18 @@ def generate_neighbors(
             + structured[structured_quota:]
             + random_moves[random_quota:]
             + hgtsa_moves[hgtsa_quota:]
+        )
+    elif neighborhood_profile == "awls-hybrid":
+        hgtsa_quota = min(len(hgtsa_moves), max(1, neighbor_limit // 2))
+        structured_extra_quota = min(len(structured) - structured_quota, max(1, neighbor_limit // 5))
+        random_quota = min(len(random_moves), max(1, neighbor_limit // 4))
+        ordered_candidates = (
+            hgtsa_moves[:hgtsa_quota]
+            + structured[structured_quota : structured_quota + structured_extra_quota]
+            + random_moves[:random_quota]
+            + hgtsa_moves[hgtsa_quota:]
+            + structured[structured_quota + structured_extra_quota :]
+            + random_moves[random_quota:]
         )
     else:
         ordered_candidates = random_moves + structured[structured_quota:]
@@ -1169,7 +1181,7 @@ def main() -> int:
     parser.add_argument("--time-limit-sec", type=float, default=4.0)
     parser.add_argument(
         "--neighborhood-profile",
-        choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid"],
+        choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid"],
         default="random",
     )
     args = parser.parse_args()

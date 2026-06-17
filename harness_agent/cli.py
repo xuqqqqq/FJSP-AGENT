@@ -160,7 +160,7 @@ def build_parser() -> argparse.ArgumentParser:
     build_standard.add_argument("--local-search-time-limit-sec", type=float, default=4.0)
     build_standard.add_argument(
         "--local-search-neighborhood-profile",
-        choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid"],
+        choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid"],
         default="random",
     )
 
@@ -212,7 +212,7 @@ def build_parser() -> argparse.ArgumentParser:
     standard_agent.add_argument("--local-search-time-limit-sec", type=float, default=4.0)
     standard_agent.add_argument(
         "--local-search-neighborhood-profile",
-        choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid"],
+        choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid"],
         default="random",
     )
     standard_agent.add_argument(
@@ -223,7 +223,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--local-search-run-profiles",
         help=(
             "comma-separated local-search run presets to cross-evaluate. "
-            "Built-ins: current, balanced-random, balanced-combined, balanced-hgtsa, deep-combined, deep-hgtsa"
+            "Built-ins: current, balanced-random, balanced-combined, balanced-hgtsa, balanced-awls, deep-combined, deep-hgtsa"
         ),
     )
     standard_agent.add_argument("--strategy-candidates", type=int, default=1)
@@ -251,7 +251,7 @@ def build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--local-search-time-limit-sec", type=float, default=2.0)
     demo.add_argument(
         "--local-search-neighborhood-profile",
-        choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid"],
+        choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid"],
         default="random",
     )
     demo.add_argument("--local-search-neighborhood-profiles")
@@ -293,7 +293,7 @@ def build_parser() -> argparse.ArgumentParser:
     standard_worker.add_argument("--local-search-time-limit-sec", type=float, default=2.0)
     standard_worker.add_argument(
         "--local-search-neighborhood-profile",
-        choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid"],
+        choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid"],
         default="combined",
     )
     standard_worker.add_argument("--worker", choices=["null", "deepseek", "opencode"], default="null")
@@ -354,7 +354,7 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--worker-local-search-time-limit-sec", type=float, default=2.0)
     pipeline.add_argument(
         "--worker-local-search-neighborhood-profile",
-        choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid"],
+        choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid"],
         default="combined",
     )
     pipeline.add_argument("--worker-iterations", type=int, default=1)
@@ -1172,7 +1172,7 @@ def serve_web_cmd(args: argparse.Namespace) -> int:
 
 
 def parse_neighborhood_profiles(value: str | None, *, fallback: str) -> list[str]:
-    allowed = {"random", "critical-block", "combined", "hgtsa-lite", "hybrid"}
+    allowed = {"random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid"}
     raw_items = [fallback] if not value else [item.strip() for item in value.split(",") if item.strip()]
     profiles: list[str] = []
     for item in raw_items:
@@ -1240,6 +1240,16 @@ def build_local_search_run_profiles(args: argparse.Namespace, neighborhood_profi
             "neighbor_limit": max(args.local_search_neighbor_limit, 220),
             "time_limit_sec": max(args.local_search_time_limit_sec, 4.0),
             "neighborhood_profile": "hgtsa-lite",
+        },
+        "balanced-awls": {
+            "name": "balanced-awls",
+            "portfolio_size": max(args.portfolio_size, 224),
+            "restarts": max(args.local_search_restarts, 2),
+            "initial_pool_size": max(args.local_search_initial_pool_size, 1),
+            "iterations": max(args.local_search_iterations, 120),
+            "neighbor_limit": max(args.local_search_neighbor_limit, 240),
+            "time_limit_sec": max(args.local_search_time_limit_sec, 5.0),
+            "neighborhood_profile": "awls-hybrid",
         },
         "deep-hgtsa": {
             "name": "deep-hgtsa",

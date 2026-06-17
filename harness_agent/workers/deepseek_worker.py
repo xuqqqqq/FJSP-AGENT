@@ -26,7 +26,7 @@ FEATURES = [
     "job_slack",
 ]
 
-LOCAL_SEARCH_NEIGHBORHOODS = ["random", "critical-block", "combined", "hgtsa-lite", "hybrid"]
+LOCAL_SEARCH_NEIGHBORHOODS = ["random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid"]
 RULE_OPERATOR_TYPES = [
     "dispatch_rule",
     "local_search_operator",
@@ -247,8 +247,9 @@ Rules:
 - Weights should normally be between -8 and 12.
 - Prefer valid, fast constructive heuristics; no warm starts from old solutions.
 - Local-search profiles are operator/budget hypotheses, not claims. Prefer
-  `combined` for stable quality, use `hybrid` or `hgtsa-lite` only when the
-  previous measured evidence suggests N8/k-insertion-style moves may help.
+  `combined` for stable quality, use `hybrid`, `hgtsa-lite`, or
+  `awls-hybrid` only when the previous measured evidence suggests
+  N8/k-insertion-style moves may help.
 - Return compact valid JSON only; no Markdown, comments, trailing commas, or
   partial objects.
 - Feature values already encode scheduling preference direction. For example,
@@ -1000,6 +1001,17 @@ def write_template_strategy_profile(output_dir: Path, round_index: int) -> tuple
                 "neighbor_limit": 300,
                 "time_limit_sec": 6.0,
                 "rationale": "Evaluator-gated probe for HGTSA-style N8/k-insertion moves without replacing combined.",
+            },
+            {
+                "name": f"template_awls_probe_{round_index}",
+                "neighborhood_profile": "awls-hybrid",
+                "portfolio_size": 224,
+                "restarts": 2,
+                "initial_pool_size": 2,
+                "iterations": 140,
+                "neighbor_limit": 260,
+                "time_limit_sec": 5.0,
+                "rationale": "AWLS-biased candidate mix that prioritizes RK/LK k-insertion while preserving fallback coverage.",
             },
         ],
     }

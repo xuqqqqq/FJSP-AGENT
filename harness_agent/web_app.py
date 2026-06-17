@@ -212,7 +212,7 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
             maximum=1800,
         ),
     }
-    if config["local_search_neighborhood_profile"] not in {"random", "critical-block", "combined", "hgtsa-lite", "hybrid"}:
+    if config["local_search_neighborhood_profile"] not in {"random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid"}:
         config["local_search_neighborhood_profile"] = "random"
 
     job = {
