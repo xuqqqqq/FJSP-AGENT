@@ -261,6 +261,139 @@ def decoded_timing(decoded: DecodedState) -> tuple[dict[OpKey, ScheduleRecord], 
     return record_by_op, duration, tail_after
 
 
+def job_successor_tail(duration: dict[OpKey, int], tail_after: dict[OpKey, int], op: OpKey) -> int:
+    successor = (op[0], op[1] + 1)
+    if successor not in duration:
+        return 0
+    return duration[successor] + tail_after[successor]
+
+
+def critical_machine_blocks_all(decoded: DecodedState, state: SearchState) -> list[tuple[int, list[int]]]:
+    """Find every same-machine critical block, not only one recovered path."""
+
+    record_by_op, _, _ = decoded_timing(decoded)
+    critical = critical_operations(decoded)
+    blocks: list[tuple[int, list[int]]] = []
+    for machine_id, sequence in enumerate(state.machine_sequences):
+        current: list[int] = []
+        for index, op in enumerate(sequence):
+            if op in critical:
+                if not current:
+                    current = [index]
+                else:
+                    prev_op = sequence[current[-1]]
+                    if record_by_op[prev_op].end == record_by_op[op].start:
+                        current.append(index)
+                    else:
+                        if len(current) >= 2:
+                            blocks.append((machine_id, current))
+                        current = [index]
+            else:
+                if len(current) >= 2:
+                    blocks.append((machine_id, current))
+                current = []
+        if len(current) >= 2:
+            blocks.append((machine_id, current))
+    return blocks
+
+
+def machine_sequence_proxy_score(
+    *,
+    record_by_op: dict[OpKey, ScheduleRecord],
+    tail_after: dict[OpKey, int],
+    specs: dict[OpKey, dict[int, int]],
+    sequence: list[OpKey],
+    machine_id: int,
+    assignment: dict[OpKey, int],
+    tail_override: dict[OpKey, int] | None = None,
+) -> float:
+    """Approximate local longest-path impact on one machine sequence.
+
+    The exact schedule is still decoded before acceptance.  This score only
+    ranks a larger AWLS/HGTSA candidate set cheaply enough to keep top-k
+    evaluation useful.
+    """
+
+    machine_ready = 0
+    score = 0.0
+    tail_override = tail_override or {}
+    for op in sequence:
+        duration = specs[op][assignment.get(op, machine_id)]
+        start = max(machine_ready, job_predecessor_ready(record_by_op, op))
+        end = start + duration
+        score = max(score, end + tail_override.get(op, tail_after.get(op, 0)))
+        machine_ready = end
+    return score
+
+
+def awls_insert_positions(
+    *,
+    state: SearchState,
+    record_by_op: dict[OpKey, ScheduleRecord],
+    duration: dict[OpKey, int],
+    tail_after: dict[OpKey, int],
+    specs: dict[OpKey, dict[int, int]],
+    op: OpKey,
+    target_machine: int,
+) -> list[int]:
+    """Generate k-insertion target positions with the AWLS RK/LK idea."""
+
+    target_sequence = list(state.machine_sequences[target_machine])
+    if not target_sequence:
+        return [0]
+
+    remove_machine_r = job_predecessor_ready(record_by_op, op)
+    remove_machine_q = job_successor_tail(duration, tail_after, op)
+    rk = [
+        target_op
+        for target_op in target_sequence
+        if record_by_op[target_op].end > remove_machine_r
+    ]
+    lk = [
+        target_op
+        for target_op in target_sequence
+        if tail_after.get(target_op, 0) + specs[target_op][target_machine] > remove_machine_q
+    ]
+
+    position_by_op = {target_op: index for index, target_op in enumerate(target_sequence)}
+    positions: set[int] = set()
+    intersection = [target_op for target_op in target_sequence if target_op in set(rk) and target_op in set(lk)]
+    if intersection:
+        positions.add(position_by_op[intersection[0]])
+        for target_op in intersection:
+            positions.add(position_by_op[target_op] + 1)
+    elif lk and rk:
+        left = position_by_op[lk[-1]]
+        right = position_by_op[rk[0]]
+        if left <= right:
+            for index in range(left, right + 1):
+                positions.add(index + 1)
+        else:
+            positions.update({right, left + 1})
+    elif rk:
+        positions.add(position_by_op[rk[0]])
+    elif lk:
+        positions.add(position_by_op[lk[-1]] + 1)
+
+    start_pivot = len(target_sequence)
+    ready_pivot = len(target_sequence)
+    job_ready = job_predecessor_ready(record_by_op, op)
+    op_start = record_by_op[op].start
+    for index, target_op in enumerate(target_sequence):
+        target_record = record_by_op[target_op]
+        if target_record.start >= op_start and start_pivot == len(target_sequence):
+            start_pivot = index
+        if target_record.end >= job_ready and ready_pivot == len(target_sequence):
+            ready_pivot = index
+    for pivot in (start_pivot, ready_pivot):
+        positions.update({pivot - 2, pivot - 1, pivot, pivot + 1, pivot + 2})
+
+    # Keep head/tail as safe exploratory fallbacks when the RK/LK cut is empty
+    # or overly narrow on small instances.
+    positions.update({0, len(target_sequence)})
+    return sorted(position for position in positions if 0 <= position <= len(target_sequence))
+
+
 def job_predecessor_ready(record_by_op: dict[OpKey, ScheduleRecord], op: OpKey) -> int:
     if op[1] <= 0:
         return 0
@@ -290,24 +423,70 @@ def proxy_insert_score(
     """
 
     target_sequence = list(state.machine_sequences[target_machine])
+    source_sequence = list(state.machine_sequences[source_machine])
+    legacy_target_sequence = list(target_sequence)
+    legacy_insert_pos = insert_pos
+    if source_machine == target_machine and 0 <= source_index < len(legacy_target_sequence):
+        legacy_target_sequence.pop(source_index)
+        if legacy_insert_pos > source_index:
+            legacy_insert_pos -= 1
+    legacy_insert_pos = max(0, min(legacy_insert_pos, len(legacy_target_sequence)))
     if source_machine == target_machine and 0 <= source_index < len(target_sequence):
         target_sequence.pop(source_index)
         if insert_pos > source_index:
             insert_pos -= 1
-    insert_pos = max(0, min(insert_pos, len(target_sequence)))
-    predecessor = target_sequence[insert_pos - 1] if insert_pos > 0 else None
-    successor = target_sequence[insert_pos] if insert_pos < len(target_sequence) else None
+        insert_pos = max(0, min(insert_pos, len(target_sequence)))
+        target_sequence.insert(insert_pos, op)
+        proxy = machine_sequence_proxy_score(
+            record_by_op=record_by_op,
+            tail_after=tail_after,
+            specs=specs,
+            sequence=target_sequence,
+            machine_id=target_machine,
+            assignment=state.assignment,
+        )
+    else:
+        if 0 <= source_index < len(source_sequence):
+            source_sequence.pop(source_index)
+        insert_pos = max(0, min(insert_pos, len(target_sequence)))
+        target_sequence.insert(insert_pos, op)
+        assignment = dict(state.assignment)
+        assignment[op] = target_machine
+        tail_override = {op: job_successor_tail({key: value.duration for key, value in record_by_op.items()}, tail_after, op)}
+        proxy = max(
+            machine_sequence_proxy_score(
+                record_by_op=record_by_op,
+                tail_after=tail_after,
+                specs=specs,
+                sequence=source_sequence,
+                machine_id=source_machine,
+                assignment=assignment,
+                tail_override=tail_override,
+            ),
+            machine_sequence_proxy_score(
+                record_by_op=record_by_op,
+                tail_after=tail_after,
+                specs=specs,
+                sequence=target_sequence,
+                machine_id=target_machine,
+                assignment=assignment,
+                tail_override=tail_override,
+            ),
+        )
+    predecessor = legacy_target_sequence[legacy_insert_pos - 1] if legacy_insert_pos > 0 else None
+    successor = legacy_target_sequence[legacy_insert_pos] if legacy_insert_pos < len(legacy_target_sequence) else None
     machine_ready = record_by_op[predecessor].end if predecessor is not None else 0
     job_ready = job_predecessor_ready(record_by_op, op)
     duration = specs[op][target_machine]
     estimated_start = max(machine_ready, job_ready)
     estimated_completion = estimated_start + duration + tail_after.get(op, 0)
     successor_slack = max(0, estimated_start + duration - record_by_op[successor].start) if successor is not None else 0
-    machine_load = sum(specs[item][state.assignment[item]] for item in target_sequence)
+    machine_load = sum(specs[item][state.assignment[item]] for item in legacy_target_sequence)
     mean_load = sum(record.duration for record in decoded.schedule) / max(1, len(state.machine_sequences))
     load_penalty = abs(machine_load + duration - mean_load) / max(1.0, mean_load)
     locality_penalty = abs(estimated_start - record_by_op[op].start) / max(1, decoded.makespan)
-    return estimated_completion + successor_slack + 0.25 * load_penalty + 0.10 * locality_penalty
+    legacy_proxy = estimated_completion + successor_slack + 0.25 * load_penalty + 0.10 * locality_penalty
+    return 0.75 * proxy + 0.25 * legacy_proxy
 
 
 def clone_sequences(state: SearchState) -> list[list[OpKey]]:
@@ -573,7 +752,7 @@ def generate_hgtsa_lite_neighbors(
     critical_tail = [op for op in critical_set if op not in path_set]
     rng.shuffle(critical_tail)
     critical = list(path) + critical_tail
-    record_by_op, _, tail_after = decoded_timing(decoded)
+    record_by_op, duration, tail_after = decoded_timing(decoded)
     machine_load = [
         sum(specs[op][state.assignment[op]] for op in sequence)
         for sequence in state.machine_sequences
@@ -590,56 +769,20 @@ def generate_hgtsa_lite_neighbors(
         seen_moves.add(key)
         scored.append((score, rng.random(), move, next_state))
 
-    blocks = critical_machine_blocks(decoded, state)
-    outside_window = max(3, min(14, neighbor_limit // max(4, len(blocks) or 1)))
+    blocks = critical_machine_blocks_all(decoded, state) or critical_machine_blocks(decoded, state)
     last_block_index = len(blocks) - 1
     for block_index, (machine_id, positions) in enumerate(blocks):
         sequence = state.machine_sequences[machine_id]
         first_index = positions[0]
         last_index = positions[-1]
-        block_set = set(positions)
+        block_size = len(positions)
 
         for old_index in positions:
             op = sequence[old_index]
-            # N7-like internal critical-block moves, with the N8 paper's
-            # first/last block pruning rules for moves known not to improve.
-            for target_index in positions:
-                if target_index == old_index:
-                    continue
-                if block_index == 0 and old_index == first_index and target_index > old_index:
-                    continue
-                if block_index == 0 and old_index > first_index and target_index == first_index:
-                    continue
-                if block_index == last_block_index and old_index == last_index and target_index < old_index:
-                    continue
-                if block_index == last_block_index and old_index < last_index and target_index == last_index:
-                    continue
-                insert_pos = target_index + 1 if target_index > old_index else target_index
-                score = proxy_insert_score(
-                    decoded=decoded,
-                    state=state,
-                    record_by_op=record_by_op,
-                    tail_after=tail_after,
-                    specs=specs,
-                    op=op,
-                    target_machine=machine_id,
-                    insert_pos=insert_pos,
-                    source_machine=machine_id,
-                    source_index=old_index,
-                )
-                remember(
-                    Move("hgtsa_n8_internal", op, machine_id, machine_id, old_index, insert_pos),
-                    relocate_same_machine(state, machine_id, old_index, insert_pos),
-                    score,
-                )
 
-            # N8 extension: move critical-block operations before/after nearby
-            # same-machine operations outside the critical block.
-            before_targets = range(max(0, first_index - outside_window), first_index)
-            after_targets = range(last_index + 1, min(len(sequence), last_index + 1 + outside_window))
-            for target_index in before_targets:
-                if target_index in block_set:
-                    continue
+            # N8 extension: move critical-block operations before any earlier
+            # same-machine operation or after any later same-machine operation.
+            for target_index in range(0, first_index):
                 score = proxy_insert_score(
                     decoded=decoded,
                     state=state,
@@ -653,13 +796,11 @@ def generate_hgtsa_lite_neighbors(
                     source_index=old_index,
                 )
                 remember(
-                    Move("hgtsa_n8_before_block", op, machine_id, machine_id, old_index, target_index),
+                    Move("hgtsa_n8_front", op, machine_id, machine_id, old_index, target_index),
                     relocate_same_machine(state, machine_id, old_index, target_index),
                     score,
                 )
-            for target_index in after_targets:
-                if target_index in block_set:
-                    continue
+            for target_index in range(last_index + 1, len(sequence)):
                 insert_pos = target_index + 1
                 score = proxy_insert_score(
                     decoded=decoded,
@@ -674,12 +815,59 @@ def generate_hgtsa_lite_neighbors(
                     source_index=old_index,
                 )
                 remember(
-                    Move("hgtsa_n8_after_block", op, machine_id, machine_id, old_index, insert_pos),
+                    Move("hgtsa_n8_back", op, machine_id, machine_id, old_index, insert_pos),
                     relocate_same_machine(state, machine_id, old_index, insert_pos),
                     score,
                 )
 
-    critical_limit = max(8, min(len(critical), neighbor_limit // 3))
+        # N7/N8 internal moves with the standard first/last-block pruning
+        # rules.  These are separate from the outside-block moves above.
+        internal_moves: list[tuple[int, int, str]] = []
+        if block_size == 2:
+            internal_moves.append((positions[0], positions[1] + 1, "hgtsa_n8_pair_back"))
+        else:
+            for j in range(2, block_size):
+                internal_moves.append((positions[0], positions[j] + 1, "hgtsa_n8_first_back"))
+            for j in range(block_size - 2, -1, -1):
+                internal_moves.append((positions[-1], positions[j], "hgtsa_n8_last_front"))
+            for j in range(1, block_size - 1):
+                internal_moves.append((positions[j], positions[0], "hgtsa_n8_mid_front"))
+                internal_moves.append((positions[j], positions[-1] + 1, "hgtsa_n8_mid_back"))
+
+        for old_index, insert_pos, kind in internal_moves:
+            if old_index == insert_pos:
+                continue
+            if block_index == 0 and old_index == first_index and insert_pos > old_index:
+                continue
+            if block_index == 0 and old_index > first_index and insert_pos <= first_index:
+                continue
+            if block_index == last_block_index and old_index == last_index and insert_pos < old_index:
+                continue
+            if block_index == last_block_index and old_index < last_index and insert_pos > last_index:
+                continue
+            op = sequence[old_index]
+            score = proxy_insert_score(
+                decoded=decoded,
+                state=state,
+                record_by_op=record_by_op,
+                tail_after=tail_after,
+                specs=specs,
+                op=op,
+                target_machine=machine_id,
+                insert_pos=insert_pos,
+                source_machine=machine_id,
+                source_index=old_index,
+            )
+            remember(
+                Move(kind, op, machine_id, machine_id, old_index, insert_pos),
+                relocate_same_machine(state, machine_id, old_index, insert_pos),
+                score,
+            )
+
+        if len(scored) >= neighbor_limit * 10:
+            break
+
+    critical_limit = max(12, min(len(critical), max(len(path), neighbor_limit // 2)))
     for op in critical[:critical_limit]:
         from_machine = state.assignment[op]
         source_sequence = state.machine_sequences[from_machine]
@@ -687,31 +875,20 @@ def generate_hgtsa_lite_neighbors(
             old_index = source_sequence.index(op)
         except ValueError:
             continue
-        record = record_by_op[op]
         candidate_machines = sorted(
             (machine_id for machine_id in specs[op] if machine_id != from_machine),
             key=lambda machine_id: (specs[op][machine_id], machine_load[machine_id], machine_id),
         )
         for to_machine in candidate_machines:
-            target_sequence = state.machine_sequences[to_machine]
-            positions: set[int] = {0, len(target_sequence)}
-
-            start_pivot = len(target_sequence)
-            ready_pivot = len(target_sequence)
-            job_ready = job_predecessor_ready(record_by_op, op)
-            for index, target_op in enumerate(target_sequence):
-                target_record = record_by_op[target_op]
-                if target_record.start >= record.start and start_pivot == len(target_sequence):
-                    start_pivot = index
-                if target_record.end >= job_ready and ready_pivot == len(target_sequence):
-                    ready_pivot = index
-                if target_op in path_set:
-                    positions.update({index - 1, index, index + 1, index + 2})
-            for pivot in (start_pivot, ready_pivot):
-                positions.update({pivot - 3, pivot - 2, pivot - 1, pivot, pivot + 1, pivot + 2, pivot + 3})
-
-            filtered_positions = sorted(position for position in positions if 0 <= position <= len(target_sequence))
-            for insert_pos in filtered_positions:
+            for insert_pos in awls_insert_positions(
+                state=state,
+                record_by_op=record_by_op,
+                duration=duration,
+                tail_after=tail_after,
+                specs=specs,
+                op=op,
+                target_machine=to_machine,
+            ):
                 score = proxy_insert_score(
                     decoded=decoded,
                     state=state,
@@ -731,6 +908,25 @@ def generate_hgtsa_lite_neighbors(
                 )
         if len(scored) >= neighbor_limit * 8:
             break
+
+    if len(scored) < neighbor_limit:
+        fallback_moves = generate_structured_neighbors(instance, state, decoded, rng, neighbor_limit)
+        fallback_score = decoded.makespan + 100.0
+        for move, next_state in fallback_moves:
+            remember(
+                Move(
+                    f"hgtsa_fallback_{move.kind}",
+                    move.op,
+                    move.from_machine,
+                    move.to_machine,
+                    move.from_index,
+                    move.to_index,
+                ),
+                next_state,
+                fallback_score + rng.random(),
+            )
+            if len(scored) >= neighbor_limit:
+                break
 
     if not scored:
         return []
