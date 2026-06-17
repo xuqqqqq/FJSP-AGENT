@@ -8,6 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .agentic_review import (
+    AgenticJudgment,
+    ErrorAnalysis,
+    analyze_rejected_judgment,
+    analyze_run_summary,
+    judge_worker_result,
+)
 from .graph_runner import GraphHarnessRunner
 from .models import TaskContract, resolve_project_path
 from .runner import RunSummary
@@ -22,6 +29,8 @@ class WorkerCycleResult:
     harness_output_dir: Path
     delta_path: Path
     patch_path: Path
+    agentic_judgment: AgenticJudgment
+    agentic_error_analysis: ErrorAnalysis | None
 
 
 def run_worker_cycle(
@@ -68,11 +77,35 @@ def run_worker_cycle(
         delta=delta,
         output_dir=output_dir,
     )
-    runner = GraphHarnessRunner(contract=contract, project_root=worktree_path, output_dir=harness_output_dir)
-    try:
-        summary = runner.run()
-    finally:
-        runner.close()
+    agentic_judgment = judge_worker_result(
+        worker_result=worker_result,
+        worktree_path=worktree_path,
+        context_packet_path=context_packet_path,
+        output_dir=output_dir,
+        apply_worker_changes=apply_worker_changes,
+    )
+    agentic_error_analysis: ErrorAnalysis | None = None
+    if not agentic_judgment.accepted:
+        summary = RunSummary(
+            total=0,
+            valid=0,
+            failed=0,
+            best_experiment_id=None,
+            best_metrics={},
+            best_candidate_id=None,
+            best_candidate_metrics=None,
+            candidate_summaries=[],
+            pareto_frontier=[],
+            validation_summary={"agentic_judgment": agentic_judgment.to_payload()},
+        )
+        agentic_error_analysis = analyze_rejected_judgment(judgment=agentic_judgment, output_dir=output_dir)
+    else:
+        runner = GraphHarnessRunner(contract=contract, project_root=worktree_path, output_dir=harness_output_dir)
+        try:
+            summary = runner.run()
+        finally:
+            runner.close()
+        agentic_error_analysis = analyze_run_summary(summary=summary, output_dir=output_dir)
     write_cycle_report(
         output_dir=output_dir,
         worker_result=worker_result,
@@ -82,6 +115,8 @@ def run_worker_cycle(
         delta=delta,
         delta_path=delta_path,
         patch_path=patch_path,
+        agentic_judgment=agentic_judgment,
+        agentic_error_analysis=agentic_error_analysis,
     )
     return WorkerCycleResult(
         worker_result=worker_result,
@@ -90,6 +125,8 @@ def run_worker_cycle(
         harness_output_dir=harness_output_dir,
         delta_path=delta_path,
         patch_path=patch_path,
+        agentic_judgment=agentic_judgment,
+        agentic_error_analysis=agentic_error_analysis,
     )
 
 
@@ -127,6 +164,8 @@ def write_cycle_report(
     delta: dict[str, Any],
     delta_path: Path,
     patch_path: Path,
+    agentic_judgment: AgenticJudgment,
+    agentic_error_analysis: ErrorAnalysis | None,
 ) -> None:
     payload: dict[str, Any] = {
         "worker": {
@@ -152,6 +191,8 @@ def write_cycle_report(
             "worktree_patch": str(patch_path),
         },
         "worktree_delta": delta,
+        "agentic_judgment": agentic_judgment.to_payload(),
+        "agentic_error_analysis": agentic_error_analysis.to_payload() if agentic_error_analysis else None,
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "cycle_result.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -167,6 +208,26 @@ def write_cycle_report(
         f"- Delta artifact: `{delta_path}`",
         f"- Patch artifact: `{patch_path}`",
         "",
+        "## Agentic Judgment",
+        "",
+        f"- Accepted: `{agentic_judgment.accepted}`",
+        f"- Issues: `{json.dumps(agentic_judgment.issues, ensure_ascii=False)}`",
+        f"- Suggestions: `{json.dumps(agentic_judgment.suggestions, ensure_ascii=False)}`",
+    ]
+    if agentic_error_analysis:
+        lines.extend(
+            [
+                "",
+                "## Agentic Error Analysis",
+                "",
+                f"- Source: `{agentic_error_analysis.source}`",
+                f"- Diagnosis: `{json.dumps(agentic_error_analysis.diagnosis, ensure_ascii=False)}`",
+                f"- Suggestions: `{json.dumps(agentic_error_analysis.suggestions, ensure_ascii=False)}`",
+            ]
+        )
+    lines.extend(
+        [
+        "",
         "## Harness",
         "",
         f"- Total: {summary.total}",
@@ -178,7 +239,8 @@ def write_cycle_report(
         f"- Best candidate metrics: `{json.dumps(summary.best_candidate_metrics or {}, ensure_ascii=False)}`",
         "",
         "The worker result is not a success verdict. The harness metrics above are the Core evaluation result for this cycle.",
-    ]
+        ]
+    )
     (output_dir / "cycle_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 

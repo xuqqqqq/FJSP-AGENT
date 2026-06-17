@@ -9,6 +9,7 @@ from harness_agent.context_packet import ContextPacketRequest, write_context_pac
 from harness_agent.loop_runner import run_worker_loop
 from harness_agent.models import TaskContract
 from harness_agent.worker import NullWorker, WorkerCapabilities, WorkerResult
+from harness_agent.worker_cycle import run_worker_cycle
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -104,6 +105,44 @@ class ProposalAuditWorker:
             changed_files=[],
             summary="Proposal artifact was written for diagnostics.",
             artifacts={"proposal": str(proposal_path)},
+        )
+
+
+class BadStandardParserWorker:
+    """Test worker that should be rejected by the code judgment gate."""
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="bad-standard-parser",
+            supports_code_generation=True,
+            supports_repair=False,
+            supports_structured_output=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        solver_path = Path(spec.worktree_path) / "examples" / "standard_fjsp_portfolio_solver.py"
+        solver_path.write_text(
+            "\n".join(
+                [
+                    "from __future__ import annotations",
+                    "",
+                    "def parse_instance(path):",
+                    "    return {'jobs': []}",
+                    "",
+                    "def main():",
+                    "    parse_instance('dummy')",
+                    "",
+                    "if __name__ == '__main__':",
+                    "    main()",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return WorkerResult(
+            status="ok",
+            changed_files=["examples/standard_fjsp_portfolio_solver.py"],
+            summary="Replace the standard solver with a custom parser.",
         )
 
 
@@ -218,6 +257,31 @@ class WorkerLoopTests(unittest.TestCase):
 
             loop_result = json.loads((tmp_path / "loop" / "loop_result.json").read_text(encoding="utf-8"))
             self.assertEqual("ok", loop_result["rounds"][0]["proposal_diagnostics"]["status"])
+
+    def test_code_judgment_rejects_standard_parser_reimplementation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+
+            result = run_worker_cycle(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "cycle",
+                context_packet_path=context_path,
+                worker=BadStandardParserWorker(),
+                experiment_id="test_bad_parser",
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+            )
+
+            self.assertFalse(result.agentic_judgment.accepted)
+            self.assertIn("standard_fjsp_parser_reimplementation_detected", result.agentic_judgment.issues)
+            self.assertEqual(0, result.summary.total)
+            self.assertIsNotNone(result.agentic_error_analysis)
+            self.assertTrue((tmp_path / "cycle" / "agentic_judgment.json").exists())
+            self.assertTrue((tmp_path / "cycle" / "agentic_error_analysis.md").exists())
 
 
 def _write_test_context(tmp_path: Path) -> Path:

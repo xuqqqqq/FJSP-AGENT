@@ -95,7 +95,13 @@ class DeepSeekWorker(CodingWorker):
         )
         raw_path = output_dir / "deepseek_code_edit_raw.json"
         raw_path.write_text(content, encoding="utf-8")
-        proposal = self._normalize_code_edit_proposal(extract_json_object(content), context)
+        try:
+            raw_proposal = extract_json_object(content)
+        except json.JSONDecodeError as exc:
+            repaired = self._repair_code_edit_json(client, content, str(exc), max_tokens=7000)
+            (output_dir / "deepseek_code_edit_repair_response.json").write_text(repaired, encoding="utf-8")
+            raw_proposal = extract_json_object(repaired)
+        proposal = self._normalize_code_edit_proposal(raw_proposal, context)
         proposal_path = output_dir / "proposal.json"
         proposal_path.write_text(json.dumps(proposal, ensure_ascii=False, indent=2), encoding="utf-8")
         markdown_path = output_dir / "proposal.md"
@@ -346,6 +352,10 @@ Rules:
 - Only propose edits under edit_policy.allowed_paths.
 - Never propose edits under edit_policy.forbidden_paths or .git/outputs.
 - Prefer one small, complete file over many partial edits.
+- Preserve existing parser, validator, evaluator, and benchmark semantics unless
+  the task contract explicitly asks to implement those surfaces.  For standard
+  FJSP runs, prefer importing the existing parser/evaluator helpers instead of
+  reimplementing machine-index or duration parsing.
 - If project_intake is present, use it to identify entry files, core solver
   files, evaluator/validator files, and test commands before choosing edits.
 - In context_usage, explicitly list the project_intake files or commands that
@@ -372,6 +382,31 @@ Rules:
 Context packet:
 {compact_context[:26000]}
 """.strip()
+
+    def _repair_code_edit_json(self, client: DeepSeekClient, raw: str, error: str, max_tokens: int) -> str:
+        return client.chat(
+            [
+                {
+                    "role": "system",
+                    "content": "Repair malformed JSON. Return compact valid JSON only, with no Markdown.",
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "The following AlgoForge code-edit proposal was invalid JSON. "
+                        "Repair only the JSON structure. Preserve the proposed strategy and code content as much as possible, "
+                        "but if full file content is truncated or impossible to repair, return an empty changes list and explain the risk. "
+                        "Use exactly these top-level keys: summary, strategy_intent, rule_operator_hypotheses, changes, context_usage, quick_test_plan, risk_notes. "
+                        "Each change must use path, action, content, rationale. Return JSON only.\n\n"
+                        f"JSON error: {error}\n\n"
+                        f"Invalid response:\n{raw[:9000]}"
+                    ),
+                },
+            ],
+            temperature=0.0,
+            max_tokens=max_tokens,
+            json_mode=True,
+        )
 
     def _normalize_code_edit_proposal(self, proposal: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
         normalized_changes: list[dict[str, str]] = []

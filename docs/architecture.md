@@ -35,6 +35,10 @@ The worker is the unstable part:
 | `GraphHarnessRunner` | LangGraph orchestration wrapper around the deterministic runner. |
 | `ExperimentLedger` | SQLite-backed fact source for every experiment. |
 | `CodingWorker` | Interface for DeepSeek/Codex/OpenCode/Pi-style proposal backends. |
+| `DescriptionJudge` | Judgment node that checks whether a generated problem card matches the source documents and instance. |
+| `CodeJudge` | Judgment node that checks a worker proposal and changed files before expensive evaluator execution. |
+| `RevisionAgent` | Repair node that revises descriptions or code from judge feedback. |
+| `ErrorAnalysisAgent` | Execution-diagnosis node that turns runtime/evaluator failures into concrete repair guidance. |
 
 ## 3. Main-Agent Framework
 
@@ -42,15 +46,22 @@ The main agent uses LangGraph as the orchestration framework.  LangGraph is not
 the optimizer; it is the state machine that makes each step explicit:
 
 1. ingest requirement and IO documents;
-2. ask a worker or template generator for a strategy profile;
-3. split the profile into strategy candidates;
-4. build one task contract per candidate;
-5. run solver commands through the harness;
-6. run the fixed evaluator;
-7. compare candidate metrics;
-8. write the ledger, report, and reflection;
-9. append a structured hypothesis record;
-10. decide whether another round should be executed.
+2. generate a structured problem card from the documents and instance;
+3. ask a judgment node to verify that the card is consistent with the source
+   documents and instance context;
+4. revise the card until the judgment node accepts it, or mark the task blocked
+   with explicit reasons;
+5. ask a worker or template generator for a strategy profile or code-edit
+   proposal;
+6. judge the proposal and changed files before evaluator execution;
+7. revise rejected descriptions or code with judge feedback;
+8. run solver commands through the harness only after the pre-execution judgment
+   accepts the candidate;
+9. run the fixed evaluator and, if execution fails, generate an error-analysis
+   report for the next revision;
+10. compare candidate metrics, write the ledger/report/reflection, append a
+    structured hypothesis record, and decide whether another round should be
+    executed.
 
 This separation is intentional.  It keeps the evolving part of the system
 replaceable while preserving deterministic evaluation and reproducibility.
@@ -69,7 +80,73 @@ Document parsing, domain routing, reflection, and candidate review are graph
 nodes or core services, not separate default agents.  This avoids unnecessary
 multi-agent coordination overhead while keeping the loop auditable.
 
-## 4. Worker Backends
+## 4. Judgment, Revision, and Error-Analysis Layer
+
+The framework follows a judge-and-revise loop inspired by recent agentic
+optimization systems.  The design goal is not to let another LLM replace the
+fixed evaluator.  Instead, the additional nodes reduce avoidable bad executions
+and convert failures into structured repair guidance.
+
+The problem-description loop produces a `ProblemCard` from documents and
+instances.  For FJSP-style tasks, the card should explicitly name the operation
+set, candidate machines, precedence relations, optional path choices, setup
+semantics, release/maintenance windows, batching rules, transport rules,
+objective metrics, and output schema.  `DescriptionJudge` checks this card
+against the source text and instance context.  If any conflict is found, the
+instance and source documents are treated as ground truth and `RevisionAgent`
+rewrites only the inconsistent parts.  The task does not move to code
+generation until the card is accepted or the blocker is recorded.
+
+The code-generation loop uses workers as generation agents.  A worker may
+propose dispatch-rule edits, local-search operators, repair rules, parameter
+policies, or complete solver files.  `CodeJudge` runs before the fixed evaluator
+and checks the generated proposal for:
+
+- parseable structured output;
+- allowed edit paths and forbidden-path violations;
+- syntax errors in changed Python files;
+- inconsistent input/output handling;
+- missing actual code changes when the round was expected to edit code;
+- mismatch between declared rule/operator hypotheses and edited files;
+- suspicious edits to validator, evaluator, benchmark, or generated-output
+  surfaces;
+- obvious placeholder implementations that contradict the proposal intent.
+
+If the judgment is negative, `RevisionAgent` receives the judge explanation and
+the original context packet.  It should produce a smaller repair proposal rather
+than start over blindly.  This is especially important for standard FJSP
+experiments, where reimplementing parsers or validators can create false
+machine-index, duration, or candidate-machine errors.
+
+The solution-derivation loop still delegates final truth to the evaluator.  If
+solver execution, evaluator execution, or validity checking fails,
+`ErrorAnalysisAgent` summarizes the concrete failure class and suggests the next
+repair action.  Examples include malformed worker JSON, Python syntax errors,
+timeout, missing metrics file, invalid solution, incomplete operation coverage,
+machine-not-candidate errors, duration mismatch, or objective-metric absence.
+The next worker round receives this diagnosis as repair context, but promotion
+remains evaluator-backed only.
+
+The minimum accepted artifact set for a code-evolution round is therefore:
+
+```text
+context_packet.json
+worker/proposal.json
+agentic_judgment.json
+agentic_judgment.md
+harness/report.md or agentic_error_analysis.md
+cycle_result.json
+worker_changes.patch
+```
+
+This layer addresses a failure mode observed in early worker-loop experiments:
+a worker can produce code that looks plausible in prose but breaks parser
+semantics, returns malformed JSON, or contains no executable implementation of
+the claimed local-search rule.  The judge-and-revise layer catches these issues
+before they consume evaluator budget and makes the next repair instruction
+machine-readable.
+
+## 5. Worker Backends
 
 Worker backends are proposal engines, not judges.
 
@@ -241,7 +318,7 @@ reports lane-level gap and promotion deltas.  This creates a first-class
 experimental surface for answering whether loop memory improves proposals,
 without relying on informal manual comparisons.
 
-## 5. Hypothesis Memory
+## 6. Hypothesis Memory
 
 The self-evolution loop needs more than free-form reflection text.  Each
 standard-agent round appends a JSONL hypothesis record with:
@@ -265,7 +342,7 @@ written as JSON and Markdown, then injected into the next strategy-generation
 context.  These decisions guide exploration; they do not accept candidates
 without evaluator confirmation.
 
-## 6. Strategy-Candidate Evaluation
+## 7. Strategy-Candidate Evaluation
 
 A single LLM response may contain multiple heuristic ideas.  The agent therefore
 does not trust the merged response blindly.  It creates bounded strategy
@@ -279,7 +356,7 @@ Each candidate receives its own task contract and harness output directory.  The
 selected candidate is the one with the best evaluator-backed score, usually
 lowest average best-known gap when `Best.csv` is available.
 
-## 7. Contract-Driven Execution
+## 8. Contract-Driven Execution
 
 The harness should never hard-code a single metric such as makespan, production
 weight, or setup count.  Metrics come from the task contract, which should be
@@ -362,7 +439,7 @@ For standard FJSP benchmarks, the evaluator can also load a best-known CSV.
 When the evaluated instance name appears in the table, the metrics include both
 `best_known_makespan` and `gap_pct`.
 
-## 8. Operator-Profile Evolution
+## 9. Operator-Profile Evolution
 
 The standard FJSP solver exposes two separate evolution surfaces:
 
