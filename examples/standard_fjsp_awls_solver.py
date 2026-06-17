@@ -45,6 +45,21 @@ class Move:
     where: int
 
 
+@dataclass(frozen=True)
+class PortfolioLane:
+    """One independent AWLS search lane.
+
+    C++ AWLS is stochastic: different seeds and initialization policies can
+    land in very different basins.  A portfolio keeps that behavior explicit
+    instead of hiding it in repeated manual runs.
+    """
+
+    seed: int
+    init_mode: str
+    restarts: int
+    time_limit_sec: float | None = None
+
+
 @dataclass
 class OperationIndex:
     instance: StandardFjspInstance
@@ -142,6 +157,7 @@ class AwlsSchedule:
         self.makespan = 0
         self.op_weight = [initial_weight] * n
         self.op_cooldown = [0] * n
+        self.same_machine_eval = "stable"
         self.update_time()
 
     def clone(self) -> "AwlsSchedule":
@@ -167,6 +183,7 @@ class AwlsSchedule:
         cloned.makespan = self.makespan
         cloned.op_weight = list(self.op_weight)
         cloned.op_cooldown = list(self.op_cooldown)
+        cloned.same_machine_eval = self.same_machine_eval
         return cloned
 
     def rebuild_machine_links(self) -> None:
@@ -508,6 +525,14 @@ def weight_perturbation(schedule: AwlsSchedule, node: int, gamma: int) -> float:
     return max(0.0, 1.0 - schedule.op_cooldown[node] / rr) * weight
 
 
+def operation_tail(schedule: AwlsSchedule, node: int) -> int:
+    """Return C++-style Q tail contribution for a successor operation."""
+
+    if node <= START_NODE or node >= schedule.index.end_node:
+        return 0
+    return schedule.backward_path_length[node] + schedule.index.duration(node, schedule.on_machine[node])
+
+
 def local_sequence_after_same_machine_move(schedule: AwlsSchedule, move: Move) -> tuple[list[int], int | None, int | None]:
     machine_id = schedule.on_machine[move.which]
     sequence = schedule.machine_sequences[machine_id]
@@ -531,7 +556,7 @@ def local_sequence_after_same_machine_move(schedule: AwlsSchedule, move: Move) -
     return new_sequence, predecessor, successor
 
 
-def same_machine_evaluate(schedule: AwlsSchedule, move: Move, gamma: int) -> float:
+def same_machine_evaluate_stable(schedule: AwlsSchedule, move: Move, gamma: int) -> float:
     new_sequence, machine_predecessor, machine_successor = local_sequence_after_same_machine_move(schedule, move)
     n = len(new_sequence)
     new_r = [0] * n
@@ -576,6 +601,111 @@ def same_machine_evaluate(schedule: AwlsSchedule, move: Move, gamma: int) -> flo
             new_r[idx] + schedule.index.duration(node, machine_id) + new_q[idx] + weight_perturbation(schedule, node, gamma),
         )
     return value
+
+
+def same_machine_evaluate_cpp_fast(schedule: AwlsSchedule, move: Move, gamma: int) -> float:
+    """Approximate same-machine move evaluation used by the C++ AWLS branch.
+
+    This deliberately mirrors the active non-EVALUATE_1 branch in the reference
+    C++ framework.  It is less symmetric than the stable local R/Q evaluator,
+    but the rough ordering can steer tabu search through different basins.
+    """
+
+    if move.method == FRONT:
+        new_sequence = [move.which]
+        node = move.where
+        while node != move.which:
+            new_sequence.append(node)
+            node = schedule.machine_successor[node]
+        n = len(new_sequence)
+        new_r = [0] * n
+        new_q = [0] * n
+
+        job_predecessor = schedule.job_predecessor[move.which]
+        machine_predecessor = schedule.machine_predecessor[move.where]
+        new_r[0] = schedule.end_time[job_predecessor]
+        if machine_predecessor != -1:
+            new_r[0] = max(new_r[0], schedule.end_time[machine_predecessor])
+        for idx in range(1, n):
+            op = new_sequence[idx]
+            job_predecessor = schedule.job_predecessor[op]
+            prev = new_sequence[idx - 1]
+            new_r[idx] = max(
+                schedule.end_time[job_predecessor],
+                new_r[idx - 1] + schedule.index.duration(prev, schedule.on_machine[prev]),
+            )
+
+        last = new_sequence[-1]
+        job_successor = schedule.job_successor[last]
+        new_q[-1] = operation_tail(schedule, job_successor)
+        machine_successor = schedule.machine_successor[move.which]
+        if machine_successor != -1:
+            new_q[-1] = max(new_q[-1], operation_tail(schedule, machine_successor))
+        for idx in range(n - 2, -1, -1):
+            op = new_sequence[idx]
+            job_successor = schedule.job_successor[op]
+            nxt = new_sequence[idx + 1]
+            new_q[idx] = max(
+                operation_tail(schedule, job_successor),
+                new_q[idx + 1] + schedule.index.duration(nxt, schedule.on_machine[nxt]),
+            )
+    elif move.method == BACK:
+        new_sequence = [move.which]
+        node = move.where
+        while node != move.which:
+            new_sequence.append(node)
+            node = schedule.machine_predecessor[node]
+        n = len(new_sequence)
+        new_r = [0] * n
+        new_q = [0] * n
+
+        job_successor = schedule.job_successor[move.which]
+        machine_successor = schedule.machine_successor[move.where]
+        new_q[0] = operation_tail(schedule, job_successor)
+        if machine_successor != -1:
+            new_q[0] = max(new_q[0], operation_tail(schedule, machine_successor))
+        for idx in range(1, n):
+            op = new_sequence[idx]
+            job_successor = schedule.job_successor[op]
+            prev = new_sequence[idx - 1]
+            new_q[idx] = max(
+                operation_tail(schedule, job_successor),
+                new_q[idx - 1] + schedule.index.duration(prev, schedule.on_machine[prev]),
+            )
+
+        last = new_sequence[-1]
+        job_predecessor = schedule.job_predecessor[last]
+        machine_predecessor = schedule.machine_predecessor[move.which]
+        new_r[-1] = schedule.end_time[job_predecessor]
+        if machine_predecessor != -1:
+            new_r[-1] = max(new_r[-1], schedule.end_time[machine_predecessor])
+        for idx in range(n - 2, -1, -1):
+            op = new_sequence[idx]
+            job_predecessor = schedule.job_predecessor[op]
+            nxt = new_sequence[idx + 1]
+            new_r[idx] = max(
+                schedule.end_time[job_predecessor],
+                new_r[idx + 1] + schedule.index.duration(nxt, schedule.on_machine[nxt]),
+            )
+    else:
+        raise ValueError("not a same-machine move")
+
+    value = 0.0
+    for idx, node in enumerate(new_sequence):
+        value = max(
+            value,
+            new_r[idx]
+            + schedule.index.duration(node, schedule.on_machine[node])
+            + new_q[idx]
+            + weight_perturbation(schedule, node, gamma),
+        )
+    return value
+
+
+def same_machine_evaluate(schedule: AwlsSchedule, move: Move, gamma: int, eval_mode: str) -> float:
+    if eval_mode == "cpp-fast":
+        return same_machine_evaluate_cpp_fast(schedule, move, gamma)
+    return same_machine_evaluate_stable(schedule, move, gamma)
 
 
 def change_machine_intersection(schedule: AwlsSchedule, node: int, candidate_machine: int) -> tuple[list[int], list[int], list[int]]:
@@ -770,7 +900,7 @@ def evaluate_and_push(
         if move.method in (FRONT, BACK):
             if not is_legal_same_machine_move(schedule, move):
                 return
-            value = same_machine_evaluate(schedule, move, gamma)
+            value = same_machine_evaluate(schedule, move, gamma, schedule.same_machine_eval)
         else:
             value = change_machine_evaluate(schedule, move, intersection or [], gamma)
     except (ValueError, KeyError):
@@ -1064,8 +1194,10 @@ def tabu_search(
     gamma: int,
     theta: int,
     exact_select_top_k: int,
+    same_machine_eval: str,
 ) -> AwlsSchedule:
     current = initial
+    current.same_machine_eval = same_machine_eval
     best = initial.clone()
     tabu = SequenceTabuList(current.index.instance.machine_count)
     tenure_min = max(1, 10 + current.index.instance.job_count // max(1, current.index.instance.machine_count))
@@ -1117,8 +1249,57 @@ def build_initial_schedule(index: OperationIndex, rng: random.Random, restart: i
     return AwlsSchedule(index, sequences, on_machine, rng)
 
 
-def solve_awls(
-    instance: StandardFjspInstance,
+def parse_portfolio_lanes(raw: str) -> list[PortfolioLane]:
+    """Parse comma-separated portfolio lane specs.
+
+    Format: ``seed:init:restarts[:seconds]``.  Example:
+    ``17:random:2:20,5:random:4:60,23:mixed:2:20``.
+    """
+
+    lanes: list[PortfolioLane] = []
+    for chunk in raw.split(","):
+        text = chunk.strip()
+        if not text:
+            continue
+        parts = text.split(":")
+        if len(parts) not in (3, 4):
+            raise ValueError(f"invalid portfolio lane {text!r}; expected seed:init:restarts[:seconds]")
+        seed = int(parts[0])
+        init_mode = parts[1]
+        if init_mode not in {"random", "greedy", "mixed"}:
+            raise ValueError(f"invalid lane init mode {init_mode!r}; expected random, greedy, or mixed")
+        restarts = max(1, int(parts[2]))
+        seconds = float(parts[3]) if len(parts) == 4 else None
+        if seconds is not None and seconds <= 0:
+            raise ValueError(f"invalid lane time limit {seconds!r}; expected a positive value")
+        lanes.append(PortfolioLane(seed=seed, init_mode=init_mode, restarts=restarts, time_limit_sec=seconds))
+    return lanes
+
+
+def allocate_lane_budgets(lanes: list[PortfolioLane], time_limit_sec: float) -> list[float]:
+    """Allocate per-lane wall-clock budgets while respecting a global cap when present."""
+
+    if time_limit_sec <= 0:
+        return [lane.time_limit_sec if lane.time_limit_sec is not None else 0.0 for lane in lanes]
+
+    specified = sum(lane.time_limit_sec or 0.0 for lane in lanes)
+    unspecified_count = sum(1 for lane in lanes if lane.time_limit_sec is None)
+    if unspecified_count:
+        remaining = max(0.1 * unspecified_count, time_limit_sec - specified)
+        default_budget = remaining / unspecified_count
+    else:
+        default_budget = 0.0
+
+    budgets = [lane.time_limit_sec if lane.time_limit_sec is not None else default_budget for lane in lanes]
+    total = sum(budgets)
+    if total > time_limit_sec:
+        scale = time_limit_sec / total
+        budgets = [max(0.1, budget * scale) for budget in budgets]
+    return budgets
+
+
+def solve_awls_single(
+    index: OperationIndex,
     seed: int,
     restarts: int,
     cycles_per_restart: int,
@@ -1129,8 +1310,8 @@ def solve_awls(
     gamma: int,
     theta: int,
     exact_select_top_k: int,
-) -> tuple[list[ScheduleRecord], str]:
-    index = OperationIndex.from_instance(instance)
+    same_machine_eval: str,
+) -> AwlsSchedule:
     rng = random.Random(seed)
     best: AwlsSchedule | None = None
     deadline = time.perf_counter() + time_limit_sec if time_limit_sec > 0 else None
@@ -1151,16 +1332,94 @@ def solve_awls(
             if restart_deadline is not None and remaining_cycle_time <= 0:
                 break
             per_cycle_limit = remaining_cycle_time if restart_deadline is not None else 0.0
-            improved = tabu_search(population, iterations, per_cycle_limit, beta, gamma, theta, exact_select_top_k)
+            improved = tabu_search(
+                population,
+                iterations,
+                per_cycle_limit,
+                beta,
+                gamma,
+                theta,
+                exact_select_top_k,
+                same_machine_eval,
+            )
             population = improved.clone()
             if best is None or improved.makespan < best.makespan:
                 best = improved.clone()
 
     if best is None:
         raise RuntimeError("AWLS failed to build an initial schedule")
+    return best
+
+
+def solve_awls(
+    instance: StandardFjspInstance,
+    seed: int,
+    restarts: int,
+    cycles_per_restart: int,
+    iterations: int,
+    time_limit_sec: float,
+    init_mode: str,
+    beta: int,
+    gamma: int,
+    theta: int,
+    exact_select_top_k: int,
+    same_machine_eval: str = "stable",
+    portfolio_lanes: list[PortfolioLane] | None = None,
+) -> tuple[list[ScheduleRecord], str]:
+    index = OperationIndex.from_instance(instance)
+    if portfolio_lanes:
+        lane_budgets = allocate_lane_budgets(portfolio_lanes, time_limit_sec)
+        best: AwlsSchedule | None = None
+        best_lane: PortfolioLane | None = None
+        lane_summaries: list[str] = []
+        for lane, lane_budget in zip(portfolio_lanes, lane_budgets, strict=True):
+            candidate = solve_awls_single(
+                index,
+                seed=lane.seed,
+                restarts=lane.restarts,
+                cycles_per_restart=cycles_per_restart,
+                iterations=iterations,
+                time_limit_sec=lane_budget,
+                init_mode=lane.init_mode,
+                beta=beta,
+                gamma=gamma,
+                theta=theta,
+                exact_select_top_k=exact_select_top_k,
+                same_machine_eval=same_machine_eval,
+            )
+            lane_summaries.append(
+                f"{lane.seed}/{lane.init_mode}/r{lane.restarts}/t{lane_budget:.1f}=m{candidate.makespan}"
+            )
+            if best is None or candidate.makespan < best.makespan:
+                best = candidate.clone()
+                best_lane = lane
+        if best is None or best_lane is None:
+            raise RuntimeError("AWLS portfolio did not run any lane")
+        label = (
+            "awls-portfolio:"
+            f"selected={best_lane.seed}/{best_lane.init_mode}/r{best_lane.restarts}:"
+            f"cycles={cycles_per_restart}:iterations={iterations}:eval={same_machine_eval}:makespan={best.makespan}:"
+            f"lanes={'|'.join(lane_summaries)}"
+        )
+        return best.to_records(), label
+
+    best = solve_awls_single(
+        index,
+        seed=seed,
+        restarts=restarts,
+        cycles_per_restart=cycles_per_restart,
+        iterations=iterations,
+        time_limit_sec=time_limit_sec,
+        init_mode=init_mode,
+        beta=beta,
+        gamma=gamma,
+        theta=theta,
+        exact_select_top_k=exact_select_top_k,
+        same_machine_eval=same_machine_eval,
+    )
     label = (
         f"awls:init={init_mode}:restarts={restarts}:cycles={cycles_per_restart}:"
-        f"iterations={iterations}:seed={seed}:makespan={best.makespan}"
+        f"iterations={iterations}:seed={seed}:eval={same_machine_eval}:makespan={best.makespan}"
     )
     return best.to_records(), label
 
@@ -1179,10 +1438,17 @@ def main() -> int:
     parser.add_argument("--gamma", type=int, default=40)
     parser.add_argument("--theta", type=int, default=5)
     parser.add_argument("--exact-select-top-k", type=int, default=0)
+    parser.add_argument("--same-machine-eval", choices=("stable", "cpp-fast"), default="stable")
+    parser.add_argument(
+        "--portfolio-lanes",
+        default="",
+        help="Comma-separated lanes: seed:init:restarts[:seconds], for example 17:random:2:20,5:mixed:2:20.",
+    )
     args = parser.parse_args()
 
     start = time.perf_counter()
     instance = parse_standard_fjsp(args.input)
+    portfolio_lanes = parse_portfolio_lanes(args.portfolio_lanes) if args.portfolio_lanes else None
     schedule, strategy = solve_awls(
         instance,
         seed=args.seed,
@@ -1195,6 +1461,8 @@ def main() -> int:
         gamma=args.gamma,
         theta=args.theta,
         exact_select_top_k=args.exact_select_top_k,
+        same_machine_eval=args.same_machine_eval,
+        portfolio_lanes=portfolio_lanes,
     )
     errors, metrics = validate_standard_schedule(instance, schedule)
     if errors:

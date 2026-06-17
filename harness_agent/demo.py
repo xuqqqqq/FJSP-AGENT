@@ -41,6 +41,7 @@ class StandardDemoRequest:
     awls_beta: int = 500
     awls_gamma: int = 40
     awls_theta: int = 5
+    awls_portfolio_lanes: str = ""
     strategy_candidates: int = 2
     profile_mode: str = "template"
     deepseek_model: str = "deepseek-v4-pro"
@@ -86,6 +87,7 @@ def run_standard_demo(request: StandardDemoRequest) -> dict[str, Any]:
         awls_beta=max(1, request.awls_beta),
         awls_gamma=max(1, request.awls_gamma),
         awls_theta=max(0, request.awls_theta),
+        awls_portfolio_lanes=request.awls_portfolio_lanes,
         strategy_candidates=max(1, request.strategy_candidates),
         profile_mode=request.profile_mode,
         deepseek_model=request.deepseek_model,

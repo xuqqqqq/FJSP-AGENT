@@ -46,6 +46,7 @@ class StandardWorkerLoopRequest:
     awls_beta: int = 500
     awls_gamma: int = 40
     awls_theta: int = 5
+    awls_portfolio_lanes: str = ""
     iterations: int = 1
     max_steps: int = 4
     max_runtime_seconds: int = 120
@@ -188,7 +189,7 @@ def standard_solver_command(request: StandardWorkerLoopRequest) -> str:
             f"--neighborhood-profile {request.local_search_neighborhood_profile}"
         )
     if request.solver == "awls":
-        return (
+        command = (
             "python examples/standard_fjsp_awls_solver.py "
             "--input {instance} --output {solution} --seed {seed} "
             f"--restarts {max(1, request.awls_restarts)} "
@@ -201,6 +202,9 @@ def standard_solver_command(request: StandardWorkerLoopRequest) -> str:
             f"--gamma {max(1, request.awls_gamma)} "
             f"--theta {max(0, request.awls_theta)}"
         )
+        if request.awls_portfolio_lanes:
+            command += f' --portfolio-lanes "{request.awls_portfolio_lanes}"'
+        return command
     raise ValueError(f"unknown standard worker solver: {request.solver}")
 
 

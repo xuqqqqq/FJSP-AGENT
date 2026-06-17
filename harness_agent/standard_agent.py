@@ -78,6 +78,7 @@ class StandardFjspAgentRunner:
         awls_beta: int,
         awls_gamma: int,
         awls_theta: int,
+        awls_portfolio_lanes: str,
         strategy_candidates: int,
         profile_mode: str,
         deepseek_model: str,
@@ -111,6 +112,7 @@ class StandardFjspAgentRunner:
         self.awls_beta = awls_beta
         self.awls_gamma = awls_gamma
         self.awls_theta = awls_theta
+        self.awls_portfolio_lanes = awls_portfolio_lanes
         self.strategy_candidates = max(1, strategy_candidates)
         self.profile_mode = profile_mode
         self.deepseek_model = deepseek_model
@@ -296,6 +298,8 @@ class StandardFjspAgentRunner:
                 f"--gamma {self.awls_gamma} "
                 f"--theta {self.awls_theta}"
             )
+            if self.awls_portfolio_lanes:
+                solver_cmd += f' --portfolio-lanes "{self.awls_portfolio_lanes}"'
         else:
             raise ValueError(f"unknown standard solver: {self.solver}")
 

@@ -71,6 +71,12 @@ def add_awls_arguments(parser: argparse.ArgumentParser, *, prefix: str = "", def
     parser.add_argument(f"{option_prefix}awls-beta", dest=f"{dest_prefix}awls_beta", type=int, default=500)
     parser.add_argument(f"{option_prefix}awls-gamma", dest=f"{dest_prefix}awls_gamma", type=int, default=40)
     parser.add_argument(f"{option_prefix}awls-theta", dest=f"{dest_prefix}awls_theta", type=int, default=5)
+    parser.add_argument(
+        f"{option_prefix}awls-portfolio-lanes",
+        dest=f"{dest_prefix}awls_portfolio_lanes",
+        default="",
+        help="Optional AWLS lane portfolio: seed:init:restarts[:seconds], comma-separated.",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -771,6 +777,8 @@ def build_standard_contract(args: argparse.Namespace) -> int:
             f"--gamma {args.awls_gamma} "
             f"--theta {args.awls_theta}"
         )
+        if args.awls_portfolio_lanes:
+            solver += f' --portfolio-lanes "{args.awls_portfolio_lanes}"'
     evaluator = "python examples/standard_fjsp_evaluator.py --instance {instance} --solution {solution} --metrics {metrics}"
     if args.best_known_csv:
         resources["best_known_csv"] = str(args.best_known_csv)
@@ -949,6 +957,7 @@ def run_standard_agent(args: argparse.Namespace) -> int:
         awls_beta=args.awls_beta,
         awls_gamma=args.awls_gamma,
         awls_theta=args.awls_theta,
+        awls_portfolio_lanes=args.awls_portfolio_lanes,
         strategy_candidates=args.strategy_candidates,
         profile_mode=args.profile_mode,
         deepseek_model=args.deepseek_model,
@@ -997,6 +1006,7 @@ def run_demo(args: argparse.Namespace) -> int:
             awls_beta=args.awls_beta,
             awls_gamma=args.awls_gamma,
             awls_theta=args.awls_theta,
+            awls_portfolio_lanes=args.awls_portfolio_lanes,
             strategy_candidates=args.strategy_candidates,
             profile_mode=args.profile_mode,
             deepseek_model=args.deepseek_model,
@@ -1080,6 +1090,7 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
             awls_beta=args.awls_beta,
             awls_gamma=args.awls_gamma,
             awls_theta=args.awls_theta,
+            awls_portfolio_lanes=args.awls_portfolio_lanes,
             iterations=args.iterations,
             max_steps=args.max_steps,
             max_runtime_seconds=args.max_runtime_seconds,
@@ -1153,6 +1164,7 @@ def run_standard_pipeline_cmd(args: argparse.Namespace) -> int:
         worker_awls_beta=args.worker_awls_beta,
         worker_awls_gamma=args.worker_awls_gamma,
         worker_awls_theta=args.worker_awls_theta,
+        worker_awls_portfolio_lanes=args.worker_awls_portfolio_lanes,
         worker_iterations=args.worker_iterations,
         worker_max_steps=args.worker_max_steps,
         worker_max_runtime_seconds=args.worker_max_runtime_seconds,

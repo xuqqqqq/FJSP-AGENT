@@ -60,6 +60,7 @@ class StandardPipelineRequest:
     worker_awls_beta: int = 500
     worker_awls_gamma: int = 40
     worker_awls_theta: int = 5
+    worker_awls_portfolio_lanes: str = ""
     worker_iterations: int = 1
     worker_max_steps: int = 4
     worker_max_runtime_seconds: int = 120
@@ -186,6 +187,7 @@ def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
                 awls_beta=max(1, request.worker_awls_beta),
                 awls_gamma=max(1, request.worker_awls_gamma),
                 awls_theta=max(0, request.worker_awls_theta),
+                awls_portfolio_lanes=request.worker_awls_portfolio_lanes,
                 iterations=max(0, request.worker_iterations),
                 max_steps=max(1, request.worker_max_steps),
                 max_runtime_seconds=max(1, request.worker_max_runtime_seconds),
