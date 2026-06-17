@@ -125,6 +125,38 @@ class BenchmarkSuiteTests(unittest.TestCase):
             )
             self.assertEqual("barnes", instance_family(Path("fjsp.barnes.mt10x.m11j10c2.txt")))
 
+    def test_awls_benchmark_sample_count_is_family_balanced(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            instance_dir = Path(tmp)
+            for family in ("barnes", "brandimarte", "dauzere", "hurink"):
+                for index in range(10):
+                    (instance_dir / f"fjsp.{family}.case{index:02d}.m1j1c1.txt").write_text(
+                        "placeholder",
+                        encoding="utf-8",
+                    )
+
+            request = AwlsBenchmarkRequest(
+                instance_dir=instance_dir,
+                pattern="*.txt",
+                output_dir=Path(tmp) / "out",
+                include_families=["barnes", "brandimarte", "dauzere", "hurink"],
+                sample_count=10,
+                sample_seed=20260617,
+            )
+
+            names = [path.name for path in selected_instances(request)]
+            counts: dict[str, int] = {}
+            for name in names:
+                family = instance_family(Path(name))
+                counts[family] = counts.get(family, 0) + 1
+
+            self.assertEqual(10, len(names))
+            self.assertEqual({"barnes": 3, "brandimarte": 3, "dauzere": 2, "hurink": 2}, counts)
+            self.assertNotEqual(
+                [f"fjsp.barnes.case{index:02d}.m1j1c1.txt" for index in range(10)],
+                names,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -318,6 +318,8 @@ def build_parser() -> argparse.ArgumentParser:
     awls_benchmark.add_argument("--output-dir", required=True, type=Path)
     awls_benchmark.add_argument("--best-known-csv", type=Path)
     awls_benchmark.add_argument("--max-instances", type=int)
+    awls_benchmark.add_argument("--sample-count", type=int, help="Optional family-balanced benchmark sample size.")
+    awls_benchmark.add_argument("--sample-seed", type=int, default=0, help="Seed for reproducible family-balanced sampling.")
     awls_benchmark.add_argument(
         "--include-families",
         default="",
@@ -1307,6 +1309,8 @@ def run_awls_benchmark_cmd(args: argparse.Namespace) -> int:
             best_known_csv=args.best_known_csv,
             max_instances=args.max_instances,
             include_families=parse_csv_list(args.include_families),
+            sample_count=args.sample_count,
+            sample_seed=args.sample_seed,
             seeds=parse_seed_list(args.seeds),
             max_workers=max(1, args.max_workers),
             restarts=args.awls_restarts,

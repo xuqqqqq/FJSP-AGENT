@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 import statistics
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -30,6 +31,8 @@ class AwlsBenchmarkRequest:
     best_known_csv: Path | None = None
     max_instances: int | None = None
     include_families: list[str] | None = None
+    sample_count: int | None = None
+    sample_seed: int = 0
     seeds: list[int] | None = None
     max_workers: int = 1
     restarts: int = 2
@@ -130,9 +133,49 @@ def selected_instances(request: AwlsBenchmarkRequest) -> list[Path]:
     if request.include_families:
         allowed = {family.lower() for family in request.include_families}
         paths = [path for path in paths if instance_family(path) in allowed]
+    if request.sample_count is not None:
+        paths = stratified_sample_instances(paths, request.sample_count, request.sample_seed)
     if request.max_instances is not None:
         paths = paths[: max(0, request.max_instances)]
     return paths
+
+
+def stratified_sample_instances(paths: list[Path], sample_count: int, sample_seed: int) -> list[Path]:
+    """Select a reproducible, family-balanced sample from benchmark instances."""
+
+    count = max(0, sample_count)
+    if count >= len(paths):
+        return sorted(paths)
+    if count == 0 or not paths:
+        return []
+
+    grouped: dict[str, list[Path]] = {}
+    for path in sorted(paths):
+        grouped.setdefault(instance_family(path), []).append(path)
+
+    families = sorted(grouped)
+    quota = {family: 0 for family in families}
+    active = set(families)
+    remaining = count
+    while remaining > 0 and active:
+        for family in families:
+            if remaining <= 0:
+                break
+            if family not in active:
+                continue
+            if quota[family] < len(grouped[family]):
+                quota[family] += 1
+                remaining -= 1
+            else:
+                active.remove(family)
+
+    rng = random.Random(sample_seed)
+    selected: list[Path] = []
+    for family in families:
+        candidates = list(grouped[family])
+        rng.shuffle(candidates)
+        selected.extend(candidates[: quota[family]])
+    return sorted(selected, key=lambda path: (instance_family(path), path.name))
 
 
 def run_one_awls_job(
