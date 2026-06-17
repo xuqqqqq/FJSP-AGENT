@@ -223,11 +223,16 @@ def run_one_awls_job(
         if best_known and best_known > 0:
             metrics["best_known_makespan"] = float(best_known)
             metrics["gap_pct"] = (metrics["makespan"] - best_known) / best_known * 100.0
+        runtime_sec = round(time.perf_counter() - started, 3)
         payload = {
             "valid": not errors,
             "error_count": len(errors),
             "errors": errors,
             "metrics": metrics,
+            "runtime_sec": runtime_sec,
+            "time_limit_sec": time_limit_sec,
+            "strategy": strategy,
+            "solution": str(solution_path) if not errors else None,
         }
         metrics_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return {
@@ -240,7 +245,7 @@ def run_one_awls_job(
             "makespan": metrics.get("makespan"),
             "best_known_makespan": metrics.get("best_known_makespan"),
             "gap_pct": metrics.get("gap_pct"),
-            "runtime_sec": round(time.perf_counter() - started, 3),
+            "runtime_sec": runtime_sec,
             "time_limit_sec": time_limit_sec,
             "resumed": False,
             "solution": str(solution_path) if not errors else None,
@@ -253,6 +258,10 @@ def run_one_awls_job(
             "error_count": 1,
             "errors": [str(exc)],
             "metrics": {},
+            "runtime_sec": round(time.perf_counter() - started, 3),
+            "time_limit_sec": effective_time_limit_sec(request, instance_path),
+            "strategy": None,
+            "solution": None,
         }
         metrics_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return {
@@ -265,8 +274,8 @@ def run_one_awls_job(
             "makespan": None,
             "best_known_makespan": None,
             "gap_pct": None,
-            "runtime_sec": round(time.perf_counter() - started, 3),
-            "time_limit_sec": effective_time_limit_sec(request, instance_path),
+            "runtime_sec": payload["runtime_sec"],
+            "time_limit_sec": payload["time_limit_sec"],
             "resumed": False,
             "solution": None,
             "metrics": str(metrics_path),
@@ -283,17 +292,23 @@ def load_resumed_result(instance_path: Path, seed: int, metrics_path: Path, solu
         return None
     metrics = dict(payload.get("metrics") or {})
     valid = bool(payload.get("valid"))
-    solution = None
-    strategy = None
+    solution = payload.get("solution") if isinstance(payload.get("solution"), str) else None
+    strategy = payload.get("strategy") if isinstance(payload.get("strategy"), str) else None
     if valid and solution_path.exists():
-        solution = str(solution_path)
+        solution = solution or str(solution_path)
         try:
             raw_solution = json.loads(solution_path.read_text(encoding="utf-8"))
-            strategy = raw_solution.get("strategy")
+            strategy = strategy or raw_solution.get("strategy")
         except (OSError, json.JSONDecodeError):
-            strategy = None
+            pass
     elif valid:
         return None
+    runtime_sec = payload.get("runtime_sec")
+    if not isinstance(runtime_sec, (int, float)):
+        runtime_sec = None
+    time_limit_sec = payload.get("time_limit_sec")
+    if not isinstance(time_limit_sec, (int, float)):
+        time_limit_sec = None
     return {
         "instance": instance_path.name,
         "seed": seed,
@@ -304,8 +319,8 @@ def load_resumed_result(instance_path: Path, seed: int, metrics_path: Path, solu
         "makespan": metrics.get("makespan"),
         "best_known_makespan": metrics.get("best_known_makespan"),
         "gap_pct": metrics.get("gap_pct"),
-        "runtime_sec": 0.0,
-        "time_limit_sec": None,
+        "runtime_sec": runtime_sec,
+        "time_limit_sec": time_limit_sec,
         "resumed": True,
         "solution": solution,
         "metrics": str(metrics_path),

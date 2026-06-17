@@ -4,7 +4,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from harness_agent.awls_benchmark import AwlsBenchmarkRequest, effective_time_limit_sec, instance_family, run_awls_benchmark, selected_instances
+from harness_agent.awls_benchmark import (
+    AwlsBenchmarkRequest,
+    effective_time_limit_sec,
+    instance_family,
+    load_resumed_result,
+    run_awls_benchmark,
+    selected_instances,
+)
 from harness_agent.benchmark_suite import BenchmarkSuiteRequest, run_benchmark_suite
 
 
@@ -64,6 +71,9 @@ class BenchmarkSuiteTests(unittest.TestCase):
             self.assertIsNotNone(manifest["aggregate"]["avg_gap_pct"])
             self.assertTrue((output_dir / "summary.json").exists())
             self.assertTrue((output_dir / "report.md").exists())
+            first_runtime = manifest["runs"][0]["runtime_sec"]
+            metrics_payload = next((output_dir / "runs").glob("*_metrics.json")).read_text(encoding="utf-8")
+            self.assertIn('"runtime_sec"', metrics_payload)
 
             resumed = run_awls_benchmark(
                 AwlsBenchmarkRequest(
@@ -81,6 +91,7 @@ class BenchmarkSuiteTests(unittest.TestCase):
                 )
             )
             self.assertTrue(resumed["runs"][0]["resumed"])
+            self.assertEqual(first_runtime, resumed["runs"][0]["runtime_sec"])
 
     def test_mae2019_time_policy_matches_paper_families(self) -> None:
         request = AwlsBenchmarkRequest(
@@ -96,6 +107,34 @@ class BenchmarkSuiteTests(unittest.TestCase):
         self.assertEqual(300.0, effective_time_limit_sec(request, Path("fjsp.dauzere.01a.m5j10c3.txt")))
         self.assertEqual(300.0, effective_time_limit_sec(request, Path("fjsp.hurink.edata-la01.m5j10c2.txt")))
         self.assertEqual(12.0, effective_time_limit_sec(request, Path("other_family_case.txt")))
+
+    def test_awls_resume_legacy_metrics_do_not_fake_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metrics_path = root / "legacy_metrics.json"
+            solution_path = root / "legacy_solution.json"
+            metrics_path.write_text(
+                """{
+  "valid": true,
+  "error_count": 0,
+  "errors": [],
+  "metrics": {
+    "makespan": 10,
+    "gap_pct": 0
+  }
+}
+""",
+                encoding="utf-8",
+            )
+            solution_path.write_text('{"strategy": "legacy"}\n', encoding="utf-8")
+
+            result = load_resumed_result(Path("legacy.fjs"), 0, metrics_path, solution_path)
+
+            self.assertIsNotNone(result)
+            self.assertTrue(result["resumed"])
+            self.assertIsNone(result["runtime_sec"])
+            self.assertIsNone(result["time_limit_sec"])
+            self.assertEqual("legacy", result["strategy"])
 
     def test_awls_benchmark_family_filter_selects_only_named_families(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
