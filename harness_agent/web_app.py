@@ -177,7 +177,7 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         best_known_path = None
 
     solver = str(payload.get("solver") or "portfolio")
-    if solver not in {"portfolio", "local-search"}:
+    if solver not in {"portfolio", "local-search", "awls"}:
         solver = "portfolio"
     evolution_mode = str(payload.get("evolution_mode") or "strategy")
     if evolution_mode not in {"strategy", "code"}:
@@ -202,6 +202,15 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
             payload.get("local_search_time_limit_sec"), 2.0, minimum=0.1, maximum=120.0
         ),
         "local_search_neighborhood_profile": str(payload.get("local_search_neighborhood_profile") or "random"),
+        "awls_restarts": coerce_int(payload.get("awls_restarts"), 2, minimum=1, maximum=128),
+        "awls_cycles_per_restart": coerce_int(payload.get("awls_cycles_per_restart"), 1000, minimum=1, maximum=100000),
+        "awls_iterations": coerce_int(payload.get("awls_iterations"), 10000, minimum=0, maximum=1000000),
+        "awls_time_limit_sec": coerce_float(payload.get("awls_time_limit_sec"), 5.0, minimum=0.1, maximum=1800.0),
+        "awls_init": str(payload.get("awls_init") or "random"),
+        "awls_exact_select_top_k": coerce_int(payload.get("awls_exact_select_top_k"), 0, minimum=0, maximum=256),
+        "awls_beta": coerce_int(payload.get("awls_beta"), 500, minimum=1, maximum=100000),
+        "awls_gamma": coerce_int(payload.get("awls_gamma"), 40, minimum=1, maximum=100000),
+        "awls_theta": coerce_int(payload.get("awls_theta"), 5, minimum=0, maximum=100000),
         "deepseek_model": str(payload.get("deepseek_model") or "deepseek-v4-pro"),
         "apply_worker_changes": bool(payload.get("apply_worker_changes", True)),
         "worker_max_steps": coerce_int(payload.get("worker_max_steps"), 4, minimum=1, maximum=20),
@@ -214,6 +223,8 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
     }
     if config["local_search_neighborhood_profile"] not in {"random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid"}:
         config["local_search_neighborhood_profile"] = "random"
+    if config["awls_init"] not in {"random", "greedy", "mixed"}:
+        config["awls_init"] = "random"
 
     job = {
         "id": job_id,
@@ -298,6 +309,15 @@ def run_job(job_id: str) -> None:
                         local_search_neighbor_limit=config["local_search_neighbor_limit"],
                         local_search_time_limit_sec=config["local_search_time_limit_sec"],
                         local_search_neighborhood_profile=config["local_search_neighborhood_profile"],
+                        awls_restarts=config["awls_restarts"],
+                        awls_cycles_per_restart=config["awls_cycles_per_restart"],
+                        awls_iterations=config["awls_iterations"],
+                        awls_time_limit_sec=config["awls_time_limit_sec"],
+                        awls_init=config["awls_init"],
+                        awls_exact_select_top_k=config["awls_exact_select_top_k"],
+                        awls_beta=config["awls_beta"],
+                        awls_gamma=config["awls_gamma"],
+                        awls_theta=config["awls_theta"],
                         max_steps=config["worker_max_steps"],
                         max_runtime_seconds=config["worker_max_runtime_seconds"],
                         apply_worker_changes=config["apply_worker_changes"],
@@ -346,6 +366,15 @@ def run_job(job_id: str) -> None:
                     local_search_neighbor_limit=config["local_search_neighbor_limit"],
                     local_search_time_limit_sec=config["local_search_time_limit_sec"],
                     local_search_neighborhood_profiles=[config["local_search_neighborhood_profile"]],
+                    awls_restarts=config["awls_restarts"],
+                    awls_cycles_per_restart=config["awls_cycles_per_restart"],
+                    awls_iterations=config["awls_iterations"],
+                    awls_time_limit_sec=config["awls_time_limit_sec"],
+                    awls_init=config["awls_init"],
+                    awls_exact_select_top_k=config["awls_exact_select_top_k"],
+                    awls_beta=config["awls_beta"],
+                    awls_gamma=config["awls_gamma"],
+                    awls_theta=config["awls_theta"],
                     strategy_candidates=config["strategy_candidates"],
                     profile_mode=config["profile_mode"],
                     deepseek_model=config["deepseek_model"],

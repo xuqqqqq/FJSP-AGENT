@@ -37,6 +37,42 @@ from .worker import ExperimentSpec, NullWorker, WorkerResult
 from .worker_cycle import run_worker_cycle
 
 
+def add_awls_arguments(parser: argparse.ArgumentParser, *, prefix: str = "", default_time_limit: float = 10.0) -> None:
+    """Register AWLS solver-template options on a CLI subcommand."""
+
+    option_prefix = f"--{prefix}-" if prefix else "--"
+    dest_prefix = f"{prefix}_" if prefix else ""
+    parser.add_argument(f"{option_prefix}awls-restarts", dest=f"{dest_prefix}awls_restarts", type=int, default=2)
+    parser.add_argument(
+        f"{option_prefix}awls-cycles-per-restart",
+        dest=f"{dest_prefix}awls_cycles_per_restart",
+        type=int,
+        default=1000,
+    )
+    parser.add_argument(f"{option_prefix}awls-iterations", dest=f"{dest_prefix}awls_iterations", type=int, default=10000)
+    parser.add_argument(
+        f"{option_prefix}awls-time-limit-sec",
+        dest=f"{dest_prefix}awls_time_limit_sec",
+        type=float,
+        default=default_time_limit,
+    )
+    parser.add_argument(
+        f"{option_prefix}awls-init",
+        dest=f"{dest_prefix}awls_init",
+        choices=["random", "greedy", "mixed"],
+        default="random",
+    )
+    parser.add_argument(
+        f"{option_prefix}awls-exact-select-top-k",
+        dest=f"{dest_prefix}awls_exact_select_top_k",
+        type=int,
+        default=0,
+    )
+    parser.add_argument(f"{option_prefix}awls-beta", dest=f"{dest_prefix}awls_beta", type=int, default=500)
+    parser.add_argument(f"{option_prefix}awls-gamma", dest=f"{dest_prefix}awls_gamma", type=int, default=40)
+    parser.add_argument(f"{option_prefix}awls-theta", dest=f"{dest_prefix}awls_theta", type=int, default=5)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="FJSP Harness Agent CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -150,7 +186,7 @@ def build_parser() -> argparse.ArgumentParser:
     build_standard.add_argument("--timeout-seconds", type=int, default=60)
     build_standard.add_argument("--max-workers", type=int, default=1)
     build_standard.add_argument("--max-instances", type=int)
-    build_standard.add_argument("--solver", choices=["local-search", "portfolio", "ect"], default="portfolio")
+    build_standard.add_argument("--solver", choices=["local-search", "portfolio", "awls", "ect"], default="portfolio")
     build_standard.add_argument("--portfolio-size", type=int, default=64)
     build_standard.add_argument("--strategy-profile", type=Path)
     build_standard.add_argument("--local-search-restarts", type=int, default=2)
@@ -163,6 +199,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid"],
         default="random",
     )
+    add_awls_arguments(build_standard, default_time_limit=10.0)
 
     project_intake = subparsers.add_parser("project-intake", help="scan a project and write a bounded context manifest")
     project_intake.add_argument("--project-root", type=Path, default=Path.cwd())
@@ -203,7 +240,7 @@ def build_parser() -> argparse.ArgumentParser:
     standard_agent.add_argument("--seeds", default="0,1,2")
     standard_agent.add_argument("--timeout-seconds", type=int, default=120)
     standard_agent.add_argument("--max-workers", type=int, default=1)
-    standard_agent.add_argument("--solver", choices=["local-search", "portfolio"], default="local-search")
+    standard_agent.add_argument("--solver", choices=["local-search", "portfolio", "awls"], default="local-search")
     standard_agent.add_argument("--portfolio-size", type=int, default=96)
     standard_agent.add_argument("--local-search-restarts", type=int, default=2)
     standard_agent.add_argument("--local-search-initial-pool-size", type=int, default=1)
@@ -226,6 +263,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Built-ins: current, balanced-random, balanced-combined, balanced-hgtsa, balanced-awls, deep-combined, deep-hgtsa"
         ),
     )
+    add_awls_arguments(standard_agent, default_time_limit=10.0)
     standard_agent.add_argument("--strategy-candidates", type=int, default=1)
     standard_agent.add_argument("--profile-mode", choices=["auto", "deepseek", "template"], default="auto")
     standard_agent.add_argument("--deepseek-model", default="deepseek-v4-pro")
@@ -242,7 +280,7 @@ def build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--seeds", default="0")
     demo.add_argument("--timeout-seconds", type=int, default=60)
     demo.add_argument("--max-workers", type=int, default=1)
-    demo.add_argument("--solver", choices=["local-search", "portfolio"], default="portfolio")
+    demo.add_argument("--solver", choices=["local-search", "portfolio", "awls"], default="portfolio")
     demo.add_argument("--portfolio-size", type=int, default=16)
     demo.add_argument("--local-search-restarts", type=int, default=1)
     demo.add_argument("--local-search-initial-pool-size", type=int, default=1)
@@ -256,6 +294,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     demo.add_argument("--local-search-neighborhood-profiles")
     demo.add_argument("--local-search-run-profiles")
+    add_awls_arguments(demo, default_time_limit=5.0)
     demo.add_argument("--strategy-candidates", type=int, default=2)
     demo.add_argument("--profile-mode", choices=["auto", "deepseek", "template"], default="template")
     demo.add_argument("--deepseek-model", default="deepseek-v4-pro")
@@ -284,7 +323,7 @@ def build_parser() -> argparse.ArgumentParser:
     standard_worker.add_argument("--seeds", default="0")
     standard_worker.add_argument("--timeout-seconds", type=int, default=60)
     standard_worker.add_argument("--max-workers", type=int, default=1)
-    standard_worker.add_argument("--solver", choices=["local-search", "portfolio"], default="portfolio")
+    standard_worker.add_argument("--solver", choices=["local-search", "portfolio", "awls"], default="portfolio")
     standard_worker.add_argument("--portfolio-size", type=int, default=16)
     standard_worker.add_argument("--local-search-restarts", type=int, default=1)
     standard_worker.add_argument("--local-search-initial-pool-size", type=int, default=1)
@@ -296,6 +335,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid"],
         default="combined",
     )
+    add_awls_arguments(standard_worker, default_time_limit=10.0)
     standard_worker.add_argument("--worker", choices=["null", "deepseek", "opencode"], default="null")
     standard_worker.add_argument("--iterations", type=int, default=1)
     standard_worker.add_argument("--max-steps", type=int, default=4)
@@ -345,7 +385,7 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--worker-seeds", default="0")
     pipeline.add_argument("--worker-timeout-seconds", type=int, default=60)
     pipeline.add_argument("--worker-max-workers", type=int, default=1)
-    pipeline.add_argument("--worker-solver", choices=["local-search", "portfolio"], default="portfolio")
+    pipeline.add_argument("--worker-solver", choices=["local-search", "portfolio", "awls"], default="portfolio")
     pipeline.add_argument("--worker-portfolio-size", type=int, default=16)
     pipeline.add_argument("--worker-local-search-restarts", type=int, default=1)
     pipeline.add_argument("--worker-local-search-initial-pool-size", type=int, default=1)
@@ -357,6 +397,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid"],
         default="combined",
     )
+    add_awls_arguments(pipeline, prefix="worker", default_time_limit=10.0)
     pipeline.add_argument("--worker-iterations", type=int, default=1)
     pipeline.add_argument("--worker-max-steps", type=int, default=4)
     pipeline.add_argument("--worker-max-runtime-seconds", type=int, default=120)
@@ -716,6 +757,20 @@ def build_standard_contract(args: argparse.Namespace) -> int:
         if args.strategy_profile:
             resources["strategy_profile"] = str(args.strategy_profile)
             solver += " --strategy-profile {strategy_profile}"
+    elif args.solver == "awls":
+        solver = (
+            "python examples/standard_fjsp_awls_solver.py "
+            "--input {instance} --output {solution} --seed {seed} "
+            f"--restarts {args.awls_restarts} "
+            f"--cycles-per-restart {args.awls_cycles_per_restart} "
+            f"--iterations {args.awls_iterations} "
+            f"--time-limit-sec {args.awls_time_limit_sec} "
+            f"--init {args.awls_init} "
+            f"--exact-select-top-k {args.awls_exact_select_top_k} "
+            f"--beta {args.awls_beta} "
+            f"--gamma {args.awls_gamma} "
+            f"--theta {args.awls_theta}"
+        )
     evaluator = "python examples/standard_fjsp_evaluator.py --instance {instance} --solution {solution} --metrics {metrics}"
     if args.best_known_csv:
         resources["best_known_csv"] = str(args.best_known_csv)
@@ -885,6 +940,15 @@ def run_standard_agent(args: argparse.Namespace) -> int:
         local_search_time_limit_sec=args.local_search_time_limit_sec,
         local_search_neighborhood_profiles=neighborhood_profiles,
         local_search_run_profiles=run_profiles,
+        awls_restarts=args.awls_restarts,
+        awls_cycles_per_restart=args.awls_cycles_per_restart,
+        awls_iterations=args.awls_iterations,
+        awls_time_limit_sec=args.awls_time_limit_sec,
+        awls_init=args.awls_init,
+        awls_exact_select_top_k=args.awls_exact_select_top_k,
+        awls_beta=args.awls_beta,
+        awls_gamma=args.awls_gamma,
+        awls_theta=args.awls_theta,
         strategy_candidates=args.strategy_candidates,
         profile_mode=args.profile_mode,
         deepseek_model=args.deepseek_model,
@@ -924,6 +988,15 @@ def run_demo(args: argparse.Namespace) -> int:
             local_search_time_limit_sec=args.local_search_time_limit_sec,
             local_search_neighborhood_profiles=neighborhood_profiles,
             local_search_run_profiles=run_profiles,
+            awls_restarts=args.awls_restarts,
+            awls_cycles_per_restart=args.awls_cycles_per_restart,
+            awls_iterations=args.awls_iterations,
+            awls_time_limit_sec=args.awls_time_limit_sec,
+            awls_init=args.awls_init,
+            awls_exact_select_top_k=args.awls_exact_select_top_k,
+            awls_beta=args.awls_beta,
+            awls_gamma=args.awls_gamma,
+            awls_theta=args.awls_theta,
             strategy_candidates=args.strategy_candidates,
             profile_mode=args.profile_mode,
             deepseek_model=args.deepseek_model,
@@ -998,6 +1071,15 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
             local_search_neighbor_limit=args.local_search_neighbor_limit,
             local_search_time_limit_sec=args.local_search_time_limit_sec,
             local_search_neighborhood_profile=args.local_search_neighborhood_profile,
+            awls_restarts=args.awls_restarts,
+            awls_cycles_per_restart=args.awls_cycles_per_restart,
+            awls_iterations=args.awls_iterations,
+            awls_time_limit_sec=args.awls_time_limit_sec,
+            awls_init=args.awls_init,
+            awls_exact_select_top_k=args.awls_exact_select_top_k,
+            awls_beta=args.awls_beta,
+            awls_gamma=args.awls_gamma,
+            awls_theta=args.awls_theta,
             iterations=args.iterations,
             max_steps=args.max_steps,
             max_runtime_seconds=args.max_runtime_seconds,
@@ -1062,6 +1144,15 @@ def run_standard_pipeline_cmd(args: argparse.Namespace) -> int:
         worker_local_search_neighbor_limit=args.worker_local_search_neighbor_limit,
         worker_local_search_time_limit_sec=args.worker_local_search_time_limit_sec,
         worker_local_search_neighborhood_profile=args.worker_local_search_neighborhood_profile,
+        worker_awls_restarts=args.worker_awls_restarts,
+        worker_awls_cycles_per_restart=args.worker_awls_cycles_per_restart,
+        worker_awls_iterations=args.worker_awls_iterations,
+        worker_awls_time_limit_sec=args.worker_awls_time_limit_sec,
+        worker_awls_init=args.worker_awls_init,
+        worker_awls_exact_select_top_k=args.worker_awls_exact_select_top_k,
+        worker_awls_beta=args.worker_awls_beta,
+        worker_awls_gamma=args.worker_awls_gamma,
+        worker_awls_theta=args.worker_awls_theta,
         worker_iterations=args.worker_iterations,
         worker_max_steps=args.worker_max_steps,
         worker_max_runtime_seconds=args.worker_max_runtime_seconds,

@@ -37,6 +37,15 @@ class StandardWorkerLoopRequest:
     local_search_neighbor_limit: int = 100
     local_search_time_limit_sec: float = 2.0
     local_search_neighborhood_profile: str = "combined"
+    awls_restarts: int = 2
+    awls_cycles_per_restart: int = 1000
+    awls_iterations: int = 10000
+    awls_time_limit_sec: float = 10.0
+    awls_init: str = "random"
+    awls_exact_select_top_k: int = 0
+    awls_beta: int = 500
+    awls_gamma: int = 40
+    awls_theta: int = 5
     iterations: int = 1
     max_steps: int = 4
     max_runtime_seconds: int = 120
@@ -177,6 +186,20 @@ def standard_solver_command(request: StandardWorkerLoopRequest) -> str:
             f"--neighbor-limit {max(1, request.local_search_neighbor_limit)} "
             f"--time-limit-sec {max(0.1, request.local_search_time_limit_sec)} "
             f"--neighborhood-profile {request.local_search_neighborhood_profile}"
+        )
+    if request.solver == "awls":
+        return (
+            "python examples/standard_fjsp_awls_solver.py "
+            "--input {instance} --output {solution} --seed {seed} "
+            f"--restarts {max(1, request.awls_restarts)} "
+            f"--cycles-per-restart {max(1, request.awls_cycles_per_restart)} "
+            f"--iterations {max(0, request.awls_iterations)} "
+            f"--time-limit-sec {max(0.1, request.awls_time_limit_sec)} "
+            f"--init {request.awls_init} "
+            f"--exact-select-top-k {max(0, request.awls_exact_select_top_k)} "
+            f"--beta {max(1, request.awls_beta)} "
+            f"--gamma {max(1, request.awls_gamma)} "
+            f"--theta {max(0, request.awls_theta)}"
         )
     raise ValueError(f"unknown standard worker solver: {request.solver}")
 

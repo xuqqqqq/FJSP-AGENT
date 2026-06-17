@@ -69,6 +69,15 @@ class StandardFjspAgentRunner:
         local_search_time_limit_sec: float,
         local_search_neighborhood_profiles: list[str],
         local_search_run_profiles: list[dict[str, Any]] | None,
+        awls_restarts: int,
+        awls_cycles_per_restart: int,
+        awls_iterations: int,
+        awls_time_limit_sec: float,
+        awls_init: str,
+        awls_exact_select_top_k: int,
+        awls_beta: int,
+        awls_gamma: int,
+        awls_theta: int,
         strategy_candidates: int,
         profile_mode: str,
         deepseek_model: str,
@@ -93,6 +102,15 @@ class StandardFjspAgentRunner:
         self.local_search_time_limit_sec = local_search_time_limit_sec
         self.local_search_neighborhood_profiles = local_search_neighborhood_profiles or ["random"]
         self.local_search_run_profiles = local_search_run_profiles
+        self.awls_restarts = awls_restarts
+        self.awls_cycles_per_restart = awls_cycles_per_restart
+        self.awls_iterations = awls_iterations
+        self.awls_time_limit_sec = awls_time_limit_sec
+        self.awls_init = awls_init
+        self.awls_exact_select_top_k = awls_exact_select_top_k
+        self.awls_beta = awls_beta
+        self.awls_gamma = awls_gamma
+        self.awls_theta = awls_theta
         self.strategy_candidates = max(1, strategy_candidates)
         self.profile_mode = profile_mode
         self.deepseek_model = deepseek_model
@@ -193,11 +211,11 @@ class StandardFjspAgentRunner:
             evaluator_resources["best_known_csv"] = str(self.best_known_csv)
             evaluator += " --best-known-csv {best_known_csv}"
 
-        default_run_profiles = self._local_search_profiles()
+        default_run_profiles = [{"name": "awls"}] if self.solver == "awls" else self._local_search_profiles()
         for candidate in profile_candidates:
             run_profiles = (
                 default_run_profiles
-                if self.local_search_run_profiles
+                if self.solver == "awls" or self.local_search_run_profiles
                 else self._local_search_profiles_for_candidate(Path(candidate["profile_path"]), default_run_profiles)
             )
             for run_profile in run_profiles:
@@ -263,6 +281,20 @@ class StandardFjspAgentRunner:
                 f"--time-limit-sec {float(run_profile['time_limit_sec'])} "
                 f"--neighborhood-profile {run_profile['neighborhood_profile']} "
                 "--strategy-profile {strategy_profile}"
+            )
+        elif self.solver == "awls":
+            solver_cmd = (
+                "python examples/standard_fjsp_awls_solver.py "
+                "--input {instance} --output {solution} --seed {seed} "
+                f"--restarts {self.awls_restarts} "
+                f"--cycles-per-restart {self.awls_cycles_per_restart} "
+                f"--iterations {self.awls_iterations} "
+                f"--time-limit-sec {self.awls_time_limit_sec} "
+                f"--init {self.awls_init} "
+                f"--exact-select-top-k {self.awls_exact_select_top_k} "
+                f"--beta {self.awls_beta} "
+                f"--gamma {self.awls_gamma} "
+                f"--theta {self.awls_theta}"
             )
         else:
             raise ValueError(f"unknown standard solver: {self.solver}")
