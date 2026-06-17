@@ -14,13 +14,14 @@
           <h1>从需求文档到可验证算法迭代</h1>
           <p class="hero-copy">
             上传需求、IO 协议和 FJSP 算例，系统会生成任务卡、策略候选、调度实验与反思报告。
-            当前演示使用标准 FJSP evaluator 作为唯一裁判，适合先跑通完整闭环。
+            策略层让 DeepSeek 生成可执行策略 Profile；代码层让 DeepSeek CodingWorker 修改候选 worktree。
+            两种模式都只接受标准 FJSP evaluator 的裁判结果。
           </p>
         </div>
         <div class="hero-card">
           <span class="hero-card-label">Flow</span>
-          <strong>Document → Strategy → Solver → Evaluator → Reflection</strong>
-          <small>本地运行，所有输入与结果保存在 outputs/web_runs</small>
+          <strong>Document → DeepSeek → Solver / CodeWorker → Evaluator → Reflection</strong>
+          <small id="deepseek-status">DeepSeek API：检查中...</small>
         </div>
       </section>
 
@@ -82,11 +83,18 @@
                 </select>
               </label>
               <label class="field compact">
+                <span>演进层级</span>
+                <select id="evolution-mode">
+                  <option value="strategy">策略层：DeepSeek 生成 Profile，不改源码</option>
+                  <option value="code">代码层：DeepSeek CodingWorker 改候选代码</option>
+                </select>
+              </label>
+              <label class="field compact">
                 <span>策略来源</span>
                 <select id="profile-mode">
-                  <option value="template">template（稳定）</option>
-                  <option value="auto">auto（有 API 时自动）</option>
-                  <option value="deepseek">deepseek</option>
+                  <option value="deepseek">deepseek（严格）</option>
+                  <option value="auto">auto（DeepSeek 优先，失败回退）</option>
+                  <option value="template">template（本地兜底）</option>
                 </select>
               </label>
               <label class="field compact">
@@ -110,6 +118,14 @@
                   <option value="hgtsa-lite">hgtsa-lite</option>
                   <option value="hybrid">hybrid</option>
                 </select>
+              </label>
+              <label class="field compact">
+                <span>Worker max steps</span>
+                <input id="worker-max-steps" type="number" min="1" max="20" value="4" />
+              </label>
+              <label class="field checkbox-field">
+                <input id="apply-worker-changes" type="checkbox" checked />
+                <span>代码层应用 DeepSeek 候选修改，并由 evaluator 决定是否提升</span>
               </label>
             </div>
           </details>

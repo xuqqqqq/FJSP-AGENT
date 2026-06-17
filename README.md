@@ -168,8 +168,34 @@ The page lets a user submit:
 - an input/output protocol document;
 - a standard FJSP instance;
 - an optional best-known CSV;
-- a small set of run controls such as iteration rounds, seeds, solver type, and
-  profile source.
+- a small set of run controls such as iteration rounds, seeds, solver type,
+  evolution level, and profile source.
+
+The web UI exposes two evolution levels:
+
+- `策略层` calls `run_standard_demo`.  DeepSeek can generate strategy profiles
+  and reflection reports, but it does not edit Python source files.  The
+  reflection is still active: it is fed into the next strategy-profile round,
+  changing rule choices, search profiles, and parameters.
+- `代码层` calls `run_standard_worker_loop` with `DeepSeekWorker`.  DeepSeek is
+  the coding agent: it first states the rule-level idea, then proposes file
+  replacements inside an isolated candidate worktree.  The fixed evaluator
+  decides whether the candidate is promoted; otherwise the edit is rolled back
+  and retained only as evidence.
+
+DeepSeek is never configured by committing a key.  Set one local secret before
+using `策略层/deepseek` or `代码层`:
+
+```powershell
+$env:DEEPSEEK_API_KEY="sk-..."
+```
+
+or create an ignored `.env.local`:
+
+```text
+DEEPSEEK_API_KEY_FILE=C:\Users\you\.secrets\deepseek_api_key.txt
+DEEPSEEK_MODEL=deepseek-v4-pro
+```
 
 Click **载入内置示例** to load the generated demo materials under `examples/`:
 

@@ -130,6 +130,14 @@ h3 {
   line-height: 1.5;
 }
 
+.api-status.ready {
+  color: #f7d878;
+}
+
+.api-status.missing {
+  color: #ffd0bc;
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(480px, 0.95fr) minmax(420px, 0.75fr);
@@ -222,6 +230,28 @@ select:focus {
 
 .compact {
   margin-bottom: 8px;
+}
+
+.checkbox-field {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  grid-column: span 2;
+  margin: 8px 0 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(64, 107, 79, 0.2);
+  border-radius: 18px;
+  background: rgba(255, 253, 247, 0.55);
+}
+
+.checkbox-field input {
+  width: auto;
+  min-height: auto;
+}
+
+.checkbox-field span {
+  color: var(--muted);
+  font-weight: 700;
+  line-height: 1.5;
 }
 
 .advanced {

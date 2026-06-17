@@ -1,6 +1,7 @@
 const state = {
   currentJobId: null,
   pollTimer: null,
+  deepseekStatus: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -33,11 +34,28 @@ async function loadDemo() {
   $("max-rounds").value = demo.config.max_rounds;
   $("seeds").value = demo.config.seeds;
   $("solver").value = demo.config.solver;
+  $("evolution-mode").value = demo.config.evolution_mode;
   $("profile-mode").value = demo.config.profile_mode;
   $("strategy-candidates").value = demo.config.strategy_candidates;
   $("portfolio-size").value = demo.config.portfolio_size;
   $("timeout-seconds").value = demo.config.timeout_seconds;
+  $("worker-max-steps").value = demo.config.worker_max_steps;
+  $("apply-worker-changes").checked = Boolean(demo.config.apply_worker_changes);
   $("artifact-preview").textContent = "内置示例已载入，可以直接启动循环迭代。";
+}
+
+async function loadDeepSeekStatus() {
+  const response = await fetch("/api/deepseek-status");
+  const status = await response.json();
+  state.deepseekStatus = status;
+  const badge = $("deepseek-status");
+  if (status.configured) {
+    badge.textContent = `DeepSeek API：已配置 · ${status.model} · ${status.base_url}`;
+    badge.className = "api-status ready";
+  } else {
+    badge.textContent = "DeepSeek API：未配置，请设置 DEEPSEEK_API_KEY 或 DEEPSEEK_API_KEY_FILE";
+    badge.className = "api-status missing";
+  }
 }
 
 function buildPayload() {
@@ -62,11 +80,14 @@ function buildPayload() {
     max_rounds: Number($("max-rounds").value || 2),
     seeds: $("seeds").value || "0",
     solver: $("solver").value,
+    evolution_mode: $("evolution-mode").value,
     profile_mode: $("profile-mode").value,
     strategy_candidates: Number($("strategy-candidates").value || 2),
     portfolio_size: Number($("portfolio-size").value || 8),
     timeout_seconds: Number($("timeout-seconds").value || 60),
     local_search_neighborhood_profile: $("neighborhood-profile").value,
+    apply_worker_changes: $("apply-worker-changes").checked,
+    worker_max_steps: Number($("worker-max-steps").value || 4),
   };
 }
 
@@ -75,6 +96,13 @@ async function submitJob(event) {
   const payload = buildPayload();
   if (!payload.requirement.text.trim() || !payload.io.text.trim() || !payload.instance.text.trim()) {
     $("artifact-preview").textContent = "请先提供需求文档、IO 文档和算例。";
+    return;
+  }
+  const needsDeepSeek =
+    payload.evolution_mode === "code" || payload.profile_mode === "deepseek";
+  if (needsDeepSeek && state.deepseekStatus && !state.deepseekStatus.configured) {
+    $("artifact-preview").textContent =
+      "当前选择需要 DeepSeek API，但本地没有检测到 DEEPSEEK_API_KEY / DEEPSEEK_API_KEY_FILE。若只想跑通流程，可把策略来源切到 template；若要 DeepSeek 写策略或写代码，请先配置本地密钥。";
     return;
   }
   $("artifact-preview").textContent = "任务已提交，等待后端启动...";
@@ -133,10 +161,17 @@ function renderJob(job) {
   const summary = job.summary?.last_summary || {};
   const benchmark = job.summary?.benchmark_summary || {};
   const roundSummary = job.summary?.round_summary || {};
-  const makespan = summary.best_metrics?.makespan ?? summary.best_candidate_metrics?.avg_makespan;
+  const workerSummary = job.summary?.worker_summary || {};
+  const makespan =
+    workerSummary.final_makespan ??
+    summary.best_metrics?.makespan ??
+    summary.best_candidate_metrics?.avg_makespan;
   const gap = benchmark.gap_metrics?.avg_gap_pct ?? summary.best_metrics?.avg_gap_pct;
   $("metric-rounds").textContent = roundSummary.completed_round_count ?? job.config?.max_rounds ?? "-";
-  $("metric-valid").textContent = summary.valid ?? benchmark.valid_experiments ?? "-";
+  $("metric-valid").textContent =
+    workerSummary.promoted_rounds !== undefined
+      ? `${workerSummary.promoted_rounds}/${workerSummary.round_count}`
+      : summary.valid ?? benchmark.valid_experiments ?? "-";
   $("metric-makespan").textContent = formatMetric(makespan);
   $("metric-gap").textContent = gap === undefined ? "-" : `${Number(gap).toFixed(2)}%`;
 
@@ -210,6 +245,10 @@ $("load-demo").addEventListener("click", loadDemo);
 $("job-form").addEventListener("submit", submitJob);
 $("refresh").addEventListener("click", refreshJob);
 
+loadDeepSeekStatus().catch(() => {
+  $("deepseek-status").textContent = "DeepSeek API：状态读取失败";
+  $("deepseek-status").className = "api-status missing";
+});
 loadDemo().catch(() => {
   $("artifact-preview").textContent = "内置示例读取失败，但仍可手动粘贴文档和算例。";
 });

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import os
 import re
 import threading
 import time
@@ -12,7 +14,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from .deepseek_client import is_deepseek_configured, load_local_env, normalize_deepseek_model
 from .demo import StandardDemoRequest, run_standard_demo
+from .standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop
+from .workers.deepseek_worker import DeepSeekWorker
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -117,12 +122,27 @@ def make_demo_examples() -> dict[str, Any]:
             "max_rounds": 2,
             "seeds": "0",
             "solver": "portfolio",
-            "profile_mode": "template",
+            "evolution_mode": "strategy",
+            "profile_mode": "deepseek",
             "strategy_candidates": 2,
             "portfolio_size": 8,
             "timeout_seconds": 60,
             "max_workers": 1,
+            "apply_worker_changes": True,
+            "worker_max_steps": 4,
         },
+    }
+
+
+def deepseek_status_payload() -> dict[str, Any]:
+    """Return non-secret DeepSeek runtime status for the local UI."""
+
+    load_local_env()
+    return {
+        "configured": is_deepseek_configured(),
+        "model": normalize_deepseek_model(os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")),
+        "base_url": os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+        "note": "API key is loaded from DEEPSEEK_API_KEY or DEEPSEEK_API_KEY_FILE; the key value is never returned.",
     }
 
 
@@ -159,6 +179,9 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
     solver = str(payload.get("solver") or "portfolio")
     if solver not in {"portfolio", "local-search"}:
         solver = "portfolio"
+    evolution_mode = str(payload.get("evolution_mode") or "strategy")
+    if evolution_mode not in {"strategy", "code"}:
+        evolution_mode = "strategy"
     profile_mode = str(payload.get("profile_mode") or "template")
     if profile_mode not in {"template", "auto", "deepseek"}:
         profile_mode = "template"
@@ -167,6 +190,7 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         "max_rounds": coerce_int(payload.get("max_rounds"), 2, minimum=1, maximum=20),
         "seeds": parse_seeds(payload.get("seeds", "0")),
         "solver": solver,
+        "evolution_mode": evolution_mode,
         "profile_mode": profile_mode,
         "strategy_candidates": coerce_int(payload.get("strategy_candidates"), 2, minimum=1, maximum=16),
         "portfolio_size": coerce_int(payload.get("portfolio_size"), 16, minimum=1, maximum=512),
@@ -179,6 +203,14 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         ),
         "local_search_neighborhood_profile": str(payload.get("local_search_neighborhood_profile") or "random"),
         "deepseek_model": str(payload.get("deepseek_model") or "deepseek-v4-pro"),
+        "apply_worker_changes": bool(payload.get("apply_worker_changes", True)),
+        "worker_max_steps": coerce_int(payload.get("worker_max_steps"), 4, minimum=1, maximum=20),
+        "worker_max_runtime_seconds": coerce_int(
+            payload.get("worker_max_runtime_seconds"),
+            120,
+            minimum=10,
+            maximum=1800,
+        ),
     }
     if config["local_search_neighborhood_profile"] not in {"random", "critical-block", "combined", "hgtsa-lite", "hybrid"}:
         config["local_search_neighborhood_profile"] = "random"
@@ -224,43 +256,102 @@ def run_job(job_id: str) -> None:
         config = job["config"]
         input_paths = job["inputs"]
         output_dir = Path(job["job_dir"]) / "run"
-        append_event(job, f"调用 StandardDemo：rounds={config['max_rounds']}，solver={config['solver']}。")
-        write_job_status(job)
-        manifest = run_standard_demo(
-            StandardDemoRequest(
-                docs=[Path(input_paths["requirement"]), Path(input_paths["io"])],
-                instance_dir=Path(input_paths["instance"]).parent,
-                pattern=Path(input_paths["instance"]).name,
-                best_known_csv=Path(input_paths["best_known_csv"]) if input_paths.get("best_known_csv") else None,
-                output_dir=output_dir,
-                project_root=PROJECT_ROOT,
-                max_instances=1,
-                max_rounds=config["max_rounds"],
-                seeds=config["seeds"],
-                timeout_seconds=config["timeout_seconds"],
-                max_workers=config["max_workers"],
-                solver=config["solver"],
-                portfolio_size=config["portfolio_size"],
-                local_search_iterations=config["local_search_iterations"],
-                local_search_neighbor_limit=config["local_search_neighbor_limit"],
-                local_search_time_limit_sec=config["local_search_time_limit_sec"],
-                local_search_neighborhood_profiles=[config["local_search_neighborhood_profile"]],
-                strategy_candidates=config["strategy_candidates"],
-                profile_mode=config["profile_mode"],
-                deepseek_model=config["deepseek_model"],
-            )
+        append_event(
+            job,
+            (
+                f"调用演进层级={config['evolution_mode']}：rounds={config['max_rounds']}，"
+                f"solver={config['solver']}。"
+            ),
         )
-        round_summary = summarize_round_artifacts(output_dir)
-        with _LOCK:
-            job["status"] = "completed" if manifest.get("status") == "ok" else "completed_with_warnings"
-            job["summary"] = {
+        write_job_status(job)
+        if config["evolution_mode"] == "code":
+            if not is_deepseek_configured():
+                raise RuntimeError(
+                    "DeepSeek API is not configured. Set DEEPSEEK_API_KEY or DEEPSEEK_API_KEY_FILE before code evolution."
+                )
+            manifest = run_standard_worker_loop(
+                StandardWorkerLoopRequest(
+                    docs=[Path(input_paths["requirement"]), Path(input_paths["io"])],
+                    instance_dir=Path(input_paths["instance"]).parent,
+                    pattern=Path(input_paths["instance"]).name,
+                    best_known_csv=Path(input_paths["best_known_csv"]) if input_paths.get("best_known_csv") else None,
+                    output_dir=output_dir / "standard_worker_loop",
+                    project_root=PROJECT_ROOT,
+                    worker=DeepSeekWorker(model=config["deepseek_model"]),
+                    max_instances=1,
+                    iterations=config["max_rounds"],
+                    seeds=config["seeds"],
+                    timeout_seconds=config["timeout_seconds"],
+                    max_workers=config["max_workers"],
+                    solver=config["solver"],
+                    portfolio_size=config["portfolio_size"],
+                    local_search_iterations=config["local_search_iterations"],
+                    local_search_neighbor_limit=config["local_search_neighbor_limit"],
+                    local_search_time_limit_sec=config["local_search_time_limit_sec"],
+                    local_search_neighborhood_profile=config["local_search_neighborhood_profile"],
+                    max_steps=config["worker_max_steps"],
+                    max_runtime_seconds=config["worker_max_runtime_seconds"],
+                    apply_worker_changes=config["apply_worker_changes"],
+                    experiment_id="web_deepseek_code_loop",
+                    hypothesis=(
+                        "Read the requirement and IO documents first. Propose the rule-level scheduling idea in natural "
+                        "language, then edit only allowed solver code. Preserve evaluator correctness; do not claim "
+                        "success without measured improvement."
+                    ),
+                )
+            )
+            round_summary = summarize_worker_manifest(manifest)
+            summary_payload = {
+                "manifest_status": manifest.get("status"),
+                "worker_summary": round_summary,
+                "last_summary": manifest.get("baseline_summary", {}),
+                "artifact_checks": {},
+                "round_summary": {
+                    "completed_round_count": round_summary["round_count"],
+                    "reflection_count": round_summary["round_count"],
+                    "harness_report_count": round_summary["round_count"],
+                    "round_dirs": round_summary["round_dirs"],
+                },
+            }
+            artifacts = manifest.get("artifacts", {})
+        else:
+            manifest = run_standard_demo(
+                StandardDemoRequest(
+                    docs=[Path(input_paths["requirement"]), Path(input_paths["io"])],
+                    instance_dir=Path(input_paths["instance"]).parent,
+                    pattern=Path(input_paths["instance"]).name,
+                    best_known_csv=Path(input_paths["best_known_csv"]) if input_paths.get("best_known_csv") else None,
+                    output_dir=output_dir,
+                    project_root=PROJECT_ROOT,
+                    max_instances=1,
+                    max_rounds=config["max_rounds"],
+                    seeds=config["seeds"],
+                    timeout_seconds=config["timeout_seconds"],
+                    max_workers=config["max_workers"],
+                    solver=config["solver"],
+                    portfolio_size=config["portfolio_size"],
+                    local_search_iterations=config["local_search_iterations"],
+                    local_search_neighbor_limit=config["local_search_neighbor_limit"],
+                    local_search_time_limit_sec=config["local_search_time_limit_sec"],
+                    local_search_neighborhood_profiles=[config["local_search_neighborhood_profile"]],
+                    strategy_candidates=config["strategy_candidates"],
+                    profile_mode=config["profile_mode"],
+                    deepseek_model=config["deepseek_model"],
+                )
+            )
+            round_summary = summarize_round_artifacts(output_dir)
+            summary_payload = {
                 "manifest_status": manifest.get("status"),
                 "benchmark_summary": manifest.get("benchmark_summary", {}),
                 "last_summary": (manifest.get("agent_result") or {}).get("last_summary", {}),
                 "artifact_checks": manifest.get("artifact_checks", {}),
                 "round_summary": round_summary,
             }
-            job["artifacts"] = manifest.get("artifacts", {})
+            artifacts = manifest.get("artifacts", {})
+        with _LOCK:
+            job["status"] = "completed" if manifest.get("status") == "ok" else "completed_with_warnings"
+            job["summary"] = summary_payload
+            job["artifacts"] = artifacts
             append_event(
                 job,
                 f"循环结束，状态：{job['status']}；实际完成 {round_summary['completed_round_count']} 轮。",
@@ -308,6 +399,35 @@ def summarize_round_artifacts(output_dir: Path) -> dict[str, Any]:
     }
 
 
+def summarize_worker_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
+    baseline_key = list(manifest.get("baseline_key") or [])
+    final_key = list(manifest.get("final_key") or [])
+    round_dirs = [str(Path(item.get("cycle_dir", "")).resolve()) for item in manifest.get("rounds", []) if item.get("cycle_dir")]
+    return {
+        "round_count": int(manifest.get("round_count", 0) or 0),
+        "completed_round_count": int(manifest.get("round_count", 0) or 0),
+        "promoted_rounds": int(manifest.get("promoted_rounds", 0) or 0),
+        "improved": bool(manifest.get("improved")),
+        "baseline_key": baseline_key,
+        "final_key": final_key,
+        "baseline_makespan": objective_key_to_makespan(baseline_key),
+        "final_makespan": objective_key_to_makespan(final_key),
+        "round_dirs": round_dirs,
+    }
+
+
+def objective_key_to_makespan(key: list[Any]) -> float | None:
+    if not key:
+        return None
+    try:
+        value = float(key[0])
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(value):
+        return None
+    return -value
+
+
 class AlgoForgeWebHandler(BaseHTTPRequestHandler):
     server_version = "AlgoForgeWeb/0.1"
 
@@ -321,6 +441,9 @@ class AlgoForgeWebHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/examples":
             self._json(200, make_demo_examples())
+            return
+        if parsed.path == "/api/deepseek-status":
+            self._json(200, deepseek_status_payload())
             return
         if parsed.path == "/api/jobs":
             with _LOCK:
