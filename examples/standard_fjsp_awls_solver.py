@@ -414,10 +414,10 @@ def greedy_gt_init(index: OperationIndex, rng: random.Random, random_factor: flo
         has_unused = any(count == 0 for count in machine_load_count)
         filtered: list[tuple[int, int, int, bool]] = []
         if has_unused:
-            threshold = best_completion * (1.0 + random_factor + idle_bonus)
+            threshold = int(best_completion * (1.0 + random_factor + idle_bonus))
             filtered = [choice for choice in choices if choice[3] and choice[2] <= threshold]
         if not filtered:
-            threshold = best_completion * (1.0 + random_factor)
+            threshold = int(best_completion * (1.0 + random_factor))
             filtered = [choice for choice in choices if choice[2] <= threshold]
         if not filtered:
             filtered = choices
@@ -511,9 +511,67 @@ def machine_scan_critical_blocks(schedule: AwlsSchedule) -> list[list[int]]:
     return blocks
 
 
+def all_path_critical_blocks(schedule: AwlsSchedule) -> list[list[int]]:
+    """Return C++ ``update_all_critical_block`` style fallback blocks.
+
+    The normal AWLS step follows one randomly selected critical path.  When
+    that path does not expose a legal move, the C++ reference enumerates all
+    branchable critical paths and extracts same-machine blocks from those
+    paths.  A plain machine scan can include similar-looking blocks, but it is
+    not exactly the same neighborhood definition.
+    """
+
+    all_paths: list[list[int]] = [
+        [node]
+        for node in schedule.first_machine_operation
+        if node != -1 and schedule.is_critical_operation(node) and schedule.forward_path_length[node] == 0
+    ]
+
+    path_index = 0
+    while path_index < len(all_paths):
+        current_path = all_paths[path_index]
+        node = current_path[-1]
+        while schedule.end_time[node] < schedule.makespan:
+            machine_successor = schedule.machine_successor[node]
+            job_successor = schedule.job_successor[node]
+            is_machine_critical = schedule.is_critical_operation(machine_successor)
+            is_job_critical = (
+                machine_successor != job_successor
+                and job_successor != schedule.index.end_node
+                and schedule.is_critical_operation(job_successor)
+            )
+            if (
+                is_machine_critical
+                and is_job_critical
+                and schedule.end_time[node] == schedule.forward_path_length[job_successor]
+            ):
+                all_paths.append(list(current_path))
+                current_path.append(machine_successor)
+                all_paths[-1].append(job_successor)
+            elif is_machine_critical:
+                current_path.append(machine_successor)
+            elif is_job_critical and schedule.end_time[node] == schedule.forward_path_length[job_successor]:
+                current_path.append(job_successor)
+            else:
+                break
+            node = current_path[-1]
+        path_index += 1
+
+    blocks: list[list[int]] = []
+    seen: set[tuple[int, ...]] = set()
+    for path in all_paths:
+        for block in blocks_from_path(schedule, path):
+            key = tuple(block)
+            if key not in seen:
+                blocks.append(block)
+                seen.add(key)
+    return blocks
+
+
 def critical_blocks(schedule: AwlsSchedule, rng: random.Random, exhaustive: bool = False) -> list[list[int]]:
     if exhaustive:
-        return machine_scan_critical_blocks(schedule)
+        blocks = all_path_critical_blocks(schedule)
+        return blocks if blocks else machine_scan_critical_blocks(schedule)
 
     start_candidates = [
         node
@@ -934,44 +992,6 @@ def is_change_move_acyclic(schedule: AwlsSchedule, move: Move) -> bool:
         return False
 
 
-def evaluate_and_push(
-    schedule: AwlsSchedule,
-    best_makespan: int,
-    tabu: SequenceTabuList,
-    iteration: int,
-    move: Move,
-    all_moves: list[Move],
-    ranked_moves: list[tuple[float, Move]] | None,
-    best_moves: list[Move],
-    best_value: list[float],
-    gamma: int,
-    intersection: list[int] | None = None,
-) -> None:
-    try:
-        if move.method in (FRONT, BACK):
-            if not is_legal_same_machine_move(schedule, move):
-                return
-            value = same_machine_evaluate(schedule, move, gamma, schedule.same_machine_eval)
-        else:
-            value = change_machine_evaluate(schedule, move, intersection or [], gamma)
-    except (ValueError, KeyError):
-        return
-
-    all_moves.append(move)
-    if value >= best_makespan:
-        machine_id, sequence = candidate_tabu_sequence(schedule, move)
-        if tabu.is_tabu(machine_id, sequence, iteration):
-            return
-    if ranked_moves is not None:
-        ranked_moves.append((value, move))
-    if value < best_value[0] - 1.0e-9:
-        best_value[0] = value
-        best_moves.clear()
-        best_moves.append(move)
-    elif abs(value - best_value[0]) <= 1.0e-9:
-        best_moves.append(move)
-
-
 def find_move(
     schedule: AwlsSchedule,
     best_makespan: int,
@@ -984,7 +1004,69 @@ def find_move(
     all_moves: list[Move] = []
     ranked_moves: list[tuple[float, Move]] | None = [] if exact_select_top_k > 0 else None
     best_moves: list[Move] = []
-    best_value = [math.inf]
+    best_value = math.inf
+    same_machine_eval_func = (
+        same_machine_evaluate_cpp_fast if schedule.same_machine_eval == "cpp-fast" else same_machine_evaluate_stable
+    )
+
+    def remember_candidate(move: Move, value: float) -> None:
+        nonlocal best_value
+        all_moves.append(move)
+        if value >= best_makespan:
+            machine_id, sequence = candidate_tabu_sequence(schedule, move)
+            if tabu.is_tabu(machine_id, sequence, iteration):
+                return
+        if ranked_moves is not None:
+            ranked_moves.append((value, move))
+        if value < best_value - 1.0e-9:
+            best_value = value
+            best_moves.clear()
+            best_moves.append(move)
+        elif abs(value - best_value) <= 1.0e-9:
+            best_moves.append(move)
+
+    def consider_same(method: str, which: int, where: int) -> None:
+        if schedule.on_machine[which] != schedule.on_machine[where] or which == where:
+            return
+        if method == BACK:
+            if schedule.on_machine_pos[where] <= schedule.on_machine_pos[which]:
+                return
+            job_successor = schedule.job_successor[which]
+            if job_successor == where:
+                return
+            successor_tail = 0
+            if job_successor != schedule.index.end_node:
+                successor_tail = schedule.backward_path_length[job_successor] + schedule.index.duration(
+                    job_successor,
+                    schedule.on_machine[job_successor],
+                )
+            if (
+                schedule.backward_path_length[where] + schedule.index.duration(where, schedule.on_machine[where])
+                < successor_tail
+            ):
+                return
+        elif method == FRONT:
+            if schedule.on_machine_pos[where] >= schedule.on_machine_pos[which]:
+                return
+            job_predecessor = schedule.job_predecessor[which]
+            if where == job_predecessor or schedule.end_time[where] < schedule.end_time[job_predecessor]:
+                return
+        else:
+            return
+        move = Move(method, which, where)
+        try:
+            value = same_machine_eval_func(schedule, move, gamma)
+        except (ValueError, KeyError):
+            return
+        remember_candidate(move, value)
+
+    def consider_change(method: str, which: int, where: int, intersection: list[int]) -> None:
+        move = Move(method, which, where)
+        try:
+            value = change_machine_evaluate(schedule, move, intersection, gamma)
+        except (ValueError, KeyError):
+            return
+        remember_candidate(move, value)
 
     exhaustive_first = schedule.rng.randrange(100) < max(0, min(100, critical_block_exhaustive_pct))
     exhaustive_modes = (True, False) if exhaustive_first else (False, True)
@@ -998,99 +1080,22 @@ def find_move(
 
             for node in block:
                 for target in sequence[:block_start]:
-                    evaluate_and_push(
-                        schedule,
-                        best_makespan,
-                        tabu,
-                        iteration,
-                        Move(FRONT, node, target),
-                        all_moves,
-                        ranked_moves,
-                        best_moves,
-                        best_value,
-                        gamma,
-                    )
+                    consider_same(FRONT, node, target)
                 for target in sequence[block_end + 1 :]:
-                    evaluate_and_push(
-                        schedule,
-                        best_makespan,
-                        tabu,
-                        iteration,
-                        Move(BACK, node, target),
-                        all_moves,
-                        ranked_moves,
-                        best_moves,
-                        best_value,
-                        gamma,
-                    )
+                    consider_same(BACK, node, target)
 
             n = len(block)
             if n == 2:
-                evaluate_and_push(
-                    schedule,
-                    best_makespan,
-                    tabu,
-                    iteration,
-                    Move(BACK, block[0], block[1]),
-                    all_moves,
-                    ranked_moves,
-                    best_moves,
-                    best_value,
-                    gamma,
-                )
+                consider_same(BACK, block[0], block[1])
             else:
                 for j in range(2, n):
-                    evaluate_and_push(
-                        schedule,
-                        best_makespan,
-                        tabu,
-                        iteration,
-                        Move(BACK, block[0], block[j]),
-                        all_moves,
-                        ranked_moves,
-                        best_moves,
-                        best_value,
-                        gamma,
-                    )
+                    consider_same(BACK, block[0], block[j])
                 for j in range(n - 2, -1, -1):
-                    evaluate_and_push(
-                        schedule,
-                        best_makespan,
-                        tabu,
-                        iteration,
-                        Move(FRONT, block[-1], block[j]),
-                        all_moves,
-                        ranked_moves,
-                        best_moves,
-                        best_value,
-                        gamma,
-                    )
+                    consider_same(FRONT, block[-1], block[j])
                 for j in range(1, n - 1):
-                    evaluate_and_push(
-                        schedule,
-                        best_makespan,
-                        tabu,
-                        iteration,
-                        Move(FRONT, block[j], block[0]),
-                        all_moves,
-                        ranked_moves,
-                        best_moves,
-                        best_value,
-                        gamma,
-                    )
+                    consider_same(FRONT, block[j], block[0])
                 for j in range(1, n - 1):
-                    evaluate_and_push(
-                        schedule,
-                        best_makespan,
-                        tabu,
-                        iteration,
-                        Move(BACK, block[j], block[-1]),
-                        all_moves,
-                        ranked_moves,
-                        best_moves,
-                        best_value,
-                        gamma,
-                    )
+                    consider_same(BACK, block[j], block[-1])
 
         if not exhaustive:
             for node in schedule.index.real_nodes:
@@ -1104,33 +1109,9 @@ def find_move(
                         continue
                     rk, lk, intersection = change_machine_intersection(schedule, node, candidate_machine)
                     if intersection:
-                        evaluate_and_push(
-                            schedule,
-                            best_makespan,
-                            tabu,
-                            iteration,
-                            Move(CHANGE_MACHINE_FRONT, node, intersection[0]),
-                            all_moves,
-                            ranked_moves,
-                            best_moves,
-                            best_value,
-                            gamma,
-                            intersection,
-                        )
+                        consider_change(CHANGE_MACHINE_FRONT, node, intersection[0], intersection)
                         for target in intersection:
-                            evaluate_and_push(
-                                schedule,
-                                best_makespan,
-                                tabu,
-                                iteration,
-                                Move(CHANGE_MACHINE_BACK, node, target),
-                                all_moves,
-                                ranked_moves,
-                                best_moves,
-                                best_value,
-                                gamma,
-                                intersection,
-                            )
+                            consider_change(CHANGE_MACHINE_BACK, node, target, intersection)
                     elif lk and rk:
                         sequence = schedule.machine_sequences[candidate_machine]
                         start = schedule.on_machine_pos[lk[-1]]
@@ -1140,47 +1121,11 @@ def find_move(
                         else:
                             targets = []
                         for target in targets:
-                            evaluate_and_push(
-                                schedule,
-                                best_makespan,
-                                tabu,
-                                iteration,
-                                Move(CHANGE_MACHINE_BACK, node, target),
-                                all_moves,
-                                ranked_moves,
-                                best_moves,
-                                best_value,
-                                gamma,
-                                intersection,
-                            )
+                            consider_change(CHANGE_MACHINE_BACK, node, target, intersection)
                     elif not lk and rk:
-                        evaluate_and_push(
-                            schedule,
-                            best_makespan,
-                            tabu,
-                            iteration,
-                            Move(CHANGE_MACHINE_FRONT, node, rk[0]),
-                            all_moves,
-                            ranked_moves,
-                            best_moves,
-                            best_value,
-                            gamma,
-                            intersection,
-                        )
+                        consider_change(CHANGE_MACHINE_FRONT, node, rk[0], intersection)
                     elif lk and not rk:
-                        evaluate_and_push(
-                            schedule,
-                            best_makespan,
-                            tabu,
-                            iteration,
-                            Move(CHANGE_MACHINE_BACK, node, lk[-1]),
-                            all_moves,
-                            ranked_moves,
-                            best_moves,
-                            best_value,
-                            gamma,
-                            intersection,
-                        )
+                        consider_change(CHANGE_MACHINE_BACK, node, lk[-1], intersection)
 
         if all_moves:
             break
@@ -1202,7 +1147,7 @@ def find_move(
             return exact_best[2]
     if not best_moves:
         return schedule.rng.choice(all_moves)
-    if best_value[0] > schedule.makespan and schedule.rng.randrange(100) < 3:
+    if best_value > schedule.makespan and schedule.rng.randrange(100) < 3:
         return schedule.rng.choice(all_moves)
     return schedule.rng.choice(best_moves)
 

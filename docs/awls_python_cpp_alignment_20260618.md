@@ -106,6 +106,9 @@ Mk10 纯 Python 2000 步 cProfile 结果显示：
 - `Move` 改为 slots dataclass，降低候选对象开销。
 - 在 `exact_select_top_k=0` 时跳过未使用的 `ranked_moves` 记录，减少候选评分热循环中的列表写入。
 - 将换机候选的 RK/LK/intersection 计算改为窗口边界计算。经 Mk10 300 步、22438 个候选交集抽检，与旧列表构造算法完全一致。
+- 将 fallback/exhaustive 关键块从“机器扫描连续关键操作”改为优先使用 C++ `update_all_critical_block` 风格的“枚举所有关键路径并提取关键块”，边界上更贴近 C++ 邻域定义。
+- 将 GREEDY_INIT 中候选阈值改为 `int(best_completion * ratio)` 截断，补齐 C++ `static_cast<int>` 口径。
+- 将 `find_move` 中的大参数候选评估函数拆成本地 `consider_same` / `consider_change`，并把 same-machine 的 `Move` 对象构造推迟到合法性过滤之后，减少热循环对象和函数调用开销。
 
 C++ 后端桥：
 
@@ -154,7 +157,56 @@ Mk10 5 seed、每 seed 90 秒、`--paper-profile` 串行复测：
 - best：`197`
 - avg：`198.0`
 
-结论：纯 Python 搜索深度已有实质提升，但 90 秒质量仍未达到 C++ GREEDY_INIT 的 `195` / `196.85` 水平。下一阶段若继续追纯 Python 对齐，需要进一步处理 `evaluate_and_push`、`same_machine_evaluate_cpp_fast`、`change_machine_evaluate` 和 `update_time` 等热循环，或引入原生扩展/JIT 将候选评分编译化。
+结论：纯 Python 搜索深度已有实质提升，但 90 秒质量仍未达到 C++ GREEDY_INIT 的 `195` / `196.85` 水平。下一阶段若继续追纯 Python 对齐，需要进一步处理 `same_machine_evaluate_cpp_fast`、`change_machine_evaluate`、`candidate_tabu_sequence` 和 `update_time` 等热循环，或引入原生扩展/JIT 将候选评分编译化。
+
+## 候选评估轻量化复测
+
+进一步将 `find_move` 内候选评估轻量化后，Mk10 seed=2、3000 步短跑保持同一轨迹：
+
+- 修改前同口径短跑：makespan=`209`，runtime≈`7.0s`
+- 修改后同口径短跑：makespan=`209`，runtime≈`5.2s`
+
+Mk10 seed=2、90 秒 `--paper-profile`：
+
+- makespan：`197`
+- moves：`49470`
+- cycles_done：`5`
+- 校验：`valid=true, error_count=0`
+
+对比窗口化优化后的上一版 seed=2 90 秒 `39539` 步，本轮达到 `49470` 步，90 秒内搜索步数提升约 `25%`，但最优 makespan 暂未突破 `197`。
+
+Mk10 20 seed、每 seed 90 秒、`--paper-profile` 并行复测：
+
+| seed | makespan | moves |
+| ---: | ---: | ---: |
+| 0 | 198 | 44448 |
+| 1 | 198 | 45344 |
+| 2 | 197 | 49470 |
+| 3 | 199 | 45148 |
+| 4 | 198 | 44041 |
+| 5 | 199 | 42820 |
+| 6 | 199 | 46219 |
+| 7 | 198 | 44167 |
+| 8 | 198 | 43471 |
+| 9 | 197 | 47622 |
+| 10 | 197 | 43127 |
+| 11 | 197 | 43973 |
+| 12 | 198 | 43151 |
+| 13 | 198 | 43585 |
+| 14 | 198 | 42571 |
+| 15 | 198 | 43573 |
+| 16 | 198 | 44167 |
+| 17 | 198 | 43566 |
+| 18 | 197 | 44215 |
+| 19 | 200 | 43873 |
+
+统计：
+
+- best：`197`
+- avg：`198.0`
+- worst：`200`
+
+与 C++ GREEDY_INIT AWLS 20 seed、90 秒的 best=`195`、avg≈`196.85` 相比，纯 Python 当前平均仍差约 `1.15`，最优仍差 `2`。这说明候选枚举加速是必要但不充分的；剩余差距更可能来自随机轨迹、权重扰动初始状态、评分近似细节或更深层的局部搜索实现差异。
 
 ## 后续方向
 
