@@ -11,6 +11,7 @@ contract in this repository, not on a copied C++ source file.
 """
 
 import argparse
+import json
 import math
 import random
 import time
@@ -1282,8 +1283,10 @@ def tabu_search(
     current.zi_policy = zi_policy
     best = initial.clone()
     tabu = SequenceTabuList(current.index.instance.machine_count)
-    tenure_min = max(1, 10 + current.index.instance.job_count // max(1, current.index.instance.machine_count))
-    tenure_max = max(tenure_min, int(math.ceil(tenure_min * 1.5)))
+    tenure_min, tenure_max = cpp_tabu_tenure_bounds(
+        current.index.instance.job_count,
+        current.index.instance.machine_count,
+    )
     deadline = time.perf_counter() + time_limit_sec if time_limit_sec > 0 else None
     if stats is not None:
         stats["cycles"] = stats.get("cycles", 0) + 1
@@ -1397,6 +1400,17 @@ def parse_portfolio_lanes(raw: str) -> list[PortfolioLane]:
     return lanes
 
 
+def cpp_tabu_tenure_bounds(job_count: int, machine_count: int) -> tuple[int, int]:
+    """Return the C++ AWLS dynamic tabu-tenure bounds for an instance."""
+
+    tenure_min = max(1, 10 + job_count // max(1, machine_count))
+    if job_count <= 2 * machine_count:
+        tenure_max = int(tenure_min * 1.4)
+    else:
+        tenure_max = int(tenure_min * 1.5)
+    return tenure_min, max(tenure_min, tenure_max)
+
+
 def allocate_lane_budgets(lanes: list[PortfolioLane], time_limit_sec: float) -> list[float]:
     """Allocate per-lane wall-clock budgets while respecting a global cap when present."""
 
@@ -1435,6 +1449,7 @@ def solve_awls_single(
     critical_block_exhaustive_pct: int = 0,
     zi_policy: str = "cpp",
     initial_state: str = "reset",
+    cycle_trace: list[dict[str, int | float | str]] | None = None,
 ) -> AwlsSchedule:
     rng = random.Random(seed)
     best: AwlsSchedule | None = None
@@ -1453,7 +1468,18 @@ def solve_awls_single(
         if best is None or initial.makespan < best.makespan:
             best = initial.clone()
         population = initial
-        for _ in range(max(1, cycles_per_restart)):
+        if cycle_trace is not None:
+            cycle_trace.append(
+                {
+                    "event": "restart_initial",
+                    "restart": restart,
+                    "cycle": -1,
+                    "makespan": initial.makespan,
+                    "global_best": best.makespan,
+                    "applied_moves": run_stats.get("applied_moves", 0),
+                }
+            )
+        for cycle in range(max(1, cycles_per_restart)):
             remaining_cycle_time = max(0.0, restart_deadline - time.perf_counter()) if restart_deadline is not None else 0.0
             if restart_deadline is not None and remaining_cycle_time <= 0:
                 break
@@ -1474,6 +1500,17 @@ def solve_awls_single(
             population = improved.clone()
             if best is None or improved.makespan < best.makespan:
                 best = improved.clone()
+            if cycle_trace is not None:
+                cycle_trace.append(
+                    {
+                        "event": "cycle_done",
+                        "restart": restart,
+                        "cycle": cycle,
+                        "makespan": improved.makespan,
+                        "global_best": best.makespan,
+                        "applied_moves": run_stats.get("applied_moves", 0),
+                    }
+                )
 
     if best is None:
         raise RuntimeError("AWLS failed to build an initial schedule")
@@ -1510,6 +1547,7 @@ def solve_awls(
     critical_block_exhaustive_pct: int = 0,
     zi_policy: str = "cpp",
     initial_state: str = "reset",
+    cycle_trace: list[dict[str, int | float | str]] | None = None,
 ) -> tuple[list[ScheduleRecord], str]:
     if zi_policy not in ZI_POLICY_CHOICES:
         raise ValueError(f"unknown zi_policy {zi_policy!r}; expected one of {', '.join(ZI_POLICY_CHOICES)}")
@@ -1537,6 +1575,7 @@ def solve_awls(
                 critical_block_exhaustive_pct=critical_block_exhaustive_pct,
                 zi_policy=zi_policy,
                 initial_state=initial_state,
+                cycle_trace=cycle_trace,
             )
             lane_summaries.append(
                 f"{effective_lane_seed}/{lane.init_mode}/r{lane.restarts}/t{lane_budget:.1f}"
@@ -1578,6 +1617,7 @@ def solve_awls(
         critical_block_exhaustive_pct=critical_block_exhaustive_pct,
         zi_policy=zi_policy,
         initial_state=initial_state,
+        cycle_trace=cycle_trace,
     )
     label = (
         f"awls:init={init_mode}:restarts={restarts}:cycles={cycles_per_restart}:"
@@ -1626,6 +1666,12 @@ def main() -> int:
         default="",
         help="Comma-separated lanes: seed:init:restarts[:seconds], for example 17:random:2:20,5:mixed:2:20.",
     )
+    parser.add_argument(
+        "--trace-cycles",
+        type=Path,
+        default=None,
+        help="Optional JSONL path for per-cycle AWLS diagnostics; disabled by default and does not affect search.",
+    )
     args = parser.parse_args()
 
     if args.paper_profile:
@@ -1643,6 +1689,7 @@ def main() -> int:
     start = time.perf_counter()
     instance = parse_standard_fjsp(args.input)
     portfolio_lanes = parse_portfolio_lanes(args.portfolio_lanes) if args.portfolio_lanes else None
+    cycle_trace: list[dict[str, int | float | str]] | None = [] if args.trace_cycles is not None else None
     schedule, strategy = solve_awls(
         instance,
         seed=args.seed,
@@ -1660,6 +1707,7 @@ def main() -> int:
         same_machine_eval=args.same_machine_eval,
         portfolio_lanes=portfolio_lanes,
         critical_block_exhaustive_pct=args.critical_block_exhaustive_pct,
+        cycle_trace=cycle_trace,
     )
     errors, metrics = validate_standard_schedule(instance, schedule)
     if errors:
@@ -1669,6 +1717,11 @@ def main() -> int:
 
     runtime_sec = time.perf_counter() - start
     write_solution(args.output, instance, schedule, strategy)
+    if args.trace_cycles is not None and cycle_trace is not None:
+        args.trace_cycles.parent.mkdir(parents=True, exist_ok=True)
+        with args.trace_cycles.open("w", encoding="utf-8") as handle:
+            for item in cycle_trace:
+                handle.write(json.dumps(item, ensure_ascii=False) + "\n")
     print(
         {
             "instance": instance.name,

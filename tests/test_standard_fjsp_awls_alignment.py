@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import random
 import subprocess
 import sys
@@ -21,6 +22,7 @@ from examples.standard_fjsp_awls_solver import (
     change_machine_evaluate_parts,
     change_machine_intersection,
     change_machine_window,
+    cpp_tabu_tenure_bounds,
     machine_scan_critical_blocks,
     solve_awls,
 )
@@ -125,6 +127,10 @@ def reference_change_machine_intersection(
 
 
 class StandardFjspAwlsAlignmentTests(unittest.TestCase):
+    def test_cpp_tabu_tenure_bounds_match_reference_branches(self) -> None:
+        self.assertEqual((11, 15), cpp_tabu_tenure_bounds(job_count=20, machine_count=15))
+        self.assertEqual((14, 21), cpp_tabu_tenure_bounds(job_count=40, machine_count=10))
+
     def test_candidate_tabu_sequence_matches_cpp_local_sequence_cases(self) -> None:
         instance = make_instance(
             [
@@ -297,6 +303,7 @@ class StandardFjspAwlsAlignmentTests(unittest.TestCase):
             root = Path(tmp)
             instance_path = root / "tiny.fjs"
             output_path = root / "solution.json"
+            trace_path = root / "trace.jsonl"
             instance_path.write_text(raw_instance, encoding="utf-8")
 
             proc = subprocess.run(
@@ -307,6 +314,8 @@ class StandardFjspAwlsAlignmentTests(unittest.TestCase):
                     str(instance_path),
                     "--output",
                     str(output_path),
+                    "--trace-cycles",
+                    str(trace_path),
                     "--seed",
                     "3",
                     "--time-limit-sec",
@@ -323,6 +332,10 @@ class StandardFjspAwlsAlignmentTests(unittest.TestCase):
             self.assertEqual(0, proc.returncode)
             self.assertIn("awls:init=greedy:restarts=1:", proc.stdout)
             self.assertTrue(output_path.exists())
+            trace_rows = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+            self.assertGreaterEqual(len(trace_rows), 2)
+            self.assertEqual("restart_initial", trace_rows[0]["event"])
+            self.assertTrue(any(row["event"] == "cycle_done" for row in trace_rows))
 
 
 if __name__ == "__main__":
