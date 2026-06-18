@@ -17,7 +17,10 @@ from examples.standard_fjsp_awls_solver import (
     OperationIndex,
     all_path_critical_blocks,
     candidate_tabu_sequence,
+    change_machine_evaluate,
+    change_machine_evaluate_parts,
     change_machine_intersection,
+    change_machine_window,
     machine_scan_critical_blocks,
     solve_awls,
 )
@@ -158,6 +161,55 @@ class StandardFjspAwlsAlignmentTests(unittest.TestCase):
                 actual = change_machine_intersection(schedule, node, candidate_machine)
                 self.assertEqual(expected, actual, f"node={node}, candidate_machine={candidate_machine}")
                 checked += 1
+        self.assertGreater(checked, 0)
+
+    def test_change_machine_window_evaluation_matches_intersection_list_evaluation(self) -> None:
+        instance = make_instance(
+            [
+                [[(0, 3), (1, 4)], [(0, 5), (1, 2)]],
+                [[(0, 2), (1, 3)], [(0, 4), (1, 6)]],
+                [[(0, 6), (1, 2)], [(0, 1), (1, 5)]],
+            ]
+        )
+        schedule = make_schedule(instance, [[1, 4, 6], [3, 5, 2]])
+
+        checked = 0
+        for node in schedule.index.real_nodes:
+            old_machine = schedule.on_machine[node]
+            for candidate_machine in schedule.index.candidates[node]:
+                if candidate_machine == old_machine:
+                    continue
+                _, _, intersection = change_machine_intersection(schedule, node, candidate_machine)
+                sequence, rk_start, lk_end = change_machine_window(schedule, node, candidate_machine)
+                has_rk = rk_start < len(sequence)
+                has_lk = lk_end >= 0
+
+                moves: list[Move] = []
+                if has_rk and has_lk and rk_start <= lk_end:
+                    moves.append(Move(CHANGE_MACHINE_FRONT, node, sequence[rk_start]))
+                    moves.extend(Move(CHANGE_MACHINE_BACK, node, target) for target in sequence[rk_start : lk_end + 1])
+                elif has_lk and has_rk:
+                    moves.extend(Move(CHANGE_MACHINE_BACK, node, target) for target in sequence[lk_end:rk_start])
+                elif not has_lk and has_rk:
+                    moves.append(Move(CHANGE_MACHINE_FRONT, node, sequence[rk_start]))
+                elif has_lk and not has_rk:
+                    moves.append(Move(CHANGE_MACHINE_BACK, node, sequence[lk_end]))
+
+                intersection_first = intersection[0] if intersection else -1
+                intersection_last = intersection[-1] if intersection else -1
+                for move in moves:
+                    expected = change_machine_evaluate(schedule, move, intersection, gamma=40)
+                    actual = change_machine_evaluate_parts(
+                        schedule,
+                        move.method,
+                        move.which,
+                        move.where,
+                        intersection_first,
+                        intersection_last,
+                        gamma=40,
+                    )
+                    self.assertEqual(expected, actual, f"move={move}")
+                    checked += 1
         self.assertGreater(checked, 0)
 
     def test_all_path_critical_blocks_matches_machine_scan_on_single_machine_chain(self) -> None:

@@ -851,6 +851,14 @@ def same_machine_evaluate(schedule: AwlsSchedule, move: Move, gamma: int, eval_m
 
 
 def change_machine_intersection(schedule: AwlsSchedule, node: int, candidate_machine: int) -> tuple[list[int], list[int], list[int]]:
+    sequence, rk_start, lk_end = change_machine_window(schedule, node, candidate_machine)
+    rk = sequence[rk_start:] if rk_start < len(sequence) else []
+    lk = sequence[: lk_end + 1] if lk_end >= 0 else []
+    intersection = sequence[rk_start : lk_end + 1] if rk and lk and rk_start <= lk_end else []
+    return rk, lk, intersection
+
+
+def change_machine_window(schedule: AwlsSchedule, node: int, candidate_machine: int) -> tuple[list[int], int, int]:
     job_predecessor = schedule.job_predecessor[node]
     job_successor = schedule.job_successor[node]
     end_time = schedule.end_time
@@ -881,28 +889,47 @@ def change_machine_intersection(schedule: AwlsSchedule, node: int, candidate_mac
             lk_end = pos
             break
 
-    rk = sequence[rk_start:] if rk_start < len(sequence) else []
-    lk = sequence[: lk_end + 1] if lk_end >= 0 else []
-    intersection = sequence[rk_start : lk_end + 1] if rk and lk and rk_start <= lk_end else []
-    return rk, lk, intersection
+    return sequence, rk_start, lk_end
 
 
 def change_machine_evaluate(schedule: AwlsSchedule, move: Move, intersection: list[int], gamma: int) -> float:
+    intersection_first = intersection[0] if intersection else -1
+    intersection_last = intersection[-1] if intersection else -1
+    return change_machine_evaluate_parts(
+        schedule,
+        move.method,
+        move.which,
+        move.where,
+        intersection_first,
+        intersection_last,
+        gamma,
+    )
+
+
+def change_machine_evaluate_parts(
+    schedule: AwlsSchedule,
+    method: str,
+    which: int,
+    where: int,
+    intersection_first: int,
+    intersection_last: int,
+    gamma: int,
+) -> float:
     on_machine = schedule.on_machine
     end_time = schedule.end_time
     backward_path_length = schedule.backward_path_length
     durations = schedule.index.candidates
-    machine_id = on_machine[move.where]
-    job_predecessor = schedule.job_predecessor[move.which]
-    job_successor = schedule.job_successor[move.which]
-    which_time = durations[move.which][machine_id]
+    machine_id = on_machine[where]
+    job_predecessor = schedule.job_predecessor[which]
+    job_successor = schedule.job_successor[which]
+    which_time = durations[which][machine_id]
     job_successor_time = 0
     if job_successor != schedule.index.end_node:
         job_successor_time = durations[job_successor][on_machine[job_successor]]
-    where_time = durations[move.where][machine_id]
-    zi = weight_perturbation(schedule, move.which, gamma)
+    where_time = durations[where][machine_id]
+    zi = weight_perturbation(schedule, which, gamma)
 
-    if not intersection:
+    if intersection_first == -1:
         value = (
             which_time
             + end_time[job_predecessor]
@@ -910,18 +937,18 @@ def change_machine_evaluate(schedule: AwlsSchedule, move: Move, intersection: li
             + job_successor_time
             + zi
         )
-    elif move.method == CHANGE_MACHINE_FRONT and move.where == intersection[0]:
-        value = which_time + end_time[job_predecessor] + where_time + backward_path_length[move.where] + zi
-    elif move.method == CHANGE_MACHINE_BACK and move.where == intersection[-1]:
-        value = which_time + end_time[move.where] + backward_path_length[job_successor] + job_successor_time + zi
+    elif method == CHANGE_MACHINE_FRONT and where == intersection_first:
+        value = which_time + end_time[job_predecessor] + where_time + backward_path_length[where] + zi
+    elif method == CHANGE_MACHINE_BACK and where == intersection_last:
+        value = which_time + end_time[where] + backward_path_length[job_successor] + job_successor_time + zi
     else:
-        machine_successor = schedule.machine_successor[move.where]
+        machine_successor = schedule.machine_successor[where]
         if machine_successor == -1:
-            value = which_time + end_time[move.where] + zi
+            value = which_time + end_time[where] + zi
         else:
             value = (
                 which_time
-                + end_time[move.where]
+                + end_time[where]
                 + backward_path_length[machine_successor]
                 + durations[machine_successor][machine_id]
                 + zi
@@ -1099,10 +1126,10 @@ def find_move(
             return
         remember_candidate(move, value)
 
-    def consider_change(method: str, which: int, where: int, intersection: list[int]) -> None:
+    def consider_change(method: str, which: int, where: int, intersection_first: int, intersection_last: int) -> None:
         move = Move(method, which, where)
         try:
-            value = change_machine_evaluate(schedule, move, intersection, gamma)
+            value = change_machine_evaluate_parts(schedule, method, which, where, intersection_first, intersection_last, gamma)
         except (ValueError, KeyError):
             return
         remember_candidate(move, value)
@@ -1146,25 +1173,22 @@ def find_move(
                 for candidate_machine in schedule.index.candidates[node]:
                     if candidate_machine == old_machine or not schedule.machine_sequences[candidate_machine]:
                         continue
-                    rk, lk, intersection = change_machine_intersection(schedule, node, candidate_machine)
-                    if intersection:
-                        consider_change(CHANGE_MACHINE_FRONT, node, intersection[0], intersection)
-                        for target in intersection:
-                            consider_change(CHANGE_MACHINE_BACK, node, target, intersection)
-                    elif lk and rk:
-                        sequence = schedule.machine_sequences[candidate_machine]
-                        start = schedule.on_machine_pos[lk[-1]]
-                        stop = schedule.on_machine_pos[rk[0]]
-                        if start < stop:
-                            targets = sequence[start:stop]
-                        else:
-                            targets = []
-                        for target in targets:
-                            consider_change(CHANGE_MACHINE_BACK, node, target, intersection)
-                    elif not lk and rk:
-                        consider_change(CHANGE_MACHINE_FRONT, node, rk[0], intersection)
-                    elif lk and not rk:
-                        consider_change(CHANGE_MACHINE_BACK, node, lk[-1], intersection)
+                    sequence, rk_start, lk_end = change_machine_window(schedule, node, candidate_machine)
+                    has_rk = rk_start < len(sequence)
+                    has_lk = lk_end >= 0
+                    if has_rk and has_lk and rk_start <= lk_end:
+                        intersection_first = sequence[rk_start]
+                        intersection_last = sequence[lk_end]
+                        consider_change(CHANGE_MACHINE_FRONT, node, intersection_first, intersection_first, intersection_last)
+                        for target in sequence[rk_start : lk_end + 1]:
+                            consider_change(CHANGE_MACHINE_BACK, node, target, intersection_first, intersection_last)
+                    elif has_lk and has_rk:
+                        for target in sequence[lk_end:rk_start]:
+                            consider_change(CHANGE_MACHINE_BACK, node, target, -1, -1)
+                    elif not has_lk and has_rk:
+                        consider_change(CHANGE_MACHINE_FRONT, node, sequence[rk_start], -1, -1)
+                    elif has_lk and not has_rk:
+                        consider_change(CHANGE_MACHINE_BACK, node, sequence[lk_end], -1, -1)
 
         if all_moves:
             break
