@@ -36,6 +36,7 @@ FRONT = "FRONT"
 BACK = "BACK"
 CHANGE_MACHINE_FRONT = "CHANGE_MACHINE_FRONT"
 CHANGE_MACHINE_BACK = "CHANGE_MACHINE_BACK"
+ZI_POLICY_CHOICES = ("cpp", "none", "sqrt", "aggressive", "critical")
 
 
 @dataclass(frozen=True)
@@ -158,6 +159,7 @@ class AwlsSchedule:
         self.op_weight = [initial_weight] * n
         self.op_cooldown = [0] * n
         self.same_machine_eval = "stable"
+        self.zi_policy = "cpp"
         self.update_time()
 
     def clone(self) -> "AwlsSchedule":
@@ -184,6 +186,7 @@ class AwlsSchedule:
         cloned.op_weight = list(self.op_weight)
         cloned.op_cooldown = list(self.op_cooldown)
         cloned.same_machine_eval = self.same_machine_eval
+        cloned.zi_policy = self.zi_policy
         return cloned
 
     def rebuild_machine_links(self) -> None:
@@ -519,10 +522,20 @@ def critical_blocks(schedule: AwlsSchedule, rng: random.Random, exhaustive: bool
 
 def weight_perturbation(schedule: AwlsSchedule, node: int, gamma: int) -> float:
     weight = schedule.op_weight[node]
-    if weight <= 0:
+    policy = schedule.zi_policy
+    if policy == "none" or weight <= 0:
         return 0.0
     rr = schedule.rng.uniform(1.0e-9, float(gamma))
-    return max(0.0, 1.0 - schedule.op_cooldown[node] / rr) * weight
+    cooling_factor = max(0.0, 1.0 - schedule.op_cooldown[node] / rr)
+    if policy == "sqrt":
+        return cooling_factor * math.sqrt(weight)
+
+    perturbation = cooling_factor * weight
+    if policy == "aggressive":
+        return 1.5 * perturbation
+    if policy == "critical" and schedule.is_critical_operation(node):
+        return 1.25 * perturbation
+    return perturbation
 
 
 def operation_tail(schedule: AwlsSchedule, node: int) -> int:
@@ -1163,22 +1176,31 @@ def update_operation_weights(
     beta: int,
     gamma: int,
     theta: int,
+    zi_policy: str,
 ) -> None:
     critical = {node for node in schedule.index.real_nodes if schedule.is_critical_operation(node)}
     if current_makespan >= previous_makespan:
         if schedule.op_cooldown[moved_node] > beta:
             schedule.op_weight[moved_node] = 0
         else:
-            schedule.op_weight[moved_node] += 1
+            increment = 1
+            if zi_policy == "aggressive":
+                increment = 2
+            elif zi_policy == "critical" and moved_node in critical:
+                increment = 2
+            schedule.op_weight[moved_node] += increment
 
         if schedule.op_cooldown[moved_node] > gamma:
             schedule.op_cooldown[moved_node] = gamma
         else:
-            schedule.op_cooldown[moved_node] = max(schedule.op_cooldown[moved_node] - theta, 0)
+            cooldown_step = theta
+            if zi_policy == "aggressive":
+                cooldown_step = max(theta + 1, theta * 2)
+            schedule.op_cooldown[moved_node] = max(schedule.op_cooldown[moved_node] - cooldown_step, 0)
 
         for node in schedule.index.real_nodes:
             if node not in critical and node != moved_node:
-                schedule.op_cooldown[node] += 1
+                schedule.op_cooldown[node] += 2 if zi_policy == "aggressive" else 1
     else:
         for node in schedule.index.real_nodes:
             schedule.op_cooldown[node] += 1
@@ -1199,9 +1221,11 @@ def tabu_search(
     exact_select_top_k: int,
     same_machine_eval: str,
     critical_block_exhaustive_pct: int,
+    zi_policy: str,
 ) -> AwlsSchedule:
     current = initial
     current.same_machine_eval = same_machine_eval
+    current.zi_policy = zi_policy
     best = initial.clone()
     tabu = SequenceTabuList(current.index.instance.machine_count)
     tenure_min = max(1, 10 + current.index.instance.job_count // max(1, current.index.instance.machine_count))
@@ -1238,6 +1262,7 @@ def tabu_search(
             beta,
             gamma,
             theta,
+            zi_policy,
         )
         if current.makespan < best.makespan:
             best = current.clone()
@@ -1324,6 +1349,7 @@ def solve_awls_single(
     exact_select_top_k: int,
     same_machine_eval: str,
     critical_block_exhaustive_pct: int = 0,
+    zi_policy: str = "cpp",
 ) -> AwlsSchedule:
     rng = random.Random(seed)
     best: AwlsSchedule | None = None
@@ -1355,6 +1381,7 @@ def solve_awls_single(
                 exact_select_top_k,
                 same_machine_eval,
                 critical_block_exhaustive_pct,
+                zi_policy,
             )
             population = improved.clone()
             if best is None or improved.makespan < best.makespan:
@@ -1380,7 +1407,10 @@ def solve_awls(
     same_machine_eval: str = "stable",
     portfolio_lanes: list[PortfolioLane] | None = None,
     critical_block_exhaustive_pct: int = 0,
+    zi_policy: str = "cpp",
 ) -> tuple[list[ScheduleRecord], str]:
+    if zi_policy not in ZI_POLICY_CHOICES:
+        raise ValueError(f"unknown zi_policy {zi_policy!r}; expected one of {', '.join(ZI_POLICY_CHOICES)}")
     index = OperationIndex.from_instance(instance)
     if portfolio_lanes:
         lane_budgets = allocate_lane_budgets(portfolio_lanes, time_limit_sec)
@@ -1402,6 +1432,7 @@ def solve_awls(
                 exact_select_top_k=exact_select_top_k,
                 same_machine_eval=same_machine_eval,
                 critical_block_exhaustive_pct=critical_block_exhaustive_pct,
+                zi_policy=zi_policy,
             )
             lane_summaries.append(
                 f"{lane.seed}/{lane.init_mode}/r{lane.restarts}/t{lane_budget:.1f}=m{candidate.makespan}"
@@ -1415,7 +1446,7 @@ def solve_awls(
             "awls-portfolio:"
             f"selected={best_lane.seed}/{best_lane.init_mode}/r{best_lane.restarts}:"
             f"cycles={cycles_per_restart}:iterations={iterations}:eval={same_machine_eval}:"
-            f"exhaustive_pct={critical_block_exhaustive_pct}:makespan={best.makespan}:"
+            f"exhaustive_pct={critical_block_exhaustive_pct}:zi={zi_policy}:makespan={best.makespan}:"
             f"lanes={'|'.join(lane_summaries)}"
         )
         return best.to_records(), label
@@ -1434,11 +1465,12 @@ def solve_awls(
         exact_select_top_k=exact_select_top_k,
         same_machine_eval=same_machine_eval,
         critical_block_exhaustive_pct=critical_block_exhaustive_pct,
+        zi_policy=zi_policy,
     )
     label = (
         f"awls:init={init_mode}:restarts={restarts}:cycles={cycles_per_restart}:"
         f"iterations={iterations}:seed={seed}:eval={same_machine_eval}:"
-        f"exhaustive_pct={critical_block_exhaustive_pct}:makespan={best.makespan}"
+        f"exhaustive_pct={critical_block_exhaustive_pct}:zi={zi_policy}:makespan={best.makespan}"
     )
     return best.to_records(), label
 
@@ -1456,6 +1488,7 @@ def main() -> int:
     parser.add_argument("--beta", type=int, default=500)
     parser.add_argument("--gamma", type=int, default=40)
     parser.add_argument("--theta", type=int, default=5)
+    parser.add_argument("--zi-policy", choices=ZI_POLICY_CHOICES, default="cpp")
     parser.add_argument("--exact-select-top-k", type=int, default=0)
     parser.add_argument(
         "--critical-block-exhaustive-pct",
@@ -1485,6 +1518,7 @@ def main() -> int:
         beta=args.beta,
         gamma=args.gamma,
         theta=args.theta,
+        zi_policy=args.zi_policy,
         exact_select_top_k=args.exact_select_top_k,
         same_machine_eval=args.same_machine_eval,
         portfolio_lanes=portfolio_lanes,

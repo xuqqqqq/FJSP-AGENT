@@ -59,11 +59,13 @@ class BenchmarkSuiteTests(unittest.TestCase):
                     time_limit_sec=1.0,
                     init_mode="mixed",
                     critical_block_exhaustive_pct=5,
+                    zi_policy="sqrt",
                 )
             )
 
             self.assertEqual("ok", manifest["status"])
             self.assertEqual(5, manifest["request"]["critical_block_exhaustive_pct"])
+            self.assertEqual("sqrt", manifest["request"]["zi_policy"])
             self.assertEqual(1, manifest["aggregate"]["instance_count"])
             self.assertEqual(["standard_fjsp_tiny.fjs"], manifest["selected_instance_names"])
             self.assertEqual(1, manifest["aggregate"]["valid_instance_count"])

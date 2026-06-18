@@ -45,6 +45,7 @@ class AwlsBenchmarkRequest:
     beta: int = 500
     gamma: int = 40
     theta: int = 5
+    zi_policy: str = "cpp"
     portfolio_lanes: str = ""
     critical_block_exhaustive_pct: int = 0
     same_machine_eval: str = "stable"
@@ -243,6 +244,7 @@ def run_one_awls_job(
             beta=max(1, request.beta),
             gamma=max(1, request.gamma),
             theta=max(0, request.theta),
+            zi_policy=request.zi_policy,
             exact_select_top_k=max(0, request.exact_select_top_k),
             same_machine_eval=request.same_machine_eval,
             portfolio_lanes=lane_specs,

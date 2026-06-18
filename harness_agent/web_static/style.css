@@ -232,6 +232,10 @@ select:focus {
   margin-bottom: 8px;
 }
 
+.wide-field {
+  grid-column: span 2;
+}
+
 .checkbox-field {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;

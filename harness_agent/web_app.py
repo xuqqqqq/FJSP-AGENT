@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from .awls_zi_evolution import AwlsZiEvolutionRequest, run_awls_zi_evolution
 from .deepseek_client import is_deepseek_configured, load_local_env, normalize_deepseek_model
 from .demo import StandardDemoRequest, run_standard_demo
 from .standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop
@@ -119,6 +120,7 @@ def make_demo_examples() -> dict[str, Any]:
         "best_known_csv": {"name": best_known_name, "text": best_known},
         "config": {
             "title": "Brandimarte Mk01 标准 FJSP 闭环演示",
+            "run_mode": "standard_loop",
             "max_rounds": 2,
             "seeds": "0",
             "solver": "portfolio",
@@ -128,6 +130,8 @@ def make_demo_examples() -> dict[str, Any]:
             "portfolio_size": 8,
             "timeout_seconds": 60,
             "max_workers": 1,
+            "awls_zi_candidates": 2,
+            "awls_same_machine_eval": "stable",
             "apply_worker_changes": True,
             "worker_max_steps": 4,
         },
@@ -176,6 +180,9 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
     else:
         best_known_path = None
 
+    run_mode = str(payload.get("run_mode") or "standard_loop")
+    if run_mode not in {"standard_loop", "awls_zi"}:
+        run_mode = "standard_loop"
     solver = str(payload.get("solver") or "portfolio")
     if solver not in {"portfolio", "local-search", "awls"}:
         solver = "portfolio"
@@ -185,8 +192,15 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
     profile_mode = str(payload.get("profile_mode") or "template")
     if profile_mode not in {"template", "auto", "deepseek"}:
         profile_mode = "template"
+    awls_same_machine_eval = str(payload.get("awls_same_machine_eval") or "stable")
+    if awls_same_machine_eval not in {"stable", "cpp-fast"}:
+        awls_same_machine_eval = "stable"
+    awls_time_policy = str(payload.get("awls_time_policy") or "fixed")
+    if awls_time_policy not in {"fixed", "scaled"}:
+        awls_time_policy = "fixed"
 
     config = {
+        "run_mode": run_mode,
         "max_rounds": coerce_int(payload.get("max_rounds"), 2, minimum=1, maximum=20),
         "seeds": parse_seeds(payload.get("seeds", "0")),
         "solver": solver,
@@ -212,6 +226,9 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         "awls_gamma": coerce_int(payload.get("awls_gamma"), 40, minimum=1, maximum=100000),
         "awls_theta": coerce_int(payload.get("awls_theta"), 5, minimum=0, maximum=100000),
         "awls_portfolio_lanes": str(payload.get("awls_portfolio_lanes") or ""),
+        "awls_zi_candidates": coerce_int(payload.get("awls_zi_candidates"), 2, minimum=1, maximum=8),
+        "awls_same_machine_eval": awls_same_machine_eval,
+        "awls_time_policy": awls_time_policy,
         "deepseek_model": str(payload.get("deepseek_model") or "deepseek-v4-pro"),
         "apply_worker_changes": bool(payload.get("apply_worker_changes", True)),
         "worker_max_steps": coerce_int(payload.get("worker_max_steps"), 4, minimum=1, maximum=20),
@@ -271,12 +288,68 @@ def run_job(job_id: str) -> None:
         append_event(
             job,
             (
-                f"调用演进层级={config['evolution_mode']}：rounds={config['max_rounds']}，"
+                f"调用运行模式={config['run_mode']}，演进层级={config['evolution_mode']}：rounds={config['max_rounds']}，"
                 f"solver={config['solver']}。"
             ),
         )
         write_job_status(job)
-        if config["evolution_mode"] == "code":
+        if config["run_mode"] == "awls_zi":
+            load_local_env()
+            if not is_deepseek_configured():
+                raise RuntimeError(
+                    "DeepSeek API is not configured. Set DEEPSEEK_API_KEY or DEEPSEEK_API_KEY_FILE before AWLS zi evolution."
+                )
+            append_event(
+                job,
+                (
+                    "进入 AWLS-ZI 受控演化：DeepSeek 只提出候选参数/规则，"
+                    "固定 AWLS evaluator 负责验证 gap 与合法性。"
+                ),
+            )
+            write_job_status(job)
+            manifest = run_awls_zi_evolution(
+                AwlsZiEvolutionRequest(
+                    instance_dir=Path(input_paths["instance"]).parent,
+                    pattern=Path(input_paths["instance"]).name,
+                    best_known_csv=Path(input_paths["best_known_csv"]) if input_paths.get("best_known_csv") else None,
+                    output_dir=output_dir / "awls_zi_evolution",
+                    rounds=config["max_rounds"],
+                    candidates_per_round=config["awls_zi_candidates"],
+                    deepseek_model=config["deepseek_model"],
+                    seeds=config["seeds"],
+                    max_workers=config["max_workers"],
+                    restarts=config["awls_restarts"],
+                    cycles_per_restart=config["awls_cycles_per_restart"],
+                    iterations=config["awls_iterations"],
+                    time_limit_sec=config["awls_time_limit_sec"],
+                    init_mode=config["awls_init"],
+                    exact_select_top_k=config["awls_exact_select_top_k"],
+                    beta=config["awls_beta"],
+                    gamma=config["awls_gamma"],
+                    theta=config["awls_theta"],
+                    portfolio_lanes=config["awls_portfolio_lanes"],
+                    same_machine_eval=config["awls_same_machine_eval"],
+                    time_policy=config["awls_time_policy"],
+                )
+            )
+            round_summary = summarize_zi_manifest(manifest)
+            summary_payload = {
+                "manifest_status": manifest.get("status"),
+                "zi_summary": round_summary,
+                "round_summary": {
+                    "completed_round_count": round_summary["round_count"],
+                    "reflection_count": round_summary["round_count"],
+                    "harness_report_count": round_summary["candidate_count"],
+                    "round_dirs": round_summary["round_dirs"],
+                },
+            }
+            raw_artifacts = manifest.get("artifacts", {})
+            artifacts = {
+                "zi_evolution_summary": raw_artifacts.get("summary"),
+                "zi_evolution_report": raw_artifacts.get("report"),
+            }
+            artifacts = {key: value for key, value in artifacts.items() if value}
+        elif config["evolution_mode"] == "code":
             if not is_deepseek_configured():
                 raise RuntimeError(
                     "DeepSeek API is not configured. Set DEEPSEEK_API_KEY or DEEPSEEK_API_KEY_FILE before code evolution."
@@ -456,6 +529,39 @@ def summarize_worker_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         "final_key": final_key,
         "baseline_makespan": objective_key_to_makespan(baseline_key),
         "final_makespan": objective_key_to_makespan(final_key),
+        "round_dirs": round_dirs,
+    }
+
+
+def summarize_zi_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Extract the small metric set the web cockpit needs for AWLS-ZI runs."""
+
+    rounds = manifest.get("rounds") or []
+    candidates = [
+        candidate
+        for round_record in rounds
+        for candidate in (round_record.get("candidates") or [])
+        if isinstance(candidate, dict)
+    ]
+    best = manifest.get("best") or {}
+    baseline = manifest.get("baseline") or {}
+    round_dirs = [
+        str(Path(candidate.get("report", "")).resolve().parent)
+        for candidate in candidates
+        if candidate.get("report")
+    ]
+    return {
+        "round_count": len(rounds),
+        "completed_round_count": len(rounds),
+        "candidate_count": len(candidates),
+        "best_name": best.get("name"),
+        "best_avg_gap_pct": best.get("avg_gap_pct"),
+        "best_median_gap_pct": best.get("median_gap_pct"),
+        "best_max_gap_pct": best.get("max_gap_pct"),
+        "best_valid_instance_count": best.get("valid_instance_count"),
+        "best_invalid_run_count": best.get("invalid_run_count"),
+        "baseline_avg_gap_pct": baseline.get("avg_gap_pct"),
+        "selected_instance_count": len(manifest.get("selected_instance_names") or []),
         "round_dirs": round_dirs,
     }
 

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .awls_benchmark import AwlsBenchmarkRequest, run_awls_benchmark
 from .awls_compare import AwlsCompareRequest, compare_awls_benchmarks
+from .awls_zi_evolution import AwlsZiEvolutionRequest, run_awls_zi_evolution
 from .benchmark_suite import BenchmarkSuiteRequest, run_benchmark_suite
 from .context_packet import ContextPacketRequest, write_context_packet
 from .contract_builder import (
@@ -348,6 +349,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     awls_benchmark.add_argument("--same-machine-eval", choices=("stable", "cpp-fast"), default="stable")
     awls_benchmark.add_argument(
+        "--awls-zi-policy",
+        choices=("cpp", "none", "sqrt", "aggressive", "critical"),
+        default="cpp",
+        help="Adaptive zi perturbation policy used by the AWLS move evaluator.",
+    )
+    awls_benchmark.add_argument(
         "--awls-time-policy",
         choices=("fixed", "mae2019", "mae2019-hour"),
         default="fixed",
@@ -362,6 +369,34 @@ def build_parser() -> argparse.ArgumentParser:
     awls_compare.add_argument("--baseline-summary", required=True, type=Path)
     awls_compare.add_argument("--candidate-summary", required=True, type=Path)
     awls_compare.add_argument("--output-dir", required=True, type=Path)
+
+    awls_zi = subparsers.add_parser(
+        "run-awls-zi-evolution",
+        help="let DeepSeek propose AWLS zi-policy candidates and evaluate them",
+    )
+    awls_zi.add_argument("--instance-dir", required=True, type=Path)
+    awls_zi.add_argument("--pattern", default="*.txt")
+    awls_zi.add_argument("--output-dir", required=True, type=Path)
+    awls_zi.add_argument("--best-known-csv", type=Path)
+    awls_zi.add_argument("--max-instances", type=int)
+    awls_zi.add_argument("--instance-name", action="append", default=[])
+    awls_zi.add_argument("--instance-list", type=Path)
+    awls_zi.add_argument("--sample-count", type=int)
+    awls_zi.add_argument("--sample-seed", type=int, default=0)
+    awls_zi.add_argument("--include-families", default="")
+    awls_zi.add_argument("--rounds", type=int, default=3)
+    awls_zi.add_argument("--candidates-per-round", type=int, default=2)
+    awls_zi.add_argument("--deepseek-model", default="deepseek-v4-pro")
+    awls_zi.add_argument("--seeds", default="0")
+    awls_zi.add_argument("--max-workers", type=int, default=1)
+    add_awls_arguments(awls_zi, default_time_limit=10.0)
+    awls_zi.add_argument("--same-machine-eval", choices=("stable", "cpp-fast"), default="stable")
+    awls_zi.add_argument("--awls-time-policy", choices=("fixed", "mae2019", "mae2019-hour"), default="fixed")
+    awls_zi.add_argument(
+        "--baseline-summary",
+        type=Path,
+        help="Optional prior AWLS summary to include as baseline evidence without rerunning it.",
+    )
 
     web = subparsers.add_parser("serve-web", help="serve the local document-to-loop web demo UI")
     web.add_argument("--host", default="127.0.0.1")
@@ -1349,6 +1384,7 @@ def run_awls_benchmark_cmd(args: argparse.Namespace) -> int:
             beta=args.awls_beta,
             gamma=args.awls_gamma,
             theta=args.awls_theta,
+            zi_policy=args.awls_zi_policy,
             portfolio_lanes=args.awls_portfolio_lanes,
             critical_block_exhaustive_pct=args.awls_critical_block_exhaustive_pct,
             same_machine_eval=args.same_machine_eval,
@@ -1384,6 +1420,53 @@ def compare_awls_benchmarks_cmd(args: argparse.Namespace) -> int:
             {
                 "status": manifest["status"],
                 "aggregate": manifest["aggregate"],
+                "summary": manifest["artifacts"]["summary"],
+                "report": manifest["artifacts"]["report"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0 if manifest["status"] == "ok" else 1
+
+
+def run_awls_zi_evolution_cmd(args: argparse.Namespace) -> int:
+    manifest = run_awls_zi_evolution(
+        AwlsZiEvolutionRequest(
+            instance_dir=args.instance_dir,
+            pattern=args.pattern,
+            output_dir=args.output_dir,
+            best_known_csv=args.best_known_csv,
+            max_instances=args.max_instances,
+            include_families=parse_csv_list(args.include_families),
+            instance_names=parse_instance_names(args.instance_name, args.instance_list),
+            sample_count=args.sample_count,
+            sample_seed=args.sample_seed,
+            rounds=max(1, args.rounds),
+            candidates_per_round=max(1, args.candidates_per_round),
+            deepseek_model=args.deepseek_model,
+            seeds=parse_seed_list(args.seeds),
+            max_workers=max(1, args.max_workers),
+            restarts=args.awls_restarts,
+            cycles_per_restart=args.awls_cycles_per_restart,
+            iterations=args.awls_iterations,
+            time_limit_sec=args.awls_time_limit_sec,
+            init_mode=args.awls_init,
+            exact_select_top_k=args.awls_exact_select_top_k,
+            beta=args.awls_beta,
+            gamma=args.awls_gamma,
+            theta=args.awls_theta,
+            portfolio_lanes=args.awls_portfolio_lanes,
+            same_machine_eval=args.same_machine_eval,
+            time_policy=args.awls_time_policy,
+            baseline_summary=args.baseline_summary,
+        )
+    )
+    print(
+        json.dumps(
+            {
+                "status": manifest["status"],
+                "best": manifest["best"],
                 "summary": manifest["artifacts"]["summary"],
                 "report": manifest["artifacts"]["report"],
             },
@@ -1562,6 +1645,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_awls_benchmark_cmd(args)
     if args.command == "compare-awls-benchmarks":
         return compare_awls_benchmarks_cmd(args)
+    if args.command == "run-awls-zi-evolution":
+        return run_awls_zi_evolution_cmd(args)
     if args.command == "serve-web":
         return serve_web_cmd(args)
     if args.command == "run-standard-worker-loop":

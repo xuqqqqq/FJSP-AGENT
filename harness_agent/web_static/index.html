@@ -68,6 +68,13 @@
             </label>
             <div class="config-grid">
               <label class="field compact">
+                <span>运行类型</span>
+                <select id="run-mode">
+                  <option value="standard_loop">文档→策略/代码→Evaluator 循环</option>
+                  <option value="awls_zi">DeepSeek 调 AWLS-ZI 参数/规则</option>
+                </select>
+              </label>
+              <label class="field compact">
                 <span>迭代轮次</span>
                 <input id="max-rounds" type="number" min="1" max="20" value="2" />
               </label>
@@ -80,6 +87,7 @@
                 <select id="solver">
                   <option value="portfolio">portfolio</option>
                   <option value="local-search">local-search</option>
+                  <option value="awls">awls</option>
                 </select>
               </label>
               <label class="field compact">
@@ -102,6 +110,10 @@
                 <input id="strategy-candidates" type="number" min="1" max="16" value="2" />
               </label>
               <label class="field compact">
+                <span>AWLS-ZI 候选数</span>
+                <input id="awls-zi-candidates" type="number" min="1" max="8" value="2" />
+              </label>
+              <label class="field compact">
                 <span>Portfolio size</span>
                 <input id="portfolio-size" type="number" min="1" max="512" value="8" />
               </label>
@@ -118,6 +130,53 @@
                   <option value="hgtsa-lite">hgtsa-lite</option>
                   <option value="hybrid">hybrid</option>
                 </select>
+              </label>
+              <label class="field compact">
+                <span>AWLS restarts</span>
+                <input id="awls-restarts" type="number" min="1" max="128" value="1" />
+              </label>
+              <label class="field compact">
+                <span>AWLS cycles</span>
+                <input id="awls-cycles" type="number" min="1" max="100000" value="200" />
+              </label>
+              <label class="field compact">
+                <span>AWLS iterations</span>
+                <input id="awls-iterations" type="number" min="0" max="1000000" value="2000" />
+              </label>
+              <label class="field compact">
+                <span>AWLS time limit</span>
+                <input id="awls-time-limit" type="number" min="0.1" max="1800" step="0.1" value="6" />
+              </label>
+              <label class="field compact">
+                <span>AWLS init</span>
+                <select id="awls-init">
+                  <option value="random">random</option>
+                  <option value="greedy">greedy</option>
+                  <option value="mixed">mixed</option>
+                </select>
+              </label>
+              <label class="field compact">
+                <span>AWLS beta</span>
+                <input id="awls-beta" type="number" min="1" max="100000" value="500" />
+              </label>
+              <label class="field compact">
+                <span>AWLS gamma</span>
+                <input id="awls-gamma" type="number" min="1" max="100000" value="40" />
+              </label>
+              <label class="field compact">
+                <span>AWLS theta</span>
+                <input id="awls-theta" type="number" min="0" max="100000" value="5" />
+              </label>
+              <label class="field compact">
+                <span>AWLS same-machine</span>
+                <select id="awls-same-machine-eval">
+                  <option value="stable">stable</option>
+                  <option value="cpp-fast">cpp-fast</option>
+                </select>
+              </label>
+              <label class="field compact wide-field">
+                <span>AWLS portfolio lanes</span>
+                <input id="awls-portfolio-lanes" value="3:random:1,5:mixed:1,17:random:1" />
               </label>
               <label class="field compact">
                 <span>Worker max steps</span>

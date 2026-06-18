@@ -31,14 +31,17 @@ async function loadDemo() {
   $("instance-text").dataset.filename = demo.instance.name;
   $("best-text").value = demo.best_known_csv.text;
   $("best-text").dataset.filename = demo.best_known_csv.name;
+  $("run-mode").value = demo.config.run_mode || "standard_loop";
   $("max-rounds").value = demo.config.max_rounds;
   $("seeds").value = demo.config.seeds;
   $("solver").value = demo.config.solver;
   $("evolution-mode").value = demo.config.evolution_mode;
   $("profile-mode").value = demo.config.profile_mode;
   $("strategy-candidates").value = demo.config.strategy_candidates;
+  $("awls-zi-candidates").value = demo.config.awls_zi_candidates || 2;
   $("portfolio-size").value = demo.config.portfolio_size;
   $("timeout-seconds").value = demo.config.timeout_seconds;
+  $("awls-same-machine-eval").value = demo.config.awls_same_machine_eval || "stable";
   $("worker-max-steps").value = demo.config.worker_max_steps;
   $("apply-worker-changes").checked = Boolean(demo.config.apply_worker_changes);
   $("artifact-preview").textContent = "内置示例已载入，可以直接启动循环迭代。";
@@ -77,15 +80,27 @@ function buildPayload() {
       name: $("best-text").dataset.filename || "best_known.csv",
       text: $("best-text").value,
     },
+    run_mode: $("run-mode").value,
     max_rounds: Number($("max-rounds").value || 2),
     seeds: $("seeds").value || "0",
     solver: $("solver").value,
     evolution_mode: $("evolution-mode").value,
     profile_mode: $("profile-mode").value,
     strategy_candidates: Number($("strategy-candidates").value || 2),
+    awls_zi_candidates: Number($("awls-zi-candidates").value || 2),
     portfolio_size: Number($("portfolio-size").value || 8),
     timeout_seconds: Number($("timeout-seconds").value || 60),
     local_search_neighborhood_profile: $("neighborhood-profile").value,
+    awls_restarts: Number($("awls-restarts").value || 1),
+    awls_cycles_per_restart: Number($("awls-cycles").value || 200),
+    awls_iterations: Number($("awls-iterations").value || 2000),
+    awls_time_limit_sec: Number($("awls-time-limit").value || 6),
+    awls_init: $("awls-init").value,
+    awls_beta: Number($("awls-beta").value || 500),
+    awls_gamma: Number($("awls-gamma").value || 40),
+    awls_theta: Number($("awls-theta").value || 5),
+    awls_same_machine_eval: $("awls-same-machine-eval").value,
+    awls_portfolio_lanes: $("awls-portfolio-lanes").value,
     apply_worker_changes: $("apply-worker-changes").checked,
     worker_max_steps: Number($("worker-max-steps").value || 4),
   };
@@ -99,7 +114,9 @@ async function submitJob(event) {
     return;
   }
   const needsDeepSeek =
-    payload.evolution_mode === "code" || payload.profile_mode === "deepseek";
+    payload.run_mode === "awls_zi" ||
+    payload.evolution_mode === "code" ||
+    payload.profile_mode === "deepseek";
   if (needsDeepSeek && state.deepseekStatus && !state.deepseekStatus.configured) {
     $("artifact-preview").textContent =
       "当前选择需要 DeepSeek API，但本地没有检测到 DEEPSEEK_API_KEY / DEEPSEEK_API_KEY_FILE。若只想跑通流程，可把策略来源切到 template；若要 DeepSeek 写策略或写代码，请先配置本地密钥。";
@@ -146,8 +163,13 @@ async function refreshJob() {
     if (!["queued", "running"].includes(job.status) && state.pollTimer) {
       clearInterval(state.pollTimer);
       state.pollTimer = null;
-      if (job.artifacts?.report) {
-        loadArtifact("report");
+      const preferredReport =
+        job.artifacts?.report ? "report" :
+        job.artifacts?.zi_evolution_report ? "zi_evolution_report" :
+        job.artifacts?.standard_agent_report ? "standard_agent_report" :
+        null;
+      if (preferredReport) {
+        loadArtifact(preferredReport);
       }
     }
   }
@@ -164,18 +186,28 @@ function renderJob(job) {
   const benchmark = job.summary?.benchmark_summary || {};
   const roundSummary = job.summary?.round_summary || {};
   const workerSummary = job.summary?.worker_summary || {};
+  const ziSummary = job.summary?.zi_summary || {};
   const makespan =
     workerSummary.final_makespan ??
     summary.best_metrics?.makespan ??
     summary.best_candidate_metrics?.avg_makespan;
-  const gap = benchmark.gap_metrics?.avg_gap_pct ?? summary.best_metrics?.avg_gap_pct;
-  $("metric-rounds").textContent = roundSummary.completed_round_count ?? job.config?.max_rounds ?? "-";
+  const gap =
+    ziSummary.best_avg_gap_pct ??
+    benchmark.gap_metrics?.avg_gap_pct ??
+    summary.best_metrics?.avg_gap_pct;
+  $("metric-rounds").textContent =
+    ziSummary.completed_round_count ??
+    roundSummary.completed_round_count ??
+    job.config?.max_rounds ??
+    "-";
   $("metric-valid").textContent =
-    workerSummary.promoted_rounds !== undefined
-      ? `${workerSummary.promoted_rounds}/${workerSummary.round_count}`
-      : summary.valid ?? benchmark.valid_experiments ?? "-";
+    ziSummary.best_valid_instance_count !== undefined
+      ? `${ziSummary.best_valid_instance_count}/${ziSummary.selected_instance_count}`
+      : workerSummary.promoted_rounds !== undefined
+        ? `${workerSummary.promoted_rounds}/${workerSummary.round_count}`
+        : summary.valid ?? benchmark.valid_experiments ?? "-";
   $("metric-makespan").textContent = formatMetric(makespan);
-  $("metric-gap").textContent = gap === undefined ? "-" : `${Number(gap).toFixed(2)}%`;
+  $("metric-gap").textContent = gap === undefined || gap === null ? "-" : `${Number(gap).toFixed(2)}%`;
 
   const log = $("event-log");
   log.innerHTML = "";
@@ -207,6 +239,8 @@ function labelForArtifact(name) {
     manifest: "Manifest",
     report: "Demo Report",
     standard_agent_report: "Agent Report",
+    zi_evolution_summary: "AWLS-ZI Summary",
+    zi_evolution_report: "AWLS-ZI Report",
     hypothesis_graph: "Hypothesis Graph",
     exception: "Exception Trace",
   };
