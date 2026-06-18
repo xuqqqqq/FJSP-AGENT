@@ -104,6 +104,8 @@ Mk10 纯 Python 2000 步 cProfile 结果显示：
 - 增加 `--initial-state` 和 `cpp-exact` 选项，用于诊断 C++ 初始权重/随机数消耗差异。
 - 使用 `on_machine_pos` 替代部分 `sequence.index()`，降低少量重复查找。
 - `Move` 改为 slots dataclass，降低候选对象开销。
+- 在 `exact_select_top_k=0` 时跳过未使用的 `ranked_moves` 记录，减少候选评分热循环中的列表写入。
+- 将换机候选的 RK/LK/intersection 计算改为窗口边界计算。经 Mk10 300 步、22438 个候选交集抽检，与旧列表构造算法完全一致。
 
 C++ 后端桥：
 
@@ -126,6 +128,33 @@ C++ 后端桥：
 | Mk01 | 5/10/30s 多 seed | C++ 后端异常退出 | 无机器序列输出 |
 
 Mk01 的失败来自 C++ 可执行文件自身无输出异常退出；Python 桥接没有进入解析阶段。后续如果要求覆盖 Mk01，需要修 C++ 后端边界或回落到纯 Python 求解器。
+
+## 后续纯 Python 加速复测
+
+窗口化换机交集之后，Mk10 seed=2 的 2000 步 cProfile 结果：
+
+- 原始基线：约 `13.58s`
+- 跳过 `ranked_moves` 后：约 `12.48s`
+- 窗口化换机交集后：约 `10.72s`
+
+该优化没有缩小邻域，仍枚举 C++ 主分支中的同机移动和换机移动。
+
+Mk10 5 seed、每 seed 90 秒、`--paper-profile` 串行复测：
+
+| seed | makespan | moves | cycles |
+| ---: | ---: | ---: | ---: |
+| 0 | 198 | 38955 | 4 |
+| 1 | 198 | 40003 | 5 |
+| 2 | 197 | 39539 | 4 |
+| 3 | 199 | 39316 | 4 |
+| 4 | 198 | 39264 | 4 |
+
+统计：
+
+- best：`197`
+- avg：`198.0`
+
+结论：纯 Python 搜索深度已有实质提升，但 90 秒质量仍未达到 C++ GREEDY_INIT 的 `195` / `196.85` 水平。下一阶段若继续追纯 Python 对齐，需要进一步处理 `evaluate_and_push`、`same_machine_evaluate_cpp_fast`、`change_machine_evaluate` 和 `update_time` 等热循环，或引入原生扩展/JIT 将候选评分编译化。
 
 ## 后续方向
 
