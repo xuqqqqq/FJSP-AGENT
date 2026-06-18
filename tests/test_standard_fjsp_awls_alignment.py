@@ -331,6 +331,7 @@ class StandardFjspAwlsAlignmentTests(unittest.TestCase):
             self.assertEqual("", proc.stderr)
             self.assertEqual(0, proc.returncode)
             self.assertIn("awls:init=greedy:restarts=1:", proc.stdout)
+            self.assertIn("time_check=1000", proc.stdout)
             self.assertTrue(output_path.exists())
             trace_rows = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
             self.assertGreaterEqual(len(trace_rows), 2)

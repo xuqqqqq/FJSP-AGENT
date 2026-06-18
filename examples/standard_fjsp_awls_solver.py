@@ -1276,6 +1276,7 @@ def tabu_search(
     same_machine_eval: str,
     critical_block_exhaustive_pct: int,
     zi_policy: str,
+    time_check_interval: int,
     stats: dict[str, int] | None = None,
 ) -> AwlsSchedule:
     current = initial
@@ -1291,8 +1292,9 @@ def tabu_search(
     if stats is not None:
         stats["cycles"] = stats.get("cycles", 0) + 1
 
+    check_interval = max(1, time_check_interval)
     for iteration in range(iterations):
-        if deadline is not None and time.perf_counter() >= deadline:
+        if deadline is not None and iteration % check_interval == 0 and time.perf_counter() >= deadline:
             if stats is not None:
                 stats["deadline_breaks"] = stats.get("deadline_breaks", 0) + 1
             break
@@ -1449,6 +1451,7 @@ def solve_awls_single(
     critical_block_exhaustive_pct: int = 0,
     zi_policy: str = "cpp",
     initial_state: str = "reset",
+    time_check_interval: int = 1,
     cycle_trace: list[dict[str, int | float | str]] | None = None,
 ) -> AwlsSchedule:
     rng = random.Random(seed)
@@ -1495,6 +1498,7 @@ def solve_awls_single(
                 same_machine_eval,
                 critical_block_exhaustive_pct,
                 zi_policy,
+                time_check_interval,
                 run_stats,
             )
             population = improved.clone()
@@ -1547,6 +1551,7 @@ def solve_awls(
     critical_block_exhaustive_pct: int = 0,
     zi_policy: str = "cpp",
     initial_state: str = "reset",
+    time_check_interval: int = 1,
     cycle_trace: list[dict[str, int | float | str]] | None = None,
 ) -> tuple[list[ScheduleRecord], str]:
     if zi_policy not in ZI_POLICY_CHOICES:
@@ -1575,6 +1580,7 @@ def solve_awls(
                 critical_block_exhaustive_pct=critical_block_exhaustive_pct,
                 zi_policy=zi_policy,
                 initial_state=initial_state,
+                time_check_interval=time_check_interval,
                 cycle_trace=cycle_trace,
             )
             lane_summaries.append(
@@ -1595,7 +1601,8 @@ def solve_awls(
             "awls-portfolio:"
             f"outer_seed={seed}:selected={best_lane.seed}/{best_lane.init_mode}/r{best_lane.restarts}:"
             f"cycles={cycles_per_restart}:iterations={iterations}:eval={same_machine_eval}:"
-            f"exhaustive_pct={critical_block_exhaustive_pct}:zi={zi_policy}:initial={initial_state}:makespan={best.makespan}:"
+            f"exhaustive_pct={critical_block_exhaustive_pct}:zi={zi_policy}:initial={initial_state}:"
+            f"time_check={time_check_interval}:makespan={best.makespan}:"
             f"{format_awls_stats(best)}:"
             f"lanes={'|'.join(lane_summaries)}"
         )
@@ -1617,12 +1624,14 @@ def solve_awls(
         critical_block_exhaustive_pct=critical_block_exhaustive_pct,
         zi_policy=zi_policy,
         initial_state=initial_state,
+        time_check_interval=time_check_interval,
         cycle_trace=cycle_trace,
     )
     label = (
         f"awls:init={init_mode}:restarts={restarts}:cycles={cycles_per_restart}:"
         f"iterations={iterations}:seed={seed}:eval={same_machine_eval}:"
-        f"exhaustive_pct={critical_block_exhaustive_pct}:zi={zi_policy}:initial={initial_state}:makespan={best.makespan}:"
+        f"exhaustive_pct={critical_block_exhaustive_pct}:zi={zi_policy}:initial={initial_state}:"
+        f"time_check={time_check_interval}:makespan={best.makespan}:"
         f"{format_awls_stats(best)}"
     )
     return best.to_records(), label
@@ -1655,6 +1664,12 @@ def main() -> int:
     )
     parser.add_argument("--exact-select-top-k", type=int, default=0)
     parser.add_argument(
+        "--time-check-interval",
+        type=int,
+        default=1,
+        help="Check wall-clock deadline every N tabu iterations; paper profile uses 1000 to mirror C++ stop checks.",
+    )
+    parser.add_argument(
         "--critical-block-exhaustive-pct",
         type=int,
         default=0,
@@ -1683,6 +1698,7 @@ def main() -> int:
         args.zi_policy = "cpp"
         args.initial_state = "reset"
         args.exact_select_top_k = 0
+        args.time_check_interval = 1000
         args.critical_block_exhaustive_pct = 0
         args.same_machine_eval = "cpp-fast"
 
@@ -1707,6 +1723,7 @@ def main() -> int:
         same_machine_eval=args.same_machine_eval,
         portfolio_lanes=portfolio_lanes,
         critical_block_exhaustive_pct=args.critical_block_exhaustive_pct,
+        time_check_interval=args.time_check_interval,
         cycle_trace=cycle_trace,
     )
     errors, metrics = validate_standard_schedule(instance, schedule)
