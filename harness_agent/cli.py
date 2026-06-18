@@ -40,6 +40,9 @@ from .worker import ExperimentSpec, NullWorker, WorkerResult
 from .worker_cycle import run_worker_cycle
 
 
+DEFAULT_STANDARD_SEEDS = "0,1,2,3,4,5,6,7,8,9"
+
+
 def add_awls_arguments(parser: argparse.ArgumentParser, *, prefix: str = "", default_time_limit: float = 10.0) -> None:
     """Register AWLS solver-template options on a CLI subcommand."""
 
@@ -191,7 +194,7 @@ def build_parser() -> argparse.ArgumentParser:
     build_standard.add_argument("--best-known-csv", type=Path)
     build_standard.add_argument("--task-id", default="standard_fjsp_batch")
     build_standard.add_argument("--rounds", type=int, default=1)
-    build_standard.add_argument("--seeds", default="0,1,2")
+    build_standard.add_argument("--seeds", default=DEFAULT_STANDARD_SEEDS)
     build_standard.add_argument("--timeout-seconds", type=int, default=60)
     build_standard.add_argument("--max-workers", type=int, default=1)
     build_standard.add_argument("--max-instances", type=int)
@@ -246,7 +249,7 @@ def build_parser() -> argparse.ArgumentParser:
     standard_agent.add_argument("--project-root", type=Path, default=Path.cwd())
     standard_agent.add_argument("--max-instances", type=int)
     standard_agent.add_argument("--max-rounds", type=int, default=1)
-    standard_agent.add_argument("--seeds", default="0,1,2")
+    standard_agent.add_argument("--seeds", default=DEFAULT_STANDARD_SEEDS)
     standard_agent.add_argument("--timeout-seconds", type=int, default=120)
     standard_agent.add_argument("--max-workers", type=int, default=1)
     standard_agent.add_argument("--solver", choices=["local-search", "portfolio", "awls"], default="local-search")
@@ -286,7 +289,7 @@ def build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--project-root", type=Path, default=Path.cwd())
     demo.add_argument("--max-instances", type=int)
     demo.add_argument("--max-rounds", type=int, default=2)
-    demo.add_argument("--seeds", default="0")
+    demo.add_argument("--seeds", default=DEFAULT_STANDARD_SEEDS)
     demo.add_argument("--timeout-seconds", type=int, default=60)
     demo.add_argument("--max-workers", type=int, default=1)
     demo.add_argument("--solver", choices=["local-search", "portfolio", "awls"], default="portfolio")
@@ -338,7 +341,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="Optional comma-separated FJSP family filter, for example barnes,brandimarte,dauzere,hurink.",
     )
-    awls_benchmark.add_argument("--seeds", default="0")
+    awls_benchmark.add_argument("--seeds", default=DEFAULT_STANDARD_SEEDS)
     awls_benchmark.add_argument("--max-workers", type=int, default=1)
     add_awls_arguments(awls_benchmark, default_time_limit=10.0)
     awls_benchmark.add_argument(
@@ -387,7 +390,7 @@ def build_parser() -> argparse.ArgumentParser:
     awls_zi.add_argument("--rounds", type=int, default=3)
     awls_zi.add_argument("--candidates-per-round", type=int, default=2)
     awls_zi.add_argument("--deepseek-model", default="deepseek-v4-pro")
-    awls_zi.add_argument("--seeds", default="0")
+    awls_zi.add_argument("--seeds", default=DEFAULT_STANDARD_SEEDS)
     awls_zi.add_argument("--max-workers", type=int, default=1)
     add_awls_arguments(awls_zi, default_time_limit=10.0)
     awls_zi.add_argument("--same-machine-eval", choices=("stable", "cpp-fast"), default="stable")
@@ -413,7 +416,7 @@ def build_parser() -> argparse.ArgumentParser:
     standard_worker.add_argument("--output-dir", required=True, type=Path)
     standard_worker.add_argument("--project-root", type=Path, default=Path.cwd())
     standard_worker.add_argument("--max-instances", type=int)
-    standard_worker.add_argument("--seeds", default="0")
+    standard_worker.add_argument("--seeds", default=DEFAULT_STANDARD_SEEDS)
     standard_worker.add_argument("--timeout-seconds", type=int, default=60)
     standard_worker.add_argument("--max-workers", type=int, default=1)
     standard_worker.add_argument("--solver", choices=["local-search", "portfolio", "awls"], default="portfolio")
@@ -475,7 +478,7 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--worker-pattern", default="*.txt")
     pipeline.add_argument("--worker-best-known-csv", type=Path)
     pipeline.add_argument("--worker-max-instances", type=int)
-    pipeline.add_argument("--worker-seeds", default="0")
+    pipeline.add_argument("--worker-seeds", default=DEFAULT_STANDARD_SEEDS)
     pipeline.add_argument("--worker-timeout-seconds", type=int, default=60)
     pipeline.add_argument("--worker-max-workers", type=int, default=1)
     pipeline.add_argument("--worker-solver", choices=["local-search", "portfolio", "awls"], default="portfolio")

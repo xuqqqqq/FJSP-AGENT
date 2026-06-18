@@ -26,6 +26,7 @@ STATIC_DIR = Path(__file__).resolve().parent / "web_static"
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "web_runs"
 MAX_REQUEST_BYTES = 8 * 1024 * 1024
 MAX_ARTIFACT_CHARS = 240_000
+DEFAULT_STANDARD_SEEDS_TEXT = "0,1,2,3,4,5,6,7,8,9"
 
 _JOBS: dict[str, dict[str, Any]] = {}
 _LOCK = threading.Lock()
@@ -122,7 +123,7 @@ def make_demo_examples() -> dict[str, Any]:
             "title": "Brandimarte Mk01 标准 FJSP 闭环演示",
             "run_mode": "standard_loop",
             "max_rounds": 2,
-            "seeds": "0",
+            "seeds": DEFAULT_STANDARD_SEEDS_TEXT,
             "solver": "portfolio",
             "evolution_mode": "strategy",
             "profile_mode": "deepseek",

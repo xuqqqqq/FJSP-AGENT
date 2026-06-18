@@ -37,6 +37,7 @@ BACK = "BACK"
 CHANGE_MACHINE_FRONT = "CHANGE_MACHINE_FRONT"
 CHANGE_MACHINE_BACK = "CHANGE_MACHINE_BACK"
 ZI_POLICY_CHOICES = ("cpp", "none", "sqrt", "aggressive", "critical")
+PORTFOLIO_OUTER_SEED_STRIDE = 1_000_003
 
 
 @dataclass(frozen=True)
@@ -1418,9 +1419,10 @@ def solve_awls(
         best_lane: PortfolioLane | None = None
         lane_summaries: list[str] = []
         for lane, lane_budget in zip(portfolio_lanes, lane_budgets, strict=True):
+            effective_lane_seed = lane.seed + seed * PORTFOLIO_OUTER_SEED_STRIDE
             candidate = solve_awls_single(
                 index,
-                seed=lane.seed,
+                seed=effective_lane_seed,
                 restarts=lane.restarts,
                 cycles_per_restart=cycles_per_restart,
                 iterations=iterations,
@@ -1435,16 +1437,21 @@ def solve_awls(
                 zi_policy=zi_policy,
             )
             lane_summaries.append(
-                f"{lane.seed}/{lane.init_mode}/r{lane.restarts}/t{lane_budget:.1f}=m{candidate.makespan}"
+                f"{effective_lane_seed}/{lane.init_mode}/r{lane.restarts}/t{lane_budget:.1f}=m{candidate.makespan}"
             )
             if best is None or candidate.makespan < best.makespan:
                 best = candidate.clone()
-                best_lane = lane
+                best_lane = PortfolioLane(
+                    seed=effective_lane_seed,
+                    init_mode=lane.init_mode,
+                    restarts=lane.restarts,
+                    time_limit_sec=lane.time_limit_sec,
+                )
         if best is None or best_lane is None:
             raise RuntimeError("AWLS portfolio did not run any lane")
         label = (
             "awls-portfolio:"
-            f"selected={best_lane.seed}/{best_lane.init_mode}/r{best_lane.restarts}:"
+            f"outer_seed={seed}:selected={best_lane.seed}/{best_lane.init_mode}/r{best_lane.restarts}:"
             f"cycles={cycles_per_restart}:iterations={iterations}:eval={same_machine_eval}:"
             f"exhaustive_pct={critical_block_exhaustive_pct}:zi={zi_policy}:makespan={best.makespan}:"
             f"lanes={'|'.join(lane_summaries)}"

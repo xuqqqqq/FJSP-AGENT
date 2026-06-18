@@ -95,6 +95,33 @@ class BenchmarkSuiteTests(unittest.TestCase):
             self.assertTrue(resumed["runs"][0]["resumed"])
             self.assertEqual(first_runtime, resumed["runs"][0]["runtime_sec"])
 
+    def test_awls_portfolio_runs_each_outer_seed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp) / "awls_portfolio"
+
+            manifest = run_awls_benchmark(
+                AwlsBenchmarkRequest(
+                    instance_dir=ROOT / "examples",
+                    pattern="standard_fjsp_tiny.fjs",
+                    output_dir=output_dir,
+                    best_known_csv=ROOT / "configs" / "standard_fjsp_tiny_best.csv",
+                    seeds=[0, 1],
+                    restarts=1,
+                    cycles_per_restart=1,
+                    iterations=3,
+                    time_limit_sec=0.2,
+                    init_mode="random",
+                    portfolio_lanes="0:random:1,1:mixed:1",
+                )
+            )
+
+            self.assertEqual("ok", manifest["status"])
+            self.assertEqual(2, manifest["aggregate"]["seed_count"])
+            self.assertEqual(2, manifest["aggregate"]["run_count"])
+            strategies = [item["strategy"] for item in manifest["runs"]]
+            self.assertTrue(any("outer_seed=0" in strategy for strategy in strategies))
+            self.assertTrue(any("outer_seed=1" in strategy for strategy in strategies))
+
     def test_mae2019_time_policy_matches_paper_families(self) -> None:
         request = AwlsBenchmarkRequest(
             instance_dir=ROOT / "examples",

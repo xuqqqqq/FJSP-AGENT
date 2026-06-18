@@ -3,6 +3,7 @@ const state = {
   pollTimer: null,
   deepseekStatus: null,
 };
+const DEFAULT_STANDARD_SEEDS = "0,1,2,3,4,5,6,7,8,9";
 
 const $ = (id) => document.getElementById(id);
 
@@ -82,7 +83,7 @@ function buildPayload() {
     },
     run_mode: $("run-mode").value,
     max_rounds: Number($("max-rounds").value || 2),
-    seeds: $("seeds").value || "0",
+    seeds: $("seeds").value || DEFAULT_STANDARD_SEEDS,
     solver: $("solver").value,
     evolution_mode: $("evolution-mode").value,
     profile_mode: $("profile-mode").value,

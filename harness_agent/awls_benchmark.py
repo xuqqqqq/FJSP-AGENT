@@ -68,9 +68,7 @@ def run_awls_benchmark(request: AwlsBenchmarkRequest) -> dict[str, Any]:
         raise ValueError(f"no instances matched {request.instance_dir / request.pattern}")
 
     seeds = request.seeds or [0]
-    lane_specs = parse_portfolio_lanes(request.portfolio_lanes) if request.portfolio_lanes else None
-    effective_seeds = [seeds[0]] if lane_specs else seeds
-    jobs: list[tuple[Path, int]] = [(path, seed) for path in instances for seed in effective_seeds]
+    jobs: list[tuple[Path, int]] = [(path, seed) for path in instances for seed in seeds]
     max_workers = max(1, min(request.max_workers, len(jobs)))
 
     run_results: list[dict[str, Any]] = []
@@ -404,8 +402,11 @@ def aggregate_awls_results(instance_results: list[dict[str, Any]], run_results: 
     valid_instances = [item for item in instance_results if item.get("valid")]
     gap_values = [float(item["gap_pct"]) for item in valid_instances if isinstance(item.get("gap_pct"), (int, float))]
     makespans = [float(item["makespan"]) for item in valid_instances if isinstance(item.get("makespan"), (int, float))]
+    seeds = sorted({int(item.get("seed", 0)) for item in run_results})
     return {
         "instance_count": len(instance_results),
+        "seed_count": len(seeds),
+        "seeds": seeds,
         "run_count": len(run_results),
         "valid_run_count": len(valid_runs),
         "invalid_run_count": len(run_results) - len(valid_runs),
@@ -429,6 +430,7 @@ def render_awls_benchmark_report(manifest: dict[str, Any]) -> str:
         "",
         f"- Status: `{manifest.get('status')}`",
         f"- Instances: `{aggregate.get('instance_count')}`",
+        f"- Seed count: `{aggregate.get('seed_count')}`",
         f"- Runs: `{aggregate.get('run_count')}`",
         f"- Valid runs: `{aggregate.get('valid_run_count')}`",
         f"- Invalid runs: `{aggregate.get('invalid_run_count')}`",
