@@ -37,11 +37,13 @@ BACK = "BACK"
 CHANGE_MACHINE_FRONT = "CHANGE_MACHINE_FRONT"
 CHANGE_MACHINE_BACK = "CHANGE_MACHINE_BACK"
 COOLDOWN_INFINITY = 10**9
-ZI_POLICY_CHOICES = ("cpp", "none", "sqrt", "aggressive", "critical")
+CPP_INT_MIN = -(2**31)
+CPP_INT_MAX = 2**31 - 1
+ZI_POLICY_CHOICES = ("cpp", "cpp-exact", "none", "sqrt", "aggressive", "critical")
 PORTFOLIO_OUTER_SEED_STRIDE = 1_000_003
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Move:
     method: str
     which: int
@@ -325,16 +327,20 @@ class AwlsSchedule:
             if old_machine != target_machine:
                 raise ValueError("same-machine move targets a different machine")
             sequence = self.machine_sequences[old_machine]
-            sequence.remove(move.which)
-            where_pos = sequence.index(move.where)
+            which_pos = self.on_machine_pos[move.which]
+            where_pos = self.on_machine_pos[move.where]
+            sequence.pop(which_pos)
+            if which_pos < where_pos:
+                where_pos -= 1
             insert_pos = where_pos if move.method == FRONT else where_pos + 1
             sequence.insert(insert_pos, move.which)
         elif move.method in (CHANGE_MACHINE_FRONT, CHANGE_MACHINE_BACK):
             if target_machine not in self.index.candidates[move.which]:
                 raise ValueError("target machine is not a candidate")
-            self.machine_sequences[old_machine].remove(move.which)
+            old_sequence = self.machine_sequences[old_machine]
+            old_sequence.pop(self.on_machine_pos[move.which])
             target_sequence = self.machine_sequences[target_machine]
-            where_pos = target_sequence.index(move.where)
+            where_pos = self.on_machine_pos[move.where]
             insert_pos = where_pos if move.method == CHANGE_MACHINE_FRONT else where_pos + 1
             target_sequence.insert(insert_pos, move.which)
             self.on_machine[move.which] = target_machine
@@ -528,6 +534,15 @@ def critical_blocks(schedule: AwlsSchedule, rng: random.Random, exhaustive: bool
 def weight_perturbation(schedule: AwlsSchedule, node: int, gamma: int) -> float:
     weight = schedule.op_weight[node]
     policy = schedule.zi_policy
+    if policy == "cpp-exact":
+        # C++ AWLS draws rr inside every candidate evaluation even when w=0.
+        # Keeping that random-number consumption makes the Python trajectory
+        # closer to the reference executable while preserving the same zi value.
+        rr = schedule.rng.random() * float(gamma)
+        if weight <= 0:
+            return 0.0
+        rr = max(rr, 1.0e-12)
+        return max(0.0, 1.0 - schedule.op_cooldown[node] / rr) * weight
     if policy == "none" or weight <= 0:
         return 0.0
     rr = schedule.rng.uniform(1.0e-9, float(gamma))
@@ -546,6 +561,12 @@ def weight_perturbation(schedule: AwlsSchedule, node: int, gamma: int) -> float:
 def cpp_int_score(value: float) -> float:
     """按 C++ `int` 返回值口径截断近似评分。"""
 
+    if value < CPP_INT_MIN or value > CPP_INT_MAX:
+        # MSVC/x64 converts an out-of-range floating value to 0x80000000 when
+        # using the cvttsd2si instruction.  The reference executable used for
+        # paper reproduction was built with MSVC, so this preserves the odd
+        # first-iteration behavior caused by initial w=INT_MAX.
+        return float(CPP_INT_MIN)
     return float(int(value))
 
 
@@ -560,8 +581,8 @@ def operation_tail(schedule: AwlsSchedule, node: int) -> int:
 def local_sequence_after_same_machine_move(schedule: AwlsSchedule, move: Move) -> tuple[list[int], int | None, int | None]:
     machine_id = schedule.on_machine[move.which]
     sequence = schedule.machine_sequences[machine_id]
-    which_pos = sequence.index(move.which)
-    where_pos = sequence.index(move.where)
+    which_pos = schedule.on_machine_pos[move.which]
+    where_pos = schedule.on_machine_pos[move.where]
 
     if move.method == FRONT:
         if where_pos >= which_pos:
@@ -812,7 +833,7 @@ def change_machine_evaluate(schedule: AwlsSchedule, move: Move, intersection: li
                 + durations[machine_successor][machine_id]
                 + zi
             )
-    if schedule.zi_policy == "cpp":
+    if schedule.zi_policy in {"cpp", "cpp-exact"}:
         return cpp_int_score(value)
     return value
 
@@ -975,8 +996,8 @@ def find_move(
         for block in blocks:
             machine_id = schedule.on_machine[block[0]]
             sequence = schedule.machine_sequences[machine_id]
-            block_start = sequence.index(block[0])
-            block_end = sequence.index(block[-1])
+            block_start = schedule.on_machine_pos[block[0]]
+            block_end = schedule.on_machine_pos[block[-1]]
 
             for node in block:
                 for target in sequence[:block_start]:
@@ -1115,8 +1136,8 @@ def find_move(
                             )
                     elif lk and rk:
                         sequence = schedule.machine_sequences[candidate_machine]
-                        start = sequence.index(lk[-1])
-                        stop = sequence.index(rk[0])
+                        start = schedule.on_machine_pos[lk[-1]]
+                        stop = schedule.on_machine_pos[rk[0]]
                         if start < stop:
                             targets = sequence[start:stop]
                         else:
@@ -1311,7 +1332,13 @@ def tabu_search(
     return best
 
 
-def build_initial_schedule(index: OperationIndex, rng: random.Random, restart: int, mode: str) -> AwlsSchedule:
+def build_initial_schedule(
+    index: OperationIndex,
+    rng: random.Random,
+    restart: int,
+    mode: str,
+    initial_state: str = "reset",
+) -> AwlsSchedule:
     if mode == "random":
         sequences, on_machine = random_init(index, rng)
     elif mode == "greedy":
@@ -1326,7 +1353,11 @@ def build_initial_schedule(index: OperationIndex, rng: random.Random, restart: i
     else:
         raise ValueError(f"unknown init mode: {mode}")
 
-    return AwlsSchedule(index, sequences, on_machine, rng)
+    if initial_state == "reset":
+        return AwlsSchedule(index, sequences, on_machine, rng)
+    if initial_state == "cpp":
+        return AwlsSchedule(index, sequences, on_machine, rng, initial_weight=CPP_INT_MAX, initial_cooldown=0)
+    raise ValueError(f"unknown initial_state: {initial_state!r}")
 
 
 def parse_portfolio_lanes(raw: str) -> list[PortfolioLane]:
@@ -1393,6 +1424,7 @@ def solve_awls_single(
     same_machine_eval: str,
     critical_block_exhaustive_pct: int = 0,
     zi_policy: str = "cpp",
+    initial_state: str = "reset",
 ) -> AwlsSchedule:
     rng = random.Random(seed)
     best: AwlsSchedule | None = None
@@ -1407,7 +1439,7 @@ def solve_awls_single(
         remaining_restarts = max(1, restarts - restart)
         restart_budget = remaining_time / remaining_restarts if deadline is not None else 0.0
         restart_deadline = time.perf_counter() + restart_budget if deadline is not None else None
-        initial = build_initial_schedule(index, rng, restart, init_mode)
+        initial = build_initial_schedule(index, rng, restart, init_mode, initial_state)
         if best is None or initial.makespan < best.makespan:
             best = initial.clone()
         population = initial
@@ -1467,6 +1499,7 @@ def solve_awls(
     portfolio_lanes: list[PortfolioLane] | None = None,
     critical_block_exhaustive_pct: int = 0,
     zi_policy: str = "cpp",
+    initial_state: str = "reset",
 ) -> tuple[list[ScheduleRecord], str]:
     if zi_policy not in ZI_POLICY_CHOICES:
         raise ValueError(f"unknown zi_policy {zi_policy!r}; expected one of {', '.join(ZI_POLICY_CHOICES)}")
@@ -1493,6 +1526,7 @@ def solve_awls(
                 same_machine_eval=same_machine_eval,
                 critical_block_exhaustive_pct=critical_block_exhaustive_pct,
                 zi_policy=zi_policy,
+                initial_state=initial_state,
             )
             lane_summaries.append(
                 f"{effective_lane_seed}/{lane.init_mode}/r{lane.restarts}/t{lane_budget:.1f}"
@@ -1512,7 +1546,7 @@ def solve_awls(
             "awls-portfolio:"
             f"outer_seed={seed}:selected={best_lane.seed}/{best_lane.init_mode}/r{best_lane.restarts}:"
             f"cycles={cycles_per_restart}:iterations={iterations}:eval={same_machine_eval}:"
-            f"exhaustive_pct={critical_block_exhaustive_pct}:zi={zi_policy}:makespan={best.makespan}:"
+            f"exhaustive_pct={critical_block_exhaustive_pct}:zi={zi_policy}:initial={initial_state}:makespan={best.makespan}:"
             f"{format_awls_stats(best)}:"
             f"lanes={'|'.join(lane_summaries)}"
         )
@@ -1533,11 +1567,12 @@ def solve_awls(
         same_machine_eval=same_machine_eval,
         critical_block_exhaustive_pct=critical_block_exhaustive_pct,
         zi_policy=zi_policy,
+        initial_state=initial_state,
     )
     label = (
         f"awls:init={init_mode}:restarts={restarts}:cycles={cycles_per_restart}:"
         f"iterations={iterations}:seed={seed}:eval={same_machine_eval}:"
-        f"exhaustive_pct={critical_block_exhaustive_pct}:zi={zi_policy}:makespan={best.makespan}:"
+        f"exhaustive_pct={critical_block_exhaustive_pct}:zi={zi_policy}:initial={initial_state}:makespan={best.makespan}:"
         f"{format_awls_stats(best)}"
     )
     return best.to_records(), label
@@ -1553,10 +1588,21 @@ def main() -> int:
     parser.add_argument("--iterations", type=int, default=10000)
     parser.add_argument("--time-limit-sec", type=float, default=10.0)
     parser.add_argument("--init", choices=("random", "greedy", "mixed"), default="mixed")
+    parser.add_argument(
+        "--paper-profile",
+        action="store_true",
+        help="Use the C++ AWLS paper-reproduction profile: greedy init, cpp-fast evaluation, beta/gamma/theta=500/40/5.",
+    )
     parser.add_argument("--beta", type=int, default=500)
     parser.add_argument("--gamma", type=int, default=40)
     parser.add_argument("--theta", type=int, default=5)
     parser.add_argument("--zi-policy", choices=ZI_POLICY_CHOICES, default="cpp")
+    parser.add_argument(
+        "--initial-state",
+        choices=("reset", "cpp"),
+        default="reset",
+        help="Initial AWLS weight/cooldown state. 'cpp' mirrors Operation.w=INT_MAX and t=0 in the reference code.",
+    )
     parser.add_argument("--exact-select-top-k", type=int, default=0)
     parser.add_argument(
         "--critical-block-exhaustive-pct",
@@ -1571,6 +1617,17 @@ def main() -> int:
         help="Comma-separated lanes: seed:init:restarts[:seconds], for example 17:random:2:20,5:mixed:2:20.",
     )
     args = parser.parse_args()
+
+    if args.paper_profile:
+        args.init = "greedy"
+        args.beta = 500
+        args.gamma = 40
+        args.theta = 5
+        args.zi_policy = "cpp"
+        args.initial_state = "reset"
+        args.exact_select_top_k = 0
+        args.critical_block_exhaustive_pct = 0
+        args.same_machine_eval = "cpp-fast"
 
     start = time.perf_counter()
     instance = parse_standard_fjsp(args.input)
@@ -1587,6 +1644,7 @@ def main() -> int:
         gamma=args.gamma,
         theta=args.theta,
         zi_policy=args.zi_policy,
+        initial_state=args.initial_state,
         exact_select_top_k=args.exact_select_top_k,
         same_machine_eval=args.same_machine_eval,
         portfolio_lanes=portfolio_lanes,
