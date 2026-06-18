@@ -218,24 +218,42 @@ class AwlsSchedule:
                 if pos + 1 < len(sequence):
                     self.machine_successor[node] = sequence[pos + 1]
 
+    def rebuild_machine_links_for(self, machine_ids: list[int]) -> None:
+        """Refresh machine arcs only for machines affected by one local move."""
+
+        for machine_id in dict.fromkeys(machine_ids):
+            sequence = self.machine_sequences[machine_id]
+            self.machine_operation_count[machine_id] = len(sequence)
+            self.first_machine_operation[machine_id] = sequence[0] if sequence else -1
+            self.last_machine_operation[machine_id] = sequence[-1] if sequence else -1
+            for node in sequence:
+                self.machine_predecessor[node] = -1
+                self.machine_successor[node] = -1
+
+        for machine_id in dict.fromkeys(machine_ids):
+            sequence = self.machine_sequences[machine_id]
+            for pos, node in enumerate(sequence):
+                self.on_machine[node] = machine_id
+                self.on_machine_pos[node] = pos
+                if pos > 0:
+                    self.machine_predecessor[node] = sequence[pos - 1]
+                if pos + 1 < len(sequence):
+                    self.machine_successor[node] = sequence[pos + 1]
+
     def topological_sort(self) -> list[int]:
         n = self.index.node_count
-        successors: list[list[int]] = [[] for _ in range(n)]
         indegree = [0] * n
 
         for node in self.index.real_nodes:
             job_successor = self.job_successor[node]
             if job_successor != -1:
-                successors[node].append(job_successor)
                 indegree[job_successor] += 1
             machine_successor = self.machine_successor[node]
             if machine_successor != -1:
-                successors[node].append(machine_successor)
                 indegree[machine_successor] += 1
 
         for first in self.first_job_operation:
             if first != -1:
-                successors[START_NODE].append(first)
                 indegree[first] += 1
 
         ready = deque([node for node in range(n) if indegree[node] == 0])
@@ -243,7 +261,15 @@ class AwlsSchedule:
         while ready:
             node = ready.popleft()
             order.append(node)
-            for successor in successors[node]:
+            if node == START_NODE:
+                successors = self.first_job_operation
+            elif START_NODE < node < self.index.end_node:
+                successors = (self.job_successor[node], self.machine_successor[node])
+            else:
+                successors = ()
+            for successor in successors:
+                if successor == -1:
+                    continue
                 indegree[successor] -= 1
                 if indegree[successor] == 0:
                     ready.append(successor)
@@ -255,48 +281,59 @@ class AwlsSchedule:
     def update_time(self) -> None:
         order = self.topological_sort()
         self.topological_order = order
-        self.forward_path_length = [0] * self.index.node_count
-        self.end_time = [0] * self.index.node_count
-        self.backward_path_length = [0] * self.index.node_count
+        node_count = self.index.node_count
+        end_node = self.index.end_node
+        durations = self.index.candidates
+        on_machine = self.on_machine
+        job_predecessor = self.job_predecessor
+        machine_predecessor = self.machine_predecessor
+        job_successor = self.job_successor
+        machine_successor = self.machine_successor
+        self.forward_path_length = [0] * node_count
+        self.end_time = [0] * node_count
+        self.backward_path_length = [0] * node_count
         self.makespan = 0
+        forward_path_length = self.forward_path_length
+        end_time = self.end_time
+        backward_path_length = self.backward_path_length
 
         for node in order:
-            if node <= START_NODE or node >= self.index.end_node:
+            if node <= START_NODE or node >= end_node:
                 continue
             start = 0
-            job_predecessor = self.job_predecessor[node]
-            machine_predecessor = self.machine_predecessor[node]
-            if job_predecessor != -1:
-                start = max(start, self.end_time[job_predecessor])
-            if machine_predecessor != -1:
-                start = max(start, self.end_time[machine_predecessor])
-            machine_id = self.on_machine[node]
-            end = start + self.index.duration(node, machine_id)
-            self.forward_path_length[node] = start
-            self.end_time[node] = end
+            job_prev = job_predecessor[node]
+            machine_prev = machine_predecessor[node]
+            if job_prev != -1:
+                start = max(start, end_time[job_prev])
+            if machine_prev != -1:
+                start = max(start, end_time[machine_prev])
+            machine_id = on_machine[node]
+            end = start + durations[node][machine_id]
+            forward_path_length[node] = start
+            end_time[node] = end
             self.makespan = max(self.makespan, end)
 
         for node in reversed(order):
-            if node <= START_NODE or node >= self.index.end_node:
+            if node <= START_NODE or node >= end_node:
                 continue
             q = 0
-            job_successor = self.job_successor[node]
-            machine_successor = self.machine_successor[node]
-            if job_successor != self.index.end_node:
-                machine_id = self.on_machine[job_successor]
+            job_next = job_successor[node]
+            machine_next = machine_successor[node]
+            if job_next != end_node:
+                machine_id = on_machine[job_next]
                 q = max(
                     q,
-                    self.backward_path_length[job_successor]
-                    + self.index.duration(job_successor, machine_id),
+                    backward_path_length[job_next]
+                    + durations[job_next][machine_id],
                 )
-            if machine_successor != -1:
-                machine_id = self.on_machine[machine_successor]
+            if machine_next != -1:
+                machine_id = on_machine[machine_next]
                 q = max(
                     q,
-                    self.backward_path_length[machine_successor]
-                    + self.index.duration(machine_successor, machine_id),
+                    backward_path_length[machine_next]
+                    + durations[machine_next][machine_id],
                 )
-            self.backward_path_length[node] = q
+            backward_path_length[node] = q
 
     def is_critical_operation(self, node: int) -> bool:
         return (
@@ -334,6 +371,7 @@ class AwlsSchedule:
                 where_pos -= 1
             insert_pos = where_pos if move.method == FRONT else where_pos + 1
             sequence.insert(insert_pos, move.which)
+            affected_machines = [old_machine]
         elif move.method in (CHANGE_MACHINE_FRONT, CHANGE_MACHINE_BACK):
             if target_machine not in self.index.candidates[move.which]:
                 raise ValueError("target machine is not a candidate")
@@ -344,10 +382,11 @@ class AwlsSchedule:
             insert_pos = where_pos if move.method == CHANGE_MACHINE_FRONT else where_pos + 1
             target_sequence.insert(insert_pos, move.which)
             self.on_machine[move.which] = target_machine
+            affected_machines = [old_machine, target_machine]
         else:
             raise ValueError(f"unknown move method: {move.method}")
 
-        self.rebuild_machine_links()
+        self.rebuild_machine_links_for(affected_machines)
         self.update_time()
 
 

@@ -207,6 +207,38 @@ class StandardFjspAwlsAlignmentTests(unittest.TestCase):
         self.assertEqual(float(instance.operation_count), metrics["scheduled_operations"])
         self.assertIn("awls:init=greedy", label)
 
+    def test_incremental_machine_link_rebuild_matches_full_rebuild_after_moves(self) -> None:
+        instance = make_instance(
+            [
+                [[(0, 3), (1, 4)]],
+                [[(0, 2), (1, 3)]],
+                [[(0, 5), (1, 2)]],
+                [[(0, 4), (1, 6)]],
+            ]
+        )
+
+        for move in (
+            Move(BACK, 1, 2),
+            Move(CHANGE_MACHINE_FRONT, 2, 3),
+            Move(CHANGE_MACHINE_BACK, 1, 4),
+        ):
+            with self.subTest(move=move):
+                schedule = make_schedule(instance, [[1, 2], [3, 4]])
+                schedule.apply_move(move)
+                rebuilt = make_schedule(instance, schedule.machine_sequences)
+
+                self.assertEqual(rebuilt.on_machine, schedule.on_machine)
+                self.assertEqual(rebuilt.on_machine_pos, schedule.on_machine_pos)
+                self.assertEqual(rebuilt.machine_predecessor, schedule.machine_predecessor)
+                self.assertEqual(rebuilt.machine_successor, schedule.machine_successor)
+                self.assertEqual(rebuilt.first_machine_operation, schedule.first_machine_operation)
+                self.assertEqual(rebuilt.last_machine_operation, schedule.last_machine_operation)
+                self.assertEqual(rebuilt.machine_operation_count, schedule.machine_operation_count)
+                self.assertEqual(rebuilt.forward_path_length, schedule.forward_path_length)
+                self.assertEqual(rebuilt.end_time, schedule.end_time)
+                self.assertEqual(rebuilt.backward_path_length, schedule.backward_path_length)
+                self.assertEqual(rebuilt.makespan, schedule.makespan)
+
     def test_paper_profile_uses_single_cpp_style_greedy_restart(self) -> None:
         raw_instance = "2 2 2\n2 2 1 3 2 4 2 1 2 2 3\n2 2 1 2 2 5 2 1 4 2 1\n"
         with tempfile.TemporaryDirectory() as tmp:
