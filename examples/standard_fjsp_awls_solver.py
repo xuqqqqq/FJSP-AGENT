@@ -1652,6 +1652,14 @@ def main() -> int:
         action="store_true",
         help="Use the C++ AWLS paper-reproduction profile: greedy init, cpp-fast evaluation, beta/gamma/theta=500/40/5.",
     )
+    parser.add_argument(
+        "--strict-paper-profile",
+        action="store_true",
+        help=(
+            "Use a stricter C++ diagnostic profile. This implies --paper-profile, "
+            "keeps C++ initial Operation.w/t state, and consumes zi randomness even when w=0."
+        ),
+    )
     parser.add_argument("--beta", type=int, default=500)
     parser.add_argument("--gamma", type=int, default=40)
     parser.add_argument("--theta", type=int, default=5)
@@ -1689,6 +1697,9 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    if args.strict_paper_profile:
+        args.paper_profile = True
+
     if args.paper_profile:
         args.init = "greedy"
         args.restarts = 1
@@ -1701,6 +1712,9 @@ def main() -> int:
         args.time_check_interval = 1000
         args.critical_block_exhaustive_pct = 0
         args.same_machine_eval = "cpp-fast"
+        if args.strict_paper_profile:
+            args.zi_policy = "cpp-exact"
+            args.initial_state = "cpp"
 
     start = time.perf_counter()
     instance = parse_standard_fjsp(args.input)

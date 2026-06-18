@@ -338,6 +338,42 @@ class StandardFjspAwlsAlignmentTests(unittest.TestCase):
             self.assertEqual("restart_initial", trace_rows[0]["event"])
             self.assertTrue(any(row["event"] == "cycle_done" for row in trace_rows))
 
+    def test_strict_paper_profile_keeps_cpp_weight_state_and_random_consumption(self) -> None:
+        raw_instance = "2 2 2\n2 2 1 3 2 4 2 1 2 2 3\n2 2 1 2 2 5 2 1 4 2 1\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            instance_path = root / "tiny.fjs"
+            output_path = root / "solution.json"
+            instance_path.write_text(raw_instance, encoding="utf-8")
+
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    "examples/standard_fjsp_awls_solver.py",
+                    "--input",
+                    str(instance_path),
+                    "--output",
+                    str(output_path),
+                    "--seed",
+                    "3",
+                    "--time-limit-sec",
+                    "0.05",
+                    "--strict-paper-profile",
+                ],
+                text=True,
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+
+            self.assertEqual("", proc.stderr)
+            self.assertEqual(0, proc.returncode)
+            self.assertIn("awls:init=greedy:restarts=1:", proc.stdout)
+            self.assertIn("zi=cpp-exact", proc.stdout)
+            self.assertIn("initial=cpp", proc.stdout)
+            self.assertIn("time_check=1000", proc.stdout)
+            self.assertTrue(output_path.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

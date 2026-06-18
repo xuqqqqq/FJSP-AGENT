@@ -208,7 +208,7 @@ Mk10 20 seed、每 seed 90 秒、`--paper-profile` 并行复测：
 
 与 C++ GREEDY_INIT AWLS 20 seed、90 秒的 best=`195`、avg≈`196.85` 相比，纯 Python 当前平均仍差约 `1.15`，最优仍差 `2`。这说明候选枚举加速是必要但不充分的；剩余差距更可能来自随机轨迹、权重扰动初始状态、评分近似细节或更深层的局部搜索实现差异。
 
-### 未采纳的 C++ tenure 口径实验
+### C++ tenure 口径复核与后续采纳
 
 C++ `TabuSearch` 中 tabu tenure 上界为：
 
@@ -230,7 +230,35 @@ Mk10 上对应 `L=11, L_max=15`。Python 旧口径为 `ceil(L * 1.5)`，即 `L_m
 | 8 | 200 |
 | 9 | 200 |
 
-统计：best=`197`，avg=`198.5`。该结果差于当前默认 20 seed avg=`198.0`，因此暂不将 C++ tenure 公式作为 Python 默认参数。该实验说明：在 RNG 与候选评分轨迹尚未完全一致前，逐项照搬 C++ 参数不一定带来效果对齐。
+统计：best=`197`，avg=`198.5`。该短时结果曾差于当时默认 20 seed avg=`198.0`，说明在 RNG 与候选评分轨迹尚未完全一致前，逐项照搬 C++ 参数不一定立刻带来效果对齐。
+
+后续将 C++ tenure 与 C++ 停止检查节奏一起复测后，Mk10 seed=2 的 300 秒结果达到 `196`，600 秒仍保持 `196`。因此当前代码已采用 C++ tenure 公式，并用 `cpp_tabu_tenure_bounds()` 单元测试覆盖两个分支。
+
+### strict paper profile 诊断
+
+C++ `Operation` 默认状态为 `w=INT_MAX, t=0`，且 same-machine / change-machine 候选评分会在每次候选评估中抽取 `rr`，即使当前扰动最终为 0。Python 因工程效果保留了默认 `--paper-profile`：
+
+- `initial_state=reset`
+- `zi_policy=cpp`
+- `time_check_interval=1000`
+- `same_machine_eval=cpp-fast`
+
+该 profile 在 Mk10 seed=2、300 秒达到 `196`，是当前纯 Python 最好的单轨迹证据。
+
+为区分“工程效果 profile”和“更严格 C++ 状态诊断 profile”，新增 `--strict-paper-profile`：
+
+- 继承 `--paper-profile` 的 greedy / tenure / stop-check / cpp-fast 设置。
+- 改为 `initial_state=cpp`，即初始 `w=INT_MAX, t=0`。
+- 改为 `zi_policy=cpp-exact`，即候选评分即使 `w=0` 也消耗随机数。
+
+Mk10 seed=2 复测结果：
+
+| profile | 120s | 300s | 结论 |
+| --- | ---: | ---: | --- |
+| paper-profile 等价手动参数 | 198 | 196 | 当前 Python 工程效果更好 |
+| strict-paper-profile 等价手动参数 | 197 | 197 | 更贴近 C++ 状态，但没有转化为更好结果 |
+
+因此当前默认不切换到 strict；strict 主要用于继续定位 C++/Python 随机轨迹和权重扰动差异。
 
 ## 后续方向
 
