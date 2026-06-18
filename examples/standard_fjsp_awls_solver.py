@@ -765,32 +765,28 @@ def change_machine_intersection(schedule: AwlsSchedule, node: int, candidate_mac
     if job_successor != schedule.index.end_node:
         remove_q = backward_path_length[job_successor] + durations[job_successor][on_machine[job_successor]]
 
-    rk: list[int] = []
-    lk: list[int] = []
-    for other in schedule.machine_sequences[candidate_machine]:
-        if end_time[other] > remove_r:
-            rk.append(other)
-        if backward_path_length[other] + durations[other][candidate_machine] > remove_q:
-            lk.append(other)
+    sequence = schedule.machine_sequences[candidate_machine]
 
-    intersection: list[int] = []
-    if lk and rk:
-        if len(lk) > len(rk):
-            index = next((i for i, value in enumerate(rk) if value == lk[-1]), None)
-            if index is not None:
-                offset = len(lk) - 1 - index
-                for i in range(index + 1):
-                    if offset + i >= 0 and rk[i] == lk[offset + i]:
-                        intersection.append(rk[i])
-        else:
-            index = next((i for i in range(len(lk) - 1, -1, -1) if lk[i] == rk[0]), None)
-            if index is not None:
-                for i in range(index, len(lk)):
-                    rk_index = i - index
-                    if rk_index < len(rk) and lk[i] == rk[rk_index]:
-                        intersection.append(lk[i])
-                    else:
-                        break
+    # On a fixed machine sequence, end times are increasing and tail lengths are
+    # decreasing.  Therefore RK is a suffix, LK is a prefix, and their overlap is
+    # a contiguous window.  This is equivalent to the C++ list construction but
+    # avoids building and matching two temporary lists in the hottest loop.
+    rk_start = len(sequence)
+    for pos, other in enumerate(sequence):
+        if end_time[other] > remove_r:
+            rk_start = pos
+            break
+
+    lk_end = -1
+    for pos in range(len(sequence) - 1, -1, -1):
+        other = sequence[pos]
+        if backward_path_length[other] + durations[other][candidate_machine] > remove_q:
+            lk_end = pos
+            break
+
+    rk = sequence[rk_start:] if rk_start < len(sequence) else []
+    lk = sequence[: lk_end + 1] if lk_end >= 0 else []
+    intersection = sequence[rk_start : lk_end + 1] if rk and lk and rk_start <= lk_end else []
     return rk, lk, intersection
 
 
