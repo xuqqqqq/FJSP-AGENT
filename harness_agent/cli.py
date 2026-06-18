@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+from examples.standard_fjsp_awls_solver import ZI_POLICY_CHOICES
+
 from .awls_benchmark import AwlsBenchmarkRequest, run_awls_benchmark
 from .awls_compare import AwlsCompareRequest, compare_awls_benchmarks
 from .awls_zi_evolution import AwlsZiEvolutionRequest, run_awls_zi_evolution
@@ -353,7 +355,7 @@ def build_parser() -> argparse.ArgumentParser:
     awls_benchmark.add_argument("--same-machine-eval", choices=("stable", "cpp-fast"), default="stable")
     awls_benchmark.add_argument(
         "--awls-zi-policy",
-        choices=("cpp", "none", "sqrt", "aggressive", "critical"),
+        choices=ZI_POLICY_CHOICES,
         default="cpp",
         help="Adaptive zi perturbation policy used by the AWLS move evaluator.",
     )

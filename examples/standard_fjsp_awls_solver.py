@@ -36,6 +36,7 @@ FRONT = "FRONT"
 BACK = "BACK"
 CHANGE_MACHINE_FRONT = "CHANGE_MACHINE_FRONT"
 CHANGE_MACHINE_BACK = "CHANGE_MACHINE_BACK"
+COOLDOWN_INFINITY = 10**9
 ZI_POLICY_CHOICES = ("cpp", "none", "sqrt", "aggressive", "critical")
 PORTFOLIO_OUTER_SEED_STRIDE = 1_000_003
 
@@ -124,6 +125,7 @@ class AwlsSchedule:
         on_machine: list[int],
         rng: random.Random,
         initial_weight: int = 0,
+        initial_cooldown: int = COOLDOWN_INFINITY,
     ) -> None:
         self.index = index
         self.rng = rng
@@ -158,9 +160,10 @@ class AwlsSchedule:
         self.topological_order: list[int] = []
         self.makespan = 0
         self.op_weight = [initial_weight] * n
-        self.op_cooldown = [0] * n
+        self.op_cooldown = [initial_cooldown] * n
         self.same_machine_eval = "stable"
         self.zi_policy = "cpp"
+        self.awls_stats: dict[str, int] = {}
         self.update_time()
 
     def clone(self) -> "AwlsSchedule":
@@ -188,6 +191,7 @@ class AwlsSchedule:
         cloned.op_cooldown = list(self.op_cooldown)
         cloned.same_machine_eval = self.same_machine_eval
         cloned.zi_policy = self.zi_policy
+        cloned.awls_stats = dict(self.awls_stats)
         return cloned
 
     def rebuild_machine_links(self) -> None:
@@ -429,7 +433,7 @@ def greedy_gt_init(index: OperationIndex, rng: random.Random, random_factor: flo
 
 
 def one_critical_path_from_start(schedule: AwlsSchedule, start: int) -> list[int]:
-    """Follow one tight critical path from a selected start operation."""
+    """Follow the C++ AWLS single-path rule from a selected start operation."""
 
     path = [start]
     seen = {start}
@@ -446,16 +450,13 @@ def one_critical_path_from_start(schedule: AwlsSchedule, start: int) -> list[int
             seen.add(machine_successor)
             continue
         job_successor = schedule.job_successor[node]
-        if (
-            job_successor != schedule.index.end_node
-            and job_successor not in seen
-            and schedule.is_critical_operation(job_successor)
-            and schedule.forward_path_length[job_successor] == schedule.end_time[node]
-        ):
-            path.append(job_successor)
-            seen.add(job_successor)
-            continue
-        break
+        if job_successor == schedule.index.end_node or job_successor in seen:
+            break
+        # C++ 参考实现会直接沿工件后继继续走，而不再额外检查紧路径条件。
+        # 这里对齐该单路径规则，避免过早缩小 N7 的候选范围。
+        path.append(job_successor)
+        seen.add(job_successor)
+        continue
     if path and schedule.end_time[path[-1]] == schedule.makespan:
         return path
     return []
@@ -513,8 +514,11 @@ def critical_blocks(schedule: AwlsSchedule, rng: random.Random, exhaustive: bool
         for node in schedule.first_machine_operation
         if node != -1 and schedule.is_critical_operation(node) and schedule.forward_path_length[node] == 0
     ]
-    rng.shuffle(start_candidates)
-    for start in start_candidates:
+    while start_candidates:
+        start_index = rng.randrange(len(start_candidates))
+        start = start_candidates[start_index]
+        start_candidates[start_index] = start_candidates[-1]
+        start_candidates.pop()
         blocks = blocks_from_path(schedule, one_critical_path_from_start(schedule, start))
         if blocks:
             return blocks
@@ -537,6 +541,12 @@ def weight_perturbation(schedule: AwlsSchedule, node: int, gamma: int) -> float:
     if policy == "critical" and schedule.is_critical_operation(node):
         return 1.25 * perturbation
     return perturbation
+
+
+def cpp_int_score(value: float) -> float:
+    """按 C++ `int` 返回值口径截断近似评分。"""
+
+    return float(int(value))
 
 
 def operation_tail(schedule: AwlsSchedule, node: int) -> int:
@@ -713,7 +723,7 @@ def same_machine_evaluate_cpp_fast(schedule: AwlsSchedule, move: Move, gamma: in
             + new_q[idx]
             + weight_perturbation(schedule, node, gamma),
         )
-    return value
+    return cpp_int_score(value)
 
 
 def same_machine_evaluate(schedule: AwlsSchedule, move: Move, gamma: int, eval_mode: str) -> float:
@@ -725,20 +735,21 @@ def same_machine_evaluate(schedule: AwlsSchedule, move: Move, gamma: int, eval_m
 def change_machine_intersection(schedule: AwlsSchedule, node: int, candidate_machine: int) -> tuple[list[int], list[int], list[int]]:
     job_predecessor = schedule.job_predecessor[node]
     job_successor = schedule.job_successor[node]
-    remove_r = schedule.end_time[job_predecessor]
+    end_time = schedule.end_time
+    backward_path_length = schedule.backward_path_length
+    on_machine = schedule.on_machine
+    durations = schedule.index.candidates
+    remove_r = end_time[job_predecessor]
     remove_q = 0
     if job_successor != schedule.index.end_node:
-        remove_q = schedule.backward_path_length[job_successor] + schedule.index.duration(
-            job_successor,
-            schedule.on_machine[job_successor],
-        )
+        remove_q = backward_path_length[job_successor] + durations[job_successor][on_machine[job_successor]]
 
     rk: list[int] = []
     lk: list[int] = []
     for other in schedule.machine_sequences[candidate_machine]:
-        if schedule.end_time[other] > remove_r:
+        if end_time[other] > remove_r:
             rk.append(other)
-        if schedule.backward_path_length[other] + schedule.index.duration(other, candidate_machine) > remove_q:
+        if backward_path_length[other] + durations[other][candidate_machine] > remove_q:
             lk.append(other)
 
     intersection: list[int] = []
@@ -763,38 +774,47 @@ def change_machine_intersection(schedule: AwlsSchedule, node: int, candidate_mac
 
 
 def change_machine_evaluate(schedule: AwlsSchedule, move: Move, intersection: list[int], gamma: int) -> float:
-    machine_id = schedule.on_machine[move.where]
+    on_machine = schedule.on_machine
+    end_time = schedule.end_time
+    backward_path_length = schedule.backward_path_length
+    durations = schedule.index.candidates
+    machine_id = on_machine[move.where]
     job_predecessor = schedule.job_predecessor[move.which]
     job_successor = schedule.job_successor[move.which]
-    which_time = schedule.index.duration(move.which, machine_id)
+    which_time = durations[move.which][machine_id]
     job_successor_time = 0
     if job_successor != schedule.index.end_node:
-        job_successor_time = schedule.index.duration(job_successor, schedule.on_machine[job_successor])
-    where_time = schedule.index.duration(move.where, machine_id)
+        job_successor_time = durations[job_successor][on_machine[job_successor]]
+    where_time = durations[move.where][machine_id]
     zi = weight_perturbation(schedule, move.which, gamma)
 
     if not intersection:
-        return (
+        value = (
             which_time
-            + schedule.end_time[job_predecessor]
-            + schedule.backward_path_length[job_successor]
+            + end_time[job_predecessor]
+            + backward_path_length[job_successor]
             + job_successor_time
             + zi
         )
-    if move.method == CHANGE_MACHINE_FRONT and move.where == intersection[0]:
-        return which_time + schedule.end_time[job_predecessor] + where_time + schedule.backward_path_length[move.where] + zi
-    if move.method == CHANGE_MACHINE_BACK and move.where == intersection[-1]:
-        return which_time + schedule.end_time[move.where] + schedule.backward_path_length[job_successor] + job_successor_time + zi
-    machine_successor = schedule.machine_successor[move.where]
-    if machine_successor == -1:
-        return which_time + schedule.end_time[move.where] + zi
-    return (
-        which_time
-        + schedule.end_time[move.where]
-        + schedule.backward_path_length[machine_successor]
-        + schedule.index.duration(machine_successor, machine_id)
-        + zi
-    )
+    elif move.method == CHANGE_MACHINE_FRONT and move.where == intersection[0]:
+        value = which_time + end_time[job_predecessor] + where_time + backward_path_length[move.where] + zi
+    elif move.method == CHANGE_MACHINE_BACK and move.where == intersection[-1]:
+        value = which_time + end_time[move.where] + backward_path_length[job_successor] + job_successor_time + zi
+    else:
+        machine_successor = schedule.machine_successor[move.where]
+        if machine_successor == -1:
+            value = which_time + end_time[move.where] + zi
+        else:
+            value = (
+                which_time
+                + end_time[move.where]
+                + backward_path_length[machine_successor]
+                + durations[machine_successor][machine_id]
+                + zi
+            )
+    if schedule.zi_policy == "cpp":
+        return cpp_int_score(value)
+    return value
 
 
 def is_legal_same_machine_move(schedule: AwlsSchedule, move: Move) -> bool:
@@ -921,9 +941,10 @@ def evaluate_and_push(
         return
 
     all_moves.append(move)
-    machine_id, sequence = candidate_tabu_sequence(schedule, move)
-    if value >= best_makespan and tabu.is_tabu(machine_id, sequence, iteration):
-        return
+    if value >= best_makespan:
+        machine_id, sequence = candidate_tabu_sequence(schedule, move)
+        if tabu.is_tabu(machine_id, sequence, iteration):
+            return
     ranked_moves.append((value, move))
     if value < best_value[0] - 1.0e-9:
         best_value[0] = value
@@ -1223,6 +1244,7 @@ def tabu_search(
     same_machine_eval: str,
     critical_block_exhaustive_pct: int,
     zi_policy: str,
+    stats: dict[str, int] | None = None,
 ) -> AwlsSchedule:
     current = initial
     current.same_machine_eval = same_machine_eval
@@ -1232,9 +1254,13 @@ def tabu_search(
     tenure_min = max(1, 10 + current.index.instance.job_count // max(1, current.index.instance.machine_count))
     tenure_max = max(tenure_min, int(math.ceil(tenure_min * 1.5)))
     deadline = time.perf_counter() + time_limit_sec if time_limit_sec > 0 else None
+    if stats is not None:
+        stats["cycles"] = stats.get("cycles", 0) + 1
 
     for iteration in range(iterations):
         if deadline is not None and time.perf_counter() >= deadline:
+            if stats is not None:
+                stats["deadline_breaks"] = stats.get("deadline_breaks", 0) + 1
             break
         move = find_move(
             current,
@@ -1246,14 +1272,22 @@ def tabu_search(
             critical_block_exhaustive_pct,
         )
         if move is None:
+            if stats is not None:
+                stats["no_move_breaks"] = stats.get("no_move_breaks", 0) + 1
             break
+        if stats is not None:
+            stats["selected_moves"] = stats.get("selected_moves", 0) + 1
         previous_makespan = current.makespan
         best_before = best.makespan
         add_move_tabu(tabu, current, move, iteration, tenure_min, tenure_max)
         try:
             current.apply_move(move)
         except (ValueError, KeyError):
+            if stats is not None:
+                stats["invalid_moves"] = stats.get("invalid_moves", 0) + 1
             continue
+        if stats is not None:
+            stats["applied_moves"] = stats.get("applied_moves", 0) + 1
         update_operation_weights(
             current,
             move.which,
@@ -1267,6 +1301,13 @@ def tabu_search(
         )
         if current.makespan < best.makespan:
             best = current.clone()
+    # C++ 参考实现中 Schedule 复制的是共享 OperationList，best 图结构会继续携带
+    # 当前搜索轨迹末端积累出的 w/t 记忆。这里显式保留这份长期记忆，避免外层
+    # 多轮 AWLS 只继承“发现 best 那一刻”的权重状态。
+    best.op_weight = list(current.op_weight)
+    best.op_cooldown = list(current.op_cooldown)
+    if stats is not None:
+        best.awls_stats = dict(stats)
     return best
 
 
@@ -1284,6 +1325,7 @@ def build_initial_schedule(index: OperationIndex, rng: random.Random, restart: i
             sequences, on_machine = random_init(index, rng)
     else:
         raise ValueError(f"unknown init mode: {mode}")
+
     return AwlsSchedule(index, sequences, on_machine, rng)
 
 
@@ -1355,11 +1397,13 @@ def solve_awls_single(
     rng = random.Random(seed)
     best: AwlsSchedule | None = None
     deadline = time.perf_counter() + time_limit_sec if time_limit_sec > 0 else None
+    run_stats: dict[str, int] = {}
 
     for restart in range(max(1, restarts)):
         remaining_time = max(0.0, deadline - time.perf_counter()) if deadline is not None else 0.0
         if deadline is not None and remaining_time <= 0:
             break
+        run_stats["restarts"] = run_stats.get("restarts", 0) + 1
         remaining_restarts = max(1, restarts - restart)
         restart_budget = remaining_time / remaining_restarts if deadline is not None else 0.0
         restart_deadline = time.perf_counter() + restart_budget if deadline is not None else None
@@ -1383,6 +1427,7 @@ def solve_awls_single(
                 same_machine_eval,
                 critical_block_exhaustive_pct,
                 zi_policy,
+                run_stats,
             )
             population = improved.clone()
             if best is None or improved.makespan < best.makespan:
@@ -1390,7 +1435,20 @@ def solve_awls_single(
 
     if best is None:
         raise RuntimeError("AWLS failed to build an initial schedule")
+    best.awls_stats = dict(run_stats)
     return best
+
+
+def format_awls_stats(schedule: AwlsSchedule) -> str:
+    """把实际搜索量写入策略标签，便于比较 Python 与 C++ 的单位时间搜索深度。"""
+
+    stats = schedule.awls_stats
+    return (
+        f"restarts_done={stats.get('restarts', 0)}:"
+        f"cycles_done={stats.get('cycles', 0)}:"
+        f"moves={stats.get('applied_moves', 0)}:"
+        f"selected={stats.get('selected_moves', 0)}"
+    )
 
 
 def solve_awls(
@@ -1437,7 +1495,8 @@ def solve_awls(
                 zi_policy=zi_policy,
             )
             lane_summaries.append(
-                f"{effective_lane_seed}/{lane.init_mode}/r{lane.restarts}/t{lane_budget:.1f}=m{candidate.makespan}"
+                f"{effective_lane_seed}/{lane.init_mode}/r{lane.restarts}/t{lane_budget:.1f}"
+                f"=m{candidate.makespan}/{format_awls_stats(candidate)}"
             )
             if best is None or candidate.makespan < best.makespan:
                 best = candidate.clone()
@@ -1454,6 +1513,7 @@ def solve_awls(
             f"outer_seed={seed}:selected={best_lane.seed}/{best_lane.init_mode}/r{best_lane.restarts}:"
             f"cycles={cycles_per_restart}:iterations={iterations}:eval={same_machine_eval}:"
             f"exhaustive_pct={critical_block_exhaustive_pct}:zi={zi_policy}:makespan={best.makespan}:"
+            f"{format_awls_stats(best)}:"
             f"lanes={'|'.join(lane_summaries)}"
         )
         return best.to_records(), label
@@ -1477,7 +1537,8 @@ def solve_awls(
     label = (
         f"awls:init={init_mode}:restarts={restarts}:cycles={cycles_per_restart}:"
         f"iterations={iterations}:seed={seed}:eval={same_machine_eval}:"
-        f"exhaustive_pct={critical_block_exhaustive_pct}:zi={zi_policy}:makespan={best.makespan}"
+        f"exhaustive_pct={critical_block_exhaustive_pct}:zi={zi_policy}:makespan={best.makespan}:"
+        f"{format_awls_stats(best)}"
     )
     return best.to_records(), label
 
