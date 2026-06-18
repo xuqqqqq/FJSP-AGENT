@@ -1562,6 +1562,7 @@ def main() -> int:
 
     if args.paper_profile:
         args.init = "greedy"
+        args.restarts = 1
         args.beta = 500
         args.gamma = 40
         args.theta = 5
