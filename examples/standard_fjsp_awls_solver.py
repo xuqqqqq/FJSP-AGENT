@@ -990,34 +990,38 @@ def is_legal_same_machine_move(schedule: AwlsSchedule, move: Move) -> bool:
 
 
 def candidate_tabu_sequence(schedule: AwlsSchedule, move: Move) -> tuple[int, list[int]]:
-    machine_id = schedule.on_machine[move.where]
-    if move.method == FRONT:
-        sequence = [move.which]
-        node = move.where
-        while node != move.which:
+    return candidate_tabu_sequence_parts(schedule, move.method, move.which, move.where)
+
+
+def candidate_tabu_sequence_parts(schedule: AwlsSchedule, method: str, which: int, where: int) -> tuple[int, list[int]]:
+    machine_id = schedule.on_machine[where]
+    if method == FRONT:
+        sequence = [which]
+        node = where
+        while node != which:
             sequence.append(node)
             node = schedule.machine_successor[node]
         return machine_id, sequence
-    if move.method == BACK:
+    if method == BACK:
         sequence = []
-        node = schedule.machine_successor[move.which]
-        stop = schedule.machine_successor[move.where]
+        node = schedule.machine_successor[which]
+        stop = schedule.machine_successor[where]
         while node != stop:
             sequence.append(node)
             node = schedule.machine_successor[node]
-        sequence.append(move.which)
+        sequence.append(which)
         return machine_id, sequence
-    if move.method == CHANGE_MACHINE_BACK:
-        successor = schedule.machine_successor[move.where]
-        sequence = [move.where, move.which]
+    if method == CHANGE_MACHINE_BACK:
+        successor = schedule.machine_successor[where]
+        sequence = [where, which]
         if successor != -1:
             sequence.append(successor)
         return machine_id, sequence
-    predecessor = schedule.machine_predecessor[move.where]
+    predecessor = schedule.machine_predecessor[where]
     sequence = []
     if predecessor != -1:
         sequence.append(predecessor)
-    sequence.extend([move.which, move.where])
+    sequence.extend([which, where])
     return machine_id, sequence
 
 
@@ -1067,29 +1071,30 @@ def find_move(
     exact_select_top_k: int,
     critical_block_exhaustive_pct: int,
 ) -> Move | None:
-    all_moves: list[Move] = []
-    ranked_moves: list[tuple[float, Move]] | None = [] if exact_select_top_k > 0 else None
-    best_moves: list[Move] = []
+    all_moves: list[tuple[str, int, int]] = []
+    ranked_moves: list[tuple[float, tuple[str, int, int]]] | None = [] if exact_select_top_k > 0 else None
+    best_moves: list[tuple[str, int, int]] = []
     best_value = math.inf
     same_machine_eval_func = (
         same_machine_evaluate_cpp_fast if schedule.same_machine_eval == "cpp-fast" else same_machine_evaluate_stable
     )
 
-    def remember_candidate(move: Move, value: float) -> None:
+    def remember_candidate(method: str, which: int, where: int, value: float) -> None:
         nonlocal best_value
-        all_moves.append(move)
+        move_key = (method, which, where)
+        all_moves.append(move_key)
         if value >= best_makespan:
-            machine_id, sequence = candidate_tabu_sequence(schedule, move)
+            machine_id, sequence = candidate_tabu_sequence_parts(schedule, method, which, where)
             if tabu.is_tabu(machine_id, sequence, iteration):
                 return
         if ranked_moves is not None:
-            ranked_moves.append((value, move))
+            ranked_moves.append((value, move_key))
         if value < best_value - 1.0e-9:
             best_value = value
             best_moves.clear()
-            best_moves.append(move)
+            best_moves.append(move_key)
         elif abs(value - best_value) <= 1.0e-9:
-            best_moves.append(move)
+            best_moves.append(move_key)
 
     def consider_same(method: str, which: int, where: int) -> None:
         if schedule.on_machine[which] != schedule.on_machine[where] or which == where:
@@ -1124,15 +1129,14 @@ def find_move(
             value = same_machine_eval_func(schedule, move, gamma)
         except (ValueError, KeyError):
             return
-        remember_candidate(move, value)
+        remember_candidate(method, which, where, value)
 
     def consider_change(method: str, which: int, where: int, intersection_first: int, intersection_last: int) -> None:
-        move = Move(method, which, where)
         try:
             value = change_machine_evaluate_parts(schedule, method, which, where, intersection_first, intersection_last, gamma)
         except (ValueError, KeyError):
             return
-        remember_candidate(move, value)
+        remember_candidate(method, which, where, value)
 
     exhaustive_first = schedule.rng.randrange(100) < max(0, min(100, critical_block_exhaustive_pct))
     exhaustive_modes = (True, False) if exhaustive_first else (False, True)
@@ -1196,23 +1200,24 @@ def find_move(
     if not all_moves:
         return None
     if exact_select_top_k > 0 and ranked_moves:
-        exact_best: tuple[int, float, Move] | None = None
-        for approx_value, move in sorted(ranked_moves, key=lambda item: item[0])[:exact_select_top_k]:
+        exact_best: tuple[int, float, tuple[str, int, int]] | None = None
+        for approx_value, move_key in sorted(ranked_moves, key=lambda item: item[0])[:exact_select_top_k]:
             try:
                 trial = schedule.clone()
+                move = Move(*move_key)
                 trial.apply_move(move)
             except (ValueError, KeyError):
                 continue
-            key = (trial.makespan, approx_value, move)
+            key = (trial.makespan, approx_value, move_key)
             if exact_best is None or key[:2] < exact_best[:2]:
                 exact_best = key
         if exact_best is not None:
-            return exact_best[2]
+            return Move(*exact_best[2])
     if not best_moves:
-        return schedule.rng.choice(all_moves)
+        return Move(*schedule.rng.choice(all_moves))
     if best_value > schedule.makespan and schedule.rng.randrange(100) < 3:
-        return schedule.rng.choice(all_moves)
-    return schedule.rng.choice(best_moves)
+        return Move(*schedule.rng.choice(all_moves))
+    return Move(*schedule.rng.choice(best_moves))
 
 
 def update_operation_weights(
