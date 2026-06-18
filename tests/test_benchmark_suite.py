@@ -122,6 +122,36 @@ class BenchmarkSuiteTests(unittest.TestCase):
             self.assertTrue(any("outer_seed=0" in strategy for strategy in strategies))
             self.assertTrue(any("outer_seed=1" in strategy for strategy in strategies))
 
+    def test_awls_benchmark_passes_alignment_profile_options(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp) / "awls_alignment_profile"
+
+            manifest = run_awls_benchmark(
+                AwlsBenchmarkRequest(
+                    instance_dir=ROOT / "examples",
+                    pattern="standard_fjsp_tiny.fjs",
+                    output_dir=output_dir,
+                    seeds=[0],
+                    restarts=1,
+                    cycles_per_restart=1,
+                    iterations=3,
+                    time_limit_sec=0.2,
+                    init_mode="greedy",
+                    zi_policy="cpp-exact",
+                    initial_state="cpp",
+                    time_check_interval=7,
+                    same_machine_eval="cpp-fast",
+                )
+            )
+
+            self.assertEqual("ok", manifest["status"])
+            self.assertEqual("cpp", manifest["request"]["initial_state"])
+            self.assertEqual(7, manifest["request"]["time_check_interval"])
+            strategy = manifest["runs"][0]["strategy"]
+            self.assertIn("initial=cpp", strategy)
+            self.assertIn("time_check=7", strategy)
+            self.assertIn("zi=cpp-exact", strategy)
+
     def test_mae2019_time_policy_matches_paper_families(self) -> None:
         request = AwlsBenchmarkRequest(
             instance_dir=ROOT / "examples",

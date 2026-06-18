@@ -360,6 +360,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Adaptive zi perturbation policy used by the AWLS move evaluator.",
     )
     awls_benchmark.add_argument(
+        "--awls-initial-state",
+        choices=("reset", "cpp"),
+        default="reset",
+        help="Initial AWLS weight/cooldown state used by the benchmark runner.",
+    )
+    awls_benchmark.add_argument(
+        "--awls-time-check-interval",
+        type=int,
+        default=1,
+        help="Check wall-clock deadline every N tabu iterations; use 1000 for the C++ paper stop-check cadence.",
+    )
+    awls_benchmark.add_argument(
         "--awls-time-policy",
         choices=("fixed", "mae2019", "mae2019-hour"),
         default="fixed",
@@ -1390,6 +1402,8 @@ def run_awls_benchmark_cmd(args: argparse.Namespace) -> int:
             gamma=args.awls_gamma,
             theta=args.awls_theta,
             zi_policy=args.awls_zi_policy,
+            initial_state=args.awls_initial_state,
+            time_check_interval=args.awls_time_check_interval,
             portfolio_lanes=args.awls_portfolio_lanes,
             critical_block_exhaustive_pct=args.awls_critical_block_exhaustive_pct,
             same_machine_eval=args.same_machine_eval,
