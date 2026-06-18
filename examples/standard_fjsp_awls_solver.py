@@ -945,7 +945,7 @@ def evaluate_and_push(
     iteration: int,
     move: Move,
     all_moves: list[Move],
-    ranked_moves: list[tuple[float, Move]],
+    ranked_moves: list[tuple[float, Move]] | None,
     best_moves: list[Move],
     best_value: list[float],
     gamma: int,
@@ -966,7 +966,8 @@ def evaluate_and_push(
         machine_id, sequence = candidate_tabu_sequence(schedule, move)
         if tabu.is_tabu(machine_id, sequence, iteration):
             return
-    ranked_moves.append((value, move))
+    if ranked_moves is not None:
+        ranked_moves.append((value, move))
     if value < best_value[0] - 1.0e-9:
         best_value[0] = value
         best_moves.clear()
@@ -985,7 +986,7 @@ def find_move(
     critical_block_exhaustive_pct: int,
 ) -> Move | None:
     all_moves: list[Move] = []
-    ranked_moves: list[tuple[float, Move]] = []
+    ranked_moves: list[tuple[float, Move]] | None = [] if exact_select_top_k > 0 else None
     best_moves: list[Move] = []
     best_value = [math.inf]
 
