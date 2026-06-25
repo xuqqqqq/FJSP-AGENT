@@ -15,7 +15,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from .awls_zi_evolution import AwlsZiEvolutionRequest, run_awls_zi_evolution
-from .deepseek_client import is_deepseek_configured, load_local_env, normalize_deepseek_model
+from .deepseek_client import is_deepseek_configured, load_local_env, local_env_candidates, normalize_deepseek_model
 from .demo import StandardDemoRequest, run_standard_demo
 from .slot_contract import ResolvedCodeSlot
 from .slot_manifest import default_standard_fjsp_slot_manifest, write_selected_slot_manifest
@@ -192,24 +192,33 @@ def slot_advice_payload(slot: dict[str, Any]) -> dict[str, Any]:
     executable = slot_id == "awls_zi_policy"
     if executable:
         feasibility = "yes"
-        feasibility_reason = "The current guarded DeepSeekSlotWorker can rewrite and validate this AWLS zi function slot."
+        feasibility_label = "可执行"
+        feasibility_reason = "当前受控 DeepSeekSlotWorker 已接入该 AWLS zi 函数槽，可以在契约内改写并验证。"
     else:
         feasibility = "partial"
-        feasibility_reason = "The slot contract and markers exist, but a dedicated worker for this slot is not connected yet."
+        feasibility_label = "待接入"
+        feasibility_reason = "该代码槽的边界、输入输出和不变量已经建模，但专用执行 worker 还未接入。"
     significance = "high" if "neighborhood" in slot_id else "medium"
+    significance_label = "高" if significance == "high" else "中"
     concerns = list(slot.get("forbidden_edits") or [])[:3]
     suggestions = [
-        "Confirm this slot only when the listed inputs, outputs, and invariants match the intended edit scope.",
-        "Run the slot validation commands after any accepted edit.",
+        "只有当输入、输出和不变量都符合本轮目标时，才确认该代码槽。",
+        "每次接受代码槽修改后，都必须运行列出的验证命令。",
     ]
     if not executable:
-        suggestions.append("Connect a slot-specific worker before allowing automated edits for this region.")
+        suggestions.append("在允许自动改写该区域前，需要先接入对应的代码槽 worker。")
     return {
+        "block_summary": f"{slot.get('title') or slot_id}：{slot.get('purpose') or ''}",
         "feasibility": feasibility,
+        "feasibility_label": feasibility_label,
         "feasibility_reason": feasibility_reason,
         "significance": significance,
+        "significance_label": significance_label,
         "significance_reason": str(slot.get("purpose") or ""),
         "worker_support": "available" if executable else "planned",
+        "worker_support_label": "已接入" if executable else "待接入",
+        "advisor_mode": "本地顾问初筛",
+        "rationale": "先让用户确认功能分区和 IO 契约，再把有限代码片段交给 worker 演化。",
         "concerns": concerns,
         "suggestions": suggestions,
     }
@@ -219,12 +228,108 @@ def deepseek_status_payload() -> dict[str, Any]:
     """Return non-secret DeepSeek runtime status for the local UI."""
 
     load_local_env()
+    api_key_present = bool(os.environ.get("DEEPSEEK_API_KEY", "").strip())
+    key_file_value = os.environ.get("DEEPSEEK_API_KEY_FILE", "").strip()
+    key_file_status = inspect_secret_file(key_file_value)
+    configured = api_key_present or bool(key_file_status.get("has_content"))
+    env_files = [env_file_status(path) for path in local_env_candidates()]
+    env_example = PROJECT_ROOT / ".env.example"
     return {
-        "configured": is_deepseek_configured(),
+        "configured": configured,
         "model": normalize_deepseek_model(os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")),
         "base_url": os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
-        "note": "API key is loaded from DEEPSEEK_API_KEY or DEEPSEEK_API_KEY_FILE; the key value is never returned.",
+        "diagnosis": deepseek_config_diagnosis(
+            configured=configured,
+            api_key_present=api_key_present,
+            key_file_status=key_file_status,
+            env_files=env_files,
+            env_example=env_example,
+        ),
+        "api_key_env_present": api_key_present,
+        "key_file": key_file_status,
+        "checked_env_files": env_files,
+        "env_example": {
+            "path": str(env_example.resolve()),
+            "exists": env_example.is_file(),
+            "loaded": False,
+            "note": ".env.example 只是模板，不会被自动加载；请复制为 .env 或 .env.local。",
+        },
+        "help": {
+            "accepted_sources": [
+                "进程环境变量 DEEPSEEK_API_KEY",
+                "进程环境变量 DEEPSEEK_API_KEY_FILE 指向的私有文本文件",
+                "FJSP_AGENT_ENV_FILE 指向的 env 文件",
+                "仓库根目录或当前工作目录下的 .env / .env.local",
+            ],
+            "examples": [
+                "DEEPSEEK_API_KEY=sk-你的本地密钥",
+                r"DEEPSEEK_API_KEY_FILE=C:\Users\ASUS\.secrets\deepseek_api_key.txt",
+                "DEEPSEEK_MODEL=deepseek-v4-pro",
+                "DEEPSEEK_BASE_URL=https://api.deepseek.com",
+            ],
+            "safe_note": ".env 和 .env.local 已被 .gitignore 忽略；不要把真实密钥写进 .env.example 或提交到 git。",
+        },
+        "note": "只返回配置诊断，不返回密钥内容。",
     }
+
+
+def env_file_status(path: Path) -> dict[str, Any]:
+    exists = path.is_file()
+    return {
+        "path": str(path.resolve()),
+        "exists": exists,
+        "loaded_if_exists": exists,
+    }
+
+
+def inspect_secret_file(file_path: str) -> dict[str, Any]:
+    status: dict[str, Any] = {
+        "configured": bool(file_path),
+        "path": file_path or None,
+        "exists": False,
+        "readable": False,
+        "has_content": False,
+        "problem": None,
+    }
+    if not file_path:
+        return status
+    path = Path(file_path)
+    try:
+        status["exists"] = path.is_file()
+    except OSError as exc:
+        status["problem"] = f"无法检查密钥文件：{exc}"
+        return status
+    if not status["exists"]:
+        status["problem"] = "DEEPSEEK_API_KEY_FILE 指向的文件不存在。"
+        return status
+    try:
+        status["has_content"] = bool(path.read_text(encoding="utf-8").strip())
+        status["readable"] = True
+    except OSError as exc:
+        status["problem"] = f"无法读取密钥文件：{exc}"
+    if status["readable"] and not status["has_content"]:
+        status["problem"] = "DEEPSEEK_API_KEY_FILE 指向的文件是空的。"
+    return status
+
+
+def deepseek_config_diagnosis(
+    *,
+    configured: bool,
+    api_key_present: bool,
+    key_file_status: dict[str, Any],
+    env_files: list[dict[str, Any]],
+    env_example: Path,
+) -> str:
+    if configured and api_key_present:
+        return "已从 DEEPSEEK_API_KEY 检测到密钥；界面不会显示密钥内容。"
+    if configured:
+        return "已从 DEEPSEEK_API_KEY_FILE 指向的私有文件检测到密钥；界面不会显示密钥内容。"
+    problem = key_file_status.get("problem")
+    if problem:
+        return str(problem)
+    if env_example.is_file() and not any(item["exists"] for item in env_files):
+        return "没有检测到 .env/.env.local 或进程环境变量。注意：.env.example 是模板，不会被自动加载。"
+    return "没有检测到 DEEPSEEK_API_KEY，也没有可读取的 DEEPSEEK_API_KEY_FILE。"
 
 
 def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> dict[str, Any]:

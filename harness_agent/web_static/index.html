@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>AlgoForge Loop Console</title>
+    <title>AlgoForge FJSP 智能演进平台</title>
     <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
@@ -13,13 +13,13 @@
           <span class="brand-mark">AF</span>
           <div>
             <strong>AlgoForge FJSP Agent</strong>
-            <span>Slot-governed algorithm evolution</span>
+            <span>面向调度算法的代码槽受控演进</span>
           </div>
         </div>
         <div class="topbar-status">
-          <span>standard_fjsp</span>
-          <span>slot contract</span>
-          <span>evaluator locked</span>
+          <span>标准 FJSP</span>
+          <span>代码槽契约</span>
+          <span>评测器锁定</span>
         </div>
       </nav>
 
@@ -27,11 +27,11 @@
         <div>
           <p class="eyebrow">AlgoForge / FJSP Agent</p>
           <h1>FJSP 演进控制台</h1>
-          <p class="hero-copy">通过对话完成问题族选择、代码槽确认、演进策略设定和 evaluator 验证。</p>
+          <p class="hero-copy">通过对话完成问题族选择、代码槽确认、演进策略设定和评测器验证。LLM 只能在被确认的功能分区内演化，输入输出契约默认锁定。</p>
         </div>
         <div class="hero-card">
-          <span class="hero-card-label">Runtime</span>
-          <strong>Problem Family → Slot Contract → Evaluator</strong>
+          <span class="hero-card-label">运行环境</span>
+          <strong>问题族 → 代码槽契约 → 固定评测器</strong>
           <small id="deepseek-status">DeepSeek API：检查中...</small>
         </div>
       </section>
@@ -41,7 +41,7 @@
           <section class="panel chat-panel">
             <div class="panel-heading">
               <div>
-                <span class="section-kicker">Dialog</span>
+                <span class="section-kicker">对话入口</span>
                 <h2>和 Agent 设定任务</h2>
               </div>
               <button class="ghost" type="button" id="reset-chat">重置对话</button>
@@ -57,7 +57,7 @@
           <form id="job-form" class="panel composer">
             <div class="panel-heading">
               <div>
-                <span class="section-kicker">Task Contract</span>
+                <span class="section-kicker">任务契约</span>
                 <h2>任务配置</h2>
               </div>
               <button class="ghost" type="button" id="load-demo">载入内置示例</button>
@@ -65,33 +65,40 @@
 
             <div class="contract-strip">
               <div>
-                <span>Problem Family</span>
-                <strong>standard_fjsp</strong>
+                <span>问题族</span>
+                <strong>标准 FJSP</strong>
               </div>
               <div>
-                <span>Editable Surface</span>
-                <strong id="slot-contract-summary">strategy profile</strong>
+                <span>可编辑范围</span>
+                <strong id="slot-contract-summary">策略参数层</strong>
               </div>
               <div>
-                <span>Guardrail</span>
-                <strong>fixed IO + evaluator</strong>
+                <span>保护约束</span>
+                <strong>固定 IO + 固定评测器</strong>
               </div>
             </div>
 
             <section class="slot-review">
               <div class="slot-review-heading">
                 <div>
-                  <span class="section-kicker">Code Slots</span>
+                  <span class="section-kicker">代码槽</span>
                   <h3>可演进功能分区</h3>
                 </div>
-                <span id="slot-confirmation-state" class="status-pill">unconfirmed</span>
+                <span id="slot-confirmation-state" class="status-pill">未确认</span>
+              </div>
+              <div class="slot-flow" aria-label="代码槽确认流程">
+                <span class="active">1 选择代码槽</span>
+                <span>2 展示代码片段</span>
+                <span>3 核对输入输出</span>
+                <span>4 确认约束</span>
+                <span>5 开始演化</span>
               </div>
               <div id="slot-cards" class="slot-card-grid"></div>
               <div id="slot-detail" class="slot-detail"></div>
               <input id="selected-slot-id" type="hidden" value="awls_zi_policy" />
               <label class="field checkbox-field slot-confirm-field">
                 <input id="slot-user-confirmed" type="checkbox" />
-                <span>我确认本轮只允许修改选中的代码槽；输入、输出、parser 和 evaluator 保持不变。</span>
+                <span>我确认本轮只允许修改选中的代码槽；输入、输出、解析器和评测器保持不变。</span>
               </label>
             </section>
 
@@ -122,7 +129,7 @@
             <details class="advanced">
               <summary>可选：best-known CSV 与运行参数</summary>
               <label class="field">
-                <span>Best-known CSV</span>
+                <span>最优已知 CSV</span>
                 <input type="file" id="best-file" accept=".csv,.txt" />
                 <textarea id="best-text" rows="3" placeholder="例如：instance,best"></textarea>
               </label>
@@ -130,7 +137,7 @@
               <label class="field compact">
                 <span>运行类型</span>
                 <select id="run-mode">
-                  <option value="standard_loop">文档→策略/代码→Evaluator 循环</option>
+                  <option value="standard_loop">文档→策略/代码→评测器循环</option>
                   <option value="awls_zi">DeepSeek 调 AWLS-ZI 参数/规则</option>
                 </select>
               </label>
@@ -139,31 +146,31 @@
                 <input id="max-rounds" type="number" min="1" max="20" value="2" />
               </label>
               <label class="field compact">
-                <span>Seeds</span>
+                <span>随机种子</span>
                 <input id="seeds" value="0,1,2,3,4,5,6,7,8,9" />
               </label>
               <label class="field compact">
-                <span>Solver</span>
+                <span>求解器</span>
                 <select id="solver">
-                  <option value="portfolio">portfolio</option>
-                  <option value="local-search">local-search</option>
-                  <option value="awls">awls</option>
+                  <option value="portfolio">组合求解器</option>
+                  <option value="local-search">局部搜索</option>
+                  <option value="awls">AWLS</option>
                 </select>
               </label>
               <label class="field compact">
                 <span>演进层级</span>
                 <select id="evolution-mode">
-                  <option value="strategy">策略层：DeepSeek 生成 Profile，不改源码</option>
+                  <option value="strategy">策略层：DeepSeek 生成策略，不改源码</option>
                   <option value="slot">代码槽：DeepSeek 只改 EVOLVE 标记函数</option>
-                  <option value="code">自由代码层：DeepSeek CodingWorker 改候选代码</option>
+                  <option value="code">自由代码层：DeepSeek 代码 worker 改候选代码</option>
                 </select>
               </label>
               <label class="field compact">
                 <span>策略来源</span>
                 <select id="profile-mode">
-                  <option value="deepseek">deepseek（严格）</option>
-                  <option value="auto">auto（DeepSeek 优先，失败回退）</option>
-                  <option value="template">template（本地兜底）</option>
+                  <option value="deepseek">DeepSeek（严格）</option>
+                  <option value="auto">自动（DeepSeek 优先，失败回退）</option>
+                  <option value="template">本地兜底</option>
                 </select>
               </label>
               <label class="field compact">
@@ -175,7 +182,7 @@
                 <input id="awls-zi-candidates" type="number" min="1" max="8" value="2" />
               </label>
               <label class="field compact">
-                <span>Portfolio size</span>
+                <span>组合规模</span>
                 <input id="portfolio-size" type="number" min="1" max="512" value="8" />
               </label>
               <label class="field compact">
@@ -183,7 +190,7 @@
                 <input id="timeout-seconds" type="number" min="5" max="3600" value="60" />
               </label>
               <label class="field compact">
-                <span>邻域 profile</span>
+                <span>邻域策略</span>
                 <select id="neighborhood-profile">
                   <option value="random">random</option>
                   <option value="critical-block">critical-block</option>
@@ -193,23 +200,23 @@
                 </select>
               </label>
               <label class="field compact">
-                <span>AWLS restarts</span>
+                <span>AWLS 重启次数</span>
                 <input id="awls-restarts" type="number" min="1" max="128" value="1" />
               </label>
               <label class="field compact">
-                <span>AWLS cycles</span>
+                <span>AWLS 每次循环数</span>
                 <input id="awls-cycles" type="number" min="1" max="100000" value="200" />
               </label>
               <label class="field compact">
-                <span>AWLS iterations</span>
+                <span>AWLS 迭代上限</span>
                 <input id="awls-iterations" type="number" min="0" max="1000000" value="2000" />
               </label>
               <label class="field compact">
-                <span>AWLS time limit</span>
+                <span>AWLS 时间上限</span>
                 <input id="awls-time-limit" type="number" min="0.1" max="1800" step="0.1" value="6" />
               </label>
               <label class="field compact">
-                <span>AWLS init</span>
+                <span>AWLS 初始化</span>
                 <select id="awls-init">
                   <option value="random">random</option>
                   <option value="greedy">greedy</option>
@@ -229,36 +236,36 @@
                 <input id="awls-theta" type="number" min="0" max="100000" value="5" />
               </label>
               <label class="field compact">
-                <span>AWLS same-machine</span>
+                <span>AWLS 同机评估</span>
                 <select id="awls-same-machine-eval">
                   <option value="stable">stable</option>
                   <option value="cpp-fast">cpp-fast</option>
                 </select>
               </label>
               <label class="field compact wide-field">
-                <span>AWLS portfolio lanes</span>
+                <span>AWLS 组合通道</span>
                 <input id="awls-portfolio-lanes" value="3:random:1,5:mixed:1,17:random:1" />
               </label>
               <label class="field compact">
-                <span>Worker max steps</span>
+                <span>代码 worker 步数上限</span>
                 <input id="worker-max-steps" type="number" min="1" max="20" value="4" />
               </label>
               <label class="field checkbox-field">
                 <input id="apply-worker-changes" type="checkbox" checked />
-                <span>代码层应用 DeepSeek 候选修改，并由 evaluator 决定是否提升</span>
+                <span>代码层应用 DeepSeek 候选修改，并由固定评测器决定是否提升</span>
               </label>
               </div>
             </details>
 
             <button class="primary" type="submit">启动循环迭代</button>
-            <p class="hint">配置会同步到上方对话；启动前 evaluator、IO 和 slot contract 保持固定。</p>
+            <p class="hint">配置会同步到上方对话；启动前评测器、IO 和代码槽契约保持固定。</p>
           </form>
         </div>
 
         <section class="panel cockpit">
           <div class="panel-heading">
             <div>
-              <span class="section-kicker">Run Monitor</span>
+              <span class="section-kicker">运行监控</span>
               <h2>任务驾驶舱</h2>
             </div>
             <button class="ghost" type="button" id="refresh">刷新</button>
@@ -275,20 +282,20 @@
                 <span class="muted">当前任务</span>
                 <strong id="job-title">-</strong>
               </div>
-              <span id="job-status" class="status-pill">queued</span>
+              <span id="job-status" class="status-pill">排队中</span>
             </div>
 
             <div class="metric-grid">
               <div class="metric">
-                <span>Completed rounds</span>
+                <span>完成轮次</span>
                 <strong id="metric-rounds">-</strong>
               </div>
               <div class="metric">
-                <span>Validity / promotion</span>
+                <span>合法性 / 提升</span>
                 <strong id="metric-valid">-</strong>
               </div>
               <div class="metric">
-                <span>Best makespan</span>
+                <span>最佳 makespan</span>
                 <strong id="metric-makespan">-</strong>
               </div>
               <div class="metric">
@@ -309,7 +316,7 @@
       <section class="panel report-panel">
         <div class="panel-heading">
           <div>
-            <span class="section-kicker">Artifact Preview</span>
+            <span class="section-kicker">产物预览</span>
             <h2>报告预览</h2>
           </div>
           <span id="artifact-path" class="artifact-path"></span>

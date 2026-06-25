@@ -201,6 +201,45 @@ h3 {
   line-height: 1.5;
 }
 
+.api-status {
+  display: grid;
+  gap: 7px;
+}
+
+.api-status strong,
+.api-status span,
+.api-status small {
+  display: block;
+}
+
+.api-status details {
+  margin-top: 4px;
+  color: var(--ink);
+}
+
+.api-status summary {
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.api-status p,
+.api-status ul {
+  margin: 7px 0 0;
+  padding-left: 18px;
+}
+
+.api-status code {
+  display: block;
+  margin-top: 6px;
+  padding: 6px 8px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--surface);
+  font-size: 11px;
+}
+
 .api-status.ready {
   color: var(--teal);
 }
@@ -335,6 +374,31 @@ h3 {
   margin-bottom: 12px;
 }
 
+.slot-flow {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.slot-flow span,
+.slot-tag-row span {
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 11px;
+  font-weight: 900;
+  text-align: center;
+}
+
+.slot-flow span.active {
+  color: #fff;
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
 .slot-card-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -420,15 +484,44 @@ h3 {
   line-height: 1.6;
 }
 
+.slot-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 10px;
+}
+
+.slot-tag-row span {
+  color: var(--accent-strong);
+  background: #eef4fb;
+  text-align: left;
+}
+
 .slot-io-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.slot-io-grid section,
+.slot-advisor-note,
+.slot-advisor-columns > div {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.slot-advisor-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
 .slot-detail h4 {
   margin: 0 0 6px;
   letter-spacing: 0;
+  text-transform: none;
 }
 
 .slot-detail ul {
@@ -443,7 +536,7 @@ h3 {
 
 .slot-preview {
   min-height: 120px;
-  max-height: 240px;
+  max-height: 320px;
   margin-top: 4px;
   font-size: 12px;
 }
@@ -765,7 +858,9 @@ pre {
   .config-grid,
   .contract-strip,
   .slot-card-grid,
-  .slot-io-grid {
+  .slot-io-grid,
+  .slot-advisor-columns,
+  .slot-flow {
     grid-template-columns: 1fr;
   }
 

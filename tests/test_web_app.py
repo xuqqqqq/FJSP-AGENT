@@ -3,12 +3,15 @@ from __future__ import annotations
 import tempfile
 import unittest
 import json
+import os
 from pathlib import Path
+from unittest.mock import patch
 
 from harness_agent.slot_manifest import write_selected_slot_manifest
 from harness_agent.web_app import (
     _JOBS,
     create_job,
+    deepseek_status_payload,
     make_demo_examples,
     run_job,
     scan_code_evolution_progress,
@@ -17,6 +20,58 @@ from harness_agent.web_app import (
 
 
 class WebAppTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._saved_env = {}
+        for key in ("DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY_FILE", "FJSP_AGENT_ENV_FILE"):
+            self._saved_env[key] = os.environ.get(key)
+            os.environ.pop(key, None)
+
+    def tearDown(self) -> None:
+        for key, value in self._saved_env.items():
+            os.environ.pop(key, None)
+            if value is not None:
+                os.environ[key] = value
+
+    def test_deepseek_status_reports_template_env_is_not_loaded(self) -> None:
+        with patch("harness_agent.deepseek_client.local_env_candidates", return_value=[]), patch(
+            "harness_agent.web_app.local_env_candidates",
+            return_value=[],
+        ):
+            status = deepseek_status_payload()
+
+        self.assertFalse(status["configured"])
+        self.assertIn(".env.example", status["diagnosis"])
+        self.assertFalse(status["env_example"]["loaded"])
+        self.assertIn("不会被自动加载", status["env_example"]["note"])
+
+    def test_deepseek_status_loads_explicit_env_file_without_returning_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env_file = Path(tmp) / "agent.env"
+            env_file.write_text("DEEPSEEK_API_KEY=secret-for-test\n", encoding="utf-8")
+            os.environ["FJSP_AGENT_ENV_FILE"] = str(env_file)
+
+            with patch("harness_agent.deepseek_client.local_env_candidates", return_value=[env_file]), patch(
+                "harness_agent.web_app.local_env_candidates",
+                return_value=[env_file],
+            ):
+                status = deepseek_status_payload()
+
+        self.assertTrue(status["configured"])
+        self.assertTrue(status["api_key_env_present"])
+        self.assertNotIn("secret-for-test", json.dumps(status, ensure_ascii=False))
+
+    def test_deepseek_status_explains_missing_key_file(self) -> None:
+        os.environ["DEEPSEEK_API_KEY_FILE"] = str(Path(tempfile.gettempdir()) / "missing_deepseek_key_for_test.txt")
+
+        with patch("harness_agent.deepseek_client.local_env_candidates", return_value=[]), patch(
+            "harness_agent.web_app.local_env_candidates",
+            return_value=[],
+        ):
+            status = deepseek_status_payload()
+
+        self.assertFalse(status["configured"])
+        self.assertIn("文件不存在", status["diagnosis"])
+
     def test_slot_mode_requires_explicit_slot_confirmation(self) -> None:
         demo = make_demo_examples()
         payload = {

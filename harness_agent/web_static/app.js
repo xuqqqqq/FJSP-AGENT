@@ -11,7 +11,7 @@ const DEFAULT_CHAT_ACTIONS = [
   {label: "代码槽", command: "代码槽"},
   {label: "确认代码槽", command: "确认代码槽"},
   {label: "策略层", command: "策略层"},
-  {label: "Template", command: "template"},
+  {label: "本地兜底", command: "template"},
   {label: "启动", command: "启动"},
 ];
 
@@ -68,12 +68,51 @@ async function loadDeepSeekStatus() {
   state.deepseekStatus = status;
   const badge = $("deepseek-status");
   if (status.configured) {
-    badge.textContent = `DeepSeek API：已配置 · ${status.model} · ${status.base_url}`;
+    badge.innerHTML = `
+      <strong>DeepSeek API：已配置</strong>
+      <span>${escapeHtml(status.model)} · ${escapeHtml(status.base_url)}</span>
+      <small>${escapeHtml(status.diagnosis || "密钥已加载，界面不会展示密钥内容。")}</small>
+    `;
     badge.className = "api-status ready";
   } else {
-    badge.textContent = "DeepSeek API：未配置，请设置 DEEPSEEK_API_KEY 或 DEEPSEEK_API_KEY_FILE";
+    badge.innerHTML = renderDeepSeekHelp(status);
     badge.className = "api-status missing";
   }
+}
+
+function renderDeepSeekHelp(status) {
+  const checked = (status.checked_env_files || [])
+    .map((item) => `<li>${item.exists ? "已找到" : "未找到"}：${escapeHtml(shortPath(item.path))}</li>`)
+    .join("");
+  const examples = (status.help?.examples || [])
+    .map((item) => `<code>${escapeHtml(item)}</code>`)
+    .join("");
+  return `
+    <strong>DeepSeek API：未配置</strong>
+    <span>${escapeHtml(status.diagnosis || "没有检测到本地密钥。")}</span>
+    <details>
+      <summary>查看配置方法</summary>
+      <p>推荐在仓库根目录新建 <code>.env</code> 或 <code>.env.local</code>，也可以用 <code>DEEPSEEK_API_KEY_FILE</code> 指向私有密钥文件。</p>
+      <div class="api-code-list">${examples}</div>
+      <ul>${checked}</ul>
+      <p>${escapeHtml(status.env_example?.note || ".env.example 只是模板，不会被加载。")}</p>
+    </details>
+  `;
+}
+
+function profileModeLabel(mode) {
+  const labels = {
+    deepseek: "DeepSeek ",
+    auto: "自动 ",
+    template: "本地兜底 ",
+  };
+  return labels[mode] || `${mode} `;
+}
+
+function shortPath(path) {
+  const text = String(path || "");
+  if (text.length <= 72) return text;
+  return `...${text.slice(-69)}`;
 }
 
 async function loadSlotManifest() {
@@ -138,21 +177,21 @@ function updateContractSummary() {
   const evolutionMode = $("evolution-mode").value;
   const profileMode = $("profile-mode").value;
   if (runMode === "awls_zi") {
-    target.textContent = "AWLS-ZI policy search";
+    target.textContent = "AWLS-ZI 参数/规则搜索";
     return;
   }
   if (evolutionMode === "slot") {
     const slot = selectedSlot();
-    const status = $("slot-user-confirmed").checked ? "confirmed" : "needs confirmation";
+    const status = $("slot-user-confirmed").checked ? "已确认" : "待确认";
     target.textContent = `${slot?.slot_id || "code slot"} · ${status}`;
     updateSlotConfirmationState();
     return;
   }
   if (evolutionMode === "code") {
-    target.textContent = "candidate worktree code";
+    target.textContent = "候选 worktree 代码";
     return;
   }
-  target.textContent = `${profileMode} strategy profile`;
+  target.textContent = `${profileModeLabel(profileMode)}策略层`;
 }
 
 function selectedSlot() {
@@ -165,8 +204,23 @@ function updateSlotConfirmationState() {
   if (!stateBadge) return;
   const confirmed = $("slot-user-confirmed").checked;
   const selectedId = $("selected-slot-id").value || "awls_zi_policy";
-  stateBadge.textContent = confirmed ? `confirmed · ${selectedId}` : `unconfirmed · ${selectedId}`;
+  stateBadge.textContent = confirmed ? `已确认 · ${selectedId}` : `未确认 · ${selectedId}`;
   stateBadge.className = `status-pill ${confirmed ? "confirmed" : "unconfirmed"}`;
+  updateSlotFlow();
+}
+
+function updateSlotFlow() {
+  const flow = document.querySelectorAll(".slot-flow span");
+  if (!flow.length) return;
+  const hasSlot = Boolean(selectedSlot());
+  const confirmed = $("slot-user-confirmed").checked;
+  flow.forEach((item, index) => {
+    const active =
+      index === 0 ||
+      (hasSlot && index <= 2) ||
+      (confirmed && index <= 4);
+    item.className = active ? "active" : "";
+  });
 }
 
 function renderSlotCards(slots) {
@@ -178,11 +232,12 @@ function renderSlotCards(slots) {
     const card = document.createElement("button");
     card.type = "button";
     card.className = `slot-card ${slot.slot_id === selectedId ? "active" : ""}`;
-    const workerStatus = slot.advisor?.worker_support === "available" ? "可执行" : "规划中";
+    const workerStatus = slot.advisor?.worker_support_label || (slot.advisor?.worker_support === "available" ? "已接入" : "待接入");
+    const significance = slot.advisor?.significance_label ? `重要性 ${slot.advisor.significance_label}` : "重要性待评估";
     const lineRange =
       slot.line_start && slot.line_end ? `${slot.target_file}:${slot.line_start}-${slot.line_end}` : slot.target_file;
     card.innerHTML = `
-      <span>${escapeHtml(slot.slot_id)} · ${escapeHtml(workerStatus)}</span>
+      <span>${escapeHtml(slot.slot_id)} · ${escapeHtml(workerStatus)} · ${escapeHtml(significance)}</span>
       <strong>${escapeHtml(slot.title || slot.slot_id)}</strong>
       <small>${escapeHtml(slot.purpose || "")}</small>
       <em>${escapeHtml(lineRange || "")}</em>
@@ -200,7 +255,7 @@ function selectSlot(slotId) {
   renderSlotCards(state.slotManifest?.slots || []);
   updateContractSummary();
   const slot = selectedSlot();
-  appendChatMessage("assistant", `已选择代码槽：${slot?.title || slotId}。启动代码槽演进前还需要确认 IO 和 evaluator 不变。`);
+  appendChatMessage("assistant", `已选择代码槽：${slot?.title || slotId}。启动代码槽演进前还需要确认 IO 和评测器不变。`);
 }
 
 function renderSelectedSlotDetail() {
@@ -213,30 +268,53 @@ function renderSelectedSlotDetail() {
   }
   const advisor = slot.advisor || {};
   const ioSummary = [
-    ["Inputs", slot.inputs || []],
-    ["Outputs", slot.outputs || []],
-    ["Invariants", slot.invariants || []],
+    ["输入", slot.inputs || []],
+    ["输出", slot.outputs || []],
+    ["不变量", slot.invariants || []],
+    ["禁止修改", slot.forbidden_edits || []],
   ]
     .map(([label, values]) => `<section><h4>${label}</h4><ul>${listItems(values)}</ul></section>`)
     .join("");
   const validation = listItems(slot.validation_commands || []);
+  const allowed = listItems(slot.allowed_edits || []);
+  const concerns = listItems(advisor.concerns || []);
+  const suggestions = listItems(advisor.suggestions || []);
   const preview = String(slot.original_content || "").slice(0, 1800);
   detail.innerHTML = `
     <div class="slot-detail-header">
       <div>
-        <span>${escapeHtml(slot.slot_kind || "marked_block")} · ${escapeHtml(slot.language || "plaintext")}</span>
+        <span>${escapeHtml(slot.slot_kind || "marked_block")} · ${escapeHtml(slot.language || "plaintext")} · ${escapeHtml(slot.target_file || "")}</span>
         <strong>${escapeHtml(slot.title || slot.slot_id)}</strong>
       </div>
       <span class="status-pill ${advisor.worker_support === "available" ? "confirmed" : "unconfirmed"}">
-        ${escapeHtml(advisor.worker_support || "unknown")}
+        ${escapeHtml(advisor.worker_support_label || "未知")}
       </span>
     </div>
+    <div class="slot-tag-row">
+      <span>${escapeHtml(advisor.advisor_mode || "本地顾问初筛")}</span>
+      <span>可行性：${escapeHtml(advisor.feasibility_label || advisor.feasibility || "-")}</span>
+      <span>重要性：${escapeHtml(advisor.significance_label || advisor.significance || "-")}</span>
+      <span>${escapeHtml(slot.line_start && slot.line_end ? `第 ${slot.line_start}-${slot.line_end} 行` : "行号待解析")}</span>
+    </div>
     <p>${escapeHtml(advisor.feasibility_reason || "")}</p>
+    <section class="slot-advisor-note">
+      <h4>顾问结论</h4>
+      <p>${escapeHtml(advisor.rationale || advisor.block_summary || "")}</p>
+    </section>
+    <section>
+      <h4>可改范围</h4>
+      <ul>${allowed}</ul>
+    </section>
     <div class="slot-io-grid">${ioSummary}</div>
     <section>
-      <h4>Validation</h4>
+      <h4>验证命令</h4>
       <ul>${validation}</ul>
     </section>
+    <section class="slot-advisor-columns">
+      <div><h4>主要风险</h4><ul>${concerns}</ul></div>
+      <div><h4>操作建议</h4><ul>${suggestions}</ul></div>
+    </section>
+    <h4>代码片段</h4>
     <pre class="slot-preview">${escapeHtml(preview || "源码块暂不可读。")}</pre>
   `;
 }
@@ -265,18 +343,18 @@ async function submitCurrentJob() {
     payload.evolution_mode === "code" ||
     payload.profile_mode === "deepseek";
   if (payload.evolution_mode === "slot" && !payload.slot_user_confirmed) {
-    $("artifact-preview").textContent = "代码槽模式需要先确认选中的 slot 契约。";
+    $("artifact-preview").textContent = "代码槽模式需要先确认选中的代码槽契约。";
     appendChatMessage("assistant", "请先勾选确认，或在对话里说“确认代码槽”。");
     return;
   }
   if (payload.evolution_mode === "slot" && payload.selected_slot_id !== "awls_zi_policy") {
-    $("artifact-preview").textContent = "当前可执行的 slot worker 只支持 awls_zi_policy；邻域动作槽已建模，执行器还在下一步接入。";
-    appendChatMessage("assistant", "这个代码槽已经进入平台 manifest，但当前执行 worker 还只支持 AWLS zi。先选 awls_zi_policy 跑通闭环。");
+    $("artifact-preview").textContent = "当前可执行的代码槽 worker 只支持 awls_zi_policy；邻域动作槽已建模，执行器还在下一步接入。";
+    appendChatMessage("assistant", "这个代码槽已经进入平台清单，但当前执行 worker 还只支持 AWLS zi。先选 awls_zi_policy 跑通闭环。");
     return;
   }
   if (needsDeepSeek && state.deepseekStatus && !state.deepseekStatus.configured) {
     $("artifact-preview").textContent =
-      "当前选择需要 DeepSeek API，但本地没有检测到 DEEPSEEK_API_KEY / DEEPSEEK_API_KEY_FILE。若只想跑通流程，可把策略来源切到 template；若要 DeepSeek 写策略或写代码，请先配置本地密钥。";
+      "当前选择需要 DeepSeek API，但本地没有检测到 DEEPSEEK_API_KEY / DEEPSEEK_API_KEY_FILE。若只想跑通流程，可把策略来源切到本地兜底；若要 DeepSeek 写策略或写代码，请先配置本地密钥。";
     appendChatMessage("assistant", "当前配置需要 DeepSeek，但本地没有检测到密钥。可以说“template”切成本地兜底流程。");
     return;
   }
@@ -353,7 +431,7 @@ async function handleChatCommand(message, options = {}) {
   if (["确认代码槽", "确认slot", "确认 slot", "confirm slot"].some((token) => normalized.includes(token))) {
     $("slot-user-confirmed").checked = true;
     updateContractSummary();
-    appendChatMessage("assistant", `已确认代码槽：${$("selected-slot-id").value}。本轮会锁住 IO、parser 和 evaluator。`);
+    appendChatMessage("assistant", `已确认代码槽：${$("selected-slot-id").value}。本轮会锁住 IO、解析器和评测器。`);
     return;
   }
   if (["代码槽", "slot", "zi"].some((token) => normalized.includes(token))) {
@@ -364,7 +442,7 @@ async function handleChatCommand(message, options = {}) {
     $("slot-user-confirmed").checked = false;
     $("worker-max-steps").value = Math.max(4, Number($("worker-max-steps").value || 4));
     updateContractSummary();
-    appendChatMessage("assistant", "已切到代码槽模式。请选中 slot 并说“确认代码槽”，DeepSeek 才能修改该槽。");
+    appendChatMessage("assistant", "已切到代码槽模式。请选中代码槽并说“确认代码槽”，DeepSeek 才能修改该槽。");
     return;
   }
   if (["策略", "strategy", "profile"].some((token) => normalized.includes(token))) {
@@ -373,7 +451,7 @@ async function handleChatCommand(message, options = {}) {
     $("profile-mode").value = "deepseek";
     $("slot-user-confirmed").checked = false;
     updateContractSummary();
-    appendChatMessage("assistant", "已切到策略层：生成 profile，不直接改源码。");
+    appendChatMessage("assistant", "已切到策略层：生成策略参数，不直接改源码。");
     return;
   }
   if (["template", "本地", "兜底"].some((token) => normalized.includes(token))) {
@@ -382,7 +460,7 @@ async function handleChatCommand(message, options = {}) {
       $("evolution-mode").value = "strategy";
     }
     updateContractSummary();
-    appendChatMessage("assistant", "已切到 template，本地兜底流程可以在没有 DeepSeek 密钥时跑通。");
+    appendChatMessage("assistant", "已切到本地兜底流程，可以在没有 DeepSeek 密钥时跑通。");
     return;
   }
   if (["deepseek", "模型"].some((token) => normalized.includes(token))) {
@@ -454,11 +532,11 @@ function renderJob(job) {
   $("empty-state").classList.add("hidden");
   $("job-view").classList.remove("hidden");
   $("job-title").textContent = job.title;
-  $("job-status").textContent = job.status;
+  $("job-status").textContent = statusLabel(job.status);
   $("job-status").className = `status-pill ${job.status}`;
   if (job.status !== state.lastRenderedStatus) {
     state.lastRenderedStatus = job.status;
-    appendChatMessage("assistant", `任务状态：${job.status}`);
+    appendChatMessage("assistant", `任务状态：${statusLabel(job.status)}`);
   }
 
   const summary = job.summary?.last_summary || {};
@@ -483,7 +561,7 @@ function renderJob(job) {
     ziSummary.best_valid_instance_count !== undefined
       ? `${ziSummary.best_valid_instance_count}/${ziSummary.selected_instance_count}`
       : workerSummary.promoted_rounds !== undefined
-        ? `baseline ${workerSummary.baseline_valid ?? "-"}/${workerSummary.baseline_total ?? "-"} · promoted ${workerSummary.promoted_rounds}/${workerSummary.round_count}`
+        ? `基线 ${workerSummary.baseline_valid ?? "-"}/${workerSummary.baseline_total ?? "-"} · 提升 ${workerSummary.promoted_rounds}/${workerSummary.round_count}`
         : summary.valid ?? benchmark.valid_experiments ?? "-";
   $("metric-makespan").textContent = formatMetric(makespan);
   $("metric-gap").textContent = gap === undefined || gap === null ? "-" : `${Number(gap).toFixed(2)}%`;
@@ -515,13 +593,14 @@ function renderJob(job) {
 
 function labelForArtifact(name) {
   const labels = {
-    manifest: "Manifest",
-    report: "Demo Report",
-    standard_agent_report: "Agent Report",
-    zi_evolution_summary: "AWLS-ZI Summary",
-    zi_evolution_report: "AWLS-ZI Report",
-    hypothesis_graph: "Hypothesis Graph",
-    exception: "Exception Trace",
+    manifest: "运行清单",
+    report: "演示报告",
+    standard_agent_report: "Agent 报告",
+    zi_evolution_summary: "AWLS-ZI 摘要",
+    zi_evolution_report: "AWLS-ZI 报告",
+    slot_manifest: "代码槽契约",
+    hypothesis_graph: "假设图谱",
+    exception: "异常追踪",
   };
   return labels[name] || name;
 }
@@ -542,6 +621,17 @@ function formatMetric(value) {
   if (value === undefined || value === null || Number.isNaN(Number(value))) return "-";
   const num = Number(value);
   return Number.isInteger(num) ? String(num) : num.toFixed(2);
+}
+
+function statusLabel(status) {
+  const labels = {
+    queued: "排队中",
+    running: "运行中",
+    completed: "已完成",
+    completed_with_warnings: "完成但有警告",
+    failed: "失败",
+  };
+  return labels[status] || status || "-";
 }
 
 function escapeHtml(text) {
@@ -572,7 +662,7 @@ loadDeepSeekStatus().catch(() => {
   $("deepseek-status").className = "api-status missing";
 });
 loadSlotManifest().catch(() => {
-  $("artifact-preview").textContent = "代码槽 manifest 读取失败，代码槽模式暂不可用。";
+  $("artifact-preview").textContent = "代码槽清单读取失败，代码槽模式暂不可用。";
 });
 loadDemo({silent: true}).catch(() => {
   $("artifact-preview").textContent = "内置示例读取失败，但仍可手动粘贴文档和算例。";

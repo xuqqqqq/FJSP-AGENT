@@ -109,6 +109,14 @@ def load_local_env() -> None:
     present in the process environment.
     """
 
+    for path in local_env_candidates():
+        if path.is_file():
+            load_env_file(path)
+
+
+def local_env_candidates() -> list[Path]:
+    """Return the local env files checked by load_local_env, in load order."""
+
     explicit = os.environ.get("FJSP_AGENT_ENV_FILE")
     candidates: list[Path] = []
     if explicit:
@@ -118,10 +126,7 @@ def load_local_env() -> None:
     for candidate in (Path.cwd() / ".env", Path.cwd() / ".env.local", repo_root / ".env", repo_root / ".env.local"):
         if candidate not in candidates:
             candidates.append(candidate)
-
-    for path in candidates:
-        if path.is_file():
-            load_env_file(path)
+    return candidates
 
 
 def load_env_file(path: Path) -> None:
