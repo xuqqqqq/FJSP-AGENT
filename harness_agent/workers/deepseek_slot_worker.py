@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..deepseek_client import DeepSeekClient, is_deepseek_configured
+from ..slot_contract import replace_marked_block, validate_slot_manifest_gate
 from ..worker import CodingWorker, ExperimentSpec, WorkerCapabilities, WorkerResult
 from .deepseek_worker import extract_json_object
 
@@ -279,37 +280,13 @@ def compact_context(context: dict[str, Any]) -> dict[str, Any]:
 def validate_awls_slot_contract(context: dict[str, Any]) -> list[str]:
     """Validate that the context packet explicitly confirms the AWLS zi slot."""
 
-    slot_manifest = context.get("slot_manifest")
-    if not isinstance(slot_manifest, dict) or not slot_manifest.get("exists", True):
-        return ["context packet is missing a readable slot_manifest"]
-    slots = slot_manifest.get("slots")
-    if not isinstance(slots, list):
-        return ["slot_manifest.slots must be a list"]
-    awls_slot = next(
-        (
-            slot
-            for slot in slots
-            if isinstance(slot, dict) and slot.get("slot_id") == REQUIRED_SLOT_ID
-        ),
-        None,
+    return validate_slot_manifest_gate(
+        context,
+        REQUIRED_SLOT_ID,
+        expected_target_file=SLOT_RELATIVE_PATH,
+        expected_marker_start=EVOLVE_START,
+        expected_marker_end=EVOLVE_END,
     )
-    if awls_slot is None:
-        return [f"slot_manifest does not contain required slot_id {REQUIRED_SLOT_ID!r}"]
-
-    errors: list[str] = []
-    if slot_manifest.get("status") != "confirmed":
-        errors.append("slot_manifest.status must be confirmed")
-    if bool(slot_manifest.get("confirmation_required", True)):
-        errors.append("slot_manifest.confirmation_required must be false")
-    if not bool(awls_slot.get("user_confirmed", False)):
-        errors.append(f"slot {REQUIRED_SLOT_ID!r} must be user_confirmed")
-    if str(awls_slot.get("target_file", "")) != SLOT_RELATIVE_PATH:
-        errors.append(f"slot target_file must be {SLOT_RELATIVE_PATH!r}")
-    if str(awls_slot.get("marker_start", "")) != EVOLVE_START:
-        errors.append(f"slot marker_start must be {EVOLVE_START!r}")
-    if str(awls_slot.get("marker_end", "")) != EVOLVE_END:
-        errors.append(f"slot marker_end must be {EVOLVE_END!r}")
-    return errors
 
 
 def normalize_function_code(code: str) -> str:
@@ -354,13 +331,7 @@ def validate_call(node: ast.Call) -> None:
 
 
 def replace_evolve_block(text: str, function_code: str) -> str:
-    start = text.find(EVOLVE_START)
-    end = text.find(EVOLVE_END)
-    if start < 0 or end < 0 or end <= start:
-        raise ValueError(f"missing {EVOLVE_START}/{EVOLVE_END} markers")
-    prefix = text[: start + len(EVOLVE_START)]
-    suffix = text[end:]
-    return f"{prefix}\n{function_code.rstrip()}\n{suffix}"
+    return replace_marked_block(text, EVOLVE_START, EVOLVE_END, function_code)
 
 
 def render_slot_markdown(proposal: dict[str, Any]) -> str:

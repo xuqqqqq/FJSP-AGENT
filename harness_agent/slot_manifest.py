@@ -13,6 +13,8 @@ class CodeSlotSpec:
     target_file: str
     marker_start: str
     marker_end: str
+    slot_kind: str
+    language: str
     purpose: str
     inputs: list[str]
     outputs: list[str]
@@ -55,6 +57,8 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
             target_file="examples/awls_evolved_slots.py",
             marker_start="# EVOLVE_START",
             marker_end="# EVOLVE_END",
+            slot_kind="function_body",
+            language="python",
             purpose="Control the numeric zi perturbation used by AWLS move scoring.",
             inputs=[
                 "values['base']: base zi score from the fixed AWLS shell",
@@ -92,6 +96,8 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
             target_file="examples/standard_fjsp_local_search_solver.py",
             marker_start="# SLOT neighborhood_actions START",
             marker_end="# SLOT neighborhood_actions END",
+            slot_kind="marked_block",
+            language="python",
             purpose="Generate candidate moves for improving a decoded standard-FJSP schedule.",
             inputs=[
                 "instance: fixed StandardFjspInstance",

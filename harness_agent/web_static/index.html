@@ -8,65 +8,108 @@
   </head>
   <body>
     <main class="shell">
-      <section class="hero">
+      <nav class="topbar">
+        <div class="brand-lockup">
+          <span class="brand-mark">AF</span>
+          <div>
+            <strong>AlgoForge FJSP Agent</strong>
+            <span>Slot-governed algorithm evolution</span>
+          </div>
+        </div>
+        <div class="topbar-status">
+          <span>standard_fjsp</span>
+          <span>slot contract</span>
+          <span>evaluator locked</span>
+        </div>
+      </nav>
+
+      <section class="hero compact-hero">
         <div>
-          <p class="eyebrow">AlgoForge / Loop Engineering Harness</p>
-          <h1>从需求文档到可验证算法迭代</h1>
-          <p class="hero-copy">
-            上传需求、IO 协议和 FJSP 算例，系统会生成任务卡、策略候选、调度实验与反思报告。
-            策略层让 DeepSeek 生成可执行策略 Profile；代码槽让 DeepSeek 只修改 EVOLVE 标记内的候选算子。
-            两种模式都只接受标准 FJSP evaluator 的裁判结果。
-          </p>
+          <p class="eyebrow">AlgoForge / FJSP Agent</p>
+          <h1>FJSP 演进控制台</h1>
+          <p class="hero-copy">通过对话完成问题族选择、代码槽确认、演进策略设定和 evaluator 验证。</p>
         </div>
         <div class="hero-card">
-          <span class="hero-card-label">Flow</span>
-          <strong>Document → DeepSeek → Solver / CodeWorker → Evaluator → Reflection</strong>
+          <span class="hero-card-label">Runtime</span>
+          <strong>Problem Family → Slot Contract → Evaluator</strong>
           <small id="deepseek-status">DeepSeek API：检查中...</small>
         </div>
       </section>
 
       <section class="layout">
-        <form id="job-form" class="panel composer">
-          <div class="panel-heading">
-            <div>
-              <span class="section-kicker">Submission</span>
-              <h2>新建自演进任务</h2>
+        <div class="left-stack">
+          <section class="panel chat-panel">
+            <div class="panel-heading">
+              <div>
+                <span class="section-kicker">Dialog</span>
+                <h2>和 Agent 设定任务</h2>
+              </div>
+              <button class="ghost" type="button" id="reset-chat">重置对话</button>
             </div>
-            <button class="ghost" type="button" id="load-demo">载入内置示例</button>
-          </div>
+            <div id="chat-thread" class="chat-thread" aria-live="polite"></div>
+            <div id="chat-actions" class="chat-actions"></div>
+            <form id="chat-form" class="chat-input-row">
+              <input id="chat-input" autocomplete="off" placeholder="例如：载入示例、代码槽、template、启动" />
+              <button class="primary compact-button" type="submit">发送</button>
+            </form>
+          </section>
 
-          <label class="field">
-            <span>任务名称</span>
-            <input id="title" name="title" value="Brandimarte Mk01 标准 FJSP 闭环演示" />
-          </label>
+          <form id="job-form" class="panel composer">
+            <div class="panel-heading">
+              <div>
+                <span class="section-kicker">Task Contract</span>
+                <h2>任务配置</h2>
+              </div>
+              <button class="ghost" type="button" id="load-demo">载入内置示例</button>
+            </div>
 
-          <div class="doc-grid">
+            <div class="contract-strip">
+              <div>
+                <span>Problem Family</span>
+                <strong>standard_fjsp</strong>
+              </div>
+              <div>
+                <span>Editable Surface</span>
+                <strong id="slot-contract-summary">strategy profile</strong>
+              </div>
+              <div>
+                <span>Guardrail</span>
+                <strong>fixed IO + evaluator</strong>
+              </div>
+            </div>
+
             <label class="field">
-              <span>需求文档 Markdown</span>
-              <input type="file" id="requirement-file" accept=".md,.txt" />
-              <textarea id="requirement-text" rows="8" placeholder="粘贴需求文档，或选择文件后自动填入"></textarea>
+              <span>任务名称</span>
+              <input id="title" name="title" value="Brandimarte Mk01 标准 FJSP 闭环演示" />
             </label>
-            <label class="field">
-              <span>IO 文档 Markdown</span>
-              <input type="file" id="io-file" accept=".md,.txt" />
-              <textarea id="io-text" rows="8" placeholder="粘贴输入输出协议，或选择文件后自动填入"></textarea>
-            </label>
-          </div>
 
-          <label class="field">
-            <span>标准 FJSP 算例</span>
-            <input type="file" id="instance-file" accept=".fjs,.txt" />
-            <textarea id="instance-text" rows="5" placeholder="粘贴 .fjs 算例，或选择文件后自动填入"></textarea>
-          </label>
+            <div class="doc-grid">
+              <label class="field">
+                <span>需求文档 Markdown</span>
+                <input type="file" id="requirement-file" accept=".md,.txt" />
+                <textarea id="requirement-text" rows="8" placeholder="粘贴需求文档，或选择文件后自动填入"></textarea>
+              </label>
+              <label class="field">
+                <span>IO 文档 Markdown</span>
+                <input type="file" id="io-file" accept=".md,.txt" />
+                <textarea id="io-text" rows="8" placeholder="粘贴输入输出协议，或选择文件后自动填入"></textarea>
+              </label>
+            </div>
 
-          <details class="advanced">
-            <summary>可选：best-known CSV 与运行参数</summary>
             <label class="field">
-              <span>Best-known CSV</span>
-              <input type="file" id="best-file" accept=".csv,.txt" />
-              <textarea id="best-text" rows="3" placeholder="例如：instance,best"></textarea>
+              <span>标准 FJSP 算例</span>
+              <input type="file" id="instance-file" accept=".fjs,.txt" />
+              <textarea id="instance-text" rows="5" placeholder="粘贴 .fjs 算例，或选择文件后自动填入"></textarea>
             </label>
-            <div class="config-grid">
+
+            <details class="advanced">
+              <summary>可选：best-known CSV 与运行参数</summary>
+              <label class="field">
+                <span>Best-known CSV</span>
+                <input type="file" id="best-file" accept=".csv,.txt" />
+                <textarea id="best-text" rows="3" placeholder="例如：instance,best"></textarea>
+              </label>
+              <div class="config-grid">
               <label class="field compact">
                 <span>运行类型</span>
                 <select id="run-mode">
@@ -187,12 +230,13 @@
                 <input id="apply-worker-changes" type="checkbox" checked />
                 <span>代码层应用 DeepSeek 候选修改，并由 evaluator 决定是否提升</span>
               </label>
-            </div>
-          </details>
+              </div>
+            </details>
 
-          <button class="primary" type="submit">启动循环迭代</button>
-          <p class="hint">建议第一次使用内置示例，确认端到端流程能跑通后，再替换成自己的文档和算例。</p>
-        </form>
+            <button class="primary" type="submit">启动循环迭代</button>
+            <p class="hint">配置会同步到上方对话；启动前 evaluator、IO 和 slot contract 保持固定。</p>
+          </form>
+        </div>
 
         <section class="panel cockpit">
           <div class="panel-heading">

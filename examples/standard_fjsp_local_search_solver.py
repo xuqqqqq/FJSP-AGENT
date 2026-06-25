@@ -599,6 +599,7 @@ def generate_structured_neighbors(
     rng: random.Random,
     neighbor_limit: int,
 ) -> list[tuple[Move, SearchState]]:
+    # SLOT neighborhood_actions START
     specs = operation_specs(instance)
     path = critical_path(decoded)
     path_set = set(path)
@@ -736,6 +737,7 @@ def generate_structured_neighbors(
     remainder = moves[priority_count:]
     rng.shuffle(remainder)
     return (priority + remainder[: neighbor_limit - priority_count])[:neighbor_limit]
+    # SLOT neighborhood_actions END
 
 
 def generate_hgtsa_lite_neighbors(
