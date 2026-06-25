@@ -46,6 +46,7 @@ class AwlsBenchmarkRequest:
     gamma: int = 40
     theta: int = 5
     zi_policy: str = "cpp"
+    zi_formula: str = ""
     initial_state: str = "reset"
     time_check_interval: int = 1
     portfolio_lanes: str = ""
@@ -245,6 +246,7 @@ def run_one_awls_job(
             gamma=max(1, request.gamma),
             theta=max(0, request.theta),
             zi_policy=request.zi_policy,
+            zi_formula=request.zi_formula,
             initial_state=request.initial_state,
             exact_select_top_k=max(0, request.exact_select_top_k),
             same_machine_eval=request.same_machine_eval,

@@ -171,20 +171,24 @@ The page lets a user submit:
 - a small set of run controls such as iteration rounds, seeds, solver type,
   evolution level, and profile source.
 
-The web UI exposes two evolution levels:
+The web UI exposes three evolution levels:
 
 - `策略层` calls `run_standard_demo`.  DeepSeek can generate strategy profiles
   and reflection reports, but it does not edit Python source files.  The
   reflection is still active: it is fed into the next strategy-profile round,
   changing rule choices, search profiles, and parameters.
-- `代码层` calls `run_standard_worker_loop` with `DeepSeekWorker`.  DeepSeek is
-  the coding agent: it first states the rule-level idea, then proposes file
-  replacements inside an isolated candidate worktree.  The fixed evaluator
-  decides whether the candidate is promoted; otherwise the edit is rolled back
-  and retained only as evidence.
+- `代码槽` calls `run_standard_worker_loop` with `DeepSeekSlotWorker`.  DeepSeek
+  is still the coding agent, but it may only rewrite the `EVOLVE`-marked AWLS
+  `zi` function.  This is the recommended code-evolution path because the
+  parser, evaluator, benchmark harness, and solver shell remain fixed.
+- `自由代码层` calls `run_standard_worker_loop` with `DeepSeekWorker`.  DeepSeek
+  first states the rule-level idea, then proposes guarded file edits inside an
+  isolated candidate worktree.  The fixed evaluator decides whether the
+  candidate is promoted; otherwise the edit is rolled back and retained only as
+  evidence.
 
 DeepSeek is never configured by committing a key.  Set one local secret before
-using `策略层/deepseek` or `代码层`:
+using `策略层/deepseek`, `代码槽`, or `自由代码层`:
 
 ```powershell
 $env:DEEPSEEK_API_KEY="sk-..."
@@ -296,6 +300,43 @@ When `--worker deepseek` or `--worker opencode` is used, worker proposals may
 modify files inside isolated candidate worktrees.  A round is promoted only if
 the fixed evaluator reports a strictly better objective key than the incumbent;
 otherwise the candidate is rolled back.
+
+### Problem-family cards and code-slot manifests
+
+The platform path now separates problem-family capability, code-slot contracts,
+and solver evolution.  A problem-family card records the stable IO/evaluator
+rules for a family such as standard FJSP.  A slot manifest records editable code
+regions, their purpose, inputs, outputs, invariants, validation commands, and
+whether the user has confirmed that slot for LLM edits.
+
+```powershell
+python -m harness_agent.cli problem-family-card `
+  --problem-family standard_fjsp `
+  --output outputs\platform_smoke\problem_family.json
+
+python -m harness_agent.cli build-slot-manifest `
+  --problem-family standard_fjsp `
+  --output outputs\platform_smoke\slot_manifest.json `
+  --confirmed
+
+python -m harness_agent.cli run-standard-worker-loop `
+  --worker null `
+  --doc README.md `
+  --slot-manifest outputs\platform_smoke\slot_manifest.json `
+  --instance-dir examples `
+  --pattern standard_fjsp_tiny.fjs `
+  --best-known-csv configs\standard_fjsp_tiny_best.csv `
+  --output-dir outputs\platform_smoke\worker_loop `
+  --iterations 1 `
+  --seeds 0 `
+  --solver portfolio `
+  --portfolio-size 4
+```
+
+`context_packet.json` includes the selected slot manifest and automatically
+adds local FJSP knowledge cards from `knowledge/` based on the problem family
+and confirmed slot tags.  Explicit `--knowledge-card` paths are still accepted
+and are merged with these automatically selected cards.
 
 ## Project Intake
 

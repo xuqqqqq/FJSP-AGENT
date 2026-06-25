@@ -6,11 +6,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from examples.standard_fjsp_awls_solver import validate_zi_formula
+
 from .awls_benchmark import AwlsBenchmarkRequest, run_awls_benchmark, selected_instances
 from .deepseek_client import DeepSeekClient
 
 
-ZI_POLICY_CHOICES = ("cpp", "none", "sqrt", "aggressive", "critical")
+ZI_POLICY_CHOICES = ("cpp", "none", "sqrt", "aggressive", "critical", "formula")
 SAME_MACHINE_EVAL_CHOICES = ("stable", "cpp-fast")
 
 
@@ -170,6 +172,7 @@ def run_candidate(
             gamma=max(1, int(candidate["gamma"])),
             theta=max(0, int(candidate["theta"])),
             zi_policy=str(candidate["zi_policy"]),
+            zi_formula=str(candidate.get("zi_formula") or ""),
             portfolio_lanes=str(candidate.get("portfolio_lanes") or request.portfolio_lanes or ""),
             critical_block_exhaustive_pct=max(0, min(25, int(candidate.get("critical_block_exhaustive_pct", 0)))),
             same_machine_eval=str(candidate.get("same_machine_eval") or request.same_machine_eval),
@@ -209,6 +212,15 @@ AWLS zi mechanism currently exposed to you:
   - sqrt: weakens high operation weights with sqrt(weight).
   - aggressive: increases moved-operation weight and cooldown pressure faster.
   - critical: gives critical operations a larger zi pressure.
+  - formula: use your proposed `zi_formula` arithmetic expression.
+- When `zi_policy=formula`, `zi_formula` can use only these variables:
+  `base`, `weight`, `cooldown`, `rr`, `gamma`, `cooling`, `sqrt_weight`,
+  `log_weight`, `is_critical`, `forward`, `backward`, `duration`,
+  `machine_load`, `position`.
+- Allowed functions in `zi_formula`: `max`, `min`, `abs`, `sqrt`, `log1p`.
+- Formula outputs are clipped to finite non-negative values. Prefer simple
+  interpretable formulas such as `base * (1 + 0.3 * is_critical)` or
+  `max(0, base + 0.05 * backward * is_critical)`.
 
 Other allowed knobs:
 - `same_machine_eval`: {", ".join(SAME_MACHINE_EVAL_CHOICES)}.
@@ -237,6 +249,7 @@ Return JSON only with exactly this schema:
       "gamma": 40,
       "theta": 5,
       "zi_policy": "cpp",
+      "zi_formula": "",
       "critical_block_exhaustive_pct": 0,
       "same_machine_eval": "stable",
       "portfolio_lanes": ""
@@ -249,6 +262,8 @@ Rules:
 - Optimize lower avg_gap_pct first, validity second. The evaluator will decide.
 - Do not repeat an exact prior configuration unless your rationale explains why.
 - Keep `beta` in 50..1500, `gamma` in 5..120, `theta` in 0..20.
+- Use `zi_policy=formula` for at least one candidate when prior evidence shows
+  the fixed policies are flat or worse; keep formulas short and diverse.
 - Prefer interpretable changes to the zi mechanism. This is a controlled
   evolution experiment, not a free code rewrite.
 """.strip()
@@ -270,6 +285,11 @@ def normalize_candidates(profile: dict[str, Any], count: int, round_index: int) 
         policy = str(raw.get("zi_policy") or "cpp")
         if policy not in ZI_POLICY_CHOICES:
             raise ValueError(f"DeepSeek proposed unsupported zi_policy: {policy}")
+        formula = str(raw.get("zi_formula") or "")
+        if policy == "formula":
+            formula = validate_zi_formula(formula)
+        else:
+            formula = ""
         eval_mode = str(raw.get("same_machine_eval") or "stable")
         if eval_mode not in SAME_MACHINE_EVAL_CHOICES:
             raise ValueError(f"DeepSeek proposed unsupported same_machine_eval: {eval_mode}")
@@ -281,6 +301,7 @@ def normalize_candidates(profile: dict[str, Any], count: int, round_index: int) 
                 "gamma": clamp_int(raw.get("gamma"), 40, 5, 120),
                 "theta": clamp_int(raw.get("theta"), 5, 0, 20),
                 "zi_policy": policy,
+                "zi_formula": formula,
                 "critical_block_exhaustive_pct": clamp_int(raw.get("critical_block_exhaustive_pct"), 0, 0, 25),
                 "same_machine_eval": eval_mode,
                 "portfolio_lanes": str(raw.get("portfolio_lanes") or ""),
@@ -303,6 +324,7 @@ def candidate_record(name: str, source: str, manifest: dict[str, Any], candidate
         "report": str(manifest.get("artifacts", {}).get("report") or ""),
         "valid_instance_count": aggregate.get("valid_instance_count"),
         "invalid_run_count": aggregate.get("invalid_run_count"),
+        "avg_makespan": aggregate.get("avg_makespan"),
         "avg_gap_pct": aggregate.get("avg_gap_pct"),
         "median_gap_pct": aggregate.get("median_gap_pct"),
         "max_gap_pct": aggregate.get("max_gap_pct"),
@@ -368,8 +390,8 @@ def render_report(manifest: dict[str, Any]) -> str:
         "",
         "## Candidates",
         "",
-        "| Round | Candidate | Avg Gap % | Median Gap % | Max Gap % | Invalid Runs | zi Policy | beta | gamma | theta | Report |",
-        "| --- | --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |",
+        "| Round | Candidate | Avg Makespan | Avg Gap % | Median Gap % | Max Gap % | Invalid Runs | zi Policy | Formula | beta | gamma | theta | Report |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | --- |",
     ]
     baseline = manifest.get("baseline") or {}
     lines.append(candidate_row("baseline", baseline))
@@ -395,9 +417,11 @@ def candidate_row(round_label: str, candidate: dict[str, Any]) -> str:
     report = candidate.get("report") or ""
     report_cell = f"[report]({report})" if report else ""
     return (
-        f"| {round_label} | {candidate.get('name')} | {format_cell(candidate.get('avg_gap_pct'))} | "
+        f"| {round_label} | {candidate.get('name')} | {format_cell(candidate.get('avg_makespan'))} | "
+        f"{format_cell(candidate.get('avg_gap_pct'))} | "
         f"{format_cell(candidate.get('median_gap_pct'))} | {format_cell(candidate.get('max_gap_pct'))} | "
         f"{format_cell(candidate.get('invalid_run_count'))} | {config.get('zi_policy', 'cpp')} | "
+        f"`{config.get('zi_formula', '') or ''}` | "
         f"{config.get('beta', '')} | {config.get('gamma', '')} | {config.get('theta', '')} | {report_cell} |"
     )
 
@@ -412,6 +436,7 @@ def compact_summary(manifest: dict[str, Any]) -> dict[str, Any]:
                 "instance_count",
                 "valid_instance_count",
                 "invalid_run_count",
+                "avg_makespan",
                 "avg_gap_pct",
                 "median_gap_pct",
                 "max_gap_pct",

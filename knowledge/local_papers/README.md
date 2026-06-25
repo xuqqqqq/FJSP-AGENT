@@ -9,6 +9,7 @@ redistributable in a public repository.
 
 | Paper file | Why it matters for FJSP Harness Agent |
 | --- | --- |
+| `FJSP场景调研报告10-17.pdf` | Local scene survey covering standard FJSP, aluminum rolling, semiconductor manufacturing, constraint variants, solver families, and AI/LLM heuristic evolution; indexed by `knowledge/papers/fjsp_scene_survey_2025_10_17.md`. |
 | `基于混合遗传禁忌搜索算法的作业车间调度方法_谢晋 (1).pdf` | Hybrid genetic/tabu-search workflow; useful for neighborhood and tabu-loop strategy cards. |
 | `2025_RCIM_A_disjunctive_graph_based_metaheuristic_for_flexible_job_shop_scheduling_problems_considering_fixture_shortages.pdf` | Disjunctive-graph metaheuristic for FJSP variants with resource shortages; useful for industrial extensions. |
 | `智能制造系统中柔性作业车间调度的有效局部搜索算法.pdf` | Local-search design for FJSP; useful for operator library. |
@@ -27,4 +28,3 @@ redistributable in a public repository.
 2. Link every operator card to a harness module: parser, evaluator, strategy
    library, hypothesis graph, or worker prompt.
 3. Keep raw PDF filenames stable so local retrieval scripts can locate them.
-

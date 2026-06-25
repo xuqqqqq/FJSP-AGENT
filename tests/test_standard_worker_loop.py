@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from harness_agent.project_intake import ProjectIntakeRequest, write_project_intake
+from harness_agent.slot_manifest import write_default_slot_manifest
 from harness_agent.standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop
 from harness_agent.worker import NullWorker
 
@@ -27,6 +28,8 @@ class StandardWorkerLoopTests(unittest.TestCase):
             )
             output_dir = Path(tmp) / "standard_worker"
             previous_memory = _write_previous_memory(tmp_path)
+            slot_manifest = tmp_path / "slot_manifest.json"
+            write_default_slot_manifest(problem_family="standard_fjsp", output=slot_manifest, confirmed=True)
 
             manifest = run_standard_worker_loop(
                 StandardWorkerLoopRequest(
@@ -37,6 +40,7 @@ class StandardWorkerLoopTests(unittest.TestCase):
                     output_dir=output_dir,
                     project_root=ROOT,
                     worker=NullWorker(),
+                    slot_manifest=slot_manifest,
                     project_intake_manifest=Path(intake["artifacts"]["manifest"]),
                     previous_pipeline_memory=previous_memory,
                     max_instances=1,
@@ -61,12 +65,18 @@ class StandardWorkerLoopTests(unittest.TestCase):
             self.assertEqual(1, manifest["baseline_summary"]["valid"])
             self.assertEqual("rolled_back", manifest["rounds"][0]["decision"])
             self.assertEqual("missing", manifest["rounds"][0]["proposal_diagnostics"]["status"])
+            self.assertEqual(str(slot_manifest), manifest["request"]["slot_manifest"])
             self.assertEqual(str(Path(intake["artifacts"]["manifest"])), manifest["request"]["project_intake_manifest"])
             self.assertEqual(str(previous_memory), manifest["request"]["previous_pipeline_memory"])
             self.assertTrue((output_dir / "standard_worker_contract.json").exists())
             self.assertTrue((output_dir / "context_packet.json").exists())
             context_packet = json.loads((output_dir / "context_packet.json").read_text(encoding="utf-8"))
             self.assertTrue(context_packet["project_intake"]["exists"])
+            self.assertEqual("confirmed", context_packet["slot_manifest"]["status"])
+            self.assertIn(
+                "Review slot_manifest",
+                " ".join(context_packet["worker_instruction"]["required_order"]),
+            )
             self.assertEqual("ok", context_packet["previous_pipeline_memory"]["pipeline_status"])
             self.assertTrue((output_dir / "standard_worker_loop_manifest.json").exists())
             self.assertTrue((output_dir / "standard_worker_loop_report.md").exists())

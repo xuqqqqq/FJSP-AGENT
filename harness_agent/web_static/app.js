@@ -116,6 +116,7 @@ async function submitJob(event) {
   }
   const needsDeepSeek =
     payload.run_mode === "awls_zi" ||
+    payload.evolution_mode === "slot" ||
     payload.evolution_mode === "code" ||
     payload.profile_mode === "deepseek";
   if (needsDeepSeek && state.deepseekStatus && !state.deepseekStatus.configured) {
@@ -205,7 +206,7 @@ function renderJob(job) {
     ziSummary.best_valid_instance_count !== undefined
       ? `${ziSummary.best_valid_instance_count}/${ziSummary.selected_instance_count}`
       : workerSummary.promoted_rounds !== undefined
-        ? `${workerSummary.promoted_rounds}/${workerSummary.round_count}`
+        ? `baseline ${workerSummary.baseline_valid ?? "-"}/${workerSummary.baseline_total ?? "-"} · promoted ${workerSummary.promoted_rounds}/${workerSummary.round_count}`
         : summary.valid ?? benchmark.valid_experiments ?? "-";
   $("metric-makespan").textContent = formatMetric(makespan);
   $("metric-gap").textContent = gap === undefined || gap === null ? "-" : `${Number(gap).toFixed(2)}%`;

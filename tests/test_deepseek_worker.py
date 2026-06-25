@@ -1,8 +1,15 @@
 from __future__ import annotations
 
 import unittest
+from tempfile import TemporaryDirectory
+from pathlib import Path
 
-from harness_agent.workers.deepseek_worker import DeepSeekWorker, render_code_edit_markdown
+from harness_agent.workers.deepseek_worker import (
+    DeepSeekWorker,
+    apply_code_edit_proposal,
+    extract_json_object,
+    render_code_edit_markdown,
+)
 
 
 class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
@@ -79,6 +86,72 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         )
 
         self.assertIn("project_intake_present_but_not_referenced", normalized["proposal_audit"]["warnings"])
+
+    def test_extract_json_object_accepts_trailing_model_text(self) -> None:
+        payload = extract_json_object('{"summary":"ok","changes":[]} extra notes that should be ignored')
+
+        self.assertEqual("ok", payload["summary"])
+        self.assertEqual([], payload["changes"])
+
+    def test_local_patch_actions_are_applied_without_replacing_full_file(self) -> None:
+        worker = DeepSeekWorker()
+        context = _context_packet_with_intake()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "examples" / "standard_fjsp_solver.py"
+            target.parent.mkdir(parents=True)
+            target.write_text("alpha = 1\nbeta = 2\n", encoding="utf-8")
+
+            normalized = worker._normalize_code_edit_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+                {
+                    "summary": "Use a local patch.",
+                    "strategy_intent": "Avoid full-file replacement for large solver files.",
+                    "rule_operator_hypotheses": [
+                        {
+                            "name": "small_patch",
+                            "type": "parameter_policy",
+                            "novelty": "Uses a local text replacement instead of rewriting the parser.",
+                            "expected_effect": "Keeps evaluator-visible behavior auditable.",
+                            "evidence_used": ["project_intake.core_algorithm_files"],
+                            "target_files": ["examples/standard_fjsp_solver.py"],
+                            "ablation_plan": "Compare with the baseline value.",
+                        }
+                    ],
+                    "changes": [
+                        {
+                            "path": "examples/standard_fjsp_solver.py",
+                            "action": "text_replace",
+                            "old": "beta = 2\n",
+                            "new": "beta = 3\n",
+                            "rationale": "Small controlled replacement.",
+                        },
+                        {
+                            "path": "examples/standard_fjsp_solver.py",
+                            "action": "insert_after",
+                            "anchor": "alpha = 1\n",
+                            "content": "gamma = 4\n",
+                            "rationale": "Small controlled insertion.",
+                        },
+                    ],
+                    "context_usage": {
+                        "used_project_intake": True,
+                        "referenced_files": ["examples/standard_fjsp_solver.py"],
+                        "notes": "Patch the editable solver only.",
+                    },
+                    "quick_test_plan": "python -m compileall harness_agent examples",
+                    "risk_notes": "Single string risk note should stay one note.",
+                },
+                context,
+            )
+
+            changed = apply_code_edit_proposal(proposal=normalized, worktree_path=root, context=context)
+
+            self.assertEqual(
+                ["examples/standard_fjsp_solver.py", "examples/standard_fjsp_solver.py"],
+                changed,
+            )
+            self.assertEqual("alpha = 1\ngamma = 4\nbeta = 3\n", target.read_text(encoding="utf-8"))
+            self.assertEqual(["Single string risk note should stay one note."], normalized["risk_notes"])
 
 
 def _context_packet_with_intake() -> dict[str, object]:

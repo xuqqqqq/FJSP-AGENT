@@ -11,12 +11,14 @@ contract in this repository, not on a copied C++ source file.
 """
 
 import argparse
+import ast
 import json
 import math
 import random
 import time
 from collections import deque
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import sys
@@ -31,6 +33,11 @@ from harness_agent.standard_fjsp import (
     write_solution,
 )
 
+try:
+    from examples.awls_evolved_slots import safe_evolved_zi
+except Exception:  # pragma: no cover - compile checks surface malformed slots.
+    safe_evolved_zi = None
+
 
 START_NODE = 0
 FRONT = "FRONT"
@@ -40,8 +47,50 @@ CHANGE_MACHINE_BACK = "CHANGE_MACHINE_BACK"
 COOLDOWN_INFINITY = 10**9
 CPP_INT_MIN = -(2**31)
 CPP_INT_MAX = 2**31 - 1
-ZI_POLICY_CHOICES = ("cpp", "cpp-exact", "none", "sqrt", "aggressive", "critical")
+ZI_POLICY_CHOICES = ("cpp", "cpp-exact", "none", "sqrt", "aggressive", "critical", "formula", "slot")
 PORTFOLIO_OUTER_SEED_STRIDE = 1_000_003
+ZI_FORMULA_MAX_LEN = 240
+ZI_FORMULA_MAX_ABS = 1.0e9
+ZI_FORMULA_ALLOWED_NAMES = {
+    "weight",
+    "cooldown",
+    "rr",
+    "gamma",
+    "cooling",
+    "base",
+    "sqrt_weight",
+    "log_weight",
+    "is_critical",
+    "forward",
+    "backward",
+    "duration",
+    "machine_load",
+    "position",
+}
+ZI_FORMULA_FUNCTIONS = {
+    "abs": abs,
+    "max": max,
+    "min": min,
+    "sqrt": math.sqrt,
+    "log1p": math.log1p,
+}
+ZI_FORMULA_ALLOWED_AST = (
+    ast.Expression,
+    ast.BinOp,
+    ast.UnaryOp,
+    ast.Call,
+    ast.Name,
+    ast.Load,
+    ast.Constant,
+    ast.Add,
+    ast.Sub,
+    ast.Mult,
+    ast.Div,
+    ast.Pow,
+    ast.Mod,
+    ast.USub,
+    ast.UAdd,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +113,70 @@ class PortfolioLane:
     init_mode: str
     restarts: int
     time_limit_sec: float | None = None
+
+
+def validate_zi_formula(expression: str) -> str:
+    """Validate the small arithmetic DSL used for LLM-evolved zi formulas."""
+
+    formula = (expression or "").strip()
+    if not formula:
+        raise ValueError("zi_formula is required when zi_policy='formula'")
+    if len(formula) > ZI_FORMULA_MAX_LEN:
+        raise ValueError(f"zi_formula is too long; max length is {ZI_FORMULA_MAX_LEN}")
+    try:
+        tree = ast.parse(formula, mode="eval")
+    except SyntaxError as exc:
+        raise ValueError(f"invalid zi_formula syntax: {exc.msg}") from exc
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ZI_FORMULA_ALLOWED_AST):
+            raise ValueError(f"unsupported zi_formula syntax: {type(node).__name__}")
+        if isinstance(node, ast.Name):
+            allowed = ZI_FORMULA_ALLOWED_NAMES | set(ZI_FORMULA_FUNCTIONS)
+            if node.id not in allowed:
+                raise ValueError(f"unknown zi_formula symbol: {node.id}")
+        elif isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name) or node.func.id not in ZI_FORMULA_FUNCTIONS:
+                raise ValueError("zi_formula only supports whitelisted math functions")
+            if node.keywords:
+                raise ValueError("zi_formula function calls cannot use keyword arguments")
+            if len(node.args) > 4:
+                raise ValueError("zi_formula function calls support at most four arguments")
+        elif isinstance(node, ast.Constant):
+            if not isinstance(node.value, (int, float)):
+                raise ValueError("zi_formula constants must be numeric")
+            if abs(float(node.value)) > ZI_FORMULA_MAX_ABS:
+                raise ValueError("zi_formula numeric constants are too large")
+        elif isinstance(node, ast.Pow):
+            # Keep exponent-heavy expressions from creating extremely slow or
+            # numerically unstable candidates.
+            parent_nodes = list(ast.walk(tree))
+            for parent in parent_nodes:
+                if isinstance(parent, ast.BinOp) and parent.op is node:
+                    if isinstance(parent.right, ast.Constant) and abs(float(parent.right.value)) <= 4:
+                        continue
+                    raise ValueError("zi_formula exponent must be a numeric constant with abs <= 4")
+    return formula
+
+
+@lru_cache(maxsize=256)
+def compile_zi_formula(expression: str) -> object:
+    """Compile a validated zi formula once and reuse it during move scoring."""
+
+    formula = validate_zi_formula(expression)
+    return compile(ast.parse(formula, mode="eval"), "<zi_formula>", "eval")
+
+
+def evaluate_zi_formula(expression: str, values: dict[str, float]) -> float:
+    """Evaluate a validated zi formula with bounded numeric output."""
+
+    namespace = dict(ZI_FORMULA_FUNCTIONS)
+    namespace.update(values)
+    result = eval(compile_zi_formula(expression), {"__builtins__": {}}, namespace)
+    value = float(result)
+    if not math.isfinite(value):
+        return 0.0
+    return min(ZI_FORMULA_MAX_ABS, max(0.0, value))
 
 
 @dataclass
@@ -166,6 +279,7 @@ class AwlsSchedule:
         self.op_cooldown = [initial_cooldown] * n
         self.same_machine_eval = "stable"
         self.zi_policy = "cpp"
+        self.zi_formula = ""
         self.awls_stats: dict[str, int] = {}
         self.update_time()
 
@@ -194,6 +308,7 @@ class AwlsSchedule:
         cloned.op_cooldown = list(self.op_cooldown)
         cloned.same_machine_eval = self.same_machine_eval
         cloned.zi_policy = self.zi_policy
+        cloned.zi_formula = self.zi_formula
         cloned.awls_stats = dict(self.awls_stats)
         return cloned
 
@@ -649,6 +764,32 @@ def weight_perturbation(schedule: AwlsSchedule, node: int, gamma: int) -> float:
         return cooling_factor * math.sqrt(weight)
 
     perturbation = cooling_factor * weight
+    if policy in {"formula", "slot"}:
+        machine_id = schedule.on_machine[node]
+        values = {
+            "weight": float(weight),
+            "cooldown": float(schedule.op_cooldown[node]),
+            "rr": float(rr),
+            "gamma": float(gamma),
+            "cooling": float(cooling_factor),
+            "base": float(perturbation),
+            "sqrt_weight": math.sqrt(max(0.0, float(weight))),
+            "log_weight": math.log1p(max(0.0, float(weight))),
+            "is_critical": 1.0 if schedule.is_critical_operation(node) else 0.0,
+            "forward": float(schedule.forward_path_length[node]),
+            "backward": float(schedule.backward_path_length[node]),
+            "duration": float(schedule.index.duration(node, machine_id)),
+            "machine_load": float(schedule.machine_operation_count[machine_id]),
+            "position": float(schedule.on_machine_pos[node]),
+        }
+        if policy == "slot":
+            if safe_evolved_zi is None:
+                return perturbation
+            return safe_evolved_zi(values)
+        try:
+            return evaluate_zi_formula(schedule.zi_formula, values)
+        except (ArithmeticError, OverflowError, ValueError):
+            return 0.0
     if policy == "aggressive":
         return 1.5 * perturbation
     if policy == "critical" and schedule.is_critical_operation(node):
@@ -1276,12 +1417,14 @@ def tabu_search(
     same_machine_eval: str,
     critical_block_exhaustive_pct: int,
     zi_policy: str,
+    zi_formula: str,
     time_check_interval: int,
     stats: dict[str, int] | None = None,
 ) -> AwlsSchedule:
     current = initial
     current.same_machine_eval = same_machine_eval
     current.zi_policy = zi_policy
+    current.zi_formula = zi_formula
     best = initial.clone()
     tabu = SequenceTabuList(current.index.instance.machine_count)
     tenure_min, tenure_max = cpp_tabu_tenure_bounds(
@@ -1450,6 +1593,7 @@ def solve_awls_single(
     same_machine_eval: str,
     critical_block_exhaustive_pct: int = 0,
     zi_policy: str = "cpp",
+    zi_formula: str = "",
     initial_state: str = "reset",
     time_check_interval: int = 1,
     cycle_trace: list[dict[str, int | float | str]] | None = None,
@@ -1498,6 +1642,7 @@ def solve_awls_single(
                 same_machine_eval,
                 critical_block_exhaustive_pct,
                 zi_policy,
+                zi_formula,
                 time_check_interval,
                 run_stats,
             )
@@ -1550,12 +1695,17 @@ def solve_awls(
     portfolio_lanes: list[PortfolioLane] | None = None,
     critical_block_exhaustive_pct: int = 0,
     zi_policy: str = "cpp",
+    zi_formula: str = "",
     initial_state: str = "reset",
     time_check_interval: int = 1,
     cycle_trace: list[dict[str, int | float | str]] | None = None,
 ) -> tuple[list[ScheduleRecord], str]:
     if zi_policy not in ZI_POLICY_CHOICES:
         raise ValueError(f"unknown zi_policy {zi_policy!r}; expected one of {', '.join(ZI_POLICY_CHOICES)}")
+    if zi_policy == "formula":
+        zi_formula = validate_zi_formula(zi_formula)
+    else:
+        zi_formula = ""
     index = OperationIndex.from_instance(instance)
     if portfolio_lanes:
         lane_budgets = allocate_lane_budgets(portfolio_lanes, time_limit_sec)
@@ -1579,6 +1729,7 @@ def solve_awls(
                 same_machine_eval=same_machine_eval,
                 critical_block_exhaustive_pct=critical_block_exhaustive_pct,
                 zi_policy=zi_policy,
+                zi_formula=zi_formula,
                 initial_state=initial_state,
                 time_check_interval=time_check_interval,
                 cycle_trace=cycle_trace,
@@ -1602,6 +1753,7 @@ def solve_awls(
             f"outer_seed={seed}:selected={best_lane.seed}/{best_lane.init_mode}/r{best_lane.restarts}:"
             f"cycles={cycles_per_restart}:iterations={iterations}:eval={same_machine_eval}:"
             f"exhaustive_pct={critical_block_exhaustive_pct}:zi={zi_policy}:initial={initial_state}:"
+            f"formula={zi_formula or 'none'}:"
             f"time_check={time_check_interval}:makespan={best.makespan}:"
             f"{format_awls_stats(best)}:"
             f"lanes={'|'.join(lane_summaries)}"
@@ -1623,6 +1775,7 @@ def solve_awls(
         same_machine_eval=same_machine_eval,
         critical_block_exhaustive_pct=critical_block_exhaustive_pct,
         zi_policy=zi_policy,
+        zi_formula=zi_formula,
         initial_state=initial_state,
         time_check_interval=time_check_interval,
         cycle_trace=cycle_trace,
@@ -1631,6 +1784,7 @@ def solve_awls(
         f"awls:init={init_mode}:restarts={restarts}:cycles={cycles_per_restart}:"
         f"iterations={iterations}:seed={seed}:eval={same_machine_eval}:"
         f"exhaustive_pct={critical_block_exhaustive_pct}:zi={zi_policy}:initial={initial_state}:"
+        f"formula={zi_formula or 'none'}:"
         f"time_check={time_check_interval}:makespan={best.makespan}:"
         f"{format_awls_stats(best)}"
     )
@@ -1664,6 +1818,15 @@ def main() -> int:
     parser.add_argument("--gamma", type=int, default=40)
     parser.add_argument("--theta", type=int, default=5)
     parser.add_argument("--zi-policy", choices=ZI_POLICY_CHOICES, default="cpp")
+    parser.add_argument(
+        "--zi-formula",
+        default="",
+        help=(
+            "Safe arithmetic formula used when --zi-policy formula. "
+            "Variables include base, weight, cooldown, rr, gamma, is_critical, "
+            "forward, backward, duration, machine_load, and position."
+        ),
+    )
     parser.add_argument(
         "--initial-state",
         choices=("reset", "cpp"),
@@ -1732,6 +1895,7 @@ def main() -> int:
         gamma=args.gamma,
         theta=args.theta,
         zi_policy=args.zi_policy,
+        zi_formula=args.zi_formula,
         initial_state=args.initial_state,
         exact_select_top_k=args.exact_select_top_k,
         same_machine_eval=args.same_machine_eval,

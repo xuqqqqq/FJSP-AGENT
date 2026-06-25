@@ -23,6 +23,7 @@ class StandardWorkerLoopRequest:
     worker: CodingWorker
     best_known_csv: Path | None = None
     knowledge_cards: list[Path] | None = None
+    slot_manifest: Path | None = None
     project_intake_manifest: Path | None = None
     previous_pipeline_memory: Path | None = None
     max_instances: int | None = None
@@ -46,6 +47,8 @@ class StandardWorkerLoopRequest:
     awls_beta: int = 500
     awls_gamma: int = 40
     awls_theta: int = 5
+    awls_zi_policy: str = "cpp"
+    awls_zi_formula: str = ""
     awls_portfolio_lanes: str = ""
     iterations: int = 1
     max_steps: int = 4
@@ -78,6 +81,7 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
             output_path=context_path,
             docs=request.docs,
             knowledge_cards=request.knowledge_cards or [],
+            slot_manifest=request.slot_manifest,
             project_intake_manifest=request.project_intake_manifest,
             previous_pipeline_memory=request.previous_pipeline_memory,
             hypothesis=request.hypothesis,
@@ -202,6 +206,11 @@ def standard_solver_command(request: StandardWorkerLoopRequest) -> str:
             f"--gamma {max(1, request.awls_gamma)} "
             f"--theta {max(0, request.awls_theta)}"
         )
+        if request.awls_zi_policy != "cpp":
+            command += f" --zi-policy {request.awls_zi_policy}"
+            if request.awls_zi_policy == "formula" and request.awls_zi_formula:
+                escaped_formula = request.awls_zi_formula.replace('"', '\\"')
+                command += f' --zi-formula "{escaped_formula}"'
         if request.awls_portfolio_lanes:
             command += f' --portfolio-lanes "{request.awls_portfolio_lanes}"'
         return command
@@ -224,6 +233,7 @@ def standard_worker_manifest(
             "instance_dir": str(request.instance_dir),
             "pattern": request.pattern,
             "best_known_csv": str(request.best_known_csv) if request.best_known_csv else None,
+            "slot_manifest": str(request.slot_manifest) if request.slot_manifest else None,
             "project_intake_manifest": str(request.project_intake_manifest) if request.project_intake_manifest else None,
             "previous_pipeline_memory": str(request.previous_pipeline_memory) if request.previous_pipeline_memory else None,
             "seeds": request.seeds or [0],

@@ -17,7 +17,9 @@ from urllib.parse import parse_qs, urlparse
 from .awls_zi_evolution import AwlsZiEvolutionRequest, run_awls_zi_evolution
 from .deepseek_client import is_deepseek_configured, load_local_env, normalize_deepseek_model
 from .demo import StandardDemoRequest, run_standard_demo
+from .slot_manifest import write_default_slot_manifest
 from .standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop
+from .workers.deepseek_slot_worker import DeepSeekSlotWorker
 from .workers.deepseek_worker import DeepSeekWorker
 
 
@@ -188,8 +190,10 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
     if solver not in {"portfolio", "local-search", "awls"}:
         solver = "portfolio"
     evolution_mode = str(payload.get("evolution_mode") or "strategy")
-    if evolution_mode not in {"strategy", "code"}:
+    if evolution_mode not in {"strategy", "code", "slot"}:
         evolution_mode = "strategy"
+    if evolution_mode == "slot":
+        solver = "awls"
     profile_mode = str(payload.get("profile_mode") or "template")
     if profile_mode not in {"template", "auto", "deepseek"}:
         profile_mode = "template"
@@ -350,11 +354,12 @@ def run_job(job_id: str) -> None:
                 "zi_evolution_report": raw_artifacts.get("report"),
             }
             artifacts = {key: value for key, value in artifacts.items() if value}
-        elif config["evolution_mode"] == "code":
+        elif config["evolution_mode"] in {"code", "slot"}:
             if not is_deepseek_configured():
                 raise RuntimeError(
                     "DeepSeek API is not configured. Set DEEPSEEK_API_KEY or DEEPSEEK_API_KEY_FILE before code evolution."
                 )
+            is_slot_mode = config["evolution_mode"] == "slot"
             worker_loop_root = output_dir / "standard_worker_loop" / "worker_loop"
             progress_stop = threading.Event()
             progress_thread = threading.Thread(
@@ -364,6 +369,19 @@ def run_job(job_id: str) -> None:
             )
             progress_thread.start()
             try:
+                slot_manifest_path = None
+                if is_slot_mode:
+                    slot_manifest_path = output_dir / "standard_worker_loop" / "slot_manifest.json"
+                    write_default_slot_manifest(
+                        problem_family="standard_fjsp",
+                        output=slot_manifest_path,
+                        confirmed=True,
+                    )
+                    append_event(
+                        job,
+                        "已生成已确认的 AWLS zi 代码槽契约，DeepSeek 只能修改该槽内实现。",
+                    )
+                    write_job_status(job)
                 manifest = run_standard_worker_loop(
                     StandardWorkerLoopRequest(
                         docs=[Path(input_paths["requirement"]), Path(input_paths["io"])],
@@ -372,13 +390,18 @@ def run_job(job_id: str) -> None:
                         best_known_csv=Path(input_paths["best_known_csv"]) if input_paths.get("best_known_csv") else None,
                         output_dir=output_dir / "standard_worker_loop",
                         project_root=PROJECT_ROOT,
-                        worker=DeepSeekWorker(model=config["deepseek_model"]),
+                        worker=(
+                            DeepSeekSlotWorker(model=config["deepseek_model"])
+                            if is_slot_mode
+                            else DeepSeekWorker(model=config["deepseek_model"])
+                        ),
+                        slot_manifest=slot_manifest_path,
                         max_instances=1,
                         iterations=config["max_rounds"],
                         seeds=config["seeds"],
                         timeout_seconds=config["timeout_seconds"],
                         max_workers=config["max_workers"],
-                        solver=config["solver"],
+                        solver="awls" if is_slot_mode else config["solver"],
                         portfolio_size=config["portfolio_size"],
                         local_search_iterations=config["local_search_iterations"],
                         local_search_neighbor_limit=config["local_search_neighbor_limit"],
@@ -393,15 +416,22 @@ def run_job(job_id: str) -> None:
                         awls_beta=config["awls_beta"],
                         awls_gamma=config["awls_gamma"],
                         awls_theta=config["awls_theta"],
+                        awls_zi_policy="slot" if is_slot_mode else "cpp",
                         awls_portfolio_lanes=config["awls_portfolio_lanes"],
                         max_steps=config["worker_max_steps"],
                         max_runtime_seconds=config["worker_max_runtime_seconds"],
                         apply_worker_changes=config["apply_worker_changes"],
-                        experiment_id="web_deepseek_code_loop",
+                        experiment_id="web_deepseek_slot_loop" if is_slot_mode else "web_deepseek_code_loop",
                         hypothesis=(
-                            "Read the requirement and IO documents first. Propose the rule-level scheduling idea in natural "
-                            "language, then edit only allowed solver code. Preserve evaluator correctness; do not claim "
+                            "Read the requirement and IO documents first. Propose a natural-language AWLS zi policy idea, "
+                            "then modify only the EVOLVE-marked zi code slot. Preserve evaluator correctness; do not claim "
                             "success without measured improvement."
+                            if is_slot_mode
+                            else (
+                                "Read the requirement and IO documents first. Propose the rule-level scheduling idea in natural "
+                                "language, then edit only allowed solver code. Preserve evaluator correctness; do not claim "
+                                "success without measured improvement."
+                            )
                         ),
                     )
                 )
@@ -422,6 +452,8 @@ def run_job(job_id: str) -> None:
                 },
             }
             artifacts = manifest.get("artifacts", {})
+            if is_slot_mode and slot_manifest_path:
+                artifacts = {**artifacts, "slot_manifest": str(slot_manifest_path.resolve())}
         else:
             manifest = run_standard_demo(
                 StandardDemoRequest(
@@ -520,7 +552,12 @@ def summarize_round_artifacts(output_dir: Path) -> dict[str, Any]:
 def summarize_worker_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     baseline_key = list(manifest.get("baseline_key") or [])
     final_key = list(manifest.get("final_key") or [])
+    baseline_summary = manifest.get("baseline_summary") or {}
+    rounds = manifest.get("rounds") or []
     round_dirs = [str(Path(item.get("cycle_dir", "")).resolve()) for item in manifest.get("rounds", []) if item.get("cycle_dir")]
+    decision_counts = status_counts([str(item.get("decision") or "unknown") for item in rounds])
+    worker_status_counts = status_counts([str(item.get("worker_status") or "unknown") for item in rounds])
+    rejected_before_eval = sum(1 for item in rounds if list(item.get("candidate_key") or []) and all(value == float("-inf") for value in item.get("candidate_key") or []))
     return {
         "round_count": int(manifest.get("round_count", 0) or 0),
         "completed_round_count": int(manifest.get("round_count", 0) or 0),
@@ -530,8 +567,21 @@ def summarize_worker_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         "final_key": final_key,
         "baseline_makespan": objective_key_to_makespan(baseline_key),
         "final_makespan": objective_key_to_makespan(final_key),
+        "baseline_total": int(baseline_summary.get("total", 0) or 0),
+        "baseline_valid": int(baseline_summary.get("valid", 0) or 0),
+        "baseline_failed": int(baseline_summary.get("failed", 0) or 0),
+        "decision_counts": decision_counts,
+        "worker_status_counts": worker_status_counts,
+        "rejected_before_eval": rejected_before_eval,
         "round_dirs": round_dirs,
     }
+
+
+def status_counts(values: list[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        counts[value] = counts.get(value, 0) + 1
+    return counts
 
 
 def summarize_zi_manifest(manifest: dict[str, Any]) -> dict[str, Any]:

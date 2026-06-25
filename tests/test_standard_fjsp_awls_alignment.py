@@ -25,6 +25,7 @@ from examples.standard_fjsp_awls_solver import (
     cpp_tabu_tenure_bounds,
     machine_scan_critical_blocks,
     solve_awls,
+    validate_zi_formula,
 )
 from harness_agent.standard_fjsp import (
     Job,
@@ -264,6 +265,43 @@ class StandardFjspAwlsAlignmentTests(unittest.TestCase):
         self.assertEqual([], errors)
         self.assertEqual(float(instance.operation_count), metrics["scheduled_operations"])
         self.assertIn("awls:init=greedy", label)
+
+    def test_awls_formula_zi_policy_returns_valid_schedule(self) -> None:
+        instance = make_instance(
+            [
+                [[(0, 3), (1, 4)], [(0, 2), (1, 3)]],
+                [[(0, 2), (1, 5)], [(0, 4), (1, 1)]],
+                [[(0, 4), (1, 2)], [(0, 3), (1, 2)]],
+            ]
+        )
+
+        schedule, label = solve_awls(
+            instance,
+            seed=7,
+            restarts=1,
+            cycles_per_restart=1,
+            iterations=40,
+            time_limit_sec=1.0,
+            init_mode="greedy",
+            beta=500,
+            gamma=40,
+            theta=5,
+            exact_select_top_k=0,
+            same_machine_eval="cpp-fast",
+            critical_block_exhaustive_pct=0,
+            zi_policy="formula",
+            zi_formula="base * (1 + 0.25 * is_critical)",
+            initial_state="reset",
+        )
+
+        errors, metrics = validate_standard_schedule(instance, schedule)
+        self.assertEqual([], errors)
+        self.assertEqual(float(instance.operation_count), metrics["scheduled_operations"])
+        self.assertIn("zi=formula", label)
+
+    def test_zi_formula_rejects_unsafe_expression(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unsupported|unknown|whitelisted"):
+            validate_zi_formula("__import__('os').system('echo unsafe')")
 
     def test_incremental_machine_link_rebuild_matches_full_rebuild_after_moves(self) -> None:
         instance = make_instance(

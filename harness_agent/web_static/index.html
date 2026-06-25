@@ -14,7 +14,7 @@
           <h1>从需求文档到可验证算法迭代</h1>
           <p class="hero-copy">
             上传需求、IO 协议和 FJSP 算例，系统会生成任务卡、策略候选、调度实验与反思报告。
-            策略层让 DeepSeek 生成可执行策略 Profile；代码层让 DeepSeek CodingWorker 修改候选 worktree。
+            策略层让 DeepSeek 生成可执行策略 Profile；代码槽让 DeepSeek 只修改 EVOLVE 标记内的候选算子。
             两种模式都只接受标准 FJSP evaluator 的裁判结果。
           </p>
         </div>
@@ -94,7 +94,8 @@
                 <span>演进层级</span>
                 <select id="evolution-mode">
                   <option value="strategy">策略层：DeepSeek 生成 Profile，不改源码</option>
-                  <option value="code">代码层：DeepSeek CodingWorker 改候选代码</option>
+                  <option value="slot">代码槽：DeepSeek 只改 EVOLVE 标记函数</option>
+                  <option value="code">自由代码层：DeepSeek CodingWorker 改候选代码</option>
                 </select>
               </label>
               <label class="field compact">
@@ -222,7 +223,7 @@
                 <strong id="metric-rounds">-</strong>
               </div>
               <div class="metric">
-                <span>Last-round valid</span>
+                <span>Validity / promotion</span>
                 <strong id="metric-valid">-</strong>
               </div>
               <div class="metric">

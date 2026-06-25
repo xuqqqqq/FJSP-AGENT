@@ -41,13 +41,20 @@ def extract_json_object(text: str) -> dict[str, Any]:
     if stripped.startswith("```"):
         stripped = re.sub(r"^```(?:json)?", "", stripped, flags=re.IGNORECASE).strip()
         stripped = re.sub(r"```$", "", stripped).strip()
+    decoder = json.JSONDecoder()
     try:
-        return json.loads(stripped)
+        parsed, _ = decoder.raw_decode(stripped)
+        if isinstance(parsed, dict):
+            return parsed
+        raise json.JSONDecodeError("top-level JSON value must be an object", stripped, 0)
     except json.JSONDecodeError:
-        start = stripped.find("{")
-        end = stripped.rfind("}")
-        if start >= 0 and end > start:
-            return json.loads(stripped[start : end + 1])
+        for match in re.finditer(r"\{", stripped):
+            try:
+                parsed, _ = decoder.raw_decode(stripped[match.start() :])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
         raise
 
 
@@ -114,6 +121,8 @@ class DeepSeekWorker(CodingWorker):
                 worktree_path=Path(spec.worktree_path),
                 context=context,
             )
+            proposal_path.write_text(json.dumps(proposal, ensure_ascii=False, indent=2), encoding="utf-8")
+            markdown_path.write_text(render_code_edit_markdown(proposal), encoding="utf-8")
             applied_path = output_dir / "applied_files.json"
             applied_path.write_text(json.dumps(changed_files, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -337,6 +346,20 @@ Return JSON only with this schema:
       "action": "create_or_replace",
       "content": "full file content",
       "rationale": "why this change helps"
+    }},
+    {{
+      "path": "relative/path.py",
+      "action": "text_replace",
+      "old": "exact existing text snippet",
+      "new": "replacement text snippet",
+      "rationale": "why this local patch helps"
+    }},
+    {{
+      "path": "relative/path.py",
+      "action": "insert_after",
+      "anchor": "exact existing anchor text",
+      "content": "text inserted immediately after anchor",
+      "rationale": "why this insertion helps"
     }}
   ],
   "context_usage": {{
@@ -352,7 +375,10 @@ Rules:
 - Maximum internal reasoning/edit steps requested by Core: {max_steps}.
 - Only propose edits under edit_policy.allowed_paths.
 - Never propose edits under edit_policy.forbidden_paths or .git/outputs.
-- Prefer one small, complete file over many partial edits.
+- Prefer `text_replace` or `insert_after` for existing solver files. Use
+  `create_or_replace` only for a new small helper file or when the full file
+  content is short and complete. Do not rewrite a large solver file just to add
+  a small operator.
 - Preserve existing parser, validator, evaluator, and benchmark semantics unless
   the task contract explicitly asks to implement those surfaces.  For standard
   FJSP runs, prefer importing the existing parser/evaluator helpers instead of
@@ -398,7 +424,9 @@ Context packet:
                         "Repair only the JSON structure. Preserve the proposed strategy and code content as much as possible, "
                         "but if full file content is truncated or impossible to repair, return an empty changes list and explain the risk. "
                         "Use exactly these top-level keys: summary, strategy_intent, rule_operator_hypotheses, changes, context_usage, quick_test_plan, risk_notes. "
-                        "Each change must use path, action, content, rationale. Return JSON only.\n\n"
+                        "Each change must use one supported action: "
+                        "create_or_replace(path, content), text_replace(path, old, new), "
+                        "or insert_after(path, anchor, content). Return JSON only.\n\n"
                         f"JSON error: {error}\n\n"
                         f"Invalid response:\n{raw[:9000]}"
                     ),
@@ -416,23 +444,71 @@ Context packet:
             if not isinstance(item, dict):
                 continue
             path = str(item.get("path", "")).strip()
-            action = str(item.get("action", "create_or_replace")).strip()
-            content = item.get("content")
-            if action != "create_or_replace" or not isinstance(content, str):
-                rejected_changes.append({"path": path, "reason": "unsupported action or missing content"})
-                continue
             allowed, reason = is_path_allowed(path, context)
             if not allowed:
                 rejected_changes.append({"path": path, "reason": reason})
                 continue
-            normalized_changes.append(
-                {
-                    "path": normalize_relative_path(path),
-                    "action": "create_or_replace",
-                    "content": content,
-                    "rationale": str(item.get("rationale", ""))[:2000],
-                }
-            )
+            action = str(item.get("action", "create_or_replace")).strip()
+            normalized_path = normalize_relative_path(path)
+            if action == "create_or_replace":
+                content = item.get("content")
+                if not isinstance(content, str):
+                    rejected_changes.append({"path": path, "reason": "create_or_replace requires string content"})
+                    continue
+                normalized_changes.append(
+                    {
+                        "path": normalized_path,
+                        "action": "create_or_replace",
+                        "content": content,
+                        "rationale": str(item.get("rationale", ""))[:2000],
+                    }
+                )
+            elif action == "text_replace":
+                old = item.get("old")
+                new = item.get("new")
+                if not isinstance(old, str) or not old:
+                    rejected_changes.append({"path": path, "reason": "text_replace requires non-empty old text"})
+                    continue
+                if not isinstance(new, str):
+                    rejected_changes.append({"path": path, "reason": "text_replace requires string new text"})
+                    continue
+                normalized_changes.append(
+                    {
+                        "path": normalized_path,
+                        "action": "text_replace",
+                        "old": old,
+                        "new": new,
+                        "rationale": str(item.get("rationale", ""))[:2000],
+                    }
+                )
+            elif action == "insert_after":
+                anchor = item.get("anchor")
+                content = item.get("content")
+                if not isinstance(anchor, str) or not anchor:
+                    rejected_changes.append({"path": path, "reason": "insert_after requires non-empty anchor text"})
+                    continue
+                if not isinstance(content, str) or not content:
+                    rejected_changes.append({"path": path, "reason": "insert_after requires non-empty content"})
+                    continue
+                normalized_changes.append(
+                    {
+                        "path": normalized_path,
+                        "action": "insert_after",
+                        "anchor": anchor,
+                        "content": content,
+                        "rationale": str(item.get("rationale", ""))[:2000],
+                    }
+                )
+            else:
+                rejected_changes.append({"path": path, "reason": f"unsupported action: {action}"})
+                continue
+        risk_notes_raw = proposal.get("risk_notes", [])
+        if isinstance(risk_notes_raw, str):
+            risk_notes = [risk_notes_raw[:1000]]
+        elif isinstance(risk_notes_raw, list):
+            risk_notes = [str(item)[:1000] for item in risk_notes_raw if isinstance(item, str)]
+        else:
+            risk_notes = []
         normalized = {
             "summary": str(proposal.get("summary", ""))[:4000],
             "strategy_intent": str(proposal.get("strategy_intent", ""))[:4000],
@@ -443,7 +519,7 @@ Context packet:
             "rejected_changes": rejected_changes,
             "context_usage": normalize_context_usage(proposal.get("context_usage")),
             "quick_test_plan": str(proposal.get("quick_test_plan", ""))[:2000],
-            "risk_notes": [str(item)[:1000] for item in proposal.get("risk_notes", []) if isinstance(item, str)],
+            "risk_notes": risk_notes,
         }
         normalized["proposal_audit"] = build_proposal_audit(normalized, context)
         return normalized
@@ -795,7 +871,33 @@ def apply_code_edit_proposal(
         if not _resolved_is_under(target, worktree_root):
             raise ValueError(f"refusing to write outside worktree: {relative_path}")
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(str(change.get("content", "")), encoding="utf-8")
+        action = str(change.get("action", "create_or_replace"))
+        if action == "create_or_replace":
+            target.write_text(str(change.get("content", "")), encoding="utf-8")
+        elif action == "text_replace":
+            if not target.exists():
+                proposal.setdefault("apply_rejections", []).append({"path": relative_path, "reason": "target file does not exist"})
+                continue
+            text = target.read_text(encoding="utf-8")
+            old = str(change.get("old", ""))
+            if old not in text:
+                proposal.setdefault("apply_rejections", []).append({"path": relative_path, "reason": "old text not found"})
+                continue
+            target.write_text(text.replace(old, str(change.get("new", "")), 1), encoding="utf-8")
+        elif action == "insert_after":
+            if not target.exists():
+                proposal.setdefault("apply_rejections", []).append({"path": relative_path, "reason": "target file does not exist"})
+                continue
+            text = target.read_text(encoding="utf-8")
+            anchor = str(change.get("anchor", ""))
+            if anchor not in text:
+                proposal.setdefault("apply_rejections", []).append({"path": relative_path, "reason": "anchor text not found"})
+                continue
+            insert_text = str(change.get("content", ""))
+            target.write_text(text.replace(anchor, anchor + insert_text, 1), encoding="utf-8")
+        else:
+            proposal.setdefault("apply_rejections", []).append({"path": relative_path, "reason": f"unsupported action: {action}"})
+            continue
         changed_files.append(relative_path)
     return changed_files
 
@@ -878,6 +980,11 @@ def render_code_edit_markdown(proposal: dict[str, Any]) -> str:
     if rejected:
         lines.extend(["", "## Rejected Changes", ""])
         for item in rejected:
+            lines.append(f"- `{item.get('path')}`: {item.get('reason')}")
+    apply_rejections = proposal.get("apply_rejections", [])
+    if apply_rejections:
+        lines.extend(["", "## Apply Rejections", ""])
+        for item in apply_rejections:
             lines.append(f"- `{item.get('path')}`: {item.get('reason')}")
     risk_notes = proposal.get("risk_notes", [])
     if risk_notes:

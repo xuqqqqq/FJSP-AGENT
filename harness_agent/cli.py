@@ -26,7 +26,9 @@ from .intent_alignment import IntentAlignmentRequest, write_intent_alignment
 from .loop_runner import run_worker_loop
 from .models import TaskContract
 from .project_intake import ProjectIntakeRequest, write_project_intake
+from .problem_families import write_problem_family_card
 from .runner import HarnessRunner
+from .slot_manifest import write_default_slot_manifest
 from .standard_agent import StandardFjspAgentRunner
 from .standard_pipeline import (
     StandardPipelineAblationRequest,
@@ -110,7 +112,17 @@ def build_parser() -> argparse.ArgumentParser:
     context.add_argument("--previous-report", type=Path)
     context.add_argument("--previous-memory", type=Path, help="previous standard_pipeline_memory.json handoff")
     context.add_argument("--project-intake-manifest", type=Path)
+    context.add_argument("--slot-manifest", type=Path)
     context.add_argument("--max-chars-per-source", type=int, default=12000)
+
+    problem_family = subparsers.add_parser("problem-family-card", help="write a problem-family capability card")
+    problem_family.add_argument("--problem-family", default="standard_fjsp")
+    problem_family.add_argument("--output", required=True, type=Path)
+
+    slot_manifest = subparsers.add_parser("build-slot-manifest", help="write a draft slot manifest for a problem family")
+    slot_manifest.add_argument("--problem-family", default="standard_fjsp")
+    slot_manifest.add_argument("--output", required=True, type=Path)
+    slot_manifest.add_argument("--confirmed", action="store_true", help="mark default slots as already user-confirmed")
 
     run_worker = subparsers.add_parser("run-worker", help="run a coding worker against a context packet")
     run_worker.add_argument("--worker", choices=["null", "deepseek", "opencode"], default="null")
@@ -360,6 +372,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Adaptive zi perturbation policy used by the AWLS move evaluator.",
     )
     awls_benchmark.add_argument(
+        "--awls-zi-formula",
+        default="",
+        help="Safe arithmetic zi formula used only when --awls-zi-policy formula.",
+    )
+    awls_benchmark.add_argument(
         "--awls-initial-state",
         choices=("reset", "cpp"),
         default="reset",
@@ -423,6 +440,7 @@ def build_parser() -> argparse.ArgumentParser:
     standard_worker = subparsers.add_parser("run-standard-worker-loop", help="run a standard FJSP coding-worker evolution loop")
     standard_worker.add_argument("--doc", action="append", type=Path, default=[])
     standard_worker.add_argument("--knowledge-card", action="append", type=Path, default=[])
+    standard_worker.add_argument("--slot-manifest", type=Path, help="confirmed code-slot manifest for slot-guided edits")
     standard_worker.add_argument("--instance-dir", required=True, type=Path)
     standard_worker.add_argument("--pattern", default="*.txt")
     standard_worker.add_argument("--best-known-csv", type=Path)
@@ -608,6 +626,7 @@ def build_context_packet_cmd(args: argparse.Namespace) -> int:
         previous_report=args.previous_report,
         previous_pipeline_memory=args.previous_memory,
         project_intake_manifest=args.project_intake_manifest,
+        slot_manifest=args.slot_manifest,
         max_chars_per_source=max(1000, args.max_chars_per_source),
     )
     output = write_context_packet(request)
@@ -622,8 +641,51 @@ def build_context_packet_cmd(args: argparse.Namespace) -> int:
                 "documents": len(payload["documents"]),
                 "knowledge_cards": len(payload["knowledge_cards"]),
                 "project_intake": bool(payload.get("project_intake")),
+                "slot_manifest": bool(payload.get("slot_manifest")),
                 "previous_pipeline_memory": bool(payload.get("previous_pipeline_memory")),
                 "packet_hash": payload["packet_hash"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def problem_family_card_cmd(args: argparse.Namespace) -> int:
+    output = write_problem_family_card(family_id=args.problem_family, output=args.output)
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    print(
+        json.dumps(
+            {
+                "status": "problem_family_card_created",
+                "output": str(output.resolve()),
+                "family_id": payload["family_id"],
+                "supported_variants": payload["supported_variants"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def build_slot_manifest_cmd(args: argparse.Namespace) -> int:
+    output = write_default_slot_manifest(
+        problem_family=args.problem_family,
+        output=args.output,
+        confirmed=bool(args.confirmed),
+    )
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    print(
+        json.dumps(
+            {
+                "status": "slot_manifest_created",
+                "output": str(output.resolve()),
+                "problem_family": payload["problem_family"],
+                "manifest_status": payload["status"],
+                "slot_count": len(payload["slots"]),
+                "confirmation_required": payload["confirmation_required"],
             },
             ensure_ascii=False,
             indent=2,
@@ -1172,6 +1234,7 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
             project_root=args.project_root,
             worker=worker,
             best_known_csv=args.best_known_csv,
+            slot_manifest=args.slot_manifest,
             previous_pipeline_memory=args.previous_memory,
             max_instances=args.max_instances,
             seeds=seeds or [0],
@@ -1213,6 +1276,7 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
                 "improved": manifest["improved"],
                 "round_count": manifest["round_count"],
                 "promoted_rounds": manifest["promoted_rounds"],
+                "slot_manifest": manifest["request"].get("slot_manifest"),
                 "manifest": manifest["artifacts"]["manifest"],
                 "report": manifest["artifacts"]["report"],
                 "loop_report": manifest["artifacts"]["loop_report"],
@@ -1402,6 +1466,7 @@ def run_awls_benchmark_cmd(args: argparse.Namespace) -> int:
             gamma=args.awls_gamma,
             theta=args.awls_theta,
             zi_policy=args.awls_zi_policy,
+            zi_formula=args.awls_zi_formula,
             initial_state=args.awls_initial_state,
             time_check_interval=args.awls_time_check_interval,
             portfolio_lanes=args.awls_portfolio_lanes,
@@ -1634,6 +1699,10 @@ def main(argv: list[str] | None = None) -> int:
         return confirm_contract(args)
     if args.command == "build-context-packet":
         return build_context_packet_cmd(args)
+    if args.command == "problem-family-card":
+        return problem_family_card_cmd(args)
+    if args.command == "build-slot-manifest":
+        return build_slot_manifest_cmd(args)
     if args.command == "run-worker":
         return run_worker_cmd(args)
     if args.command == "run-worker-cycle":

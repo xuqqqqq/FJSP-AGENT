@@ -7,7 +7,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .knowledge_registry import auto_knowledge_cards
 from .models import TaskContract
+from .problem_families import get_problem_family
+from .slot_manifest import load_slot_manifest
 
 
 SECTION_ROLE_PRIORITY = {
@@ -31,6 +34,7 @@ class ContextPacketRequest:
     previous_report: Path | None = None
     previous_pipeline_memory: Path | None = None
     project_intake_manifest: Path | None = None
+    slot_manifest: Path | None = None
     max_chars_per_source: int = 12000
 
 
@@ -38,7 +42,6 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
     contract = TaskContract.load(request.contract_path)
     contract_raw = json.loads(request.contract_path.read_text(encoding="utf-8-sig"))
     docs = [_source_payload(path, request.max_chars_per_source) for path in request.docs]
-    knowledge_cards = [_source_payload(path, request.max_chars_per_source) for path in request.knowledge_cards]
     previous_report = (
         _source_payload(request.previous_report, request.max_chars_per_source)
         if request.previous_report
@@ -54,6 +57,15 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         if request.project_intake_manifest
         else None
     )
+    slot_manifest = _slot_manifest_payload(request.slot_manifest) if request.slot_manifest else None
+    problem_family_capability = get_problem_family(contract.problem_family).to_payload()
+    auto_cards = auto_knowledge_cards(
+        problem_family=contract.problem_family,
+        problem_family_tags=problem_family_capability.get("knowledge_tags") or [],
+        slot_manifest=slot_manifest,
+    )
+    knowledge_card_paths = _unique_paths([*request.knowledge_cards, *auto_cards])
+    knowledge_cards = [_source_payload(path, request.max_chars_per_source) for path in knowledge_card_paths]
     contract_review_evidence = _contract_review_payload(contract.review)
     required_order = [
         "Read this context packet.",
@@ -68,6 +80,8 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         required_order.insert(2, "Start document grounding from contract_review_evidence.role_prioritized_sections.")
     if project_intake:
         required_order.insert(1, "Review project_intake before proposing code changes.")
+    if slot_manifest:
+        required_order.insert(1, "Review slot_manifest and edit only user-confirmed selected slots.")
     if previous_pipeline_memory:
         required_order.insert(1, "Review previous_pipeline_memory before proposing the next loop change.")
         if previous_pipeline_memory.get("operator_guidance"):
@@ -105,6 +119,7 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
                 "max_workers": contract.budget.max_workers,
             },
         },
+        "problem_family_capability": problem_family_capability,
         "evaluator_protocol": {
             "solver_command_template": contract.commands.solver,
             "evaluator_command_template": contract.commands.evaluator,
@@ -128,8 +143,10 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         "hypothesis": request.hypothesis,
         "contract_review_evidence": contract_review_evidence,
         "project_intake": project_intake,
+        "slot_manifest": slot_manifest,
         "documents": docs,
         "knowledge_cards": knowledge_cards,
+        "auto_knowledge_cards": [str(path) for path in auto_cards],
         "previous_report": previous_report,
         "previous_pipeline_memory": previous_pipeline_memory,
     }
@@ -234,6 +251,61 @@ def _project_intake_payload(path: Path, max_chars: int) -> dict[str, Any]:
         "summary": _compact_project_intake(manifest),
         "report": report,
     }
+
+
+def _slot_manifest_payload(path: Path) -> dict[str, Any]:
+    try:
+        manifest = load_slot_manifest(path)
+        exists = True
+        error = None
+    except (OSError, json.JSONDecodeError) as exc:
+        manifest = {}
+        exists = False
+        error = str(exc)
+    slots = manifest.get("slots") if isinstance(manifest, dict) else []
+    if not isinstance(slots, list):
+        slots = []
+    selected_slots = [
+        {
+            "slot_id": str(item.get("slot_id", "")),
+            "title": str(item.get("title", "")),
+            "target_file": str(item.get("target_file", "")),
+            "marker_start": str(item.get("marker_start", "")),
+            "marker_end": str(item.get("marker_end", "")),
+            "purpose": str(item.get("purpose", "")),
+            "inputs": item.get("inputs", []),
+            "outputs": item.get("outputs", []),
+            "invariants": item.get("invariants", []),
+            "allowed_edits": item.get("allowed_edits", []),
+            "forbidden_edits": item.get("forbidden_edits", []),
+            "validation_commands": item.get("validation_commands", []),
+            "knowledge_tags": item.get("knowledge_tags", []),
+            "user_confirmed": bool(item.get("user_confirmed", False)),
+        }
+        for item in slots
+        if isinstance(item, dict)
+    ]
+    return {
+        "path": str(path),
+        "exists": exists,
+        "status": manifest.get("status") if isinstance(manifest, dict) else None,
+        "problem_family": manifest.get("problem_family") if isinstance(manifest, dict) else None,
+        "confirmation_required": bool(manifest.get("confirmation_required", True)) if isinstance(manifest, dict) else True,
+        "slots": selected_slots,
+        "error": error,
+    }
+
+
+def _unique_paths(paths: list[Path]) -> list[Path]:
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for path in paths:
+        key = str(path.resolve()) if path.exists() else str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(path)
+    return unique
 
 
 def _pipeline_memory_payload(path: Path) -> dict[str, Any]:
