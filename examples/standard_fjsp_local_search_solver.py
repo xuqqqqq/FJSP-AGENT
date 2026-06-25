@@ -731,13 +731,15 @@ def generate_structured_neighbors(
                 break
 
     if len(moves) <= neighbor_limit:
-        return moves
-    priority_count = min(len(moves), max(1, neighbor_limit // 3))
-    priority = moves[:priority_count]
-    remainder = moves[priority_count:]
-    rng.shuffle(remainder)
-    return (priority + remainder[: neighbor_limit - priority_count])[:neighbor_limit]
+        selected_moves = moves
+    else:
+        priority_count = min(len(moves), max(1, neighbor_limit // 3))
+        priority = moves[:priority_count]
+        remainder = moves[priority_count:]
+        rng.shuffle(remainder)
+        selected_moves = (priority + remainder[: neighbor_limit - priority_count])[:neighbor_limit]
     # SLOT neighborhood_actions END
+    return selected_moves
 
 
 def generate_hgtsa_lite_neighbors(

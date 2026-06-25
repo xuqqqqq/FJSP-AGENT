@@ -384,6 +384,70 @@ h3 {
   margin: 12px 0 0;
 }
 
+.slot-detail {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.slot-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.slot-detail-header span,
+.slot-detail h4 {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.slot-detail-header strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 15px;
+}
+
+.slot-detail p {
+  margin: 0 0 12px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.slot-io-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.slot-detail h4 {
+  margin: 0 0 6px;
+  letter-spacing: 0;
+}
+
+.slot-detail ul {
+  display: grid;
+  gap: 5px;
+  margin: 0 0 12px;
+  padding-left: 18px;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.slot-preview {
+  min-height: 120px;
+  max-height: 240px;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
 .status-pill.confirmed {
   color: #fff;
   border-color: var(--teal);
@@ -700,7 +764,8 @@ pre {
   .metric-grid,
   .config-grid,
   .contract-strip,
-  .slot-card-grid {
+  .slot-card-grid,
+  .slot-io-grid {
     grid-template-columns: 1fr;
   }
 

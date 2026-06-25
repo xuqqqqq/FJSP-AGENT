@@ -178,16 +178,19 @@ function renderSlotCards(slots) {
     const card = document.createElement("button");
     card.type = "button";
     card.className = `slot-card ${slot.slot_id === selectedId ? "active" : ""}`;
-    const workerStatus = slot.slot_id === "awls_zi_policy" ? "可执行" : "规划中";
+    const workerStatus = slot.advisor?.worker_support === "available" ? "可执行" : "规划中";
+    const lineRange =
+      slot.line_start && slot.line_end ? `${slot.target_file}:${slot.line_start}-${slot.line_end}` : slot.target_file;
     card.innerHTML = `
       <span>${escapeHtml(slot.slot_id)} · ${escapeHtml(workerStatus)}</span>
       <strong>${escapeHtml(slot.title || slot.slot_id)}</strong>
       <small>${escapeHtml(slot.purpose || "")}</small>
-      <em>${escapeHtml(slot.target_file || "")}</em>
+      <em>${escapeHtml(lineRange || "")}</em>
     `;
     card.addEventListener("click", () => selectSlot(slot.slot_id));
     container.appendChild(card);
   }
+  renderSelectedSlotDetail();
   updateSlotConfirmationState();
 }
 
@@ -198,6 +201,50 @@ function selectSlot(slotId) {
   updateContractSummary();
   const slot = selectedSlot();
   appendChatMessage("assistant", `已选择代码槽：${slot?.title || slotId}。启动代码槽演进前还需要确认 IO 和 evaluator 不变。`);
+}
+
+function renderSelectedSlotDetail() {
+  const detail = $("slot-detail");
+  if (!detail) return;
+  const slot = selectedSlot();
+  if (!slot) {
+    detail.textContent = "正在读取代码槽契约。";
+    return;
+  }
+  const advisor = slot.advisor || {};
+  const ioSummary = [
+    ["Inputs", slot.inputs || []],
+    ["Outputs", slot.outputs || []],
+    ["Invariants", slot.invariants || []],
+  ]
+    .map(([label, values]) => `<section><h4>${label}</h4><ul>${listItems(values)}</ul></section>`)
+    .join("");
+  const validation = listItems(slot.validation_commands || []);
+  const preview = String(slot.original_content || "").slice(0, 1800);
+  detail.innerHTML = `
+    <div class="slot-detail-header">
+      <div>
+        <span>${escapeHtml(slot.slot_kind || "marked_block")} · ${escapeHtml(slot.language || "plaintext")}</span>
+        <strong>${escapeHtml(slot.title || slot.slot_id)}</strong>
+      </div>
+      <span class="status-pill ${advisor.worker_support === "available" ? "confirmed" : "unconfirmed"}">
+        ${escapeHtml(advisor.worker_support || "unknown")}
+      </span>
+    </div>
+    <p>${escapeHtml(advisor.feasibility_reason || "")}</p>
+    <div class="slot-io-grid">${ioSummary}</div>
+    <section>
+      <h4>Validation</h4>
+      <ul>${validation}</ul>
+    </section>
+    <pre class="slot-preview">${escapeHtml(preview || "源码块暂不可读。")}</pre>
+  `;
+}
+
+function listItems(values) {
+  const items = Array.isArray(values) ? values : [];
+  if (!items.length) return "<li>-</li>";
+  return items.map((value) => `<li>${escapeHtml(value)}</li>`).join("");
 }
 
 async function submitJob(event) {

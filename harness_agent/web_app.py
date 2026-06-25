@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlparse
 from .awls_zi_evolution import AwlsZiEvolutionRequest, run_awls_zi_evolution
 from .deepseek_client import is_deepseek_configured, load_local_env, normalize_deepseek_model
 from .demo import StandardDemoRequest, run_standard_demo
+from .slot_contract import ResolvedCodeSlot
 from .slot_manifest import default_standard_fjsp_slot_manifest, write_selected_slot_manifest
 from .standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop
 from .workers.deepseek_slot_worker import DeepSeekSlotWorker
@@ -142,7 +143,76 @@ def make_demo_examples() -> dict[str, Any]:
 
 
 def slot_manifest_catalog_payload() -> dict[str, Any]:
-    return default_standard_fjsp_slot_manifest(confirmed=False).to_payload()
+    payload = default_standard_fjsp_slot_manifest(confirmed=False).to_payload()
+    enriched_slots: list[dict[str, Any]] = []
+    for slot in payload["slots"]:
+        enriched_slots.append(enrich_slot_payload(slot))
+    payload["slots"] = enriched_slots
+    return payload
+
+
+def enrich_slot_payload(slot: dict[str, Any]) -> dict[str, Any]:
+    target_file = str(slot.get("target_file") or "")
+    source_path = PROJECT_ROOT / target_file
+    enriched = dict(slot)
+    try:
+        resolved = ResolvedCodeSlot.from_manifest_slot(slot, source_text=source_path.read_text(encoding="utf-8"))
+        block_payload = resolved.to_block_payload()
+        enriched.update(
+            {
+                "line_start": block_payload["line_start"],
+                "line_end": block_payload["line_end"],
+                "block_name": block_payload["block_name"],
+                "context_before": block_payload["context_before"],
+                "context_after": block_payload["context_after"],
+                "original_content": block_payload["original_content"],
+                "source_exists": True,
+                "source_error": None,
+            }
+        )
+    except Exception as exc:  # noqa: BLE001 - UI should show broken slot contracts instead of hiding them.
+        enriched.update(
+            {
+                "line_start": None,
+                "line_end": None,
+                "block_name": "",
+                "context_before": "",
+                "context_after": "",
+                "original_content": "",
+                "source_exists": source_path.exists(),
+                "source_error": str(exc),
+            }
+        )
+    enriched["advisor"] = slot_advice_payload(enriched)
+    return enriched
+
+
+def slot_advice_payload(slot: dict[str, Any]) -> dict[str, Any]:
+    slot_id = str(slot.get("slot_id") or "")
+    executable = slot_id == "awls_zi_policy"
+    if executable:
+        feasibility = "yes"
+        feasibility_reason = "The current guarded DeepSeekSlotWorker can rewrite and validate this AWLS zi function slot."
+    else:
+        feasibility = "partial"
+        feasibility_reason = "The slot contract and markers exist, but a dedicated worker for this slot is not connected yet."
+    significance = "high" if "neighborhood" in slot_id else "medium"
+    concerns = list(slot.get("forbidden_edits") or [])[:3]
+    suggestions = [
+        "Confirm this slot only when the listed inputs, outputs, and invariants match the intended edit scope.",
+        "Run the slot validation commands after any accepted edit.",
+    ]
+    if not executable:
+        suggestions.append("Connect a slot-specific worker before allowing automated edits for this region.")
+    return {
+        "feasibility": feasibility,
+        "feasibility_reason": feasibility_reason,
+        "significance": significance,
+        "significance_reason": str(slot.get("purpose") or ""),
+        "worker_support": "available" if executable else "planned",
+        "concerns": concerns,
+        "suggestions": suggestions,
+    }
 
 
 def deepseek_status_payload() -> dict[str, Any]:

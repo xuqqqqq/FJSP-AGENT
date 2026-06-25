@@ -6,7 +6,14 @@ import json
 from pathlib import Path
 
 from harness_agent.slot_manifest import write_selected_slot_manifest
-from harness_agent.web_app import _JOBS, create_job, make_demo_examples, run_job, scan_code_evolution_progress
+from harness_agent.web_app import (
+    _JOBS,
+    create_job,
+    make_demo_examples,
+    run_job,
+    scan_code_evolution_progress,
+    slot_manifest_catalog_payload,
+)
 
 
 class WebAppTests(unittest.TestCase):
@@ -58,6 +65,17 @@ class WebAppTests(unittest.TestCase):
         self.assertFalse(payload["confirmation_required"])
         self.assertTrue(confirmed["awls_zi_policy"])
         self.assertFalse(confirmed["local_search_neighborhood_actions"])
+
+    def test_slot_manifest_catalog_includes_resolved_block_advice(self) -> None:
+        payload = slot_manifest_catalog_payload()
+
+        slots = {slot["slot_id"]: slot for slot in payload["slots"]}
+        self.assertEqual("draft_requires_user_confirmation", payload["status"])
+        self.assertGreater(slots["awls_zi_policy"]["line_start"], 0)
+        self.assertGreater(slots["local_search_neighborhood_actions"]["line_end"], slots["local_search_neighborhood_actions"]["line_start"])
+        self.assertIn("def evolved_zi", slots["awls_zi_policy"]["original_content"])
+        self.assertEqual("available", slots["awls_zi_policy"]["advisor"]["worker_support"])
+        self.assertEqual("planned", slots["local_search_neighborhood_actions"]["advisor"]["worker_support"])
 
     def test_web_job_runs_demo_loop_from_submitted_documents(self) -> None:
         demo = make_demo_examples()
