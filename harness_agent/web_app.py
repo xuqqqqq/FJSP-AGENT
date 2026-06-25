@@ -14,11 +14,13 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from .awls_benchmark import AwlsBenchmarkRequest, effective_time_limit_sec, filename_shape
 from .awls_zi_evolution import AwlsZiEvolutionRequest, run_awls_zi_evolution
 from .deepseek_client import is_deepseek_configured, load_local_env, local_env_candidates, normalize_deepseek_model
 from .demo import StandardDemoRequest, run_standard_demo
 from .slot_contract import ResolvedCodeSlot
 from .slot_manifest import default_standard_fjsp_slot_manifest, write_selected_slot_manifest
+from .standard_fjsp import parse_standard_fjsp
 from .standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop
 from .workers.deepseek_slot_worker import DeepSeekSlotWorker
 from .workers.deepseek_worker import DeepSeekWorker
@@ -358,6 +360,7 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
     req_path.write_text(str(requirement.get("text") or ""), encoding="utf-8")
     io_path.write_text(str(io_doc.get("text") or ""), encoding="utf-8")
     instance_path.write_text(str(instance.get("text") or ""), encoding="utf-8")
+    instance_profile = inspect_instance_profile(instance_path)
     best_known_text = str(best_known.get("text") or "").strip()
     if best_known_text:
         best_known_path.write_text(best_known_text + "\n", encoding="utf-8")
@@ -433,6 +436,9 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
             maximum=1800,
         ),
     }
+    config["instance_profile"] = instance_profile
+    config["effective_awls_time_limit_sec"] = effective_awls_time_limit_for_web(config, instance_path)
+    config["estimated_awls_zi_eval_sec_per_round"] = estimate_awls_zi_round_seconds(config)
     if config["local_search_neighborhood_profile"] not in {"random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid"}:
         config["local_search_neighborhood_profile"] = "random"
     if config["awls_init"] not in {"random", "greedy", "mixed"}:
@@ -457,6 +463,7 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         "artifacts": {},
     }
     append_event(job, "任务材料已保存，等待进入循环。")
+    append_instance_profile_events(job)
     write_job_status(job)
     with _LOCK:
         _JOBS[job_id] = job
@@ -466,6 +473,95 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
 def start_job(job_id: str) -> None:
     thread = threading.Thread(target=run_job, args=(job_id,), daemon=True)
     thread.start()
+
+
+def inspect_instance_profile(instance_path: Path) -> dict[str, Any]:
+    profile: dict[str, Any] = {
+        "path": str(instance_path.resolve()),
+        "file_name": instance_path.name,
+        "format": "unknown",
+        "valid": False,
+    }
+    try:
+        parsed = parse_standard_fjsp(instance_path)
+    except Exception as exc:  # noqa: BLE001 - keep web job creation inspectable.
+        profile["error"] = str(exc)
+        return profile
+    shape = filename_shape(instance_path.name)
+    mismatch = bool(
+        shape
+        and (
+            shape["job_count"] != parsed.job_count
+            or shape["machine_count"] != parsed.machine_count
+            or shape["max_candidate_count"] != parsed.max_candidate_count
+        )
+    )
+    profile.update(
+        {
+            "format": "standard_fjsp",
+            "valid": True,
+            "job_count": parsed.job_count,
+            "machine_count": parsed.machine_count,
+            "operation_count": parsed.operation_count,
+            "max_candidate_count": parsed.max_candidate_count,
+            "scale": parsed.job_count * parsed.machine_count * parsed.operation_count,
+            "filename_shape": shape,
+            "filename_shape_mismatch": mismatch,
+        }
+    )
+    return profile
+
+
+def effective_awls_time_limit_for_web(config: dict[str, Any], instance_path: Path) -> float:
+    request = AwlsBenchmarkRequest(
+        instance_dir=instance_path.parent,
+        pattern=instance_path.name,
+        output_dir=Path("_unused_web_time_probe"),
+        time_limit_sec=float(config.get("awls_time_limit_sec", 0.0) or 0.0),
+        time_policy=str(config.get("awls_time_policy") or "fixed"),
+    )
+    return effective_time_limit_sec(request, instance_path)
+
+
+def estimate_awls_zi_round_seconds(config: dict[str, Any]) -> float:
+    seeds = config.get("seeds") or [0]
+    seed_count = len(seeds) if isinstance(seeds, list) else 1
+    candidate_count = int(config.get("awls_zi_candidates", 1) or 1)
+    instance_count = 1
+    return float(config.get("effective_awls_time_limit_sec", 0.0) or 0.0) * seed_count * candidate_count * instance_count
+
+
+def append_instance_profile_events(job: dict[str, Any]) -> None:
+    profile = job.get("config", {}).get("instance_profile") or {}
+    if not profile.get("valid"):
+        append_event(job, f"算例解析失败，时间预算只能使用用户输入：{profile.get('error', '未知错误')}", level="warning")
+        return
+    append_event(
+        job,
+        (
+            "已按实际算例内容解析规模："
+            f"jobs={profile.get('job_count')}，machines={profile.get('machine_count')}，"
+            f"operations={profile.get('operation_count')}，max_candidates={profile.get('max_candidate_count')}。"
+        ),
+    )
+    if profile.get("filename_shape_mismatch"):
+        append_event(
+            job,
+            (
+                f"算例文件名形状与实际内容不一致：文件名={profile.get('file_name')}，"
+                "后续时间预算按实际内容计算。"
+            ),
+            level="warning",
+        )
+    append_event(
+        job,
+        (
+            "AWLS evaluate 预算："
+            f"policy={job['config'].get('awls_time_policy')}，"
+            f"每个算例/seed/候选={format_progress_value(job['config'].get('effective_awls_time_limit_sec'))}s，"
+            f"AWLS-ZI 每轮约 {format_progress_value(job['config'].get('estimated_awls_zi_eval_sec_per_round'))}s。"
+        ),
+    )
 
 
 def run_job(job_id: str) -> None:
@@ -498,6 +594,7 @@ def run_job(job_id: str) -> None:
                 (
                     "进入 AWLS-ZI 受控演化：DeepSeek 只提出候选参数/规则，"
                     "固定 AWLS evaluator 负责验证 gap 与合法性。"
+                    f" 本次按实际算例预算 {format_progress_value(config.get('effective_awls_time_limit_sec'))}s/seed/候选。"
                 ),
             )
             write_job_status(job)
@@ -524,7 +621,7 @@ def run_job(job_id: str) -> None:
                         restarts=config["awls_restarts"],
                         cycles_per_restart=config["awls_cycles_per_restart"],
                         iterations=config["awls_iterations"],
-                        time_limit_sec=config["awls_time_limit_sec"],
+                        time_limit_sec=config["effective_awls_time_limit_sec"],
                         init_mode=config["awls_init"],
                         exact_select_top_k=config["awls_exact_select_top_k"],
                         beta=config["awls_beta"],
@@ -611,7 +708,7 @@ def run_job(job_id: str) -> None:
                         awls_restarts=config["awls_restarts"],
                         awls_cycles_per_restart=config["awls_cycles_per_restart"],
                         awls_iterations=config["awls_iterations"],
-                        awls_time_limit_sec=config["awls_time_limit_sec"],
+                        awls_time_limit_sec=config["effective_awls_time_limit_sec"],
                         awls_init=config["awls_init"],
                         awls_exact_select_top_k=config["awls_exact_select_top_k"],
                         awls_beta=config["awls_beta"],
@@ -678,7 +775,7 @@ def run_job(job_id: str) -> None:
                     awls_restarts=config["awls_restarts"],
                     awls_cycles_per_restart=config["awls_cycles_per_restart"],
                     awls_iterations=config["awls_iterations"],
-                    awls_time_limit_sec=config["awls_time_limit_sec"],
+                    awls_time_limit_sec=config["effective_awls_time_limit_sec"],
                     awls_init=config["awls_init"],
                     awls_exact_select_top_k=config["awls_exact_select_top_k"],
                     awls_beta=config["awls_beta"],

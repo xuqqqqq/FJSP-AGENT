@@ -197,6 +197,24 @@ class BenchmarkSuiteTests(unittest.TestCase):
             self.assertEqual(45.0, effective_time_limit_sec(request, small))
             self.assertEqual(90.0, effective_time_limit_sec(request, medium))
 
+    def test_mae2019_time_policy_uses_content_when_filename_shape_is_wrong(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            misnamed = root / "fjsp.brandimarte.Mk01.m6j10c3.txt"
+            misnamed.write_text(
+                "20 10 10\n" + "\n".join("15 " + " ".join(["1 1 3"] * 15) for _ in range(20)) + "\n",
+                encoding="utf-8",
+            )
+            request = AwlsBenchmarkRequest(
+                instance_dir=root,
+                pattern="*.txt",
+                output_dir=root / "unused",
+                time_limit_sec=12.0,
+                time_policy="mae2019",
+            )
+
+            self.assertEqual(300.0, effective_time_limit_sec(request, misnamed))
+
     def test_awls_resume_legacy_metrics_do_not_fake_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

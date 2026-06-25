@@ -111,6 +111,35 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual("awls_zi_policy", job["config"]["selected_slot_id"])
         self.assertTrue(job["config"]["slot_user_confirmed"])
 
+    def test_create_job_times_budget_from_actual_instance_content(self) -> None:
+        demo = make_demo_examples()
+        fake_dp15 = "20 10 10\n" + "\n".join("15 " + " ".join(["1 1 3"] * 15) for _ in range(20)) + "\n"
+        payload = {
+            "title": "misnamed dp15",
+            "requirement": demo["requirement"],
+            "io": demo["io"],
+            "instance": {"name": "fjsp.brandimarte.Mk01.m6j10c3.txt", "text": fake_dp15},
+            "run_mode": "awls_zi",
+            "awls_time_policy": "scaled",
+            "awls_time_limit_sec": 30,
+            "awls_zi_candidates": 2,
+            "seeds": "0,1",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            job = create_job(payload, output_root=Path(tmp))
+
+        profile = job["config"]["instance_profile"]
+        self.assertEqual(20, profile["job_count"])
+        self.assertEqual(10, profile["machine_count"])
+        self.assertEqual(300, profile["operation_count"])
+        self.assertTrue(profile["filename_shape_mismatch"])
+        self.assertEqual(600.0, job["config"]["effective_awls_time_limit_sec"])
+        self.assertEqual(2400.0, job["config"]["estimated_awls_zi_eval_sec_per_round"])
+        messages = "\n".join(event["message"] for event in job["events"])
+        self.assertIn("按实际算例内容解析规模", messages)
+        self.assertIn("文件名形状与实际内容不一致", messages)
+        self.assertIn("每个算例/seed/候选=600s", messages)
+
     def test_selected_slot_manifest_confirms_only_requested_slot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "slot_manifest.json"

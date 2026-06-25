@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import statistics
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -374,6 +375,11 @@ def effective_time_limit_sec(request: AwlsBenchmarkRequest, instance_path: Path)
     if policy == "scaled":
         return max(fixed, scaled_time_limit_sec(instance_path))
     if policy == "mae2019":
+        parsed = parse_instance_for_time_policy(instance_path)
+        if parsed is not None and filename_shape_mismatch(instance_path, parsed):
+            if parsed.job_count >= 15 or parsed.machine_count >= 8 or parsed.operation_count >= 100:
+                return 300.0
+            return 90.0
         family = instance_family(instance_path)
         if family in {"barnes", "brandimarte"}:
             return 90.0
@@ -395,6 +401,35 @@ def scaled_time_limit_sec(instance_path: Path) -> float:
     if scale <= 20_000:
         return 300.0
     return 600.0
+
+
+def parse_instance_for_time_policy(instance_path: Path):
+    try:
+        return parse_standard_fjsp(instance_path)
+    except (OSError, ValueError):
+        return None
+
+
+def filename_shape_mismatch(instance_path: Path, instance: Any) -> bool:
+    shape = filename_shape(instance_path.name)
+    if shape is None:
+        return False
+    return (
+        shape["job_count"] != instance.job_count
+        or shape["machine_count"] != instance.machine_count
+        or shape["max_candidate_count"] != instance.max_candidate_count
+    )
+
+
+def filename_shape(name: str) -> dict[str, int] | None:
+    match = re.search(r"m(?P<machines>\d+)j(?P<jobs>\d+)c(?P<candidates>\d+)", name.lower())
+    if not match:
+        return None
+    return {
+        "job_count": int(match.group("jobs")),
+        "machine_count": int(match.group("machines")),
+        "max_candidate_count": int(match.group("candidates")),
+    }
 
 
 def instance_family(instance_path: Path) -> str:
