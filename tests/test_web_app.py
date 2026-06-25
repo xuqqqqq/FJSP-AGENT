@@ -2,12 +2,63 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
+from harness_agent.slot_manifest import write_selected_slot_manifest
 from harness_agent.web_app import _JOBS, create_job, make_demo_examples, run_job, scan_code_evolution_progress
 
 
 class WebAppTests(unittest.TestCase):
+    def test_slot_mode_requires_explicit_slot_confirmation(self) -> None:
+        demo = make_demo_examples()
+        payload = {
+            "title": "slot confirmation smoke",
+            "requirement": demo["requirement"],
+            "io": demo["io"],
+            "instance": demo["instance"],
+            "evolution_mode": "slot",
+            "selected_slot_id": "awls_zi_policy",
+            "slot_user_confirmed": False,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "explicit user confirmation"):
+                create_job(payload, output_root=Path(tmp))
+
+    def test_slot_mode_records_user_confirmed_slot(self) -> None:
+        demo = make_demo_examples()
+        payload = {
+            "title": "slot confirmation smoke",
+            "requirement": demo["requirement"],
+            "io": demo["io"],
+            "instance": demo["instance"],
+            "evolution_mode": "slot",
+            "selected_slot_id": "awls_zi_policy",
+            "slot_user_confirmed": True,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            job = create_job(payload, output_root=Path(tmp))
+
+        self.assertEqual("slot", job["config"]["evolution_mode"])
+        self.assertEqual("awls_zi_policy", job["config"]["selected_slot_id"])
+        self.assertTrue(job["config"]["slot_user_confirmed"])
+
+    def test_selected_slot_manifest_confirms_only_requested_slot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "slot_manifest.json"
+            write_selected_slot_manifest(
+                problem_family="standard_fjsp",
+                output=path,
+                selected_slot_ids=["awls_zi_policy"],
+            )
+            payload = json.loads(path.read_text(encoding="utf-8"))
+
+        confirmed = {slot["slot_id"]: slot["user_confirmed"] for slot in payload["slots"]}
+        self.assertEqual("confirmed", payload["status"])
+        self.assertFalse(payload["confirmation_required"])
+        self.assertTrue(confirmed["awls_zi_policy"])
+        self.assertFalse(confirmed["local_search_neighborhood_actions"])
+
     def test_web_job_runs_demo_loop_from_submitted_documents(self) -> None:
         demo = make_demo_examples()
         payload = {

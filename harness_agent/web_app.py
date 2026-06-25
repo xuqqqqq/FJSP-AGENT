@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlparse
 from .awls_zi_evolution import AwlsZiEvolutionRequest, run_awls_zi_evolution
 from .deepseek_client import is_deepseek_configured, load_local_env, normalize_deepseek_model
 from .demo import StandardDemoRequest, run_standard_demo
-from .slot_manifest import write_default_slot_manifest
+from .slot_manifest import default_standard_fjsp_slot_manifest, write_selected_slot_manifest
 from .standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop
 from .workers.deepseek_slot_worker import DeepSeekSlotWorker
 from .workers.deepseek_worker import DeepSeekWorker
@@ -141,6 +141,10 @@ def make_demo_examples() -> dict[str, Any]:
     }
 
 
+def slot_manifest_catalog_payload() -> dict[str, Any]:
+    return default_standard_fjsp_slot_manifest(confirmed=False).to_payload()
+
+
 def deepseek_status_payload() -> dict[str, Any]:
     """Return non-secret DeepSeek runtime status for the local UI."""
 
@@ -194,6 +198,12 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         evolution_mode = "strategy"
     if evolution_mode == "slot":
         solver = "awls"
+    selected_slot_id = str(payload.get("selected_slot_id") or "awls_zi_policy")
+    slot_user_confirmed = bool(payload.get("slot_user_confirmed", False))
+    if evolution_mode == "slot" and not slot_user_confirmed:
+        raise ValueError("slot mode requires explicit user confirmation of the selected code slot")
+    if evolution_mode == "slot" and selected_slot_id != "awls_zi_policy":
+        raise ValueError("current DeepSeek slot worker supports only selected_slot_id='awls_zi_policy'")
     profile_mode = str(payload.get("profile_mode") or "template")
     if profile_mode not in {"template", "auto", "deepseek"}:
         profile_mode = "template"
@@ -210,6 +220,8 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         "seeds": parse_seeds(payload.get("seeds", "0")),
         "solver": solver,
         "evolution_mode": evolution_mode,
+        "selected_slot_id": selected_slot_id,
+        "slot_user_confirmed": slot_user_confirmed,
         "profile_mode": profile_mode,
         "strategy_candidates": coerce_int(payload.get("strategy_candidates"), 2, minimum=1, maximum=16),
         "portfolio_size": coerce_int(payload.get("portfolio_size"), 16, minimum=1, maximum=512),
@@ -372,14 +384,14 @@ def run_job(job_id: str) -> None:
                 slot_manifest_path = None
                 if is_slot_mode:
                     slot_manifest_path = output_dir / "standard_worker_loop" / "slot_manifest.json"
-                    write_default_slot_manifest(
+                    write_selected_slot_manifest(
                         problem_family="standard_fjsp",
                         output=slot_manifest_path,
-                        confirmed=True,
+                        selected_slot_ids=[str(config["selected_slot_id"])],
                     )
                     append_event(
                         job,
-                        "已生成已确认的 AWLS zi 代码槽契约，DeepSeek 只能修改该槽内实现。",
+                        f"已按用户确认生成代码槽契约：{config['selected_slot_id']}。DeepSeek 只能修改该槽内实现。",
                     )
                     write_job_status(job)
                 manifest = run_standard_worker_loop(
@@ -789,6 +801,9 @@ class AlgoForgeWebHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/deepseek-status":
             self._json(200, deepseek_status_payload())
+            return
+        if parsed.path == "/api/slot-manifest":
+            self._json(200, slot_manifest_catalog_payload())
             return
         if parsed.path == "/api/jobs":
             with _LOCK:

@@ -319,6 +319,83 @@ h3 {
   font-size: 14px;
 }
 
+.slot-review {
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.slot-review-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.slot-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.slot-card {
+  display: grid;
+  gap: 7px;
+  min-height: 150px;
+  padding: 12px;
+  text-align: left;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.slot-card.active {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.slot-card span {
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.slot-card strong {
+  font-size: 14px;
+}
+
+.slot-card small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.slot-card em {
+  align-self: end;
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.slot-confirm-field {
+  margin: 12px 0 0;
+}
+
+.status-pill.confirmed {
+  color: #fff;
+  border-color: var(--teal);
+  background: var(--teal);
+}
+
+.status-pill.unconfirmed {
+  color: var(--amber);
+  border-color: rgba(183, 121, 31, 0.45);
+  background: #fff8ea;
+}
+
 .field {
   display: grid;
   gap: 7px;
@@ -622,7 +699,8 @@ pre {
   .doc-grid,
   .metric-grid,
   .config-grid,
-  .contract-strip {
+  .contract-strip,
+  .slot-card-grid {
     grid-template-columns: 1fr;
   }
 

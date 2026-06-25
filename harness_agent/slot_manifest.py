@@ -147,11 +147,52 @@ def load_slot_manifest(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
+def selected_standard_fjsp_slot_manifest(*, selected_slot_ids: list[str]) -> SlotManifest:
+    selected = {str(slot_id) for slot_id in selected_slot_ids if str(slot_id).strip()}
+    if not selected:
+        raise ValueError("at least one selected slot_id is required")
+    manifest = default_standard_fjsp_slot_manifest(confirmed=False)
+    known = {slot.slot_id for slot in manifest.slots}
+    unknown = sorted(selected - known)
+    if unknown:
+        raise ValueError(f"unknown standard_fjsp slot_id(s): {', '.join(unknown)}")
+    slots = [
+        CodeSlotSpec(
+            **{
+                **slot.to_payload(),
+                "user_confirmed": slot.slot_id in selected,
+            }
+        )
+        for slot in manifest.slots
+    ]
+    return SlotManifest(
+        schema_version=manifest.schema_version,
+        problem_family=manifest.problem_family,
+        status="confirmed",
+        confirmation_required=False,
+        notes=manifest.notes
+        + [
+            "Only selected slots have user_confirmed=true; unselected slots remain locked.",
+        ],
+        slots=slots,
+    )
+
+
 def write_default_slot_manifest(*, problem_family: str, output: Path, confirmed: bool = False) -> Path:
     normalized_family = str(problem_family).strip().lower()
     if normalized_family not in {"fjsp", "standard_fjsp"}:
         raise ValueError(f"no default slot manifest is available for problem family: {problem_family}")
     output.parent.mkdir(parents=True, exist_ok=True)
     payload = default_standard_fjsp_slot_manifest(confirmed=confirmed).to_payload()
+    output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return output
+
+
+def write_selected_slot_manifest(*, problem_family: str, output: Path, selected_slot_ids: list[str]) -> Path:
+    normalized_family = str(problem_family).strip().lower()
+    if normalized_family not in {"fjsp", "standard_fjsp"}:
+        raise ValueError(f"no default slot manifest is available for problem family: {problem_family}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    payload = selected_standard_fjsp_slot_manifest(selected_slot_ids=selected_slot_ids).to_payload()
     output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return output

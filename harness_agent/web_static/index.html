@@ -78,6 +78,22 @@
               </div>
             </div>
 
+            <section class="slot-review">
+              <div class="slot-review-heading">
+                <div>
+                  <span class="section-kicker">Code Slots</span>
+                  <h3>可演进功能分区</h3>
+                </div>
+                <span id="slot-confirmation-state" class="status-pill">unconfirmed</span>
+              </div>
+              <div id="slot-cards" class="slot-card-grid"></div>
+              <input id="selected-slot-id" type="hidden" value="awls_zi_policy" />
+              <label class="field checkbox-field slot-confirm-field">
+                <input id="slot-user-confirmed" type="checkbox" />
+                <span>我确认本轮只允许修改选中的代码槽；输入、输出、parser 和 evaluator 保持不变。</span>
+              </label>
+            </section>
+
             <label class="field">
               <span>任务名称</span>
               <input id="title" name="title" value="Brandimarte Mk01 标准 FJSP 闭环演示" />

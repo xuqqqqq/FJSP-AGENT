@@ -3,11 +3,13 @@ const state = {
   pollTimer: null,
   deepseekStatus: null,
   lastRenderedStatus: null,
+  slotManifest: null,
 };
 const DEFAULT_STANDARD_SEEDS = "0,1,2,3,4,5,6,7,8,9";
 const DEFAULT_CHAT_ACTIONS = [
   {label: "载入示例", command: "载入示例"},
   {label: "代码槽", command: "代码槽"},
+  {label: "确认代码槽", command: "确认代码槽"},
   {label: "策略层", command: "策略层"},
   {label: "Template", command: "template"},
   {label: "启动", command: "启动"},
@@ -74,6 +76,14 @@ async function loadDeepSeekStatus() {
   }
 }
 
+async function loadSlotManifest() {
+  const response = await fetch("/api/slot-manifest");
+  const manifest = await response.json();
+  state.slotManifest = manifest;
+  renderSlotCards(manifest.slots || []);
+  updateContractSummary();
+}
+
 function buildPayload() {
   return {
     title: $("title").value,
@@ -98,6 +108,8 @@ function buildPayload() {
     seeds: $("seeds").value || DEFAULT_STANDARD_SEEDS,
     solver: $("solver").value,
     evolution_mode: $("evolution-mode").value,
+    selected_slot_id: $("selected-slot-id").value || "awls_zi_policy",
+    slot_user_confirmed: $("slot-user-confirmed").checked,
     profile_mode: $("profile-mode").value,
     strategy_candidates: Number($("strategy-candidates").value || 2),
     awls_zi_candidates: Number($("awls-zi-candidates").value || 2),
@@ -130,7 +142,10 @@ function updateContractSummary() {
     return;
   }
   if (evolutionMode === "slot") {
-    target.textContent = "confirmed code slot";
+    const slot = selectedSlot();
+    const status = $("slot-user-confirmed").checked ? "confirmed" : "needs confirmation";
+    target.textContent = `${slot?.slot_id || "code slot"} · ${status}`;
+    updateSlotConfirmationState();
     return;
   }
   if (evolutionMode === "code") {
@@ -138,6 +153,51 @@ function updateContractSummary() {
     return;
   }
   target.textContent = `${profileMode} strategy profile`;
+}
+
+function selectedSlot() {
+  const selectedId = $("selected-slot-id")?.value || "awls_zi_policy";
+  return (state.slotManifest?.slots || []).find((slot) => slot.slot_id === selectedId) || null;
+}
+
+function updateSlotConfirmationState() {
+  const stateBadge = $("slot-confirmation-state");
+  if (!stateBadge) return;
+  const confirmed = $("slot-user-confirmed").checked;
+  const selectedId = $("selected-slot-id").value || "awls_zi_policy";
+  stateBadge.textContent = confirmed ? `confirmed · ${selectedId}` : `unconfirmed · ${selectedId}`;
+  stateBadge.className = `status-pill ${confirmed ? "confirmed" : "unconfirmed"}`;
+}
+
+function renderSlotCards(slots) {
+  const container = $("slot-cards");
+  if (!container) return;
+  container.innerHTML = "";
+  const selectedId = $("selected-slot-id").value || "awls_zi_policy";
+  for (const slot of slots) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = `slot-card ${slot.slot_id === selectedId ? "active" : ""}`;
+    const workerStatus = slot.slot_id === "awls_zi_policy" ? "可执行" : "规划中";
+    card.innerHTML = `
+      <span>${escapeHtml(slot.slot_id)} · ${escapeHtml(workerStatus)}</span>
+      <strong>${escapeHtml(slot.title || slot.slot_id)}</strong>
+      <small>${escapeHtml(slot.purpose || "")}</small>
+      <em>${escapeHtml(slot.target_file || "")}</em>
+    `;
+    card.addEventListener("click", () => selectSlot(slot.slot_id));
+    container.appendChild(card);
+  }
+  updateSlotConfirmationState();
+}
+
+function selectSlot(slotId) {
+  $("selected-slot-id").value = slotId;
+  $("slot-user-confirmed").checked = false;
+  renderSlotCards(state.slotManifest?.slots || []);
+  updateContractSummary();
+  const slot = selectedSlot();
+  appendChatMessage("assistant", `已选择代码槽：${slot?.title || slotId}。启动代码槽演进前还需要确认 IO 和 evaluator 不变。`);
 }
 
 async function submitJob(event) {
@@ -157,6 +217,16 @@ async function submitCurrentJob() {
     payload.evolution_mode === "slot" ||
     payload.evolution_mode === "code" ||
     payload.profile_mode === "deepseek";
+  if (payload.evolution_mode === "slot" && !payload.slot_user_confirmed) {
+    $("artifact-preview").textContent = "代码槽模式需要先确认选中的 slot 契约。";
+    appendChatMessage("assistant", "请先勾选确认，或在对话里说“确认代码槽”。");
+    return;
+  }
+  if (payload.evolution_mode === "slot" && payload.selected_slot_id !== "awls_zi_policy") {
+    $("artifact-preview").textContent = "当前可执行的 slot worker 只支持 awls_zi_policy；邻域动作槽已建模，执行器还在下一步接入。";
+    appendChatMessage("assistant", "这个代码槽已经进入平台 manifest，但当前执行 worker 还只支持 AWLS zi。先选 awls_zi_policy 跑通闭环。");
+    return;
+  }
   if (needsDeepSeek && state.deepseekStatus && !state.deepseekStatus.configured) {
     $("artifact-preview").textContent =
       "当前选择需要 DeepSeek API，但本地没有检测到 DEEPSEEK_API_KEY / DEEPSEEK_API_KEY_FILE。若只想跑通流程，可把策略来源切到 template；若要 DeepSeek 写策略或写代码，请先配置本地密钥。";
@@ -233,20 +303,28 @@ async function handleChatCommand(message, options = {}) {
     await loadDemo();
     return;
   }
+  if (["确认代码槽", "确认slot", "确认 slot", "confirm slot"].some((token) => normalized.includes(token))) {
+    $("slot-user-confirmed").checked = true;
+    updateContractSummary();
+    appendChatMessage("assistant", `已确认代码槽：${$("selected-slot-id").value}。本轮会锁住 IO、parser 和 evaluator。`);
+    return;
+  }
   if (["代码槽", "slot", "zi"].some((token) => normalized.includes(token))) {
     $("run-mode").value = "standard_loop";
     $("solver").value = "awls";
     $("evolution-mode").value = "slot";
     $("profile-mode").value = "deepseek";
+    $("slot-user-confirmed").checked = false;
     $("worker-max-steps").value = Math.max(4, Number($("worker-max-steps").value || 4));
     updateContractSummary();
-    appendChatMessage("assistant", "已切到代码槽模式：DeepSeek 只能改已确认的 AWLS zi slot，parser/evaluator/IO 不动。");
+    appendChatMessage("assistant", "已切到代码槽模式。请选中 slot 并说“确认代码槽”，DeepSeek 才能修改该槽。");
     return;
   }
   if (["策略", "strategy", "profile"].some((token) => normalized.includes(token))) {
     $("run-mode").value = "standard_loop";
     $("evolution-mode").value = "strategy";
     $("profile-mode").value = "deepseek";
+    $("slot-user-confirmed").checked = false;
     updateContractSummary();
     appendChatMessage("assistant", "已切到策略层：生成 profile，不直接改源码。");
     return;
@@ -436,6 +514,7 @@ $("job-form").addEventListener("submit", submitJob);
 $("refresh").addEventListener("click", refreshJob);
 $("chat-form").addEventListener("submit", handleChatSubmit);
 $("reset-chat").addEventListener("click", initializeChat);
+$("slot-user-confirmed").addEventListener("change", updateContractSummary);
 for (const id of ["run-mode", "evolution-mode", "profile-mode"]) {
   $(id).addEventListener("change", updateContractSummary);
 }
@@ -444,6 +523,9 @@ initializeChat();
 loadDeepSeekStatus().catch(() => {
   $("deepseek-status").textContent = "DeepSeek API：状态读取失败";
   $("deepseek-status").className = "api-status missing";
+});
+loadSlotManifest().catch(() => {
+  $("artifact-preview").textContent = "代码槽 manifest 读取失败，代码槽模式暂不可用。";
 });
 loadDemo({silent: true}).catch(() => {
   $("artifact-preview").textContent = "内置示例读取失败，但仍可手动粘贴文档和算例。";
