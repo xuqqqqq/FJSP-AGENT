@@ -52,6 +52,8 @@ async function loadDemo(options = {}) {
   $("awls-zi-candidates").value = demo.config.awls_zi_candidates || 2;
   $("portfolio-size").value = demo.config.portfolio_size;
   $("timeout-seconds").value = demo.config.timeout_seconds;
+  $("awls-time-policy").value = demo.config.awls_time_policy || "scaled";
+  $("awls-time-limit").value = demo.config.awls_time_limit_sec || 30;
   $("awls-same-machine-eval").value = demo.config.awls_same_machine_eval || "stable";
   $("worker-max-steps").value = demo.config.worker_max_steps;
   $("apply-worker-changes").checked = Boolean(demo.config.apply_worker_changes);
@@ -158,7 +160,8 @@ function buildPayload() {
     awls_restarts: Number($("awls-restarts").value || 1),
     awls_cycles_per_restart: Number($("awls-cycles").value || 200),
     awls_iterations: Number($("awls-iterations").value || 2000),
-    awls_time_limit_sec: Number($("awls-time-limit").value || 6),
+    awls_time_limit_sec: Number($("awls-time-limit").value || 30),
+    awls_time_policy: $("awls-time-policy").value,
     awls_init: $("awls-init").value,
     awls_beta: Number($("awls-beta").value || 500),
     awls_gamma: Number($("awls-gamma").value || 40),

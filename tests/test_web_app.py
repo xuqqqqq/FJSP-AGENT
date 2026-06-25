@@ -14,6 +14,7 @@ from harness_agent.web_app import (
     deepseek_status_payload,
     make_demo_examples,
     run_job,
+    scan_awls_zi_progress,
     scan_code_evolution_progress,
     slot_manifest_catalog_payload,
 )
@@ -33,11 +34,16 @@ class WebAppTests(unittest.TestCase):
                 os.environ[key] = value
 
     def test_deepseek_status_reports_template_env_is_not_loaded(self) -> None:
-        with patch("harness_agent.deepseek_client.local_env_candidates", return_value=[]), patch(
-            "harness_agent.web_app.local_env_candidates",
-            return_value=[],
-        ):
-            status = deepseek_status_payload()
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            (project_root / ".env.example").write_text("DEEPSEEK_API_KEY=\n", encoding="utf-8")
+            with patch("harness_agent.web_app.PROJECT_ROOT", project_root), patch(
+                "harness_agent.deepseek_client.local_env_candidates", return_value=[]
+            ), patch(
+                "harness_agent.web_app.local_env_candidates",
+                return_value=[],
+            ):
+                status = deepseek_status_payload()
 
         self.assertFalse(status["configured"])
         self.assertIn(".env.example", status["diagnosis"])
@@ -197,6 +203,65 @@ class WebAppTests(unittest.TestCase):
             self.assertIn("round_000 已生成上下文包", messages)
             self.assertIn("round_000 DeepSeek 已返回原始代码修改响应", messages)
             self.assertIn("round_000 执行异常", messages)
+            self.assertTrue((job_dir / "web_job_status.json").exists())
+
+    def test_awls_zi_progress_scanner_writes_visible_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            job_dir = tmp_path / "job"
+            job_dir.mkdir()
+            evolution_root = tmp_path / "awls_zi_evolution"
+            round_dir = evolution_root / "round_00"
+            candidate_dir = round_dir / "candidates" / "r00_formula_load"
+            (evolution_root / "baseline_cpp").mkdir(parents=True)
+            round_dir.mkdir(parents=True)
+            candidate_dir.mkdir(parents=True)
+            (evolution_root / "baseline_cpp" / "summary.json").write_text(
+                json.dumps({"aggregate": {"valid_instance_count": 1, "avg_makespan": 2209.0}}),
+                encoding="utf-8",
+            )
+            (round_dir / "deepseek_prompt.md").write_text("# prompt\n", encoding="utf-8")
+            (round_dir / "deepseek_raw_response.json").write_text("{}", encoding="utf-8")
+            (round_dir / "normalized_candidates.json").write_text(
+                json.dumps([{"name": "r00_formula_load"}]),
+                encoding="utf-8",
+            )
+            (candidate_dir / "summary.json").write_text(
+                json.dumps({"aggregate": {"valid_instance_count": 1, "invalid_run_count": 0, "avg_makespan": 2204.0}}),
+                encoding="utf-8",
+            )
+            (evolution_root / "zi_evolution_summary.json").write_text(
+                json.dumps(
+                    {
+                        "rounds": [{"round_index": 0}],
+                        "best": {"name": "r00_formula_load", "avg_makespan": 2204.0},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (evolution_root / "zi_evolution_report.md").write_text("# report\n", encoding="utf-8")
+
+            job = {
+                "id": "job",
+                "title": "awls zi progress smoke",
+                "status": "running",
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
+                "job_dir": str(job_dir),
+                "config": {},
+                "inputs": {},
+                "events": [],
+                "summary": {},
+                "artifacts": {},
+            }
+            scan_awls_zi_progress(job, evolution_root, set())
+
+            messages = "\n".join(event["message"] for event in job["events"])
+            self.assertIn("AWLS-ZI 基线已完成", messages)
+            self.assertIn("round_00 DeepSeek 已返回候选参数/规则", messages)
+            self.assertIn("round_00 候选已归一化", messages)
+            self.assertIn("round_00 候选评测完成", messages)
+            self.assertIn("AWLS-ZI 摘要已更新", messages)
             self.assertTrue((job_dir / "web_job_status.json").exists())
 
 

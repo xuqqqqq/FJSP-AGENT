@@ -134,6 +134,8 @@ def make_demo_examples() -> dict[str, Any]:
             "portfolio_size": 8,
             "timeout_seconds": 60,
             "max_workers": 1,
+            "awls_time_limit_sec": 30,
+            "awls_time_policy": "scaled",
             "awls_zi_candidates": 2,
             "awls_same_machine_eval": "stable",
             "apply_worker_changes": True,
@@ -385,9 +387,9 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
     awls_same_machine_eval = str(payload.get("awls_same_machine_eval") or "stable")
     if awls_same_machine_eval not in {"stable", "cpp-fast"}:
         awls_same_machine_eval = "stable"
-    awls_time_policy = str(payload.get("awls_time_policy") or "fixed")
-    if awls_time_policy not in {"fixed", "scaled"}:
-        awls_time_policy = "fixed"
+    awls_time_policy = str(payload.get("awls_time_policy") or "scaled")
+    if awls_time_policy not in {"fixed", "scaled", "mae2019", "mae2019-hour"}:
+        awls_time_policy = "scaled"
 
     config = {
         "run_mode": run_mode,
@@ -411,7 +413,7 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         "awls_restarts": coerce_int(payload.get("awls_restarts"), 2, minimum=1, maximum=128),
         "awls_cycles_per_restart": coerce_int(payload.get("awls_cycles_per_restart"), 1000, minimum=1, maximum=100000),
         "awls_iterations": coerce_int(payload.get("awls_iterations"), 10000, minimum=0, maximum=1000000),
-        "awls_time_limit_sec": coerce_float(payload.get("awls_time_limit_sec"), 5.0, minimum=0.1, maximum=1800.0),
+        "awls_time_limit_sec": coerce_float(payload.get("awls_time_limit_sec"), 30.0, minimum=0.1, maximum=1800.0),
         "awls_init": str(payload.get("awls_init") or "random"),
         "awls_exact_select_top_k": coerce_int(payload.get("awls_exact_select_top_k"), 0, minimum=0, maximum=256),
         "awls_beta": coerce_int(payload.get("awls_beta"), 500, minimum=1, maximum=100000),
@@ -499,31 +501,43 @@ def run_job(job_id: str) -> None:
                 ),
             )
             write_job_status(job)
-            manifest = run_awls_zi_evolution(
-                AwlsZiEvolutionRequest(
-                    instance_dir=Path(input_paths["instance"]).parent,
-                    pattern=Path(input_paths["instance"]).name,
-                    best_known_csv=Path(input_paths["best_known_csv"]) if input_paths.get("best_known_csv") else None,
-                    output_dir=output_dir / "awls_zi_evolution",
-                    rounds=config["max_rounds"],
-                    candidates_per_round=config["awls_zi_candidates"],
-                    deepseek_model=config["deepseek_model"],
-                    seeds=config["seeds"],
-                    max_workers=config["max_workers"],
-                    restarts=config["awls_restarts"],
-                    cycles_per_restart=config["awls_cycles_per_restart"],
-                    iterations=config["awls_iterations"],
-                    time_limit_sec=config["awls_time_limit_sec"],
-                    init_mode=config["awls_init"],
-                    exact_select_top_k=config["awls_exact_select_top_k"],
-                    beta=config["awls_beta"],
-                    gamma=config["awls_gamma"],
-                    theta=config["awls_theta"],
-                    portfolio_lanes=config["awls_portfolio_lanes"],
-                    same_machine_eval=config["awls_same_machine_eval"],
-                    time_policy=config["awls_time_policy"],
-                )
+            awls_zi_root = output_dir / "awls_zi_evolution"
+            progress_stop = threading.Event()
+            progress_thread = threading.Thread(
+                target=monitor_awls_zi_progress,
+                args=(job, awls_zi_root, progress_stop),
+                daemon=True,
             )
+            progress_thread.start()
+            try:
+                manifest = run_awls_zi_evolution(
+                    AwlsZiEvolutionRequest(
+                        instance_dir=Path(input_paths["instance"]).parent,
+                        pattern=Path(input_paths["instance"]).name,
+                        best_known_csv=Path(input_paths["best_known_csv"]) if input_paths.get("best_known_csv") else None,
+                        output_dir=awls_zi_root,
+                        rounds=config["max_rounds"],
+                        candidates_per_round=config["awls_zi_candidates"],
+                        deepseek_model=config["deepseek_model"],
+                        seeds=config["seeds"],
+                        max_workers=config["max_workers"],
+                        restarts=config["awls_restarts"],
+                        cycles_per_restart=config["awls_cycles_per_restart"],
+                        iterations=config["awls_iterations"],
+                        time_limit_sec=config["awls_time_limit_sec"],
+                        init_mode=config["awls_init"],
+                        exact_select_top_k=config["awls_exact_select_top_k"],
+                        beta=config["awls_beta"],
+                        gamma=config["awls_gamma"],
+                        theta=config["awls_theta"],
+                        portfolio_lanes=config["awls_portfolio_lanes"],
+                        same_machine_eval=config["awls_same_machine_eval"],
+                        time_policy=config["awls_time_policy"],
+                    )
+                )
+            finally:
+                progress_stop.set()
+                progress_thread.join(timeout=5)
             round_summary = summarize_zi_manifest(manifest)
             summary_payload = {
                 "manifest_status": manifest.get("status"),
@@ -902,6 +916,97 @@ def scan_code_evolution_progress(job: dict[str, Any], worker_root: Path, seen: s
             record_progress_event(job, seen, f"{label}:patch", f"{label} 产生候选代码 patch，等待提升判定。")
 
 
+def monitor_awls_zi_progress(job: dict[str, Any], evolution_root: Path, stop_event: threading.Event) -> None:
+    """Mirror AWLS-ZI filesystem progress into the web event stream."""
+
+    seen: set[str] = set()
+    while True:
+        scan_awls_zi_progress(job, evolution_root, seen)
+        if stop_event.wait(1.5):
+            scan_awls_zi_progress(job, evolution_root, seen)
+            return
+
+
+def scan_awls_zi_progress(job: dict[str, Any], evolution_root: Path, seen: set[str]) -> None:
+    if not evolution_root.exists():
+        return
+    record_progress_event(job, seen, "awls-zi-root", "AWLS-ZI 输出目录已创建，正在执行固定 evaluator 基线。")
+
+    baseline_summary = evolution_root / "baseline_cpp" / "summary.json"
+    if baseline_summary.exists():
+        summary = read_run_summary(baseline_summary)
+        record_progress_event(
+            job,
+            seen,
+            "awls-zi-baseline",
+            (
+                "AWLS-ZI 基线已完成："
+                f"valid={format_progress_value(summary.get('valid_instance_count'))}，"
+                f"avg_makespan={format_progress_value(summary.get('avg_makespan'))}。"
+            ),
+        )
+
+    for round_dir in sorted(path for path in evolution_root.glob("round_*") if path.is_dir()):
+        label = round_dir.name
+        if (round_dir / "deepseek_prompt.md").exists():
+            record_progress_event(job, seen, f"{label}:prompt", f"{label} 已生成 DeepSeek 提示词，等待候选参数/规则。")
+        if (round_dir / "deepseek_raw_response.json").exists():
+            record_progress_event(job, seen, f"{label}:raw", f"{label} DeepSeek 已返回候选参数/规则。")
+
+        normalized = round_dir / "normalized_candidates.json"
+        if normalized.exists():
+            candidates = read_json_list(normalized)
+            names = [str(item.get("name")) for item in candidates if isinstance(item, dict) and item.get("name")]
+            suffix = f"：{summarize_list(names, limit=3)}" if names else "。"
+            record_progress_event(
+                job,
+                seen,
+                f"{label}:normalized",
+                f"{label} 候选已归一化，共 {len(candidates)} 个{suffix}",
+            )
+
+        candidates_root = round_dir / "candidates"
+        if candidates_root.exists():
+            for candidate_dir in sorted(path for path in candidates_root.iterdir() if path.is_dir()):
+                summary_path = candidate_dir / "summary.json"
+                if not summary_path.exists():
+                    continue
+                summary = read_run_summary(summary_path)
+                invalid_count = summary.get("invalid_run_count")
+                record_progress_event(
+                    job,
+                    seen,
+                    f"{label}:candidate:{candidate_dir.name}",
+                    (
+                        f"{label} 候选评测完成：{candidate_dir.name}，"
+                        f"valid={format_progress_value(summary.get('valid_instance_count'))}，"
+                        f"avg_makespan={format_progress_value(summary.get('avg_makespan'))}，"
+                        f"invalid_runs={format_progress_value(invalid_count)}。"
+                    ),
+                    level="warning" if invalid_count else "info",
+                )
+
+    manifest_path = evolution_root / "zi_evolution_summary.json"
+    if manifest_path.exists():
+        manifest = read_json_file(manifest_path)
+        rounds = manifest.get("rounds") or []
+        best = manifest.get("best") or {}
+        manifest_key = f"awls-zi-manifest:{len(rounds)}:{best.get('name')}:{best.get('avg_makespan')}"
+        record_progress_event(
+            job,
+            seen,
+            manifest_key,
+            (
+                f"AWLS-ZI 摘要已更新：已完成 {len(rounds)} 轮，"
+                f"当前最佳={best.get('name', '-')}，"
+                f"avg_makespan={format_progress_value(best.get('avg_makespan'))}。"
+            ),
+        )
+
+    if (evolution_root / "zi_evolution_report.md").exists():
+        record_progress_event(job, seen, "awls-zi-report", "AWLS-ZI 报告已生成，可在产物区查看。")
+
+
 def record_progress_event(
     job: dict[str, Any],
     seen: set[str],
@@ -926,6 +1031,22 @@ def read_json_file(path: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def read_json_list(path: Path) -> list[Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def read_run_summary(path: Path) -> dict[str, Any]:
+    payload = read_json_file(path)
+    aggregate = payload.get("aggregate")
+    if isinstance(aggregate, dict):
+        return aggregate
+    return payload
 
 
 def summarize_exception(path: Path) -> str:

@@ -213,7 +213,16 @@
               </label>
               <label class="field compact">
                 <span>AWLS 时间上限</span>
-                <input id="awls-time-limit" type="number" min="0.1" max="1800" step="0.1" value="6" />
+                <input id="awls-time-limit" type="number" min="0.1" max="1800" step="0.1" value="30" />
+              </label>
+              <label class="field compact">
+                <span>时间策略</span>
+                <select id="awls-time-policy">
+                  <option value="scaled">按算例规模</option>
+                  <option value="fixed">固定秒数</option>
+                  <option value="mae2019">论文基准</option>
+                  <option value="mae2019-hour">长跑复现</option>
+                </select>
               </label>
               <label class="field compact">
                 <span>AWLS 初始化</span>

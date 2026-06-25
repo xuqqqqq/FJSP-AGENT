@@ -339,15 +339,20 @@ def is_better(candidate: dict[str, Any], incumbent: dict[str, Any]) -> bool:
     incumbent_gap = incumbent.get("avg_gap_pct")
     candidate_invalid = candidate.get("invalid_run_count")
     incumbent_invalid = incumbent.get("invalid_run_count")
-    if not isinstance(candidate_gap, (int, float)):
-        return False
     if isinstance(candidate_invalid, int) and candidate_invalid > 0:
         return False
-    if not isinstance(incumbent_gap, (int, float)):
-        return True
     if isinstance(incumbent_invalid, int) and incumbent_invalid > 0:
         return True
-    return float(candidate_gap) < float(incumbent_gap)
+    if isinstance(candidate_gap, (int, float)):
+        if not isinstance(incumbent_gap, (int, float)):
+            return True
+        return float(candidate_gap) < float(incumbent_gap)
+    if not isinstance(incumbent_gap, (int, float)):
+        candidate_makespan = candidate.get("avg_makespan")
+        incumbent_makespan = incumbent.get("avg_makespan")
+        if isinstance(candidate_makespan, (int, float)) and isinstance(incumbent_makespan, (int, float)):
+            return float(candidate_makespan) < float(incumbent_makespan)
+    return False
 
 
 def write_manifest(

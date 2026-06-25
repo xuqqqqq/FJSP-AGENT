@@ -371,6 +371,8 @@ def effective_time_limit_sec(request: AwlsBenchmarkRequest, instance_path: Path)
     fixed = max(0.0, request.time_limit_sec)
     if policy == "fixed":
         return fixed
+    if policy == "scaled":
+        return max(fixed, scaled_time_limit_sec(instance_path))
     if policy == "mae2019":
         family = instance_family(instance_path)
         if family in {"barnes", "brandimarte"}:
@@ -381,6 +383,18 @@ def effective_time_limit_sec(request: AwlsBenchmarkRequest, instance_path: Path)
     if policy == "mae2019-hour":
         return 3600.0
     raise ValueError(f"unknown AWLS benchmark time policy: {request.time_policy}")
+
+
+def scaled_time_limit_sec(instance_path: Path) -> float:
+    instance = parse_standard_fjsp(instance_path)
+    scale = instance.job_count * instance.machine_count * instance.operation_count
+    if scale <= 1_000:
+        return 30.0
+    if scale <= 6_000:
+        return 90.0
+    if scale <= 20_000:
+        return 300.0
+    return 600.0
 
 
 def instance_family(instance_path: Path) -> str:

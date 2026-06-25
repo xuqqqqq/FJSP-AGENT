@@ -10,6 +10,7 @@ from harness_agent.awls_benchmark import (
     instance_family,
     load_resumed_result,
     run_awls_benchmark,
+    scaled_time_limit_sec,
     selected_instances,
 )
 from harness_agent.benchmark_suite import BenchmarkSuiteRequest, run_benchmark_suite
@@ -166,6 +167,35 @@ class BenchmarkSuiteTests(unittest.TestCase):
         self.assertEqual(300.0, effective_time_limit_sec(request, Path("fjsp.dauzere.01a.m5j10c3.txt")))
         self.assertEqual(300.0, effective_time_limit_sec(request, Path("fjsp.hurink.edata-la01.m5j10c2.txt")))
         self.assertEqual(12.0, effective_time_limit_sec(request, Path("other_family_case.txt")))
+
+    def test_scaled_time_policy_uses_instance_size_floor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            small = root / "small.fjs"
+            medium = root / "medium.fjs"
+            large = root / "large.fjs"
+            small.write_text("2 2 1\n1 1 1 3\n1 1 2 4\n", encoding="utf-8")
+            medium.write_text(
+                "5 5 1\n" + "\n".join("10 " + " ".join(["1 1 3"] * 10) for _ in range(5)) + "\n",
+                encoding="utf-8",
+            )
+            large.write_text(
+                "10 10 1\n" + "\n".join("10 " + " ".join(["1 1 3"] * 10) for _ in range(10)) + "\n",
+                encoding="utf-8",
+            )
+            request = AwlsBenchmarkRequest(
+                instance_dir=root,
+                pattern="*.fjs",
+                output_dir=root / "unused",
+                time_limit_sec=45.0,
+                time_policy="scaled",
+            )
+
+            self.assertEqual(30.0, scaled_time_limit_sec(small))
+            self.assertEqual(90.0, scaled_time_limit_sec(medium))
+            self.assertEqual(300.0, scaled_time_limit_sec(large))
+            self.assertEqual(45.0, effective_time_limit_sec(request, small))
+            self.assertEqual(90.0, effective_time_limit_sec(request, medium))
 
     def test_awls_resume_legacy_metrics_do_not_fake_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
