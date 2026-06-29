@@ -98,7 +98,7 @@ class DeepSeekWorker(CodingWorker):
                 {"role": "user", "content": prompt},
             ],
             temperature=0.2,
-            max_tokens=7000,
+            max_tokens=12000,
             json_mode=True,
         )
         raw_path = output_dir / "deepseek_code_edit_raw.json"
@@ -106,7 +106,7 @@ class DeepSeekWorker(CodingWorker):
         try:
             raw_proposal = extract_json_object(content)
         except json.JSONDecodeError as exc:
-            repaired = self._repair_code_edit_json(client, content, str(exc), max_tokens=7000)
+            repaired = self._repair_code_edit_json(client, content, str(exc), max_tokens=12000)
             (output_dir / "deepseek_code_edit_repair_response.json").write_text(repaired, encoding="utf-8")
             raw_proposal = extract_json_object(repaired)
         proposal = self._normalize_code_edit_proposal(raw_proposal, context)
@@ -396,6 +396,12 @@ Rules:
 - For `replace_slot_block`, `content` must contain only the replacement code
   inside the slot markers.  Do not include marker_start/marker_end lines, do
   not include the whole file, and keep the surrounding function IO contract.
+- Keep `replace_slot_block.content` compact: target 20 to 80 lines of slot code.
+  Prefer a surgical local addition or ranking change inside the existing
+  original_content over rewriting the whole slot.  Avoid long comments and
+  decorative section banners.
+- If only one slot has user_confirmed=true, its exact target file is the slot's
+  target_file from slot_manifest; do not invent a new solver filename.
 - Preserve existing parser, validator, evaluator, and benchmark semantics unless
   the task contract explicitly asks to implement those surfaces.  For standard
   FJSP runs, prefer importing the existing parser/evaluator helpers instead of
@@ -467,7 +473,7 @@ Context packet:
                 if slot is None:
                     rejected_changes.append({"path": str(item.get("path", "")).strip(), "reason": slot_error})
                     continue
-                path = str(item.get("path") or slot.get("target_file") or "").strip()
+                path = str(slot.get("target_file") or item.get("path") or "").strip()
             else:
                 path = str(item.get("path", "")).strip()
             allowed, reason = is_path_allowed(path, context)
@@ -482,14 +488,7 @@ Context packet:
                     rejected_changes.append({"path": path, "reason": slot_error})
                     continue
                 slot_path = normalize_relative_path(str(slot.get("target_file", "")))
-                if normalized_path != slot_path:
-                    rejected_changes.append(
-                        {
-                            "path": path,
-                            "reason": f"slot {slot_id!r} target_file is {slot_path!r}",
-                        }
-                    )
-                    continue
+                normalized_path = slot_path
                 content = item.get("content", item.get("replacement"))
                 if not isinstance(content, str) or not content.strip():
                     rejected_changes.append({"path": path, "reason": "replace_slot_block requires non-empty string content"})

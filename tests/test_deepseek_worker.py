@@ -235,6 +235,25 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertEqual([], normalized["changes"])
         self.assertIn("must be user_confirmed", normalized["rejected_changes"][0]["reason"])
 
+    def test_replace_slot_block_uses_manifest_target_over_worker_path(self) -> None:
+        worker = DeepSeekWorker()
+        normalized = worker._normalize_code_edit_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "changes": [
+                    {
+                        "path": "examples/standard_fjsp_local_search_sdst.py",
+                        "action": "replace_slot_block",
+                        "slot_id": "local_search_neighborhood_actions",
+                        "content": "    new_move()\n",
+                    }
+                ],
+            },
+            _context_packet_with_slot_manifest(),
+        )
+
+        self.assertEqual([], normalized["rejected_changes"])
+        self.assertEqual("examples/standard_fjsp_local_search_solver.py", normalized["changes"][0]["path"])
+
 
 def _context_packet_with_intake() -> dict[str, object]:
     return {
