@@ -113,6 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
     context.add_argument("--previous-memory", type=Path, help="previous standard_pipeline_memory.json handoff")
     context.add_argument("--project-intake-manifest", type=Path)
     context.add_argument("--slot-manifest", type=Path)
+    context.add_argument("--project-root", type=Path, default=Path.cwd())
     context.add_argument("--max-chars-per-source", type=int, default=12000)
 
     problem_family = subparsers.add_parser("problem-family-card", help="write a problem-family capability card")
@@ -623,6 +624,7 @@ def build_context_packet_cmd(args: argparse.Namespace) -> int:
         output_path=args.output,
         docs=args.doc,
         knowledge_cards=args.knowledge_card,
+        project_root=args.project_root,
         hypothesis=args.hypothesis,
         previous_report=args.previous_report,
         previous_pipeline_memory=args.previous_memory,

@@ -31,6 +31,7 @@ class ContextPacketRequest:
     output_path: Path
     docs: list[Path] = field(default_factory=list)
     knowledge_cards: list[Path] = field(default_factory=list)
+    project_root: Path | None = None
     hypothesis: str = ""
     previous_report: Path | None = None
     previous_pipeline_memory: Path | None = None
@@ -58,7 +59,11 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         if request.project_intake_manifest
         else None
     )
-    slot_manifest = _slot_manifest_payload(request.slot_manifest) if request.slot_manifest else None
+    slot_manifest = (
+        _slot_manifest_payload(request.slot_manifest, project_root=request.project_root)
+        if request.slot_manifest
+        else None
+    )
     problem_family_capability = get_problem_family(contract.problem_family).to_payload()
     auto_cards = auto_knowledge_cards(
         problem_family=contract.problem_family,
@@ -167,6 +172,7 @@ def write_refreshed_context_packet(
     base_context_packet_path: Path,
     output_path: Path,
     loop_feedback: dict[str, Any],
+    project_root: Path | None = None,
 ) -> Path:
     """Write a round-specific context packet with evaluator-backed loop history.
 
@@ -186,6 +192,11 @@ def write_refreshed_context_packet(
     refreshed["parent_packet_hash"] = parent_hash
     refreshed["refresh_reason"] = "worker_loop_round_feedback"
     refreshed["loop_feedback"] = loop_feedback
+    if project_root is not None:
+        refreshed["slot_manifest"] = _refresh_slot_manifest_sources(
+            refreshed.get("slot_manifest"),
+            project_root=project_root,
+        )
 
     worker_instruction = dict(refreshed.get("worker_instruction") or {})
     required_order = list(worker_instruction.get("required_order") or [])
@@ -254,7 +265,7 @@ def _project_intake_payload(path: Path, max_chars: int) -> dict[str, Any]:
     }
 
 
-def _slot_manifest_payload(path: Path) -> dict[str, Any]:
+def _slot_manifest_payload(path: Path, *, project_root: Path | None = None) -> dict[str, Any]:
     try:
         manifest = load_slot_manifest(path)
         exists = True
@@ -268,6 +279,7 @@ def _slot_manifest_payload(path: Path) -> dict[str, Any]:
         slots = []
     manifest_root = path.resolve().parent
     repo_root = Path(__file__).resolve().parents[1]
+    resolved_project_root = project_root.resolve() if project_root else None
     selected_slots = []
     for item in slots:
         if not isinstance(item, dict):
@@ -280,6 +292,8 @@ def _slot_manifest_payload(path: Path) -> dict[str, Any]:
             if target_path.is_absolute():
                 candidates.append(target_path)
             else:
+                if resolved_project_root is not None:
+                    candidates.append(resolved_project_root / target_path)
                 candidates.extend([repo_root / target_path, manifest_root / target_path])
             for candidate in candidates:
                 try:
@@ -324,6 +338,46 @@ def _slot_manifest_payload(path: Path) -> dict[str, Any]:
         "slots": selected_slots,
         "error": error,
     }
+
+
+def _refresh_slot_manifest_sources(slot_manifest: Any, *, project_root: Path) -> Any:
+    if not isinstance(slot_manifest, dict):
+        return slot_manifest
+    slots = slot_manifest.get("slots")
+    if not isinstance(slots, list):
+        return slot_manifest
+
+    refreshed = dict(slot_manifest)
+    refreshed_slots: list[dict[str, Any]] = []
+    resolved_project_root = project_root.resolve()
+    for item in slots:
+        if not isinstance(item, dict):
+            continue
+        refreshed_slot = dict(item)
+        target_file = str(refreshed_slot.get("target_file", ""))
+        source_text = None
+        if target_file:
+            target_path = Path(target_file)
+            candidate = target_path if target_path.is_absolute() else resolved_project_root / target_path
+            try:
+                if candidate.is_file():
+                    source_text = candidate.read_text(encoding="utf-8")
+            except OSError:
+                source_text = None
+        resolved = ResolvedCodeSlot.from_manifest_slot(refreshed_slot, source_text=source_text)
+        refreshed_slot.update(
+            {
+                "line_start": resolved.line_start,
+                "line_end": resolved.line_end,
+                "block_name": resolved.block_name,
+                "context_before": resolved.context_before,
+                "context_after": resolved.context_after,
+                "original_content": resolved.original_content,
+            }
+        )
+        refreshed_slots.append(refreshed_slot)
+    refreshed["slots"] = refreshed_slots
+    return refreshed
 
 
 def _unique_paths(paths: list[Path]) -> list[Path]:

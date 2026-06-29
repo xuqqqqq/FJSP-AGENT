@@ -81,6 +81,7 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
             output_path=context_path,
             docs=request.docs,
             knowledge_cards=request.knowledge_cards or [],
+            project_root=request.project_root,
             slot_manifest=request.slot_manifest,
             project_intake_manifest=request.project_intake_manifest,
             previous_pipeline_memory=request.previous_pipeline_memory,

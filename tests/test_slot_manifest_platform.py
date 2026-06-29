@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -94,6 +95,63 @@ class SlotManifestPlatformTests(unittest.TestCase):
         self.assertIn("fjsp_scene_survey_2025_10_17.md", knowledge_paths)
         self.assertIn("xiejin_hgtsa_n8_k_insertion_tabu_spec.md", knowledge_paths)
         self.assertIn("Review slot_manifest", " ".join(packet["worker_instruction"]["required_order"]))
+
+    def test_context_packet_reads_slot_source_from_project_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project_root = root / "candidate"
+            examples_dir = project_root / "examples"
+            examples_dir.mkdir(parents=True)
+            solver = examples_dir / "standard_fjsp_local_search_solver.py"
+            shutil.copy2(Path(__file__).resolve().parents[1] / "examples" / "standard_fjsp_local_search_solver.py", solver)
+            text = solver.read_text(encoding="utf-8")
+            sentinel = "    project_root_specific_slot_sentinel = 12345\n"
+            start = text.index("    # SLOT neighborhood_actions START")
+            end = text.index("    # SLOT neighborhood_actions END", start)
+            replacement = text[: text.find("\n", start) + 1] + sentinel + text[end:]
+            solver.write_text(replacement, encoding="utf-8")
+
+            instance = root / "instance.fjs"
+            instance.write_text("1 1 1\n1 1 0 1\n", encoding="utf-8")
+            contract = root / "contract.json"
+            contract.write_text(
+                json.dumps(
+                    {
+                        "task_id": "slot_project_root_case",
+                        "problem_family": "standard_fjsp",
+                        "description": "smoke",
+                        "instances": [{"id": "tiny", "path": str(instance)}],
+                        "objectives": [{"name": "makespan", "direction": "minimize"}],
+                        "commands": {
+                            "solver": "python solver.py",
+                            "evaluator": "python evaluator.py",
+                            "quick_test": "python -m compileall .",
+                        },
+                        "budget": {"rounds": 1, "seeds": [0]},
+                        "paths": {"allowed_paths": ["examples"], "forbidden_paths": [".git"]},
+                        "review": {"status": "confirmed"},
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            manifest = root / "slot_manifest.json"
+            write_default_slot_manifest(problem_family="standard_fjsp", output=manifest, confirmed=True)
+
+            packet = build_context_packet(
+                ContextPacketRequest(
+                    contract_path=contract,
+                    output_path=root / "context.json",
+                    project_root=project_root,
+                    slot_manifest=manifest,
+                )
+            )
+
+        neighborhood_slot = next(
+            item for item in packet["slot_manifest"]["slots"] if item["slot_id"] == "local_search_neighborhood_actions"
+        )
+        self.assertIn("project_root_specific_slot_sentinel", neighborhood_slot["original_content"])
 
 
 if __name__ == "__main__":

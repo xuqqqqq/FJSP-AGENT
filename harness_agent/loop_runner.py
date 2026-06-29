@@ -85,6 +85,7 @@ def run_worker_loop(
                 incumbent_worktree=incumbent_worktree,
                 previous_rounds=round_records,
             ),
+            project_root=incumbent_worktree,
         )
         try:
             cycle = run_worker_cycle(
