@@ -177,7 +177,7 @@ def locate_marked_block(
     end_index = _find_marker_line(lines, marker_end)
     if start_index is None or end_index is None or end_index <= start_index:
         raise ValueError(f"missing ordered markers {marker_start!r}/{marker_end!r}")
-    original_content = "".join(lines[start_index + 1 : end_index]).strip()
+    original_content = "".join(lines[start_index + 1 : end_index])
     before_start = max(0, start_index - context_lines)
     after_end = min(len(lines), end_index + 1 + context_lines)
     return MarkedBlock(

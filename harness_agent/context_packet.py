@@ -10,6 +10,7 @@ from typing import Any
 from .knowledge_registry import auto_knowledge_cards
 from .models import TaskContract
 from .problem_families import get_problem_family
+from .slot_contract import ResolvedCodeSlot
 from .slot_manifest import load_slot_manifest
 
 
@@ -265,18 +266,44 @@ def _slot_manifest_payload(path: Path) -> dict[str, Any]:
     slots = manifest.get("slots") if isinstance(manifest, dict) else []
     if not isinstance(slots, list):
         slots = []
-    selected_slots = [
-        {
+    manifest_root = path.resolve().parent
+    repo_root = Path(__file__).resolve().parents[1]
+    selected_slots = []
+    for item in slots:
+        if not isinstance(item, dict):
+            continue
+        target_file = str(item.get("target_file", ""))
+        source_text = None
+        if target_file:
+            target_path = Path(target_file)
+            candidates = []
+            if target_path.is_absolute():
+                candidates.append(target_path)
+            else:
+                candidates.extend([repo_root / target_path, manifest_root / target_path])
+            for candidate in candidates:
+                try:
+                    if candidate.is_file():
+                        source_text = candidate.read_text(encoding="utf-8")
+                        break
+                except OSError:
+                    continue
+        resolved = ResolvedCodeSlot.from_manifest_slot(item, source_text=source_text)
+        selected_slots.append(
+            {
             "slot_id": str(item.get("slot_id", "")),
             "title": str(item.get("title", "")),
-            "target_file": str(item.get("target_file", "")),
+            "target_file": target_file,
             "marker_start": str(item.get("marker_start", "")),
             "marker_end": str(item.get("marker_end", "")),
             "slot_kind": str(item.get("slot_kind", "")),
             "language": str(item.get("language", "")),
-            "line_start": item.get("line_start"),
-            "line_end": item.get("line_end"),
-            "block_name": str(item.get("block_name", "")),
+            "line_start": resolved.line_start,
+            "line_end": resolved.line_end,
+            "block_name": resolved.block_name,
+            "context_before": resolved.context_before,
+            "context_after": resolved.context_after,
+            "original_content": resolved.original_content,
             "purpose": str(item.get("purpose", "")),
             "inputs": item.get("inputs", []),
             "outputs": item.get("outputs", []),
@@ -286,10 +313,8 @@ def _slot_manifest_payload(path: Path) -> dict[str, Any]:
             "validation_commands": item.get("validation_commands", []),
             "knowledge_tags": item.get("knowledge_tags", []),
             "user_confirmed": bool(item.get("user_confirmed", False)),
-        }
-        for item in slots
-        if isinstance(item, dict)
-    ]
+            }
+        )
     return {
         "path": str(path),
         "exists": exists,

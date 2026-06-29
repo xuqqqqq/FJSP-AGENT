@@ -89,6 +89,8 @@ class DeepSeekClient:
         message = choices[0].get("message") or {}
         content = message.get("content")
         if not isinstance(content, str) or not content.strip():
+            content = message.get("reasoning_content")
+        if not isinstance(content, str) or not content.strip():
             raise RuntimeError(f"DeepSeek response has empty content: {raw[:1000]}")
         return content.strip()
 

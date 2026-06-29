@@ -79,6 +79,15 @@ class SlotManifestPlatformTests(unittest.TestCase):
         awls_slot = next(item for item in packet["slot_manifest"]["slots"] if item["slot_id"] == "awls_zi_policy")
         self.assertEqual("# EVOLVE_START", awls_slot["marker_start"])
         self.assertEqual("# EVOLVE_END", awls_slot["marker_end"])
+        neighborhood_slot = next(
+            item for item in packet["slot_manifest"]["slots"] if item["slot_id"] == "local_search_neighborhood_actions"
+        )
+        self.assertIsInstance(neighborhood_slot["line_start"], int)
+        self.assertIsInstance(neighborhood_slot["line_end"], int)
+        self.assertIn("critical_machine_blocks", neighborhood_slot["original_content"])
+        self.assertIn("    specs = operation_specs(instance)", neighborhood_slot["original_content"])
+        self.assertEqual("# SLOT neighborhood_actions START", neighborhood_slot["marker_start"])
+        self.assertIn("neighbor_limit: int", neighborhood_slot["context_before"])
         self.assertTrue(packet["auto_knowledge_cards"])
         knowledge_paths = {Path(item["path"]).name for item in packet["knowledge_cards"]}
         self.assertIn("standard_fjsp_format.md", knowledge_paths)

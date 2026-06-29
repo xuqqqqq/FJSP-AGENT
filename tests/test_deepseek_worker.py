@@ -153,6 +153,88 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
             self.assertEqual("alpha = 1\ngamma = 4\nbeta = 3\n", target.read_text(encoding="utf-8"))
             self.assertEqual(["Single string risk note should stay one note."], normalized["risk_notes"])
 
+    def test_replace_slot_block_action_rewrites_only_confirmed_slot(self) -> None:
+        worker = DeepSeekWorker()
+        context = _context_packet_with_slot_manifest()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "examples" / "standard_fjsp_local_search_solver.py"
+            target.parent.mkdir(parents=True)
+            target.write_text(
+                "def generate_structured_neighbors():\n"
+                "    before()\n"
+                "    # SLOT neighborhood_actions START\n"
+                "    old_move()\n"
+                "    # SLOT neighborhood_actions END\n"
+                "    after()\n",
+                encoding="utf-8",
+            )
+
+            normalized = worker._normalize_code_edit_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+                {
+                    "summary": "Replace the selected neighborhood slot.",
+                    "strategy_intent": "Use the manifest-confirmed code slot instead of a long text_replace old block.",
+                    "rule_operator_hypotheses": [
+                        {
+                            "name": "slot_guided_move",
+                            "type": "local_search_operator",
+                            "novelty": "Edits only the confirmed slot.",
+                            "expected_effect": "Keeps IO and markers stable.",
+                            "target_files": ["examples/standard_fjsp_local_search_solver.py"],
+                        }
+                    ],
+                    "changes": [
+                        {
+                            "action": "replace_slot_block",
+                            "slot_id": "local_search_neighborhood_actions",
+                            "content": (
+                                "```python\n"
+                                "    new_move()\n"
+                                "```\n"
+                            ),
+                            "rationale": "Small slot replacement.",
+                        }
+                    ],
+                    "quick_test_plan": "python -m compileall examples/standard_fjsp_local_search_solver.py",
+                },
+                context,
+            )
+
+            changed = apply_code_edit_proposal(proposal=normalized, worktree_path=root, context=context)
+
+            self.assertEqual(["examples/standard_fjsp_local_search_solver.py"], changed)
+            self.assertEqual([], normalized["rejected_changes"])
+            self.assertEqual(
+                "def generate_structured_neighbors():\n"
+                "    before()\n"
+                "    # SLOT neighborhood_actions START\n"
+                "    new_move()\n"
+                "    # SLOT neighborhood_actions END\n"
+                "    after()\n",
+                target.read_text(encoding="utf-8"),
+            )
+
+    def test_replace_slot_block_rejects_unconfirmed_slot(self) -> None:
+        worker = DeepSeekWorker()
+        context = _context_packet_with_slot_manifest(user_confirmed=False)
+
+        normalized = worker._normalize_code_edit_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "changes": [
+                    {
+                        "path": "examples/standard_fjsp_local_search_solver.py",
+                        "action": "replace_slot_block",
+                        "slot_id": "local_search_neighborhood_actions",
+                        "content": "    new_move()\n",
+                    }
+                ],
+            },
+            context,
+        )
+
+        self.assertEqual([], normalized["changes"])
+        self.assertIn("must be user_confirmed", normalized["rejected_changes"][0]["reason"])
+
 
 def _context_packet_with_intake() -> dict[str, object]:
     return {
@@ -176,6 +258,38 @@ def _context_packet_with_intake() -> dict[str, object]:
                 ],
                 "risk_flags": [{"code": "dirty_worktree", "message": "test risk"}],
             },
+        },
+    }
+
+
+def _context_packet_with_slot_manifest(*, user_confirmed: bool = True) -> dict[str, object]:
+    return {
+        "edit_policy": {
+            "allowed_paths": ["examples", "harness_agent", "configs"],
+            "forbidden_paths": [".git", "outputs"],
+        },
+        "slot_manifest": {
+            "exists": True,
+            "status": "confirmed",
+            "confirmation_required": False,
+            "slots": [
+                {
+                    "slot_id": "local_search_neighborhood_actions",
+                    "title": "局部搜索邻域动作生成",
+                    "target_file": "examples/standard_fjsp_local_search_solver.py",
+                    "marker_start": "# SLOT neighborhood_actions START",
+                    "marker_end": "# SLOT neighborhood_actions END",
+                    "purpose": "Generate candidate moves.",
+                    "inputs": ["instance", "state", "decoded", "rng", "neighbor_limit"],
+                    "outputs": ["list[tuple[Move, SearchState]]"],
+                    "invariants": ["Keep parser/evaluator/IO fixed."],
+                    "allowed_edits": ["Edit only the marked block."],
+                    "forbidden_edits": ["Do not edit evaluator semantics."],
+                    "validation_commands": ["python -m compileall examples/standard_fjsp_local_search_solver.py"],
+                    "knowledge_tags": ["neighborhood"],
+                    "user_confirmed": user_confirmed,
+                }
+            ],
         },
     }
 

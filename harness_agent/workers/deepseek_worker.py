@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..deepseek_client import DeepSeekClient, DeepSeekUnavailable, is_deepseek_configured
+from ..slot_contract import extract_marked_block, replace_marked_block, validate_slot_manifest_gate
 from ..worker import CodingWorker, ExperimentSpec, WorkerCapabilities, WorkerResult
 
 
@@ -343,6 +344,13 @@ Return JSON only with this schema:
   "changes": [
     {{
       "path": "relative/path.py",
+      "action": "replace_slot_block",
+      "slot_id": "local_search_neighborhood_actions",
+      "content": "replacement code between marker_start and marker_end only",
+      "rationale": "why this code-slot replacement helps"
+    }},
+    {{
+      "path": "relative/path.py",
       "action": "create_or_replace",
       "content": "full file content",
       "rationale": "why this change helps"
@@ -379,6 +387,15 @@ Rules:
   `create_or_replace` only for a new small helper file or when the full file
   content is short and complete. Do not rewrite a large solver file just to add
   a small operator.
+- If slot_manifest is present and the edit is inside a user-confirmed slot,
+  prefer `replace_slot_block` with the slot_id.  Do not echo the whole
+  original_content in an `old` field; Core will locate marker_start/marker_end
+  and replace only the code between them.
+- When changing a confirmed slot, return exactly one `replace_slot_block`
+  action for that slot instead of `text_replace`.
+- For `replace_slot_block`, `content` must contain only the replacement code
+  inside the slot markers.  Do not include marker_start/marker_end lines, do
+  not include the whole file, and keep the surrounding function IO contract.
 - Preserve existing parser, validator, evaluator, and benchmark semantics unless
   the task contract explicitly asks to implement those surfaces.  For standard
   FJSP runs, prefer importing the existing parser/evaluator helpers instead of
@@ -425,7 +442,7 @@ Context packet:
                         "but if full file content is truncated or impossible to repair, return an empty changes list and explain the risk. "
                         "Use exactly these top-level keys: summary, strategy_intent, rule_operator_hypotheses, changes, context_usage, quick_test_plan, risk_notes. "
                         "Each change must use one supported action: "
-                        "create_or_replace(path, content), text_replace(path, old, new), "
+                        "replace_slot_block(path, slot_id, content), create_or_replace(path, content), text_replace(path, old, new), "
                         "or insert_after(path, anchor, content). Return JSON only.\n\n"
                         f"JSON error: {error}\n\n"
                         f"Invalid response:\n{raw[:9000]}"
@@ -443,14 +460,50 @@ Context packet:
         for item in proposal.get("changes", []):
             if not isinstance(item, dict):
                 continue
-            path = str(item.get("path", "")).strip()
+            action = str(item.get("action", "create_or_replace")).strip()
+            if action == "replace_slot_block":
+                slot_id = str(item.get("slot_id", "")).strip()
+                slot, slot_error = confirmed_context_slot(context, slot_id)
+                if slot is None:
+                    rejected_changes.append({"path": str(item.get("path", "")).strip(), "reason": slot_error})
+                    continue
+                path = str(item.get("path") or slot.get("target_file") or "").strip()
+            else:
+                path = str(item.get("path", "")).strip()
             allowed, reason = is_path_allowed(path, context)
             if not allowed:
                 rejected_changes.append({"path": path, "reason": reason})
                 continue
-            action = str(item.get("action", "create_or_replace")).strip()
             normalized_path = normalize_relative_path(path)
-            if action == "create_or_replace":
+            if action == "replace_slot_block":
+                slot_id = str(item.get("slot_id", "")).strip()
+                slot, slot_error = confirmed_context_slot(context, slot_id)
+                if slot is None:
+                    rejected_changes.append({"path": path, "reason": slot_error})
+                    continue
+                slot_path = normalize_relative_path(str(slot.get("target_file", "")))
+                if normalized_path != slot_path:
+                    rejected_changes.append(
+                        {
+                            "path": path,
+                            "reason": f"slot {slot_id!r} target_file is {slot_path!r}",
+                        }
+                    )
+                    continue
+                content = item.get("content", item.get("replacement"))
+                if not isinstance(content, str) or not content.strip():
+                    rejected_changes.append({"path": path, "reason": "replace_slot_block requires non-empty string content"})
+                    continue
+                normalized_changes.append(
+                    {
+                        "path": normalized_path,
+                        "action": "replace_slot_block",
+                        "slot_id": slot_id,
+                        "content": normalize_slot_replacement_content(content, slot),
+                        "rationale": str(item.get("rationale", ""))[:2000],
+                    }
+                )
+            elif action == "create_or_replace":
                 content = item.get("content")
                 if not isinstance(content, str):
                     rejected_changes.append({"path": path, "reason": "create_or_replace requires string content"})
@@ -874,6 +927,33 @@ def apply_code_edit_proposal(
         action = str(change.get("action", "create_or_replace"))
         if action == "create_or_replace":
             target.write_text(str(change.get("content", "")), encoding="utf-8")
+        elif action == "replace_slot_block":
+            slot_id = str(change.get("slot_id", "")).strip()
+            slot, slot_error = confirmed_context_slot(context, slot_id)
+            if slot is None:
+                proposal.setdefault("apply_rejections", []).append({"path": relative_path, "reason": slot_error})
+                continue
+            expected_path = normalize_relative_path(str(slot.get("target_file", "")))
+            if relative_path != expected_path:
+                proposal.setdefault("apply_rejections", []).append(
+                    {"path": relative_path, "reason": f"slot {slot_id!r} target_file is {expected_path!r}"}
+                )
+                continue
+            if not target.exists():
+                proposal.setdefault("apply_rejections", []).append({"path": relative_path, "reason": "target file does not exist"})
+                continue
+            text = target.read_text(encoding="utf-8")
+            try:
+                updated = replace_marked_block(
+                    text,
+                    str(slot.get("marker_start", "")),
+                    str(slot.get("marker_end", "")),
+                    str(change.get("content", "")),
+                )
+            except ValueError as exc:
+                proposal.setdefault("apply_rejections", []).append({"path": relative_path, "reason": str(exc)})
+                continue
+            target.write_text(updated, encoding="utf-8")
         elif action == "text_replace":
             if not target.exists():
                 proposal.setdefault("apply_rejections", []).append({"path": relative_path, "reason": "target file does not exist"})
@@ -900,6 +980,46 @@ def apply_code_edit_proposal(
             continue
         changed_files.append(relative_path)
     return changed_files
+
+
+def confirmed_context_slot(context: dict[str, Any], slot_id: str) -> tuple[dict[str, Any] | None, str]:
+    if not slot_id:
+        return None, "replace_slot_block requires slot_id"
+    errors = validate_slot_manifest_gate(context, slot_id)
+    if errors:
+        return None, "; ".join(errors)
+    manifest = context.get("slot_manifest")
+    slots = manifest.get("slots") if isinstance(manifest, dict) else []
+    if not isinstance(slots, list):
+        return None, "slot_manifest.slots must be a list"
+    for item in slots:
+        if isinstance(item, dict) and item.get("slot_id") == slot_id:
+            return item, ""
+    return None, f"slot_manifest does not contain required slot_id {slot_id!r}"
+
+
+def normalize_slot_replacement_content(content: str, slot: dict[str, Any]) -> str:
+    normalized = strip_markdown_code_fence(content)
+    marker_start = str(slot.get("marker_start", ""))
+    marker_end = str(slot.get("marker_end", ""))
+    if marker_start and marker_end and marker_start in normalized and marker_end in normalized:
+        try:
+            normalized = extract_marked_block(normalized, marker_start, marker_end)
+        except ValueError:
+            pass
+    return normalized.rstrip() + "\n"
+
+
+def strip_markdown_code_fence(text: str) -> str:
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return text
+    lines = stripped.splitlines()
+    if lines and lines[0].strip().startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    return "\n".join(lines)
 
 
 def render_code_edit_markdown(proposal: dict[str, Any]) -> str:
