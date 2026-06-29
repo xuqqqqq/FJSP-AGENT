@@ -26,7 +26,7 @@ FEATURES = [
     "job_slack",
 ]
 
-LOCAL_SEARCH_NEIGHBORHOODS = ["random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid"]
+LOCAL_SEARCH_NEIGHBORHOODS = ["random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid", "setup-guided"]
 RULE_OPERATOR_TYPES = [
     "dispatch_rule",
     "local_search_operator",

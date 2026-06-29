@@ -24,7 +24,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness_agent.standard_fjsp import (
     ScheduleRecord,
     StandardFjspInstance,
+    operation_index_lookup,
     parse_standard_fjsp,
+    setup_time_between,
     validate_standard_schedule,
     write_solution,
 )
@@ -32,7 +34,7 @@ from standard_fjsp_portfolio_solver import build_portfolio, build_schedule
 
 
 OpKey = tuple[int, int]
-NEIGHBORHOOD_PROFILES = ("random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid")
+NEIGHBORHOOD_PROFILES = ("random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid", "setup-guided")
 PROFILE_SEED_OFFSETS = {
     "random": 0,
     "critical-block": 3_058_763,
@@ -40,6 +42,7 @@ PROFILE_SEED_OFFSETS = {
     "hgtsa-lite": 6_117_529,
     "hybrid": 9_176_291,
     "awls-hybrid": 18_352_582,
+    "setup-guided": 36_705_164,
 }
 
 
@@ -55,6 +58,7 @@ class DecodedState:
     makespan: int
     predecessors: dict[OpKey, tuple[OpKey, ...]]
     successors: dict[OpKey, tuple[OpKey, ...]]
+    edge_setup: dict[tuple[OpKey, OpKey], int]
     topological_order: tuple[OpKey, ...]
 
 
@@ -111,6 +115,7 @@ def decode_state(instance: StandardFjspInstance, state: SearchState) -> DecodedS
     specs = operation_specs(instance)
     ops = all_operations(instance)
     op_set = set(ops)
+    op_index = operation_index_lookup(instance)
     seen: set[OpKey] = set()
 
     for machine_id, sequence in enumerate(state.machine_sequences):
@@ -127,17 +132,22 @@ def decode_state(instance: StandardFjspInstance, state: SearchState) -> DecodedS
 
     predecessors: dict[OpKey, list[OpKey]] = {op: [] for op in ops}
     successors: dict[OpKey, list[OpKey]] = {op: [] for op in ops}
+    edge_setup: dict[tuple[OpKey, OpKey], int] = {}
 
-    def add_arc(left: OpKey, right: OpKey) -> None:
+    def add_arc(left: OpKey, right: OpKey, setup_time: int = 0) -> None:
+        if (left, right) in edge_setup:
+            edge_setup[(left, right)] = max(edge_setup[(left, right)], setup_time)
+            return
         successors[left].append(right)
         predecessors[right].append(left)
+        edge_setup[(left, right)] = setup_time
 
     for job in instance.jobs:
         for left, right in zip(job.operations, job.operations[1:]):
             add_arc((job.job_id, left.op_id), (job.job_id, right.op_id))
-    for sequence in state.machine_sequences:
+    for machine_id, sequence in enumerate(state.machine_sequences):
         for left, right in zip(sequence, sequence[1:]):
-            add_arc(left, right)
+            add_arc(left, right, setup_time_between(instance, machine_id, left, right, op_index))
 
     indegree = {op: len(predecessors[op]) for op in ops}
     earliest_start = {op: 0 for op in ops}
@@ -155,8 +165,9 @@ def decode_state(instance: StandardFjspInstance, state: SearchState) -> DecodedS
         end = start + duration
         records[op] = ScheduleRecord(job_id=op[0], op_id=op[1], machine_id=machine, start=start, end=end)
         for successor in successors[op]:
-            if earliest_start[successor] < end:
-                earliest_start[successor] = end
+            successor_ready = end + edge_setup[(op, successor)]
+            if earliest_start[successor] < successor_ready:
+                earliest_start[successor] = successor_ready
             indegree[successor] -= 1
             if indegree[successor] == 0:
                 ready.append(successor)
@@ -171,6 +182,7 @@ def decode_state(instance: StandardFjspInstance, state: SearchState) -> DecodedS
         makespan=makespan,
         predecessors={key: tuple(value) for key, value in predecessors.items()},
         successors={key: tuple(value) for key, value in successors.items()},
+        edge_setup=edge_setup,
         topological_order=tuple(topo),
     )
 
@@ -180,7 +192,13 @@ def critical_operations(decoded: DecodedState) -> set[OpKey]:
     start = {(record.job_id, record.op_id): record.start for record in decoded.schedule}
     tail_after = {op: 0 for op in decoded.topological_order}
     for op in reversed(decoded.topological_order):
-        tail_after[op] = max((duration[successor] + tail_after[successor] for successor in decoded.successors[op]), default=0)
+        tail_after[op] = max(
+            (
+                decoded.edge_setup[(op, successor)] + duration[successor] + tail_after[successor]
+                for successor in decoded.successors[op]
+            ),
+            default=0,
+        )
     return {
         op
         for op in decoded.topological_order
@@ -196,7 +214,13 @@ def critical_path(decoded: DecodedState) -> list[OpKey]:
     start = {op: record.start for op, record in by_op.items()}
     tail_after = {op: 0 for op in decoded.topological_order}
     for op in reversed(decoded.topological_order):
-        tail_after[op] = max((duration[successor] + tail_after[successor] for successor in decoded.successors[op]), default=0)
+        tail_after[op] = max(
+            (
+                decoded.edge_setup[(op, successor)] + duration[successor] + tail_after[successor]
+                for successor in decoded.successors[op]
+            ),
+            default=0,
+        )
 
     candidates = [
         op
@@ -212,7 +236,7 @@ def critical_path(decoded: DecodedState) -> list[OpKey]:
         predecessors = [
             predecessor
             for predecessor in decoded.predecessors[op]
-            if start[predecessor] + duration[predecessor] == start[op]
+            if start[predecessor] + duration[predecessor] + decoded.edge_setup[(predecessor, op)] == start[op]
             and start[predecessor] + duration[predecessor] + tail_after[predecessor] == decoded.makespan
         ]
         if not predecessors:
@@ -266,7 +290,13 @@ def decoded_timing(decoded: DecodedState) -> tuple[dict[OpKey, ScheduleRecord], 
     duration = {op: record.duration for op, record in record_by_op.items()}
     tail_after = {op: 0 for op in decoded.topological_order}
     for op in reversed(decoded.topological_order):
-        tail_after[op] = max((duration[successor] + tail_after[successor] for successor in decoded.successors[op]), default=0)
+        tail_after[op] = max(
+            (
+                decoded.edge_setup[(op, successor)] + duration[successor] + tail_after[successor]
+                for successor in decoded.successors[op]
+            ),
+            default=0,
+        )
     return record_by_op, duration, tail_after
 
 
@@ -291,7 +321,7 @@ def critical_machine_blocks_all(decoded: DecodedState, state: SearchState) -> li
                     current = [index]
                 else:
                     prev_op = sequence[current[-1]]
-                    if record_by_op[prev_op].end == record_by_op[op].start:
+                    if record_by_op[prev_op].end + decoded.edge_setup[(prev_op, op)] == record_by_op[op].start:
                         current.append(index)
                     else:
                         if len(current) >= 2:
@@ -308,12 +338,14 @@ def critical_machine_blocks_all(decoded: DecodedState, state: SearchState) -> li
 
 def machine_sequence_proxy_score(
     *,
+    instance: StandardFjspInstance,
     record_by_op: dict[OpKey, ScheduleRecord],
     tail_after: dict[OpKey, int],
     specs: dict[OpKey, dict[int, int]],
     sequence: list[OpKey],
     machine_id: int,
     assignment: dict[OpKey, int],
+    op_index: dict[OpKey, int],
     tail_override: dict[OpKey, int] | None = None,
 ) -> float:
     """Approximate local longest-path impact on one machine sequence.
@@ -324,14 +356,17 @@ def machine_sequence_proxy_score(
     """
 
     machine_ready = 0
+    previous_op: OpKey | None = None
     score = 0.0
     tail_override = tail_override or {}
     for op in sequence:
         duration = specs[op][assignment.get(op, machine_id)]
-        start = max(machine_ready, job_predecessor_ready(record_by_op, op))
+        setup_time = setup_time_between(instance, machine_id, previous_op, op, op_index)
+        start = max(machine_ready + setup_time, job_predecessor_ready(record_by_op, op))
         end = start + duration
         score = max(score, end + tail_override.get(op, tail_after.get(op, 0)))
         machine_ready = end
+        previous_op = op
     return score
 
 
@@ -412,6 +447,7 @@ def job_predecessor_ready(record_by_op: dict[OpKey, ScheduleRecord], op: OpKey) 
 
 def proxy_insert_score(
     *,
+    instance: StandardFjspInstance,
     decoded: DecodedState,
     state: SearchState,
     record_by_op: dict[OpKey, ScheduleRecord],
@@ -422,6 +458,7 @@ def proxy_insert_score(
     insert_pos: int,
     source_machine: int,
     source_index: int,
+    op_index: dict[OpKey, int],
 ) -> float:
     """Cheaply rank candidates before full active decoding.
 
@@ -447,12 +484,14 @@ def proxy_insert_score(
         insert_pos = max(0, min(insert_pos, len(target_sequence)))
         target_sequence.insert(insert_pos, op)
         proxy = machine_sequence_proxy_score(
+            instance=instance,
             record_by_op=record_by_op,
             tail_after=tail_after,
             specs=specs,
             sequence=target_sequence,
             machine_id=target_machine,
             assignment=state.assignment,
+            op_index=op_index,
         )
     else:
         if 0 <= source_index < len(source_sequence):
@@ -464,38 +503,129 @@ def proxy_insert_score(
         tail_override = {op: job_successor_tail({key: value.duration for key, value in record_by_op.items()}, tail_after, op)}
         proxy = max(
             machine_sequence_proxy_score(
+                instance=instance,
                 record_by_op=record_by_op,
                 tail_after=tail_after,
                 specs=specs,
                 sequence=source_sequence,
                 machine_id=source_machine,
                 assignment=assignment,
+                op_index=op_index,
                 tail_override=tail_override,
             ),
             machine_sequence_proxy_score(
+                instance=instance,
                 record_by_op=record_by_op,
                 tail_after=tail_after,
                 specs=specs,
                 sequence=target_sequence,
                 machine_id=target_machine,
                 assignment=assignment,
+                op_index=op_index,
                 tail_override=tail_override,
             ),
         )
     predecessor = legacy_target_sequence[legacy_insert_pos - 1] if legacy_insert_pos > 0 else None
     successor = legacy_target_sequence[legacy_insert_pos] if legacy_insert_pos < len(legacy_target_sequence) else None
-    machine_ready = record_by_op[predecessor].end if predecessor is not None else 0
+    predecessor_setup = setup_time_between(instance, target_machine, predecessor, op, op_index)
+    machine_ready = record_by_op[predecessor].end + predecessor_setup if predecessor is not None else 0
     job_ready = job_predecessor_ready(record_by_op, op)
     duration = specs[op][target_machine]
     estimated_start = max(machine_ready, job_ready)
     estimated_completion = estimated_start + duration + tail_after.get(op, 0)
-    successor_slack = max(0, estimated_start + duration - record_by_op[successor].start) if successor is not None else 0
+    if successor is None:
+        successor_slack = 0
+    else:
+        successor_ready = estimated_start + duration + setup_time_between(instance, target_machine, op, successor, op_index)
+        successor_slack = max(0, successor_ready - record_by_op[successor].start)
     machine_load = sum(specs[item][state.assignment[item]] for item in legacy_target_sequence)
     mean_load = sum(record.duration for record in decoded.schedule) / max(1, len(state.machine_sequences))
     load_penalty = abs(machine_load + duration - mean_load) / max(1.0, mean_load)
     locality_penalty = abs(estimated_start - record_by_op[op].start) / max(1, decoded.makespan)
     legacy_proxy = estimated_completion + successor_slack + 0.25 * load_penalty + 0.10 * locality_penalty
     return 0.75 * proxy + 0.25 * legacy_proxy
+
+
+def setup_insertion_delta(
+    instance: StandardFjspInstance,
+    *,
+    sequence: list[OpKey],
+    machine_id: int,
+    op: OpKey,
+    insert_pos: int,
+    op_index: dict[OpKey, int],
+) -> int:
+    predecessor = sequence[insert_pos - 1] if insert_pos > 0 else None
+    successor = sequence[insert_pos] if insert_pos < len(sequence) else None
+    added = setup_time_between(instance, machine_id, predecessor, op, op_index)
+    if successor is not None:
+        added += setup_time_between(instance, machine_id, op, successor, op_index)
+    removed = 0
+    if predecessor is not None and successor is not None:
+        removed = setup_time_between(instance, machine_id, predecessor, successor, op_index)
+    return added - removed
+
+
+def setup_removal_delta(
+    instance: StandardFjspInstance,
+    *,
+    sequence: list[OpKey],
+    machine_id: int,
+    source_index: int,
+    op_index: dict[OpKey, int],
+) -> int:
+    if source_index < 0 or source_index >= len(sequence):
+        return 0
+    predecessor = sequence[source_index - 1] if source_index > 0 else None
+    op = sequence[source_index]
+    successor = sequence[source_index + 1] if source_index + 1 < len(sequence) else None
+    removed = setup_time_between(instance, machine_id, predecessor, op, op_index)
+    if successor is not None:
+        removed += setup_time_between(instance, machine_id, op, successor, op_index)
+    added = 0
+    if predecessor is not None and successor is not None:
+        added = setup_time_between(instance, machine_id, predecessor, successor, op_index)
+    return added - removed
+
+
+def setup_guided_insert_positions(
+    instance: StandardFjspInstance,
+    state: SearchState,
+    *,
+    op: OpKey,
+    target_machine: int,
+    source_machine: int,
+    source_index: int,
+    op_index: dict[OpKey, int],
+    max_positions: int,
+) -> list[int]:
+    sequence = list(state.machine_sequences[target_machine])
+    removed_source = False
+    if source_machine == target_machine and 0 <= source_index < len(sequence) and sequence[source_index] == op:
+        sequence.pop(source_index)
+        removed_source = True
+
+    scored: list[tuple[int, int, int]] = []
+    for adjusted_pos in range(len(sequence) + 1):
+        original_pos = adjusted_pos
+        if removed_source and adjusted_pos > source_index:
+            original_pos += 1
+        delta = setup_insertion_delta(
+            instance,
+            sequence=sequence,
+            machine_id=target_machine,
+            op=op,
+            insert_pos=adjusted_pos,
+            op_index=op_index,
+        )
+        scored.append((delta, abs(original_pos - source_index), original_pos))
+
+    scored.sort()
+    positions = {position for _, _, position in scored[:max(1, max_positions)]}
+    positions.update({0, len(state.machine_sequences[target_machine])})
+    if source_machine == target_machine:
+        positions.update({source_index - 3, source_index - 2, source_index - 1, source_index + 2, source_index + 3, source_index + 4})
+    return sorted(position for position in positions if 0 <= position <= len(state.machine_sequences[target_machine]))
 
 
 def clone_sequences(state: SearchState) -> list[list[OpKey]]:
@@ -759,6 +889,7 @@ def generate_hgtsa_lite_neighbors(
     """
 
     specs = operation_specs(instance)
+    op_index = operation_index_lookup(instance)
     path = critical_path(decoded)
     path_set = set(path)
     critical_set = critical_operations(decoded)
@@ -797,6 +928,7 @@ def generate_hgtsa_lite_neighbors(
             # same-machine operation or after any later same-machine operation.
             for target_index in range(0, first_index):
                 score = proxy_insert_score(
+                    instance=instance,
                     decoded=decoded,
                     state=state,
                     record_by_op=record_by_op,
@@ -807,6 +939,7 @@ def generate_hgtsa_lite_neighbors(
                     insert_pos=target_index,
                     source_machine=machine_id,
                     source_index=old_index,
+                    op_index=op_index,
                 )
                 remember(
                     Move("hgtsa_n8_front", op, machine_id, machine_id, old_index, target_index),
@@ -816,6 +949,7 @@ def generate_hgtsa_lite_neighbors(
             for target_index in range(last_index + 1, len(sequence)):
                 insert_pos = target_index + 1
                 score = proxy_insert_score(
+                    instance=instance,
                     decoded=decoded,
                     state=state,
                     record_by_op=record_by_op,
@@ -826,6 +960,7 @@ def generate_hgtsa_lite_neighbors(
                     insert_pos=insert_pos,
                     source_machine=machine_id,
                     source_index=old_index,
+                    op_index=op_index,
                 )
                 remember(
                     Move("hgtsa_n8_back", op, machine_id, machine_id, old_index, insert_pos),
@@ -860,6 +995,7 @@ def generate_hgtsa_lite_neighbors(
                 continue
             op = sequence[old_index]
             score = proxy_insert_score(
+                instance=instance,
                 decoded=decoded,
                 state=state,
                 record_by_op=record_by_op,
@@ -870,6 +1006,7 @@ def generate_hgtsa_lite_neighbors(
                 insert_pos=insert_pos,
                 source_machine=machine_id,
                 source_index=old_index,
+                op_index=op_index,
             )
             remember(
                 Move(kind, op, machine_id, machine_id, old_index, insert_pos),
@@ -903,6 +1040,7 @@ def generate_hgtsa_lite_neighbors(
                 target_machine=to_machine,
             ):
                 score = proxy_insert_score(
+                    instance=instance,
                     decoded=decoded,
                     state=state,
                     record_by_op=record_by_op,
@@ -913,6 +1051,7 @@ def generate_hgtsa_lite_neighbors(
                     insert_pos=insert_pos,
                     source_machine=from_machine,
                     source_index=old_index,
+                    op_index=op_index,
                 )
                 remember(
                     Move("hgtsa_k_insertion", op, from_machine, to_machine, old_index, insert_pos),
@@ -950,6 +1089,184 @@ def generate_hgtsa_lite_neighbors(
     priority_count = min(len(scored), max(1, int(neighbor_limit * 0.55)))
     selected = scored[:priority_count]
     remainder = scored[priority_count:]
+    rng.shuffle(remainder)
+    selected.extend(remainder[: max(0, neighbor_limit - len(selected))])
+    return [(move, next_state) for _, _, move, next_state in selected[:neighbor_limit]]
+
+
+def generate_setup_guided_neighbors(
+    instance: StandardFjspInstance,
+    state: SearchState,
+    decoded: DecodedState,
+    rng: random.Random,
+    neighbor_limit: int,
+) -> list[tuple[Move, SearchState]]:
+    """Prefer moves that remove expensive sequence-dependent setup arcs."""
+
+    specs = operation_specs(instance)
+    op_index = operation_index_lookup(instance)
+    record_by_op, duration, tail_after = decoded_timing(decoded)
+    critical = critical_operations(decoded)
+    ranked_edges: list[tuple[int, int, int, OpKey, OpKey]] = []
+    for machine_id, sequence in enumerate(state.machine_sequences):
+        for index, (left, right) in enumerate(zip(sequence, sequence[1:])):
+            setup_time = setup_time_between(instance, machine_id, left, right, op_index)
+            critical_bonus = decoded.makespan if left in critical or right in critical else 0
+            ranked_edges.append((setup_time + critical_bonus, setup_time, index, left, right))
+    ranked_edges.sort(reverse=True)
+
+    scored: list[tuple[float, float, Move, SearchState]] = []
+    seen_moves: set[tuple[object, ...]] = set()
+
+    def remember(move: Move, next_state: SearchState | None, score: float) -> None:
+        if next_state is None:
+            return
+        key = (move.kind, move.op, move.from_machine, move.to_machine, move.from_index, move.to_index)
+        if key in seen_moves:
+            return
+        seen_moves.add(key)
+        scored.append((score, rng.random(), move, next_state))
+
+    edge_limit = min(len(ranked_edges), max(8, neighbor_limit // 2))
+    for _, setup_time, left_index, left, right in ranked_edges[:edge_limit]:
+        source_machine = state.assignment[left]
+        sequence = state.machine_sequences[source_machine]
+        candidates = [(left, left_index), (right, left_index + 1)]
+        rng.shuffle(candidates)
+        for op, source_index in candidates:
+            removal_delta = setup_removal_delta(
+                instance,
+                sequence=list(sequence),
+                machine_id=source_machine,
+                source_index=source_index,
+                op_index=op_index,
+            )
+            positions = setup_guided_insert_positions(
+                instance,
+                state,
+                op=op,
+                target_machine=source_machine,
+                source_machine=source_machine,
+                source_index=source_index,
+                op_index=op_index,
+                max_positions=max(4, neighbor_limit // 10),
+            )
+            for insert_pos in positions:
+                target_sequence = list(sequence)
+                if 0 <= source_index < len(target_sequence) and target_sequence[source_index] == op:
+                    target_sequence.pop(source_index)
+                    adjusted_insert_pos = insert_pos - 1 if insert_pos > source_index else insert_pos
+                else:
+                    adjusted_insert_pos = insert_pos
+                adjusted_insert_pos = max(0, min(adjusted_insert_pos, len(target_sequence)))
+                insert_delta = setup_insertion_delta(
+                    instance,
+                    sequence=target_sequence,
+                    machine_id=source_machine,
+                    op=op,
+                    insert_pos=adjusted_insert_pos,
+                    op_index=op_index,
+                )
+                score = proxy_insert_score(
+                    instance=instance,
+                    decoded=decoded,
+                    state=state,
+                    record_by_op=record_by_op,
+                    tail_after=tail_after,
+                    specs=specs,
+                    op=op,
+                    target_machine=source_machine,
+                    insert_pos=insert_pos,
+                    source_machine=source_machine,
+                    source_index=source_index,
+                    op_index=op_index,
+                ) + removal_delta + insert_delta - setup_time
+                remember(
+                    Move("setup_same_machine_insert", op, source_machine, source_machine, source_index, insert_pos),
+                    relocate_same_machine(state, source_machine, source_index, insert_pos),
+                    score,
+                )
+
+            candidate_machines = sorted(
+                (machine_id for machine_id in specs[op] if machine_id != source_machine),
+                key=lambda machine_id: (specs[op][machine_id], len(state.machine_sequences[machine_id]), machine_id),
+            )
+            for target_machine in candidate_machines[: max(2, min(len(candidate_machines), instance.machine_count // 2))]:
+                positions = setup_guided_insert_positions(
+                    instance,
+                    state,
+                    op=op,
+                    target_machine=target_machine,
+                    source_machine=source_machine,
+                    source_index=source_index,
+                    op_index=op_index,
+                    max_positions=max(4, neighbor_limit // 12),
+                )
+                for insert_pos in positions:
+                    target_sequence = list(state.machine_sequences[target_machine])
+                    insert_delta = setup_insertion_delta(
+                        instance,
+                        sequence=target_sequence,
+                        machine_id=target_machine,
+                        op=op,
+                        insert_pos=max(0, min(insert_pos, len(target_sequence))),
+                        op_index=op_index,
+                    )
+                    processing_delta = specs[op][target_machine] - specs[op][source_machine]
+                    score = (
+                        proxy_insert_score(
+                            instance=instance,
+                            decoded=decoded,
+                            state=state,
+                            record_by_op=record_by_op,
+                            tail_after=tail_after,
+                            specs=specs,
+                            op=op,
+                            target_machine=target_machine,
+                            insert_pos=insert_pos,
+                            source_machine=source_machine,
+                            source_index=source_index,
+                            op_index=op_index,
+                        )
+                        + processing_delta
+                        + removal_delta
+                        + insert_delta
+                        - setup_time
+                    )
+                    remember(
+                        Move("setup_machine_change_insert", op, source_machine, target_machine, source_index, insert_pos),
+                        change_machine_insert(state, op, source_machine, target_machine, insert_pos),
+                        score,
+                    )
+        if len(scored) >= neighbor_limit * 8:
+            break
+
+    fallback_quota = max(1, neighbor_limit // 3)
+    if len(scored) < neighbor_limit or rng.random() < 0.35:
+        fallback = (
+            generate_hgtsa_lite_neighbors(instance, state, decoded, rng, fallback_quota)
+            + generate_random_neighbors(instance, state, decoded, rng, fallback_quota)
+        )
+        fallback_score = decoded.makespan + 100.0
+        for move, next_state in fallback:
+            remember(
+                Move(
+                    f"setup_fallback_{move.kind}",
+                    move.op,
+                    move.from_machine,
+                    move.to_machine,
+                    move.from_index,
+                    move.to_index,
+                ),
+                next_state,
+                fallback_score + rng.random(),
+            )
+            if len(scored) >= neighbor_limit:
+                break
+
+    scored.sort(key=lambda item: (item[0], item[1]))
+    selected = scored[: max(1, int(neighbor_limit * 0.55))]
+    remainder = scored[len(selected):]
     rng.shuffle(remainder)
     selected.extend(remainder[: max(0, neighbor_limit - len(selected))])
     return [(move, next_state) for _, _, move, next_state in selected[:neighbor_limit]]
@@ -1025,6 +1342,8 @@ def generate_neighbors(
         return generate_structured_neighbors(instance, state, decoded, rng, neighbor_limit)
     if neighborhood_profile == "hgtsa-lite":
         return generate_hgtsa_lite_neighbors(instance, state, decoded, rng, neighbor_limit)
+    if neighborhood_profile == "setup-guided":
+        return generate_setup_guided_neighbors(instance, state, decoded, rng, neighbor_limit)
 
     structured = generate_structured_neighbors(instance, state, decoded, rng, neighbor_limit)
     random_moves = generate_random_neighbors(instance, state, decoded, rng, neighbor_limit)

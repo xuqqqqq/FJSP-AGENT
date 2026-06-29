@@ -104,6 +104,61 @@ class FjspSdstTests(unittest.TestCase):
         self.assertIn("setup_time", payload["metrics"])
         self.assertIn("setup_count", payload["metrics"])
 
+    def test_local_search_solver_generates_valid_hudata_sdst_solution(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            solution = Path(tmp) / "solution.json"
+            metrics = Path(tmp) / "metrics.json"
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    "examples/standard_fjsp_local_search_solver.py",
+                    "--input",
+                    str(HUDATA_TINY),
+                    "--output",
+                    str(solution),
+                    "--seed",
+                    "0",
+                    "--portfolio-size",
+                    "8",
+                    "--restarts",
+                    "1",
+                    "--initial-pool-size",
+                    "1",
+                    "--iterations",
+                    "10",
+                    "--neighbor-limit",
+                    "20",
+                    "--time-limit-sec",
+                    "1",
+                    "--neighborhood-profile",
+                    "awls-hybrid",
+                ],
+                cwd=ROOT,
+                check=True,
+            )
+            subprocess.run(
+                [
+                    sys.executable,
+                    "examples/standard_fjsp_evaluator.py",
+                    "--instance",
+                    str(HUDATA_TINY),
+                    "--solution",
+                    str(solution),
+                    "--metrics",
+                    str(metrics),
+                ],
+                cwd=ROOT,
+                check=True,
+            )
+
+            payload = json.loads(metrics.read_text(encoding="utf-8"))
+            solution_payload = json.loads(solution.read_text(encoding="utf-8"))
+
+        self.assertTrue(payload["valid"], payload["errors"])
+        self.assertEqual("fjsp_sdst", solution_payload["variant"])
+        self.assertGreater(payload["metrics"]["setup_time"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

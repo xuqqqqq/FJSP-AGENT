@@ -439,7 +439,15 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
     config["instance_profile"] = instance_profile
     config["effective_awls_time_limit_sec"] = effective_awls_time_limit_for_web(config, instance_path)
     config["estimated_awls_zi_eval_sec_per_round"] = estimate_awls_zi_round_seconds(config)
-    if config["local_search_neighborhood_profile"] not in {"random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid"}:
+    if config["local_search_neighborhood_profile"] not in {
+        "random",
+        "critical-block",
+        "combined",
+        "hgtsa-lite",
+        "hybrid",
+        "awls-hybrid",
+        "setup-guided",
+    }:
         config["local_search_neighborhood_profile"] = "random"
     if config["awls_init"] not in {"random", "greedy", "mixed"}:
         config["awls_init"] = "random"
