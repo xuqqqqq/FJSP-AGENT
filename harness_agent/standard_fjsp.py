@@ -37,6 +37,7 @@ class StandardFjspInstance:
     max_candidate_count: int
     jobs: tuple[Job, ...]
     setup_times: SetupTimes = ()
+    setup_time_kind: str = "none"
 
     @property
     def operation_count(self) -> int:
@@ -61,18 +62,17 @@ class ScheduleRecord:
 
 
 def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
-    """Parse standard FJSP text plus the FJSP-SDST Fattahi tail matrix.
+    """Parse standard FJSP text plus supported FJSP-SDST setup tails.
 
     The format starts with three integers:
 
     `job_count machine_count max_candidate_count`
 
     Each job then gives its operation count.  Each operation gives a candidate
-    count followed by `(machine_id, processing_time)` pairs.  FJSP-SDST Fattahi
-    files append `machine_count * operation_count * operation_count` setup-time
-    integers.  The setup tail is stored as a per-machine matrix in normalized
-    machine order and is evaluated implicitly between consecutive operations on
-    the same machine.
+    count followed by `(machine_id, processing_time)` pairs.  FJSP-SDST files
+    may append either an operation-pair setup matrix
+    (`machine_count * operation_count * operation_count`) or a HUdata job-pair
+    setup matrix (`machine_count * job_count * job_count`).
     """
 
     numbers = [int(token) for token in path.read_text(encoding="utf-8").split()]
@@ -140,9 +140,10 @@ def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
         jobs.append(Job(job_id=job_id, operations=tuple(ops)))
 
     operation_count = sum(len(job.operations) for job in jobs)
-    setup_times = _parse_optional_setup_times(
+    setup_times, setup_time_kind = _parse_optional_setup_times(
         path=path,
         tail=numbers[idx:],
+        job_count=job_count,
         machine_count=machine_count,
         operation_count=operation_count,
     )
@@ -154,6 +155,7 @@ def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
         max_candidate_count=max_candidate_count,
         jobs=tuple(jobs),
         setup_times=setup_times,
+        setup_time_kind=setup_time_kind,
     )
 
 
@@ -161,29 +163,38 @@ def _parse_optional_setup_times(
     *,
     path: Path,
     tail: list[int],
+    job_count: int,
     machine_count: int,
     operation_count: int,
-) -> SetupTimes:
+) -> tuple[SetupTimes, str]:
     if not tail:
-        return ()
-    expected = machine_count * operation_count * operation_count
-    if len(tail) != expected:
+        return (), "none"
+    operation_pair_expected = machine_count * operation_count * operation_count
+    job_pair_expected = machine_count * job_count * job_count
+    if len(tail) == operation_pair_expected:
+        dimension = operation_count
+        kind = "operation_pair"
+    elif len(tail) == job_pair_expected:
+        dimension = job_count
+        kind = "job_pair"
+    else:
         raise ValueError(
             f"{path} has trailing tokens that do not match an FJSP-SDST setup matrix: "
-            f"trailing={len(tail)}, expected={expected}"
+            f"trailing={len(tail)}, expected_operation_pair={operation_pair_expected}, "
+            f"expected_job_pair={job_pair_expected}"
         )
     cursor = 0
     setup_by_machine: list[tuple[tuple[int, ...], ...]] = []
     for machine_id in range(machine_count):
         rows: list[tuple[int, ...]] = []
-        for _ in range(operation_count):
-            row = tuple(tail[cursor : cursor + operation_count])
-            cursor += operation_count
+        for _ in range(dimension):
+            row = tuple(tail[cursor : cursor + dimension])
+            cursor += dimension
             if any(value < 0 for value in row):
                 raise ValueError(f"{path} has negative setup time for machine {machine_id}")
             rows.append(row)
         setup_by_machine.append(tuple(rows))
-    return tuple(setup_by_machine)
+    return tuple(setup_by_machine), kind
 
 
 def operation_index_lookup(instance: StandardFjspInstance) -> dict[OpKey, int]:
@@ -204,6 +215,8 @@ def setup_time_between(
         return 0
     if not 0 <= machine_id < len(instance.setup_times):
         return 0
+    if instance.setup_time_kind == "job_pair":
+        return instance.setup_times[machine_id][previous_op[0]][current_op[0]]
     index = op_index or operation_index_lookup(instance)
     return instance.setup_times[machine_id][index[previous_op]][index[current_op]]
 

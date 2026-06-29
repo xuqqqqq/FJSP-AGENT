@@ -1,4 +1,4 @@
-# FJSP-SDST Fattahi 自演进演示需求文档
+# FJSP-SDST 自演进演示需求文档
 
 ## 1. 问题目标
 
@@ -29,9 +29,9 @@ FJSP-SDST 与标准 FJSP 的关键差异是：同一台机器上连续加工两�
 
 ## 4. 自演进要求
 
-系统应从本需求文档、IO 文档和 Fattahi SDST 算例出发，执行固定 evaluator 支撑的自演进循环：
+系统应从本需求文档、IO 文档和 SDST 算例出发，执行固定 evaluator 支撑的自演进循环：
 
-1. 解析 FJSP-SDST 输入，包括标准 FJSP 工序候选部分和尾部 setup 矩阵。
+1. 解析 FJSP-SDST 输入，包括标准 FJSP 工序候选部分和尾部 setup 矩阵；尾部矩阵可能是 Fattahi operation-pair 编码，也可能是 SDST-HUdata job-pair 编码。
 2. 生成 setup-aware 的调度策略候选。
 3. 调用非 AWLS 候选 solver 生成加工操作调度。
 4. evaluator 根据机器序列隐式重算 setup time，并检查机器容量、工序顺序、候选机器和加工时长。
