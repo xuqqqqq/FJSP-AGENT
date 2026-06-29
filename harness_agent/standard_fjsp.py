@@ -6,6 +6,10 @@ from pathlib import Path
 from typing import Any
 
 
+OpKey = tuple[int, int]
+SetupTimes = tuple[tuple[tuple[int, ...], ...], ...]
+
+
 @dataclass(frozen=True)
 class MachineOption:
     machine_id: int
@@ -32,10 +36,15 @@ class StandardFjspInstance:
     machine_count: int
     max_candidate_count: int
     jobs: tuple[Job, ...]
+    setup_times: SetupTimes = ()
 
     @property
     def operation_count(self) -> int:
         return sum(len(job.operations) for job in self.jobs)
+
+    @property
+    def has_sequence_dependent_setup(self) -> bool:
+        return bool(self.setup_times)
 
 
 @dataclass(frozen=True)
@@ -52,14 +61,18 @@ class ScheduleRecord:
 
 
 def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
-    """Parse the common qimingme/FJSP-Instance text format.
+    """Parse standard FJSP text plus the FJSP-SDST Fattahi tail matrix.
 
     The format starts with three integers:
 
     `job_count machine_count max_candidate_count`
 
     Each job then gives its operation count.  Each operation gives a candidate
-    count followed by `(machine_id, processing_time)` pairs.
+    count followed by `(machine_id, processing_time)` pairs.  FJSP-SDST Fattahi
+    files append `machine_count * operation_count * operation_count` setup-time
+    integers.  The setup tail is stored as a per-machine matrix in normalized
+    machine order and is evaluated implicitly between consecutive operations on
+    the same machine.
     """
 
     numbers = [int(token) for token in path.read_text(encoding="utf-8").split()]
@@ -99,8 +112,6 @@ def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
             raw_ops.append(candidates)
         raw_jobs.append(raw_ops)
 
-    if idx != len(numbers):
-        raise ValueError(f"{path} has trailing tokens: parsed={idx}, total={len(numbers)}")
     if not machine_ids:
         raise ValueError(f"{path} has no machine candidates")
 
@@ -128,13 +139,73 @@ def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
             ops.append(Operation(job_id=job_id, op_id=op_id, candidates=candidates))
         jobs.append(Job(job_id=job_id, operations=tuple(ops)))
 
+    operation_count = sum(len(job.operations) for job in jobs)
+    setup_times = _parse_optional_setup_times(
+        path=path,
+        tail=numbers[idx:],
+        machine_count=machine_count,
+        operation_count=operation_count,
+    )
+
     return StandardFjspInstance(
         name=path.stem,
         job_count=job_count,
         machine_count=machine_count,
         max_candidate_count=max_candidate_count,
         jobs=tuple(jobs),
+        setup_times=setup_times,
     )
+
+
+def _parse_optional_setup_times(
+    *,
+    path: Path,
+    tail: list[int],
+    machine_count: int,
+    operation_count: int,
+) -> SetupTimes:
+    if not tail:
+        return ()
+    expected = machine_count * operation_count * operation_count
+    if len(tail) != expected:
+        raise ValueError(
+            f"{path} has trailing tokens that do not match an FJSP-SDST setup matrix: "
+            f"trailing={len(tail)}, expected={expected}"
+        )
+    cursor = 0
+    setup_by_machine: list[tuple[tuple[int, ...], ...]] = []
+    for machine_id in range(machine_count):
+        rows: list[tuple[int, ...]] = []
+        for _ in range(operation_count):
+            row = tuple(tail[cursor : cursor + operation_count])
+            cursor += operation_count
+            if any(value < 0 for value in row):
+                raise ValueError(f"{path} has negative setup time for machine {machine_id}")
+            rows.append(row)
+        setup_by_machine.append(tuple(rows))
+    return tuple(setup_by_machine)
+
+
+def operation_index_lookup(instance: StandardFjspInstance) -> dict[OpKey, int]:
+    return {
+        (job.job_id, op.op_id): index
+        for index, (job, op) in enumerate((job, op) for job in instance.jobs for op in job.operations)
+    }
+
+
+def setup_time_between(
+    instance: StandardFjspInstance,
+    machine_id: int,
+    previous_op: OpKey | None,
+    current_op: OpKey,
+    op_index: dict[OpKey, int] | None = None,
+) -> int:
+    if previous_op is None or not instance.setup_times:
+        return 0
+    if not 0 <= machine_id < len(instance.setup_times):
+        return 0
+    index = op_index or operation_index_lookup(instance)
+    return instance.setup_times[machine_id][index[previous_op]][index[current_op]]
 
 
 def load_solution(path: Path) -> list[ScheduleRecord]:
@@ -162,9 +233,11 @@ def load_solution(path: Path) -> list[ScheduleRecord]:
 def write_solution(path: Path, instance: StandardFjspInstance, schedule: list[ScheduleRecord], strategy: str) -> None:
     payload: dict[str, Any] = {
         "format": "standard_fjsp_schedule_v1",
+        "variant": "fjsp_sdst" if instance.has_sequence_dependent_setup else "standard_fjsp",
         "instance": instance.name,
         "strategy": strategy,
         "makespan": max((record.end for record in schedule), default=0),
+        "setup_time_policy": "implicit_by_evaluator",
         "schedule": [
             {
                 "job_id": record.job_id,
@@ -237,14 +310,29 @@ def validate_standard_schedule(
     by_machine: dict[int, list[ScheduleRecord]] = {}
     for record in schedule:
         by_machine.setdefault(record.machine_id, []).append(record)
+    op_index = operation_index_lookup(instance)
+    total_setup_time = 0
+    setup_count = 0
     for machine_id, records in by_machine.items():
         sorted_records = sorted(records, key=lambda item: (item.start, item.end, item.job_id, item.op_id))
         for left, right in zip(sorted_records, sorted_records[1:]):
-            if right.start < left.end:
+            setup_time = setup_time_between(
+                instance,
+                machine_id,
+                (left.job_id, left.op_id),
+                (right.job_id, right.op_id),
+                op_index,
+            )
+            total_setup_time += setup_time
+            if setup_time:
+                setup_count += 1
+            required_start = left.end + setup_time
+            if right.start < required_start:
                 errors.append(
-                    f"machine overlap: machine={machine_id}, "
+                    f"machine overlap/setup violation: machine={machine_id}, "
                     f"left=({left.job_id},{left.op_id},{left.start},{left.end}), "
-                    f"right=({right.job_id},{right.op_id},{right.start},{right.end})"
+                    f"right=({right.job_id},{right.op_id},{right.start},{right.end}), "
+                    f"setup={setup_time}, required_start={required_start}"
                 )
 
     makespan = max((record.end for record in schedule), default=0)
@@ -253,5 +341,7 @@ def validate_standard_schedule(
         "scheduled_operations": float(len(schedule)),
         "operation_count": float(instance.operation_count),
     }
+    if instance.has_sequence_dependent_setup:
+        metrics["setup_time"] = float(total_setup_time)
+        metrics["setup_count"] = float(setup_count)
     return errors, metrics
-

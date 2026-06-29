@@ -39,7 +39,7 @@ def default_problem_families() -> dict[str, ProblemFamilyCapability]:
             "fjsp_with_best_known_gap",
             "fjsp_dispatch_rule_baseline",
             "fjsp_awls_local_search",
-            "planned_fjsp_sdst",
+            "fjsp_sdst",
         ],
         canonical_objectives=[
             {"name": "makespan", "direction": "minimize", "priority": 1},
@@ -50,13 +50,13 @@ def default_problem_families() -> dict[str, ProblemFamilyCapability]:
             "Instances use the common text format: job_count machine_count max_candidate_count followed by jobs.",
             "Solutions must use standard_fjsp_schedule_v1 JSON with one record per operation.",
             "Evaluator owns all legality checks: precedence, machine eligibility, duration, and machine overlap.",
-            "FJSP-SDST instances are a separate planned variant; setup-time matrices require a new parser/evaluator contract.",
+            "FJSP-SDST instances require the dedicated setup-matrix IO contract; setup time is evaluated between consecutive operations on the same machine.",
         ],
         evaluator_invariants=[
             "Do not modify examples/standard_fjsp_evaluator.py when evolving solver code.",
             "Do not modify harness_agent/standard_fjsp.py parser or validator without a new user-confirmed IO contract.",
             "Candidate solvers may self-check, but promotion depends only on Core evaluator output.",
-            "Do not feed FJSP-SDST files into the standard-FJSP evaluator unless an explicit SDST adapter is selected.",
+            "Do not use the AWLS standard-FJSP backend for FJSP-SDST unless setup-aware decoding and neighborhood evaluation are selected.",
         ],
         solver_entrypoints=[
             "examples/standard_fjsp_portfolio_solver.py",
@@ -69,6 +69,8 @@ def default_problem_families() -> dict[str, ProblemFamilyCapability]:
             "awls_zi_formula_or_slot",
             "neighborhood_operator_slots",
             "best_known_gap_feedback",
+            "setup_aware_dispatch_or_insertion",
+            "sdst_io_contract",
         ],
         knowledge_tags=[
             "fjsp",
@@ -78,9 +80,11 @@ def default_problem_families() -> dict[str, ProblemFamilyCapability]:
             "machine_reassignment",
             "tabu_search",
             "awls",
+            "sdst",
+            "sequence_dependent_setup",
         ],
     )
-    return {fjsp.family_id: fjsp, "FJSP": fjsp, "standard_fjsp": fjsp}
+    return {fjsp.family_id: fjsp, "FJSP": fjsp, "standard_fjsp": fjsp, "fjsp_sdst": fjsp}
 
 
 def get_problem_family(family_id: str) -> ProblemFamilyCapability:

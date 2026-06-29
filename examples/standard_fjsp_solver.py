@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from harness_agent.standard_fjsp import ScheduleRecord, parse_standard_fjsp, write_solution
+from harness_agent.standard_fjsp import ScheduleRecord, operation_index_lookup, parse_standard_fjsp, setup_time_between, write_solution
 
 
 def build_ect_schedule(instance_path: Path, seed: int) -> tuple[object, list[ScheduleRecord]]:
@@ -16,6 +16,8 @@ def build_ect_schedule(instance_path: Path, seed: int) -> tuple[object, list[Sch
     next_op = [0 for _ in instance.jobs]
     job_ready = [0 for _ in instance.jobs]
     machine_ready = [0 for _ in range(instance.machine_count)]
+    last_op_by_machine: list[tuple[int, int] | None] = [None for _ in range(instance.machine_count)]
+    op_index = operation_index_lookup(instance)
     schedule: list[ScheduleRecord] = []
 
     for _ in range(instance.operation_count):
@@ -27,7 +29,15 @@ def build_ect_schedule(instance_path: Path, seed: int) -> tuple[object, list[Sch
                 continue
             operation = job.operations[op_id]
             for candidate in operation.candidates:
-                start = max(job_ready[job.job_id], machine_ready[candidate.machine_id])
+                current_op = (job.job_id, op_id)
+                setup_time = setup_time_between(
+                    instance,
+                    candidate.machine_id,
+                    last_op_by_machine[candidate.machine_id],
+                    current_op,
+                    op_index,
+                )
+                start = max(job_ready[job.job_id], machine_ready[candidate.machine_id] + setup_time)
                 end = start + candidate.duration
                 # Earliest completion first, then shorter processing time, with a tiny seed tie breaker.
                 key = (end, candidate.duration, start, rng.random())
@@ -46,6 +56,7 @@ def build_ect_schedule(instance_path: Path, seed: int) -> tuple[object, list[Sch
         next_op[best_record.job_id] += 1
         job_ready[best_record.job_id] = best_record.end
         machine_ready[best_record.machine_id] = best_record.end
+        last_op_by_machine[best_record.machine_id] = (best_record.job_id, best_record.op_id)
 
     return instance, schedule
 

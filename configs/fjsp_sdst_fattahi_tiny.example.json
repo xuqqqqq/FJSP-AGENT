@@ -1,0 +1,52 @@
+{
+  "task_id": "fjsp_sdst_fattahi_tiny_smoke",
+  "problem_family": "fjsp_sdst",
+  "description": "FJSP-SDST smoke task using a tiny Fattahi setup-time instance.",
+  "requirement_doc": "examples/fjsp_sdst_fattahi_requirement.md",
+  "io_doc": "examples/fjsp_sdst_fattahi_io.md",
+  "instances": [
+    {
+      "id": "fattahi_setup_01",
+      "path": "examples/fjsp_sdst_fattahi_setup_01.fjs"
+    }
+  ],
+  "objectives": [
+    {
+      "name": "makespan",
+      "direction": "minimize",
+      "priority": 1,
+      "invalid_if_missing": true
+    },
+    {
+      "name": "setup_time",
+      "direction": "minimize",
+      "priority": 2,
+      "optional": true
+    }
+  ],
+  "commands": {
+    "solver": "python examples/standard_fjsp_portfolio_solver.py --input {instance} --output {solution} --seed {seed} --portfolio-size 8",
+    "evaluator": "python examples/standard_fjsp_evaluator.py --instance {instance} --solution {solution} --metrics {metrics}",
+    "quick_test": "python -m compileall harness_agent examples"
+  },
+  "budget": {
+    "rounds": 1,
+    "seeds": [0],
+    "timeout_seconds": 30
+  },
+  "paths": {
+    "allowed_paths": [
+      "examples",
+      "harness_agent",
+      "configs"
+    ],
+    "forbidden_paths": [
+      ".git",
+      "outputs"
+    ]
+  },
+  "review": {
+    "status": "draft",
+    "notes": "FJSP-SDST IO/requirements must be confirmed before optimization runs beyond smoke tests."
+  }
+}

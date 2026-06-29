@@ -15,7 +15,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from harness_agent.standard_fjsp import (
     ScheduleRecord,
     StandardFjspInstance,
+    operation_index_lookup,
     parse_standard_fjsp,
+    setup_time_between,
     validate_standard_schedule,
     write_solution,
 )
@@ -51,6 +53,8 @@ def build_schedule(instance: StandardFjspInstance, strategy: Strategy, seed: int
     next_op = [0 for _ in instance.jobs]
     job_ready = [0 for _ in instance.jobs]
     machine_ready = [0 for _ in range(instance.machine_count)]
+    last_op_by_machine: list[tuple[int, int] | None] = [None for _ in range(instance.machine_count)]
+    op_index = operation_index_lookup(instance)
     machine_load = [0 for _ in range(instance.machine_count)]
     remaining_work = remaining_min_work(instance)
     schedule: list[ScheduleRecord] = []
@@ -79,7 +83,15 @@ def build_schedule(instance: StandardFjspInstance, strategy: Strategy, seed: int
             flexibility = len(op.candidates) / max(1, instance.max_candidate_count)
 
             for candidate in op.candidates:
-                start = max(job_ready[job.job_id], machine_ready[candidate.machine_id])
+                current_op = (job.job_id, op.op_id)
+                setup_time = setup_time_between(
+                    instance,
+                    candidate.machine_id,
+                    last_op_by_machine[candidate.machine_id],
+                    current_op,
+                    op_index,
+                )
+                start = max(job_ready[job.job_id], machine_ready[candidate.machine_id] + setup_time)
                 finish = start + candidate.duration
                 candidate_horizon = max(horizon_scale, finish)
                 avg_load = max(1.0, sum(machine_load) / max(1, instance.machine_count))
@@ -117,6 +129,7 @@ def build_schedule(instance: StandardFjspInstance, strategy: Strategy, seed: int
         next_op[best_record.job_id] += 1
         job_ready[best_record.job_id] = best_record.end
         machine_ready[best_record.machine_id] = best_record.end
+        last_op_by_machine[best_record.machine_id] = (best_record.job_id, best_record.op_id)
         machine_load[best_record.machine_id] += best_record.duration
 
     return schedule
