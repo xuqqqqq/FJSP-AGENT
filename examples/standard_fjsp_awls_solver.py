@@ -566,6 +566,7 @@ def random_init(index: OperationIndex, rng: random.Random) -> tuple[list[list[in
 
 
 def greedy_gt_init(index: OperationIndex, rng: random.Random, random_factor: float = 0.20, idle_bonus: float = 0.20) -> tuple[list[list[int]], list[int]]:
+    # SLOT awls_sdst_initialization START
     sequences = [[] for _ in range(index.instance.machine_count)]
     on_machine = [-1] * index.node_count
     job_ready = [0] * index.instance.job_count
@@ -615,6 +616,7 @@ def greedy_gt_init(index: OperationIndex, rng: random.Random, random_factor: flo
         scheduled += 1
 
     return sequences, on_machine
+    # SLOT awls_sdst_initialization END
 
 
 def one_critical_path_from_start(schedule: AwlsSchedule, start: int) -> list[int]:
@@ -865,6 +867,7 @@ def local_sequence_after_same_machine_move(schedule: AwlsSchedule, move: Move) -
 
 
 def same_machine_evaluate_stable(schedule: AwlsSchedule, move: Move, gamma: int) -> float:
+    # SLOT awls_sdst_same_machine_evaluation START
     new_sequence, machine_predecessor, machine_successor = local_sequence_after_same_machine_move(schedule, move)
     n = len(new_sequence)
     new_r = [0] * n
@@ -909,6 +912,7 @@ def same_machine_evaluate_stable(schedule: AwlsSchedule, move: Move, gamma: int)
             new_r[idx] + schedule.index.duration(node, machine_id) + new_q[idx] + weight_perturbation(schedule, node, gamma),
         )
     return value
+    # SLOT awls_sdst_same_machine_evaluation END
 
 
 def same_machine_evaluate_cpp_fast(schedule: AwlsSchedule, move: Move, gamma: int) -> float:
@@ -1306,6 +1310,7 @@ def find_move(
             return
         remember_candidate(method, which, where, value)
 
+    # SLOT awls_sdst_neighborhood_selection START
     exhaustive_first = schedule.rng.randrange(100) < max(0, min(100, critical_block_exhaustive_pct))
     exhaustive_modes = (True, False) if exhaustive_first else (False, True)
     for exhaustive in exhaustive_modes:
@@ -1364,6 +1369,7 @@ def find_move(
 
         if all_moves:
             break
+    # SLOT awls_sdst_neighborhood_selection END
 
     if not all_moves:
         return None

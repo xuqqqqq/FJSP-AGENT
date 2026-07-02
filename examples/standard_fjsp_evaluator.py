@@ -24,10 +24,16 @@ def normalize_instance_name(name: str) -> str:
     return normalized
 
 
+def instance_name_keys(name: str) -> set[str]:
+    normalized = normalize_instance_name(name)
+    keys = {normalized}
+    if normalized.startswith("oddla") and normalized[5:].isdigit():
+        keys.add("la" + normalized[5:])
+    return keys
+
+
 def names_match(candidate: str, target: str) -> bool:
-    normalized_candidate = normalize_instance_name(candidate)
-    normalized_target = normalize_instance_name(target)
-    return normalized_candidate == normalized_target
+    return bool(instance_name_keys(candidate) & instance_name_keys(target))
 
 
 def parse_float(value: str | None) -> float | None:
@@ -40,6 +46,20 @@ def parse_float(value: str | None) -> float | None:
         return float(stripped)
     except ValueError:
         return None
+
+
+def best_value_from_row(values: dict[str, str]) -> float | None:
+    for column in BEST_COLUMNS:
+        parsed = parse_float(values.get(column))
+        if parsed is not None:
+            return parsed
+    for column, value in values.items():
+        normalized = column.replace(" ", "_").replace("-", "_")
+        if "best" in normalized or "upper_bound" in normalized or normalized in {"ub/bks", "ub_bks"}:
+            parsed = parse_float(value)
+            if parsed is not None:
+                return parsed
+    return None
 
 
 def read_csv_text(path: Path) -> str:
@@ -61,7 +81,7 @@ def load_best_known(path: Path | None, instance_name: str) -> float | None:
         for row in reader:
             values = {str(key).strip().lower(): value for key, value in row.items() if key}
             name = next((values[column] for column in NAME_COLUMNS if values.get(column)), None)
-            best = next((parse_float(values[column]) for column in BEST_COLUMNS if parse_float(values.get(column)) is not None), None)
+            best = best_value_from_row(values)
             if name and best is not None and names_match(str(name), instance_name):
                 return best
     with io.StringIO(csv_text) as handle:

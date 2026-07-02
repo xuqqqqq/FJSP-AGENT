@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "problem_family": "standard_fjsp",
+  "status": "confirmed",
+  "confirmation_required": false,
+  "notes": [
+    "AWLS-SDST stage 4: improve initial solution construction, likely the largest remaining quality lever.",
+    "Current greedy_gt_init chooses by processing-time completion and ignores SDST setup on machine append decisions.",
+    "Only awls_sdst_initialization is user-confirmed in this manifest."
+  ],
+  "slots": [
+    {
+      "slot_id": "awls_sdst_initialization",
+      "title": "AWLS-SDST setup-aware greedy initialization",
+      "target_file": "examples/standard_fjsp_awls_solver.py",
+      "marker_start": "# SLOT awls_sdst_initialization START",
+      "marker_end": "# SLOT awls_sdst_initialization END",
+      "slot_kind": "marked_block",
+      "language": "python",
+      "purpose": "Build better initial AWLS machine sequences for SDST instances by accounting for setup time when selecting the next job operation and machine.",
+      "inputs": [
+        "index: OperationIndex with instance, candidates, node_to_job/node_to_op, and job_to_nodes",
+        "rng: random.Random used for deterministic seeded tie-breaking",
+        "random_factor and idle_bonus: existing diversification parameters",
+        "index.instance.has_sequence_dependent_setup and setup_time_between",
+        "OperationIndex implements __getitem__((job_id, op_id)) and can be passed directly as setup_time_between op_index"
+      ],
+      "outputs": [
+        "sequences: list[list[int]] assigning every operation node exactly once to a machine sequence",
+        "on_machine: list[int] mapping every real node to its selected machine",
+        "The result must be accepted by AwlsSchedule and validate_standard_schedule after AWLS timing propagation."
+      ],
+      "invariants": [
+        "Keep greedy_gt_init signature unchanged.",
+        "Schedule each operation exactly once and respect job operation order in candidate release.",
+        "Keep standard FJSP behavior close to the current greedy initializer when instance.has_sequence_dependent_setup is false.",
+        "If the slot calls setup_time_between, import it locally inside the slot; do not assume a module-level import exists.",
+        "Never call setup_time_between with current_op=None; first machine operation has zero setup.",
+        "setup_time_between expects operation keys like (job_id, op_id), not AWLS node ids. Convert nodes with index.node_to_job[node] and index.node_to_op[node].",
+        "Pass index itself as the setup_time_between op_index argument. Do not use index.op_index; OperationIndex has no op_index attribute.",
+        "Do not modify random_init, build_initial_schedule, parser, evaluator, solution schema, CLI arguments, or benchmark semantics."
+      ],
+      "allowed_edits": [
+        "Only rewrite code between awls_sdst_initialization markers.",
+        "May add local helper functions or lambdas inside the slot.",
+        "May import setup_time_between locally inside the slot.",
+        "May maintain machine_last_node, machine_ready, setup load, projected load, or setup-aware completion scores.",
+        "May define a local op_key(node) helper returning (index.node_to_job[node], index.node_to_op[node]).",
+        "May use seeded randomized tie-breaking through the provided rng."
+      ],
+      "forbidden_edits": [
+        "Do not create helper files for setup parsing or initialization.",
+        "Do not change AwlsSchedule.update_time in this stage.",
+        "Do not change N7/NK move scoring or zi policy in this stage.",
+        "Do not touch harness_agent.standard_fjsp or examples/standard_fjsp_evaluator.py."
+      ],
+      "validation_commands": [
+        "python -m compileall examples/standard_fjsp_awls_solver.py harness_agent/standard_fjsp.py",
+        "python -m unittest tests.test_standard_fjsp_awls_alignment tests.test_awls_slot_mode -v",
+        "python examples/standard_fjsp_awls_solver.py --input C:/Users/ASUS/Downloads/FJSP_SDST_HUdata_instances_package/FJSP_SDST_HUdata_instances_package/instances/oddla20.txt --output outputs/awls_sdst_init_hudata_smoke.json --seed 0 --restarts 1 --cycles-per-restart 20 --iterations 300 --time-limit-sec 10 --init mixed"
+      ],
+      "knowledge_tags": [
+        "awls",
+        "sdst",
+        "setup_time",
+        "initialization",
+        "dispatching",
+        "quality"
+      ],
+      "user_confirmed": true
+    }
+  ]
+}
