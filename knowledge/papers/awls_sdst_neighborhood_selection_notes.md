@@ -106,6 +106,15 @@ from the published UB (`997`; current fast/short baselines are `1202` or
     `all_moves` empty.  It worsened `oddla20` from `1010` to `1295`; the run
     selected only `5` moves instead of the incumbent `6000`, showing that
     over-pruning the neighborhood can collapse the tabu search.
+- After wrong-slot edit repair was added, DeepSeek generated a legal
+  `lateness_focused_block_selection` candidate that discarded the incumbent
+  exhaustive/non-exhaustive critical-block pass, sorted non-exhaustive
+  `critical_blocks` by latest `end_time`, kept only `top_k = 3` blocks for
+  same-machine moves, and always generated change-machine moves for critical
+  operations.  Core evaluation worsened `oddla20` from `1010` to `1280`
+  despite setup time falling to `1850`.  Do not retry fixed latest-block
+  top-K pruning as the whole neighborhood replacement; it removes too much
+  useful same-machine search.
 
 This points toward the move-candidate selection layer: the search may not be
 trying the right critical or near-critical N7/NK moves often enough.
@@ -182,6 +191,10 @@ Use these as hypotheses, not as manual patches:
 - Do not put all `change_machine_window` / `consider_change` calls behind
   `if not all_moves` after same-machine generation.  This over-pruned the
   search to `5` selected moves and worsened `oddla20` to `1295`.
+- Do not replace the incumbent dual exhaustive/non-exhaustive block traversal
+  with only `critical_blocks(..., exhaustive=False)` sorted by latest
+  `end_time` and clipped to a small fixed `top_k`; the tested top-3 version
+  worsened `oddla20` to `1280`.
 
 ## Guardrails
 

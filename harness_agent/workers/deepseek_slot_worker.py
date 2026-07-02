@@ -684,6 +684,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_failed_near_critical_threshold",
         "neighborhood_retries_failed_same_machine_window",
         "neighborhood_retries_failed_tight_tardiness_filter",
+        "neighborhood_retries_latest_block_topk_overpruning",
         "same_machine_retries_pure_exact_trial",
         "initialization_retries_append_only_setup_completion",
         "initialization_retries_low_setup_tiebreak",
@@ -908,6 +909,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_failed_near_critical_threshold",
         "neighborhood_retries_failed_same_machine_window",
         "neighborhood_retries_failed_tight_tardiness_filter",
+        "neighborhood_retries_latest_block_topk_overpruning",
         "same_machine_retries_pure_exact_trial",
         "initialization_retries_append_only_setup_completion",
         "initialization_retries_low_setup_tiebreak",
@@ -1003,6 +1005,15 @@ def awls_sdst_neighborhood_selection_warnings(content: str) -> list[str]:
         warnings.append("neighborhood_retries_failed_same_machine_window")
     if re.search(r"[<>]=?\s*-?\s*5\b", content) and "tardiness" in content:
         warnings.append("neighborhood_retries_failed_tight_tardiness_filter")
+    topk_latest_blocks = (
+        re.search(r"\btop_k\s*=\s*[1-5]\b", content)
+        and "critical_blocks" in content
+        and "exhaustive=false" in content.replace(" ", "")
+        and ("end_time" in content or "lateness" in content or "latest" in content)
+        and not re.search(r"exhaustive\s*=\s*true", content)
+    )
+    if topk_latest_blocks:
+        warnings.append("neighborhood_retries_latest_block_topk_overpruning")
     if "if not all_moves" in content and "schedule.rng" in content and ("shuffle(" in content or "choice(" in content):
         warnings.append("neighborhood_adds_random_no_move_fallback")
     if (
@@ -1021,6 +1032,8 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
         return (
             "- Do not retry the known non-improving neighborhood patterns: near-critical 0.99*makespan filters, "
             "+/-10 or +/-3 same-machine windows, or tight tardiness > -5 insertion filters.\n"
+            "- Do not replace the incumbent exhaustive/non-exhaustive critical-block pass with a fixed top-K latest-block "
+            "subset only; top_k=3 latest-block pruning worsened oddla20 from 1010 to 1280.\n"
             "- If editing this slot, use a materially different bounded candidate-generation idea such as "
             "boundary-biased N7 moves, bounded NK alternate-machine candidates from change_machine_window, "
             "or setup-heavy arc focus submitted only through consider_same / consider_change.\n"

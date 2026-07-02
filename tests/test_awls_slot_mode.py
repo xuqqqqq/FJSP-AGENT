@@ -766,6 +766,48 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_neighborhood_slot_warns_on_latest_block_topk_overpruning(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "latest_block_topk",
+                        "type": "local_search_operator",
+                        "novelty": "Avoids failed window filters by using latest critical blocks.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_neighborhood_selection",
+                        "content": (
+                            "    blocks = critical_blocks(schedule, schedule.rng, exhaustive=False)\n"
+                            "    blocks.sort(key=lambda block: schedule.end_time[block[-1]], reverse=True)\n"
+                            "    top_k = 3\n"
+                            "    for block in blocks[:top_k]:\n"
+                            "        consider_same(BACK, block[0], block[-1])\n"
+                            "    for node in schedule.index.real_nodes:\n"
+                            "        if schedule.is_critical_operation(node):\n"
+                            "            sequence, rk_start, lk_end = change_machine_window(schedule, node, schedule.on_machine[node])\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "neighborhood_retries_latest_block_topk_overpruning",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_generic_slot_audit_warns_on_empty_proposal_without_risk_note(self) -> None:
         worker = DeepSeekSlotWorker()
         slot = _generic_slot_context(slot_id="awls_sdst_move_evaluation")["slot_manifest"]["slots"][0]
