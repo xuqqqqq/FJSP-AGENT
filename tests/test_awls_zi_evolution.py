@@ -146,7 +146,7 @@ class AwlsZiEvolutionTests(unittest.TestCase):
                         },
                         {
                             "name": "critical",
-                            "beta": 400,
+                            "beta": 500,
                             "gamma": 40,
                             "theta": 5,
                             "zi_policy": "critical",
@@ -175,7 +175,7 @@ class AwlsZiEvolutionTests(unittest.TestCase):
                     },
                     {
                         "name": "critical",
-                        "beta": 400,
+                        "beta": 500,
                         "gamma": 40,
                         "theta": 5,
                         "zi_policy": "critical",
@@ -296,6 +296,49 @@ class AwlsZiEvolutionTests(unittest.TestCase):
                 1,
                 0,
             )
+
+    def test_normalize_candidates_rejects_known_flat_direct_pct_probe(self) -> None:
+        with self.assertRaisesRegex(ValueError, "flat/worse direct pct probe"):
+            normalize_candidates(
+                {
+                    "candidates": [
+                        {
+                            "name": "critical_pct60_repeat",
+                            "beta": 400,
+                            "gamma": 40,
+                            "theta": 5,
+                            "zi_policy": "critical",
+                            "critical_block_exhaustive_pct": 60,
+                            "same_machine_eval": "stable",
+                            "portfolio_lanes": "",
+                        }
+                    ]
+                },
+                1,
+                0,
+            )
+
+    def test_normalize_candidates_allows_known_pct_with_material_lane_change(self) -> None:
+        candidates = normalize_candidates(
+            {
+                "candidates": [
+                    {
+                        "name": "critical_pct60_with_lanes",
+                        "beta": 400,
+                        "gamma": 40,
+                        "theta": 5,
+                        "zi_policy": "critical",
+                        "critical_block_exhaustive_pct": 60,
+                        "same_machine_eval": "stable",
+                        "portfolio_lanes": "4:mixed:1:5,8:random:1:5",
+                    }
+                ]
+            },
+            1,
+            0,
+        )
+
+        self.assertEqual("4:mixed:1:5,8:random:1:5", candidates[0]["portfolio_lanes"])
 
     def test_collect_candidate_signatures_includes_baseline_and_history(self) -> None:
         signatures = collect_candidate_signatures(

@@ -25,6 +25,14 @@ FAILED_PORTFOLIO_LANE_STRINGS = (
     "1:greedy:1:6,3:random:1:6,7:mixed:1:6",
     "1:random:1:6,7:greedy:1:6,9:mixed:1:6",
 )
+KNOWN_DIRECT_PROBE_FLAT_OR_WORSE_CONFIGS = {
+    ("critical", 400, 40, 5, 50, "stable"),
+    ("critical", 400, 40, 5, 60, "stable"),
+    ("critical", 400, 40, 5, 75, "stable"),
+    ("critical", 400, 40, 5, 90, "stable"),
+    ("aggressive", 400, 40, 5, 50, "stable"),
+    ("aggressive", 400, 40, 5, 75, "stable"),
+}
 SDST_SETUP_ZI_SYMBOLS = (
     "setup_prev",
     "setup_next",
@@ -447,6 +455,10 @@ Rules:
   choice as a first-class hypothesis, not as noise.
 - Do not retry known failed portfolio strings:
   `{", ".join(FAILED_PORTFOLIO_LANE_STRINGS)}`.
+- Do not retry no-portfolio direct pct probes under
+  `beta400/gamma40/theta5 + stable`: `critical` pct `50/60/75/90` and
+  `aggressive` pct `50/75` have tied or worsened the current `1010`
+  incumbent on `oddla20`.
 - Avoid spending a full round only on `same_machine_eval=cpp-fast` or another
   small critical/cooldown multiplier formula after measured memory says those
   ideas tied or worsened the `1010` incumbent.
@@ -585,6 +597,9 @@ def normalize_candidates(
         if portfolio_lanes and portfolio_lanes in forbidden:
             rejection_reasons.append(f"{name}: repeats failed portfolio_lanes {portfolio_lanes}")
             continue
+        if is_known_direct_probe_flat_or_worse(candidate):
+            rejection_reasons.append(f"{name}: repeats known flat/worse direct pct probe")
+            continue
         if (
             policy == "sqrt"
             and not portfolio_lanes
@@ -618,6 +633,22 @@ def normalize_candidates(
 
 def formula_uses_sdst_setup_features(formula: str) -> bool:
     return any(symbol in formula for symbol in SDST_SETUP_ZI_SYMBOLS)
+
+
+def is_known_direct_probe_flat_or_worse(candidate: dict[str, Any]) -> bool:
+    if candidate.get("portfolio_lanes"):
+        return False
+    if candidate.get("zi_policy") == "formula":
+        return False
+    key = (
+        str(candidate.get("zi_policy") or ""),
+        int(candidate.get("beta") or 0),
+        int(candidate.get("gamma") or 0),
+        int(candidate.get("theta") or 0),
+        int(candidate.get("critical_block_exhaustive_pct") or 0),
+        str(candidate.get("same_machine_eval") or ""),
+    )
+    return key in KNOWN_DIRECT_PROBE_FLAT_OR_WORSE_CONFIGS
 
 
 def candidate_signature(candidate: dict[str, Any]) -> str:

@@ -85,6 +85,12 @@ from the published UB (`997`; current fast/short baselines are `1202` or
   Do not retry these unchanged; future structured candidates should either use
   a materially different setup-aware formula or a lane/search-control change
   that is not just another small policy/seed mix.
+- A direct single-seed probe after those guards confirmed the plain pct/policy
+  line is saturated under `beta400/gamma40/theta5 + stable + mixed`: `critical`
+  pct `50/60/75/90` produced `1023/1010/1010/1010`, while `aggressive` pct
+  `50/75` produced `1014/1030`.  Do not spend another structured round only on
+  these same no-portfolio settings; require a materially different formula,
+  lane budget/order, initialization mix, or slot-level move mechanism.
 - Generic slot-worker attempts on `awls_sdst_neighborhood_selection` did not
   beat the `1010` incumbent:
   - Near-critical filter plus same-machine +/-10 window tied `1010`.
@@ -173,6 +179,9 @@ Use these as hypotheses, not as manual patches:
   `1051`.
 - Do not retry `aggressive + pct75` with
   `1:random:1:6,7:greedy:1:6,9:mixed:1:6`; it tied `1010`.
+- Do not retry no-portfolio direct pct probes under
+  `beta400/gamma40/theta5 + stable + mixed`: `critical` pct `50/60/75/90` and
+  `aggressive` pct `50/75` have now tied or worsened the `1010` incumbent.
 - Do not assume pct `100` is a stronger version of pct `75`; with
   `zi_policy=critical`, pct `100` worsened `1010 -> 1138`.
 - `cpp + pct 75` and `base * (1 + 0.5 * is_critical)` at pct `75` only tied
