@@ -698,6 +698,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "move_selection_generates_candidates",
         "move_selection_mutates_candidate_lists",
         "move_selection_mutates_schedule_directly",
+        "move_selection_retries_small_best_moves_exact_recheck",
         "move_selection_trial_apply_without_clone",
         "all_slot_changes_rejected",
         "slot_change_rejected_wrong_slot_id",
@@ -932,6 +933,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "move_selection_generates_candidates",
         "move_selection_mutates_candidate_lists",
         "move_selection_mutates_schedule_directly",
+        "move_selection_retries_small_best_moves_exact_recheck",
         "move_selection_trial_apply_without_clone",
         "all_slot_changes_rejected",
         "slot_change_rejected_wrong_slot_id",
@@ -1130,6 +1132,14 @@ def awls_sdst_move_selection_warnings(content: str) -> list[str]:
         warnings.append("move_selection_trial_apply_without_clone")
     if re.search(r"\b(?!trial\b)(?!schedule\b)[a-z_]\w*\s*\.\s*apply_move\s*\(", content):
         warnings.append("move_selection_trial_apply_without_clone")
+    small_best_moves_exact_recheck = (
+        "best_moves" in content
+        and ".clone(" in content
+        and ".apply_move(" in content
+        and re.search(r"\b(?:sample_size|subset_size)\s*=\s*min\(\s*3\s*,\s*len\(best_moves\)\s*\)", content)
+    )
+    if small_best_moves_exact_recheck:
+        warnings.append("move_selection_retries_small_best_moves_exact_recheck")
     return list(dict.fromkeys(warnings))
 
 
@@ -1198,6 +1208,8 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "`trial = schedule.clone()` followed by `trial.apply_move(Move(*move_key))`.\n"
             "- Preserve makespan as the primary exact objective.  Setup time may only be a bounded tie-breaker "
             "after exact makespan or approximate value.\n"
+            "- Do not retry `min(3, len(best_moves))` exact rechecks over best_moves; both triggered and "
+            "unconditional variants tied oddla20 at 1010.\n"
             "- Keep exact rechecks bounded by exact_select_top_k, ranked_moves, best_moves, or a small deterministic "
             "subset of all_moves; do not add a nested local search loop."
         )

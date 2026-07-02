@@ -813,6 +813,49 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("move_selection_trial_apply_without_clone", normalized["proposal_audit"]["warnings"])
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_move_selection_slot_warns_on_repeated_small_best_moves_exact_recheck(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "small_best_moves_exact_again",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed selectors by exact checking a small best_moves sample.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_selection",
+                        "content": (
+                            "    if not all_moves:\n"
+                            "        return None\n"
+                            "    subset_size = min(3, len(best_moves))\n"
+                            "    for move_key in schedule.rng.sample(best_moves, subset_size):\n"
+                            "        trial = schedule.clone()\n"
+                            "        trial.apply_move(Move(*move_key))\n"
+                            "        if trial.makespan <= schedule.makespan:\n"
+                            "            return Move(*move_key)\n"
+                            "    return Move(*schedule.rng.choice(best_moves or all_moves))\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "move_selection_retries_small_best_moves_exact_recheck",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_move_selection_repair_guidance_names_select_only_contract(self) -> None:
         slot = _generic_slot_context(slot_id="awls_sdst_move_selection")["slot_manifest"]["slots"][0]
 
@@ -821,6 +864,7 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("already collected move keys", guidance)
         self.assertIn("trial = schedule.clone()", guidance)
         self.assertIn("makespan", guidance)
+        self.assertIn("min(3, len(best_moves))", guidance)
 
     def test_generic_slot_audit_repairs_all_rejected_wrong_slot_changes(self) -> None:
         worker = DeepSeekSlotWorker()

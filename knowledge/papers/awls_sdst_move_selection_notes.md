@@ -35,6 +35,10 @@ move keys and keep Core evaluator promotion as the only quality authority.
 - Exact same-machine trial scored as `trial.makespan + 0.001 * legacy` tied
   `1010`, and exact setup-only tie-breaks also tied.  A move-selection change
   must differ materially from those scoring-slot failures.
+- Move-selection `min(3, len(best_moves))` exact rechecks tied `oddla20` at
+  `1010` in two forms: only when `best_value > schedule.makespan`, and
+  unconditionally when `ranked_moves` exact evaluation did not run.  Do not
+  repeat that small best-moves exact-recheck pattern unchanged.
 - More exhaustive or longer is not automatically better; previous longer or
   more exhaustive probes tied or worsened.
 - Do not use nonexistent APIs such as `schedule.setup_time`,
