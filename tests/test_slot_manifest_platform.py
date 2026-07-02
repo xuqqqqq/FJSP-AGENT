@@ -33,6 +33,9 @@ class SlotManifestPlatformTests(unittest.TestCase):
         self.assertEqual(payload["status"], "draft_requires_user_confirmation")
         self.assertIn("awls_zi_policy", slot_ids)
         self.assertIn("local_search_neighborhood_actions", slot_ids)
+        self.assertIn("awls_sdst_initialization", slot_ids)
+        self.assertIn("awls_sdst_same_machine_evaluation", slot_ids)
+        self.assertIn("awls_sdst_neighborhood_selection", slot_ids)
         self.assertTrue(payload["confirmation_required"])
 
     def test_context_packet_includes_problem_family_and_slot_manifest(self) -> None:
@@ -89,12 +92,69 @@ class SlotManifestPlatformTests(unittest.TestCase):
         self.assertIn("    specs = operation_specs(instance)", neighborhood_slot["original_content"])
         self.assertEqual("# SLOT neighborhood_actions START", neighborhood_slot["marker_start"])
         self.assertIn("neighbor_limit: int", neighborhood_slot["context_before"])
+        sdst_slot = next(
+            item for item in packet["slot_manifest"]["slots"] if item["slot_id"] == "awls_sdst_neighborhood_selection"
+        )
+        self.assertIsInstance(sdst_slot["line_start"], int)
+        self.assertIsInstance(sdst_slot["line_end"], int)
+        self.assertIn("consider_same", sdst_slot["original_content"])
+        self.assertEqual("# SLOT awls_sdst_neighborhood_selection START", sdst_slot["marker_start"])
         self.assertTrue(packet["auto_knowledge_cards"])
         knowledge_paths = {Path(item["path"]).name for item in packet["knowledge_cards"]}
         self.assertIn("standard_fjsp_format.md", knowledge_paths)
         self.assertIn("fjsp_scene_survey_2025_10_17.md", knowledge_paths)
         self.assertIn("xiejin_hgtsa_n8_k_insertion_tabu_spec.md", knowledge_paths)
         self.assertIn("Review slot_manifest", " ".join(packet["worker_instruction"]["required_order"]))
+
+    def test_context_packet_includes_sdst_memory_for_sdst_neighborhood_slot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            instance = root / "instance.fjs"
+            instance.write_text("1 1 1\n1 1 0 1\n", encoding="utf-8")
+            contract = root / "contract.json"
+            contract.write_text(
+                json.dumps(
+                    {
+                        "task_id": "sdst_slot_context",
+                        "problem_family": "standard_fjsp",
+                        "description": "smoke",
+                        "instances": [{"id": "tiny", "path": str(instance)}],
+                        "objectives": [{"name": "makespan", "direction": "minimize"}],
+                        "commands": {
+                            "solver": "python solver.py",
+                            "evaluator": "python evaluator.py",
+                            "quick_test": "python -m compileall .",
+                        },
+                        "budget": {"rounds": 1, "seeds": [0]},
+                        "paths": {"allowed_paths": ["examples"], "forbidden_paths": [".git"]},
+                        "review": {"status": "confirmed"},
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            manifest = root / "slot_manifest.json"
+            from harness_agent.slot_manifest import write_selected_slot_manifest
+
+            write_selected_slot_manifest(
+                problem_family="standard_fjsp",
+                output=manifest,
+                selected_slot_ids=["awls_sdst_neighborhood_selection"],
+            )
+
+            packet = build_context_packet(
+                ContextPacketRequest(
+                    contract_path=contract,
+                    output_path=root / "context.json",
+                    slot_manifest=manifest,
+                )
+            )
+
+        confirmed = [slot for slot in packet["slot_manifest"]["slots"] if slot["user_confirmed"]]
+        self.assertEqual(["awls_sdst_neighborhood_selection"], [slot["slot_id"] for slot in confirmed])
+        knowledge_paths = {Path(item["path"]).name for item in packet["knowledge_cards"]}
+        self.assertIn("awls_sdst_neighborhood_selection_notes.md", knowledge_paths)
 
     def test_context_packet_reads_slot_source_from_project_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

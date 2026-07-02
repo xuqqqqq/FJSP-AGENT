@@ -111,6 +111,73 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual("awls_zi_policy", job["config"]["selected_slot_id"])
         self.assertTrue(job["config"]["slot_user_confirmed"])
 
+    def test_slot_mode_accepts_sdst_neighborhood_slot(self) -> None:
+        demo = make_demo_examples()
+        payload = {
+            "title": "sdst neighborhood slot smoke",
+            "requirement": demo["requirement"],
+            "io": demo["io"],
+            "instance": demo["instance"],
+            "evolution_mode": "slot",
+            "selected_slot_id": "awls_sdst_neighborhood_selection",
+            "slot_user_confirmed": True,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            job = create_job(payload, output_root=Path(tmp))
+
+        self.assertEqual("slot", job["config"]["evolution_mode"])
+        self.assertEqual("awls_sdst_neighborhood_selection", job["config"]["selected_slot_id"])
+        self.assertEqual("awls", job["config"]["solver"])
+
+    def test_run_job_routes_sdst_slot_without_enabling_zi_slot_policy(self) -> None:
+        demo = make_demo_examples()
+        payload = {
+            "title": "sdst neighborhood slot route",
+            "requirement": demo["requirement"],
+            "io": demo["io"],
+            "instance": demo["instance"],
+            "evolution_mode": "slot",
+            "selected_slot_id": "awls_sdst_neighborhood_selection",
+            "slot_user_confirmed": True,
+            "max_rounds": 1,
+            "seeds": "0",
+        }
+        captured = {}
+
+        def fake_worker_loop(request):
+            captured["request"] = request
+            return {
+                "status": "ok",
+                "baseline_key": [-1010.0],
+                "final_key": [-1010.0],
+                "baseline_summary": {"valid": 1},
+                "rounds": [],
+                "round_count": 0,
+                "promoted_rounds": 0,
+                "improved": False,
+                "artifacts": {"manifest": str(Path(request.output_dir) / "manifest.json")},
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("harness_agent.web_app.is_deepseek_configured", return_value=True), patch(
+                "harness_agent.web_app.run_standard_worker_loop",
+                side_effect=fake_worker_loop,
+            ):
+                job = create_job(payload, output_root=Path(tmp))
+                run_job(job["id"])
+
+            request = captured["request"]
+            manifest = json.loads(Path(request.slot_manifest).read_text(encoding="utf-8"))
+
+        self.assertEqual("cpp", request.awls_zi_policy)
+        self.assertEqual("awls", request.solver)
+        self.assertEqual("web_deepseek_slot_loop", request.experiment_id)
+        self.assertIsNotNone(request.slot_manifest)
+        confirmed = {slot["slot_id"]: slot["user_confirmed"] for slot in manifest["slots"]}
+        self.assertTrue(confirmed["awls_sdst_neighborhood_selection"])
+        self.assertFalse(confirmed["awls_zi_policy"])
+        self.assertIn("awls_sdst_neighborhood_selection", request.hypothesis)
+
     def test_create_job_times_budget_from_actual_instance_content(self) -> None:
         demo = make_demo_examples()
         fake_dp15 = "20 10 10\n" + "\n".join("15 " + " ".join(["1 1 3"] * 15) for _ in range(20)) + "\n"
@@ -155,6 +222,21 @@ class WebAppTests(unittest.TestCase):
         self.assertFalse(payload["confirmation_required"])
         self.assertTrue(confirmed["awls_zi_policy"])
         self.assertFalse(confirmed["local_search_neighborhood_actions"])
+        self.assertFalse(confirmed["awls_sdst_neighborhood_selection"])
+
+    def test_selected_slot_manifest_can_confirm_sdst_neighborhood_slot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "slot_manifest.json"
+            write_selected_slot_manifest(
+                problem_family="standard_fjsp",
+                output=path,
+                selected_slot_ids=["awls_sdst_neighborhood_selection"],
+            )
+            payload = json.loads(path.read_text(encoding="utf-8"))
+
+        confirmed = {slot["slot_id"]: slot["user_confirmed"] for slot in payload["slots"]}
+        self.assertFalse(confirmed["awls_zi_policy"])
+        self.assertTrue(confirmed["awls_sdst_neighborhood_selection"])
 
     def test_slot_manifest_catalog_includes_resolved_block_advice(self) -> None:
         payload = slot_manifest_catalog_payload()
@@ -165,7 +247,10 @@ class WebAppTests(unittest.TestCase):
         self.assertGreater(slots["local_search_neighborhood_actions"]["line_end"], slots["local_search_neighborhood_actions"]["line_start"])
         self.assertIn("def evolved_zi", slots["awls_zi_policy"]["original_content"])
         self.assertEqual("available", slots["awls_zi_policy"]["advisor"]["worker_support"])
-        self.assertEqual("planned", slots["local_search_neighborhood_actions"]["advisor"]["worker_support"])
+        self.assertEqual("available", slots["local_search_neighborhood_actions"]["advisor"]["worker_support"])
+        self.assertGreater(slots["awls_sdst_neighborhood_selection"]["line_start"], 0)
+        self.assertIn("consider_same", slots["awls_sdst_neighborhood_selection"]["original_content"])
+        self.assertEqual("available", slots["awls_sdst_neighborhood_selection"]["advisor"]["worker_support"])
 
     def test_web_job_runs_demo_loop_from_submitted_documents(self) -> None:
         demo = make_demo_examples()

@@ -193,15 +193,18 @@ def enrich_slot_payload(slot: dict[str, Any]) -> dict[str, Any]:
 
 def slot_advice_payload(slot: dict[str, Any]) -> dict[str, Any]:
     slot_id = str(slot.get("slot_id") or "")
-    executable = slot_id == "awls_zi_policy"
+    executable = bool(slot.get("source_exists", True)) and str(slot.get("language") or "python") == "python"
     if executable:
         feasibility = "yes"
         feasibility_label = "可执行"
-        feasibility_reason = "当前受控 DeepSeekSlotWorker 已接入该 AWLS zi 函数槽，可以在契约内改写并验证。"
+        if slot_id == "awls_zi_policy":
+            feasibility_reason = "当前受控 DeepSeekSlotWorker 已接入该 AWLS zi 函数槽，可以在契约内改写并验证。"
+        else:
+            feasibility_reason = "当前受控 DeepSeekSlotWorker 已支持该 Python 标记代码槽，只会替换用户确认的 marker 内代码。"
     else:
         feasibility = "partial"
         feasibility_label = "待接入"
-        feasibility_reason = "该代码槽的边界、输入输出和不变量已经建模，但专用执行 worker 还未接入。"
+        feasibility_reason = "该代码槽的边界、输入输出和不变量已经建模，但当前 worker 只支持可读取的 Python 标记槽。"
     significance = "high" if "neighborhood" in slot_id else "medium"
     significance_label = "高" if significance == "high" else "中"
     concerns = list(slot.get("forbidden_edits") or [])[:3]
@@ -209,8 +212,8 @@ def slot_advice_payload(slot: dict[str, Any]) -> dict[str, Any]:
         "只有当输入、输出和不变量都符合本轮目标时，才确认该代码槽。",
         "每次接受代码槽修改后，都必须运行列出的验证命令。",
     ]
-    if not executable:
-        suggestions.append("在允许自动改写该区域前，需要先接入对应的代码槽 worker。")
+    if slot_id != "awls_zi_policy":
+        suggestions.append("该槽位将走通用 marker-block 替换路径，仍需固定 evaluator 严格验收。")
     return {
         "block_summary": f"{slot.get('title') or slot_id}：{slot.get('purpose') or ''}",
         "feasibility": feasibility,
@@ -226,6 +229,21 @@ def slot_advice_payload(slot: dict[str, Any]) -> dict[str, Any]:
         "concerns": concerns,
         "suggestions": suggestions,
     }
+
+
+def slot_mode_hypothesis(slot_id: str) -> str:
+    if slot_id == "awls_zi_policy":
+        return (
+            "Read the requirement and IO documents first. Propose a natural-language AWLS zi policy idea, "
+            "then modify only the EVOLVE-marked zi code slot. Preserve evaluator correctness; do not claim "
+            "success without measured improvement."
+        )
+    return (
+        f"Read the requirement, IO documents, slot manifest, and SDST/AWLS knowledge first. Propose the rule-level "
+        f"scheduling idea for selected code slot {slot_id!r}, then modify only that marker-bounded slot. Preserve "
+        "the slot inputs, outputs, invariants, parser, evaluator, and benchmark semantics; do not claim success "
+        "without Core evaluator improvement."
+    )
 
 
 def deepseek_status_payload() -> dict[str, Any]:
@@ -382,8 +400,6 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
     slot_user_confirmed = bool(payload.get("slot_user_confirmed", False))
     if evolution_mode == "slot" and not slot_user_confirmed:
         raise ValueError("slot mode requires explicit user confirmation of the selected code slot")
-    if evolution_mode == "slot" and selected_slot_id != "awls_zi_policy":
-        raise ValueError("current DeepSeek slot worker supports only selected_slot_id='awls_zi_policy'")
     profile_mode = str(payload.get("profile_mode") or "template")
     if profile_mode not in {"template", "auto", "deepseek"}:
         profile_mode = "template"
@@ -666,6 +682,7 @@ def run_job(job_id: str) -> None:
                     "DeepSeek API is not configured. Set DEEPSEEK_API_KEY or DEEPSEEK_API_KEY_FILE before code evolution."
                 )
             is_slot_mode = config["evolution_mode"] == "slot"
+            is_zi_slot_mode = is_slot_mode and str(config["selected_slot_id"]) == "awls_zi_policy"
             worker_loop_root = output_dir / "standard_worker_loop" / "worker_loop"
             progress_stop = threading.Event()
             progress_thread = threading.Thread(
@@ -722,22 +739,18 @@ def run_job(job_id: str) -> None:
                         awls_beta=config["awls_beta"],
                         awls_gamma=config["awls_gamma"],
                         awls_theta=config["awls_theta"],
-                        awls_zi_policy="slot" if is_slot_mode else "cpp",
+                        awls_zi_policy="slot" if is_zi_slot_mode else "cpp",
                         awls_portfolio_lanes=config["awls_portfolio_lanes"],
                         max_steps=config["worker_max_steps"],
                         max_runtime_seconds=config["worker_max_runtime_seconds"],
                         apply_worker_changes=config["apply_worker_changes"],
                         experiment_id="web_deepseek_slot_loop" if is_slot_mode else "web_deepseek_code_loop",
-                        hypothesis=(
-                            "Read the requirement and IO documents first. Propose a natural-language AWLS zi policy idea, "
-                            "then modify only the EVOLVE-marked zi code slot. Preserve evaluator correctness; do not claim "
+                        hypothesis=slot_mode_hypothesis(str(config["selected_slot_id"]))
+                        if is_slot_mode
+                        else (
+                            "Read the requirement and IO documents first. Propose the rule-level scheduling idea in natural "
+                            "language, then edit only allowed solver code. Preserve evaluator correctness; do not claim "
                             "success without measured improvement."
-                            if is_slot_mode
-                            else (
-                                "Read the requirement and IO documents first. Propose the rule-level scheduling idea in natural "
-                                "language, then edit only allowed solver code. Preserve evaluator correctness; do not claim "
-                                "success without measured improvement."
-                            )
                         ),
                     )
                 )

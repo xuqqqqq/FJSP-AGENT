@@ -2,10 +2,20 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from harness_agent.standard_worker_loop import StandardWorkerLoopRequest, standard_solver_command
 from harness_agent.worker import NullWorker
-from harness_agent.workers.deepseek_slot_worker import replace_evolve_block, validate_awls_slot_contract, validate_slot_function
+from harness_agent.workers.deepseek_worker import apply_code_edit_proposal
+from harness_agent.workers.deepseek_slot_worker import (
+    DeepSeekSlotWorker,
+    replace_evolve_block,
+    selected_confirmed_slot,
+    strip_marker_lines,
+    validate_awls_slot_contract,
+    validate_generic_slot_contract,
+    validate_slot_function,
+)
 
 
 class AwlsSlotModeTests(unittest.TestCase):
@@ -79,6 +89,122 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("slot target_file must be 'examples/awls_evolved_slots.py'", errors)
         self.assertIn("slot marker_start must be '# EVOLVE_START'", errors)
 
+    def test_selected_confirmed_slot_accepts_generic_sdst_neighborhood_slot(self) -> None:
+        context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
+
+        slot, error = selected_confirmed_slot(context)
+
+        self.assertEqual("", error)
+        self.assertEqual("awls_sdst_neighborhood_selection", slot["slot_id"])
+        self.assertEqual([], validate_generic_slot_contract(context, "awls_sdst_neighborhood_selection"))
+
+    def test_selected_confirmed_slot_rejects_multiple_confirmed_slots(self) -> None:
+        context = _slot_context(user_confirmed=True)
+        context["slot_manifest"]["slots"].append(_generic_slot_context()["slot_manifest"]["slots"][0])
+
+        slot, error = selected_confirmed_slot(context)
+
+        self.assertIsNone(slot)
+        self.assertIn("exactly one", error)
+
+    def test_generic_slot_proposal_normalizes_to_single_replace_slot_block(self) -> None:
+        worker = DeepSeekSlotWorker()
+        slot = _generic_slot_context()["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "summary": "Try a bounded critical-block ordering tweak.",
+                "strategy_intent": "Keep IO fixed and alter only candidate ordering.",
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "setup_arc_rank",
+                        "type": "local_search_operator",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_neighborhood_selection",
+                        "content": (
+                            "```python\n"
+                            "# SLOT awls_sdst_neighborhood_selection START\n"
+                            "    consider_same(FRONT, block[0], block[-1])\n"
+                            "# SLOT awls_sdst_neighborhood_selection END\n"
+                            "```"
+                        ),
+                        "rationale": "Small slot replacement.",
+                    },
+                    {
+                        "action": "text_replace",
+                        "path": "examples/standard_fjsp_awls_solver.py",
+                        "old": "x",
+                        "new": "y",
+                    },
+                ],
+                "risk_notes": "Keep evaluator fixed.",
+            },
+            slot,
+        )
+
+        self.assertEqual(1, len(normalized["changes"]))
+        self.assertEqual("replace_slot_block", normalized["changes"][0]["action"])
+        self.assertEqual("awls_sdst_neighborhood_selection", normalized["changes"][0]["slot_id"])
+        self.assertNotIn("SLOT awls_sdst_neighborhood_selection", normalized["changes"][0]["content"])
+        self.assertIn("consider_same", normalized["changes"][0]["content"])
+        self.assertEqual(1, len(normalized["rejected_changes"]))
+        self.assertEqual(["Keep evaluator fixed."], normalized["risk_notes"])
+
+    def test_generic_slot_replacement_applies_only_marker_block(self) -> None:
+        context = _generic_slot_context()
+        slot = context["slot_manifest"]["slots"][0]
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "examples" / "standard_fjsp_awls_solver.py"
+            target.parent.mkdir(parents=True)
+            target.write_text(
+                "def find_move():\n"
+                "    before()\n"
+                "    # SLOT awls_sdst_neighborhood_selection START\n"
+                "    old_moves()\n"
+                "    # SLOT awls_sdst_neighborhood_selection END\n"
+                "    after()\n",
+                encoding="utf-8",
+            )
+            proposal = {
+                "changes": [
+                    {
+                        "path": slot["target_file"],
+                        "action": "replace_slot_block",
+                        "slot_id": slot["slot_id"],
+                        "content": "    new_moves()\n",
+                    }
+                ]
+            }
+
+            changed = apply_code_edit_proposal(proposal=proposal, worktree_path=root, context=context)
+
+            self.assertEqual(["examples/standard_fjsp_awls_solver.py"], changed)
+            self.assertEqual(
+                "def find_move():\n"
+                "    before()\n"
+                "    # SLOT awls_sdst_neighborhood_selection START\n"
+                "    new_moves()\n"
+                "    # SLOT awls_sdst_neighborhood_selection END\n"
+                "    after()\n",
+                target.read_text(encoding="utf-8"),
+            )
+
+    def test_strip_marker_lines_removes_fences_and_markers(self) -> None:
+        slot = _generic_slot_context()["slot_manifest"]["slots"][0]
+
+        stripped = strip_marker_lines(
+            "```python\n# SLOT awls_sdst_neighborhood_selection START\n    body()\n# SLOT awls_sdst_neighborhood_selection END\n```",
+            slot,
+        )
+
+        self.assertEqual("    body()\n", stripped)
+
 
 def _slot_context(
     *,
@@ -104,6 +230,40 @@ def _slot_context(
                 }
             ],
         }
+    }
+
+
+def _generic_slot_context(*, slot_id: str = "awls_sdst_neighborhood_selection") -> dict[str, object]:
+    return {
+        "edit_policy": {
+            "allowed_paths": ["examples", "harness_agent", "configs"],
+            "forbidden_paths": [".git", "outputs"],
+        },
+        "slot_manifest": {
+            "exists": True,
+            "status": "confirmed",
+            "confirmation_required": False,
+            "slots": [
+                {
+                    "slot_id": slot_id,
+                    "title": "AWLS-SDST critical-block neighborhood candidate selection",
+                    "target_file": "examples/standard_fjsp_awls_solver.py",
+                    "marker_start": "# SLOT awls_sdst_neighborhood_selection START",
+                    "marker_end": "# SLOT awls_sdst_neighborhood_selection END",
+                    "slot_kind": "marked_block",
+                    "language": "python",
+                    "purpose": "Generate bounded candidate moves.",
+                    "inputs": ["schedule", "consider_same", "consider_change"],
+                    "outputs": ["Populate candidate move containers through closures."],
+                    "invariants": ["Keep parser/evaluator/IO fixed."],
+                    "allowed_edits": ["Only rewrite code between markers."],
+                    "forbidden_edits": ["Do not edit evaluator semantics."],
+                    "validation_commands": ["python -m compileall examples/standard_fjsp_awls_solver.py"],
+                    "knowledge_tags": ["awls", "sdst", "neighborhood"],
+                    "user_confirmed": True,
+                }
+            ],
+        },
     }
 
 

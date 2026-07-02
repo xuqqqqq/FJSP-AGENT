@@ -19,6 +19,11 @@ TAGGED_CARDS = {
         "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
         "knowledge/imported_huawei_fjsp_knowledge/lessons/profile_driven_local_search_20260615.md",
     ],
+    "sdst": [
+        "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
+        "knowledge/papers/awls_sdst_initialization_notes.md",
+        "knowledge/papers/awls_sdst_same_machine_notes.md",
+    ],
     "zi": [
         "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
     ],
@@ -34,6 +39,7 @@ TAGGED_CARDS = {
     ],
     "critical_block": [
         "knowledge/imported_huawei_fjsp_knowledge/operators/critical_path_machine_block_neighborhood.md",
+        "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
     ],
     "neighborhood": [
         "knowledge/imported_huawei_fjsp_knowledge/operators/hgtsa_fjsp_n8_k_insertion_blueprint.md",
@@ -42,6 +48,26 @@ TAGGED_CARDS = {
     "machine_reassignment": [
         "knowledge/imported_huawei_fjsp_knowledge/operators/operation_machine_reassignment.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/hgtsa_fjsp_n8_k_insertion_blueprint.md",
+    ],
+    "setup_time": [
+        "knowledge/papers/awls_sdst_initialization_notes.md",
+        "knowledge/papers/awls_sdst_same_machine_notes.md",
+    ],
+    "initialization": [
+        "knowledge/papers/awls_sdst_initialization_notes.md",
+    ],
+    "same_machine": [
+        "knowledge/papers/awls_sdst_same_machine_notes.md",
+    ],
+    "n7_neighborhood": [
+        "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
+        "knowledge/papers/awls_sdst_same_machine_notes.md",
+    ],
+    "nk_neighborhood": [
+        "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
+    ],
+    "candidate_generation": [
+        "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
     ],
     "tabu_search": [
         "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",

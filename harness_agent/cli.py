@@ -28,7 +28,7 @@ from .models import TaskContract
 from .project_intake import ProjectIntakeRequest, write_project_intake
 from .problem_families import write_problem_family_card
 from .runner import HarnessRunner
-from .slot_manifest import write_default_slot_manifest
+from .slot_manifest import write_default_slot_manifest, write_selected_slot_manifest
 from .standard_agent import StandardFjspAgentRunner
 from .standard_pipeline import (
     StandardPipelineAblationRequest,
@@ -124,6 +124,12 @@ def build_parser() -> argparse.ArgumentParser:
     slot_manifest.add_argument("--problem-family", default="standard_fjsp")
     slot_manifest.add_argument("--output", required=True, type=Path)
     slot_manifest.add_argument("--confirmed", action="store_true", help="mark default slots as already user-confirmed")
+    slot_manifest.add_argument(
+        "--selected-slot-id",
+        action="append",
+        default=[],
+        help="confirm only this slot_id; may be repeated. Overrides --confirmed when present.",
+    )
 
     run_worker = subparsers.add_parser("run-worker", help="run a coding worker against a context packet")
     run_worker.add_argument("--worker", choices=["null", "deepseek", "opencode"], default="null")
@@ -674,11 +680,18 @@ def problem_family_card_cmd(args: argparse.Namespace) -> int:
 
 
 def build_slot_manifest_cmd(args: argparse.Namespace) -> int:
-    output = write_default_slot_manifest(
-        problem_family=args.problem_family,
-        output=args.output,
-        confirmed=bool(args.confirmed),
-    )
+    if args.selected_slot_id:
+        output = write_selected_slot_manifest(
+            problem_family=args.problem_family,
+            output=args.output,
+            selected_slot_ids=args.selected_slot_id,
+        )
+    else:
+        output = write_default_slot_manifest(
+            problem_family=args.problem_family,
+            output=args.output,
+            confirmed=bool(args.confirmed),
+        )
     payload = json.loads(output.read_text(encoding="utf-8"))
     print(
         json.dumps(
