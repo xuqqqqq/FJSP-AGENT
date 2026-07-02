@@ -687,6 +687,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_latest_block_topk_overpruning",
         "portfolio_retries_seed_mapping_only",
         "same_machine_retries_pure_exact_trial",
+        "same_machine_retries_exact_setup_tiebreak",
         "initialization_retries_append_only_setup_completion",
         "initialization_retries_low_setup_tiebreak",
         "initialization_non_append_without_acyclic_guard",
@@ -913,6 +914,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_latest_block_topk_overpruning",
         "portfolio_retries_seed_mapping_only",
         "same_machine_retries_pure_exact_trial",
+        "same_machine_retries_exact_setup_tiebreak",
         "initialization_retries_append_only_setup_completion",
         "initialization_retries_low_setup_tiebreak",
         "initialization_non_append_without_acyclic_guard",
@@ -948,6 +950,14 @@ def slot_specific_generic_warnings(slot: dict[str, Any], changes: list[dict[str,
         warnings.append("same_machine_setup_propagation_without_exact_trial")
     if uses_exact_trial and "setup_time_between" not in content and re.search(r"0\.00?1\s*\*\s*float\(legacy\)", content):
         warnings.append("same_machine_retries_pure_exact_trial")
+    setup_tiebreak_only = (
+        uses_exact_trial
+        and "setup_time_between" in content
+        and ("total_setup" in content or "block_setup" in content or "setup_sum" in content)
+        and re.search(r"0\.00?1\s*\*\s*(?:float\()?[\w_]*setup", content)
+    )
+    if setup_tiebreak_only:
+        warnings.append("same_machine_retries_exact_setup_tiebreak")
     return warnings
 
 
@@ -1096,8 +1106,11 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
         return (
             "- Setup-aware R/Q propagation approximations have failed unless backed by an exact cloned trial.\n"
             "- Pure exact cloned trial scored as `trial.makespan + 0.001 * legacy` has already tied oddla20; "
-            "do not retry it unchanged.  If using exact trial, add a materially different bounded tie-breaker "
-            "or gating rule while preserving makespan pressure."
+            "do not retry it unchanged.\n"
+            "- Exact cloned trial with only `0.001 * total_setup` / block-setup tie-breaker also tied oddla20; "
+            "do not retry setup-time-only tie-breaking unchanged.\n"
+            "- If using exact trial again, add a materially different bounded gating rule, critical-tail pressure, "
+            "or move-locality rule while preserving makespan pressure."
         )
     if slot_id == "awls_sdst_portfolio_search_control":
         return (

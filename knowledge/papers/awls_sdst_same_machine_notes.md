@@ -67,6 +67,14 @@ There is no `schedule.setup_time(...)` helper and no
   `1010` with setup time `1850`.  Treat this exact-trial-only pattern as a
   repeated failed idea class; if exact trial is used again, it needs a
   materially different bounded tie-breaker or gating rule.
+- A later exact-trial candidate replaced the legacy tie-breaker with
+  `0.001 * total_block_setup`, computing the setup sum inside the moved local
+  block after `trial.apply_move(move)`.  It was legal but again tied
+  `oddla20` at `1010`; setup time dropped to `1840`, but Core promotion still
+  requires makespan improvement.  Do not retry exact trial with only a
+  setup-time/block-setup tie-breaker unchanged; a future same-machine
+  hypothesis needs a real gating rule, critical-tail pressure, or move-locality
+  mechanism.
 - If manually adding setup-aware forward/backward local propagation is too
   fragile, prefer exact local scoring:
 
