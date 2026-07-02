@@ -701,6 +701,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "initialization_regret_label_without_second_best",
         "initialization_retries_max_regret_append_dispatch",
         "initialization_retries_regret_roulette_append_dispatch",
+        "initialization_retries_tail_ratio_regret_append_dispatch",
         "initialization_non_append_without_acyclic_guard",
         "initialization_rebuilds_ready_after_committed_insert",
         "initialization_retries_static_bottleneck_ignores_setup",
@@ -961,6 +962,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "initialization_regret_label_without_second_best",
         "initialization_retries_max_regret_append_dispatch",
         "initialization_retries_regret_roulette_append_dispatch",
+        "initialization_retries_tail_ratio_regret_append_dispatch",
         "initialization_non_append_without_acyclic_guard",
         "initialization_rebuilds_ready_after_committed_insert",
         "initialization_retries_static_bottleneck_ignores_setup",
@@ -1127,6 +1129,16 @@ def awls_sdst_initialization_warnings(content: str) -> list[str]:
     )
     if regret_roulette_append_dispatch:
         warnings.append("initialization_retries_regret_roulette_append_dispatch")
+    tail_ratio_regret_append_dispatch = (
+        append_only
+        and has_second_best_regret
+        and re.search(r"\b(?:remaining|tail)[_\w]*\b", content)
+        and re.search(r"\b(?:priority|score|ratio)\s*=\s*[^=\n]*(?:remaining|tail)[_\w]*\s*/", content)
+        and re.search(r"\bready_ops\s*\.sort\b|\bsort\(\s*key\s*=", content)
+        and not re.search(r"(?:bottleneck|repair|local[_\s-]*search|awlsschedule|topological_sort)", content)
+    )
+    if tail_ratio_regret_append_dispatch:
+        warnings.append("initialization_retries_tail_ratio_regret_append_dispatch")
     committed_non_append = bool(
         re.search(r"sequences\s*\[[^\n\]]+\]\s*\.insert\s*\(", content)
         or re.search(r"\bseq\s*\.\s*insert\s*\(", content)
@@ -1478,6 +1490,8 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- Do not retry append-only second-best-regret roulette/weighted-random dispatch without real "
             "tail, bottleneck, repair, or topology mechanisms; it tied oddla20 at 1010 while only reducing "
             "setup time from 1940 to 1910.\n"
+            "- Do not retry append-only remaining-work/earliest-completion tail-ratio dispatch with regret "
+            "tie-breaks; it worsened oddla20 from 1010 to 1138 despite being legal.\n"
             "- Do not retry static single-bottleneck priority that ignores setup/tail/dynamic readiness; it was "
             "legal but worsened oddla20 from 1010 to 1029.\n"
             "- If using non-append insertion, do not directly commit `sequences[machine].insert(...)` without an "

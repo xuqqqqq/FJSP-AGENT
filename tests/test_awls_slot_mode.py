@@ -781,6 +781,99 @@ class AwlsSlotModeTests(unittest.TestCase):
             normalized["proposal_audit"]["warnings"],
         )
 
+    def test_initialization_slot_warns_on_tail_ratio_regret_append_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "tail_ratio_regret_append_retry",
+                        "type": "construction_rule",
+                        "novelty": "Retries append-only remaining-work tail ratio with regret tie-breaks.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    ready_ops = []\n"
+                            "    machine_costs = []\n"
+                            "    machine_costs.sort()\n"
+                            "    best_cost = machine_costs[0][0]\n"
+                            "    second_best_cost = machine_costs[1][0] if len(machine_costs) > 1 else best_cost\n"
+                            "    regret = second_best_cost - best_cost\n"
+                            "    remaining = sum(min(index.candidates[n].values()) for n in nodes[current_pos[job_id]:])\n"
+                            "    priority = remaining / best_cost\n"
+                            "    ready_ops.append((priority, regret, node, machine_id))\n"
+                            "    ready_ops.sort(key=lambda item: (item[0], item[1]), reverse=True)\n"
+                            "    _, _, node, machine_id = ready_ops[0]\n"
+                            "    sequences[machine_id].append(node)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "initialization_retries_tail_ratio_regret_append_dispatch",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_initialization_slot_allows_tail_ratio_when_topology_guarded(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "tail_ratio_topology_guarded_insert",
+                        "type": "construction_rule",
+                        "novelty": "Uses tail ratio only to rank topology-guarded insertion candidates.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    ready_ops = []\n"
+                            "    machine_costs = []\n"
+                            "    machine_costs.sort()\n"
+                            "    best_cost = machine_costs[0][0]\n"
+                            "    second_best_cost = machine_costs[1][0] if len(machine_costs) > 1 else best_cost\n"
+                            "    regret = second_best_cost - best_cost\n"
+                            "    remaining = remaining_tail_by_job[job_id]\n"
+                            "    priority = remaining / best_cost\n"
+                            "    ready_ops.sort(key=lambda item: (item[0], item[1]), reverse=True)\n"
+                            "    candidate = AwlsSchedule(index, candidate_sequences, candidate_on_machine, rng)\n"
+                            "    candidate.topological_sort()\n"
+                            "    sequences[machine_id].insert(best_pos, node)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertNotIn(
+            "initialization_retries_tail_ratio_regret_append_dispatch",
+            normalized["proposal_audit"]["warnings"],
+        )
+
     def test_initialization_slot_warns_on_non_append_without_cycle_guard(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_initialization")

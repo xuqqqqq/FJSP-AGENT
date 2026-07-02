@@ -157,6 +157,13 @@ Use these as hypotheses, not as a manual patch:
   second-best-regret roulette/weighted-random dispatch unless it adds a real
   critical-tail/bottleneck term, post-construction repair, assignment-then-
   sequencing phase, or topology-guarded insertion mechanism.
+- A subsequent `sdst_regret_tail_ratio_init` initializer was legal but worsened
+  `oddla20` from `1010` to `1138`.  It selected ready operations by
+  `remaining_work / earliest_completion`, used true second-best regret only as
+  a tie-breaker, and still appended to the chosen machine's tail.  Do not retry
+  append-only remaining-work/earliest-completion tail-ratio dispatch; a future
+  tail idea must change the machine sequence topology, add a real bottleneck
+  repair phase, or use topologically guarded insertion.
 - Do not compare move/init mode constants with integers.
 - Do not call `setup_time_between` with `current_op=None`.
 - Import `setup_time_between` locally inside the slot before using it.
