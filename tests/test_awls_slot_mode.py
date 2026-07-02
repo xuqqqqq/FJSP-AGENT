@@ -646,6 +646,51 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_initialization_slot_warns_on_op_priorities_max_regret_append_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "op_priorities_max_regret_append_retry",
+                        "type": "construction_rule",
+                        "novelty": "Retries classic max regret dispatch with op_priorities.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    op_priorities = []\n"
+                            "    machine_costs = []\n"
+                            "    machine_costs.sort(key=lambda item: item[0])\n"
+                            "    best_cost, best_machine = machine_costs[0]\n"
+                            "    second_cost = machine_costs[1][0]\n"
+                            "    regret = second_cost - best_cost\n"
+                            "    op_priorities.append((regret, node, best_machine, best_cost))\n"
+                            "    max_regret = max(item[0] for item in op_priorities)\n"
+                            "    regret, node, best_machine, best_cost = rng.choice([item for item in op_priorities if item[0] == max_regret])\n"
+                            "    sequences[best_machine].append(node)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "initialization_retries_max_regret_append_dispatch",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_initialization_slot_allows_regret_with_critical_tail_pressure(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_initialization")

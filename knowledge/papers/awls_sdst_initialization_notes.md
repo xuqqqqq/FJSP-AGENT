@@ -164,6 +164,13 @@ Use these as hypotheses, not as a manual patch:
   append-only remaining-work/earliest-completion tail-ratio dispatch; a future
   tail idea must change the machine sequence topology, add a real bottleneck
   repair phase, or use topologically guarded insertion.
+- A later `regret_based_sdst_dispatching` variant again used append-only
+  maximum second-best regret, this time with `op_priorities`, `max_regret`, and
+  `best_machine` variables plus a non-SDST branch.  It was legal but worsened
+  `oddla20` from `1010` to `1120`, even though setup time dropped sharply from
+  `1940` to `1590`.  This reinforces that lower total setup is not the
+  objective; do not retry classic max-regret append dispatch under renamed
+  variables.
 - Do not compare move/init mode constants with integers.
 - Do not call `setup_time_between` with `current_op=None`.
 - Import `setup_time_between` locally inside the slot before using it.

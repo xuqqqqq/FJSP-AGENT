@@ -1108,8 +1108,8 @@ def awls_sdst_initialization_warnings(content: str) -> list[str]:
         append_only
         and has_second_best_regret
         and re.search(r"\bmax_regret\s*=", content)
-        and re.search(r"\bready_ops\b", content)
-        and re.search(r"\bbest_comp\b", content)
+        and re.search(r"\b(?:ready_ops|op_priorities)\b", content)
+        and re.search(r"\b(?:best_comp|best_cost|best_machine)\b", content)
         and not re.search(
             r"(?:tail|remaining|bottleneck|critical|repair|local[_\s-]*search|awlsschedule|topological_sort)",
             content,
