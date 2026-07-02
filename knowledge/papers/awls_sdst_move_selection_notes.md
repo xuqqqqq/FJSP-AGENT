@@ -63,6 +63,12 @@ move keys and keep Core evaluator promotion as the only quality authority.
   `CHANGE_MACHINE_BACK`.  Use `machine_sequences`, `on_machine`,
   `machine_predecessor/successor`, `end_time`, `backward_path_length`, and
   `makespan`; do not invent decoded operation records inside this slot.
+- A follow-up exact-recheck plus global setup-sum tie-breaker also failed at
+  runtime before quality evaluation because it used
+  `idx.node_to_operation_key[node]`.  `OperationIndex` does not expose that
+  mapping; this solver provides module-level `operation_key(schedule, node)`.
+  When setup tie-breaks need operation keys, call `operation_key(schedule,
+  node)` and skip sentinel/non-real nodes that return `None`.
 
 ## Guardrails
 
@@ -74,5 +80,7 @@ move keys and keep Core evaluator promotion as the only quality authority.
 - Do not use `schedule.operations` or treat `move_key` as an operation-key
   tuple; selection receives AWLS node ids, not decoded `(job_id, op_id)`
   records.
+- Do not use `schedule.index.node_to_operation_key` or
+  `idx.node_to_operation_key`; use `operation_key(schedule, node)`.
 - Do not read files, LB/UB tables, evaluator outputs, environment variables, or
   network resources.

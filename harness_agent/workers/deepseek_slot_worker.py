@@ -714,6 +714,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "move_selection_retries_small_best_moves_exact_recheck",
         "move_selection_retries_random_noise_escape",
         "move_selection_uses_invalid_setup_time_between_signature",
+        "move_selection_uses_nonexistent_node_to_operation_key",
         "move_selection_uses_nonexistent_operations_api",
         "move_selection_misinterprets_move_key_shape",
         "move_selection_trial_apply_without_clone",
@@ -980,6 +981,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "move_selection_retries_small_best_moves_exact_recheck",
         "move_selection_retries_random_noise_escape",
         "move_selection_uses_invalid_setup_time_between_signature",
+        "move_selection_uses_nonexistent_node_to_operation_key",
         "move_selection_uses_nonexistent_operations_api",
         "move_selection_misinterprets_move_key_shape",
         "move_selection_trial_apply_without_clone",
@@ -1367,6 +1369,8 @@ def awls_sdst_move_selection_warnings(content: str) -> list[str]:
     )
     if invalid_setup_signature:
         warnings.append("move_selection_uses_invalid_setup_time_between_signature")
+    if re.search(r"\b(?:schedule|sched|trial|idx|index)\.node_to_operation_key\b", content):
+        warnings.append("move_selection_uses_nonexistent_node_to_operation_key")
     if re.search(r"\b(?:sched|schedule|trial)\.operations\b", content):
         warnings.append("move_selection_uses_nonexistent_operations_api")
     misreads_move_key_as_op_key = (
@@ -1616,6 +1620,8 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "use string literals like `change_machine`.\n"
             "- AwlsSchedule has no `operations` record list.  Use machine_sequences, on_machine, "
             "machine_predecessor/successor, end_time, backward_path_length, and makespan.\n"
+            "- Convert AWLS node ids to operation keys with module-level `operation_key(schedule, node)`; "
+            "OperationIndex has no `node_to_operation_key` field.\n"
             "- Do not retry `min(3, len(best_moves))` exact rechecks over best_moves; both triggered and "
             "unconditional variants tied oddla20 at 1010.\n"
             "- Do not retry random-noise ranking or unconditional random all_moves escapes; the setup tie-break + "

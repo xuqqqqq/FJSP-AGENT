@@ -1648,6 +1648,43 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_move_selection_slot_warns_on_nonexistent_node_to_operation_key(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "global_setup_sum",
+                        "type": "local_search_operator",
+                        "novelty": "Different from local setup tie-breakers by scanning full machine sequences.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_selection",
+                        "content": (
+                            "    idx = schedule.index\n"
+                            "    prev_op = idx.node_to_operation_key[move.which]\n"
+                            "    return Move(*best_moves[0]) if prev_op else None\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "move_selection_uses_nonexistent_node_to_operation_key",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_move_selection_slot_warns_on_move_key_shape_misread(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_move_selection")
@@ -1698,6 +1735,7 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("makespan", guidance)
         self.assertIn("which_node", guidance)
         self.assertIn("no `operations`", guidance)
+        self.assertIn("operation_key(schedule, node)", guidance)
         self.assertIn("min(3, len(best_moves))", guidance)
         self.assertIn("random-noise", guidance)
         self.assertIn("setup_time_between(sched.index, op1, op2)", guidance)
