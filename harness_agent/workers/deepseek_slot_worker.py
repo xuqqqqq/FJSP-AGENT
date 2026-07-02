@@ -1148,7 +1148,11 @@ def awls_sdst_initialization_warnings(content: str, *, context: dict[str, Any] |
 
     warnings: list[str] = []
     uses_setup = "setup_time_between" in content
-    append_only = ".append(node)" in content and not re.search(r"\.insert\(|sequence\[[^\n]+:[^\n]+\]", content)
+    appends_to_machine_sequence = bool(
+        re.search(r"\bsequences\s*\[[^\]\n]+\]\s*\.append\s*\(", content)
+        or re.search(r"\bseq\s*=\s*sequences\s*\[[^\]\n]+\][\s\S]{0,300}\bseq\s*\.append\s*\(", content)
+    )
+    append_only = appends_to_machine_sequence and not re.search(r"\.insert\(|sequence\[[^\n]+:[^\n]+\]", content)
     has_regret_word = "regret" in content
     has_named_second_best = bool(
         re.search(r"\bsecond[_\s-]*best[_a-z0-9]*\b", content)

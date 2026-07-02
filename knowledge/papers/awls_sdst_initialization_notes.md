@@ -190,6 +190,15 @@ Use these as hypotheses, not as a manual patch:
   `index.job_to_nodes`, `index.candidates[node]`,
   `index.duration(node, machine_id)`, `index.node_to_job[node]`, and
   `index.node_to_op[node]`.
+- After the repair/API guidance was clarified, DeepSeek produced a legal
+  `regret_priority_dispatch_with_setup` initializer.  It computed
+  setup-aware best/second-best completion for each ready operation, selected
+  maximum regret, and still appended `chosen_node` to `sequences[chosen_machine]`.
+  Core evaluation on `oddla20` worsened the incumbent from `1010` to `1033`.
+  Treat append-only maximum-regret dispatch as failed regardless of variable
+  names (`node`, `chosen_node`, `best_machine`, or `chosen_machine`); it must
+  not pass as a materially new initialization idea without a real topology,
+  repair, non-append insertion, or separate sequencing phase.
 - Do not compare move/init mode constants with integers.
 - Do not call `setup_time_between` with `current_op=None`.
 - Import `setup_time_between` locally inside the slot before using it.

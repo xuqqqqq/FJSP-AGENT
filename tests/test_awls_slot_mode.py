@@ -739,6 +739,52 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_initialization_slot_warns_on_chosen_node_max_regret_append_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "regret_priority_dispatch_with_setup",
+                        "type": "initialization_dispatch_rule",
+                        "novelty": "Uses true second-best-machine regret to select which operation to schedule next.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    ready_ops = []\n"
+                            "    op_costs = []\n"
+                            "    op_costs.sort(key=lambda item: item[1])\n"
+                            "    best_machine_id, best_comp = op_costs[0]\n"
+                            "    second_best_comp = op_costs[1][1] if len(op_costs) > 1 else best_comp + 1000000\n"
+                            "    regret = second_best_comp - best_comp if len(op_costs) > 1 else 0\n"
+                            "    ready_ops.append((node, best_comp, regret, best_machine_id))\n"
+                            "    max_regret = max(op[2] for op in ready_ops)\n"
+                            "    top_ops = [op for op in ready_ops if op[2] == max_regret]\n"
+                            "    chosen_node, best_comp, _, chosen_machine = rng.choice(top_ops)\n"
+                            "    sequences[chosen_machine].append(chosen_node)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "initialization_retries_max_regret_append_dispatch",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_initialization_slot_requires_topology_when_round_hypothesis_demands_it(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_initialization")
