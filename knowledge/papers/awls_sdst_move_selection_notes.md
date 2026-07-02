@@ -39,6 +39,16 @@ move keys and keep Core evaluator promotion as the only quality authority.
   `1010` in two forms: only when `best_value > schedule.makespan`, and
   unconditionally when `ranked_moves` exact evaluation did not run.  Do not
   repeat that small best-moves exact-recheck pattern unchanged.
+- A later move-selection worker proposal was legal and evaluator-backed but
+  worsened `oddla20` from `1010` to `1030`.  It combined exact top-k setup
+  tie-breaking with random noise in ranked values, a 10% skip of non-improving
+  exact moves, and a 5% unconditional random `all_moves` escape.  Do not retry
+  random-noise ranking or unconditional random escape as the main novelty.
+- That same proposal attempted global setup scanning with an invalid
+  `setup_time_between(sched.index, op1, op2)` shape and raw schedule nodes.
+  Any setup lookup in this slot must use operation-key tuples and the canonical
+  five-argument call
+  `setup_time_between(schedule.index.instance, machine_id, previous_op, current_op, schedule.index)`.
 - More exhaustive or longer is not automatically better; previous longer or
   more exhaustive probes tied or worsened.
 - Do not use nonexistent APIs such as `schedule.setup_time`,

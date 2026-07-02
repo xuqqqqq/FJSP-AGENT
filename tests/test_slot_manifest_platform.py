@@ -57,6 +57,15 @@ class SlotManifestPlatformTests(unittest.TestCase):
         move_eval_slot = next(slot for slot in payload["slots"] if slot["slot_id"] == "awls_sdst_move_evaluation")
         move_eval_text = "\n".join(move_eval_slot["inputs"] + move_eval_slot["invariants"] + move_eval_slot["forbidden_edits"])
         self.assertIn("change_machine_evaluate_parts", move_eval_text)
+        move_selection_slot = next(slot for slot in payload["slots"] if slot["slot_id"] == "awls_sdst_move_selection")
+        move_selection_text = "\n".join(
+            move_selection_slot["inputs"]
+            + move_selection_slot["invariants"]
+            + move_selection_slot["allowed_edits"]
+            + move_selection_slot["forbidden_edits"]
+        )
+        self.assertIn("setup_time_between(schedule.index.instance", move_selection_text)
+        self.assertIn("unconditional random all_moves escapes", move_selection_text)
         self.assertIn("trial.makespan", move_eval_text)
         self.assertIn("CHANGE_MACHINE_FRONT", move_eval_text)
         portfolio_slot = next(slot for slot in payload["slots"] if slot["slot_id"] == "awls_sdst_portfolio_search_control")

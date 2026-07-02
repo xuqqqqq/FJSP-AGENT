@@ -1219,6 +1219,81 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_move_selection_slot_warns_on_random_noise_escape_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "random_noise_escape",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed selectors by perturbing ranked moves and escaping randomly.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_selection",
+                        "content": (
+                            "    ranked_with_noise = sorted(ranked_moves, key=lambda item: item[0] + schedule.rng.uniform(-0.001, 0.001))\n"
+                            "    if schedule.rng.randrange(100) < 5:\n"
+                            "        return Move(*schedule.rng.choice(all_moves))\n"
+                            "    return Move(*ranked_with_noise[0][1])\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "move_selection_retries_random_noise_escape",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_move_selection_slot_warns_on_invalid_setup_time_between_signature(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "global_setup_scan",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed selectors by using setup tie-breaking.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_selection",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    total = setup_time_between(schedule.index, op1, op2)\n"
+                            "    return Move(*best_moves[0]) if total >= 0 else None\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "move_selection_uses_invalid_setup_time_between_signature",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_move_selection_repair_guidance_names_select_only_contract(self) -> None:
         slot = _generic_slot_context(slot_id="awls_sdst_move_selection")["slot_manifest"]["slots"][0]
 
@@ -1228,6 +1303,8 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("trial = schedule.clone()", guidance)
         self.assertIn("makespan", guidance)
         self.assertIn("min(3, len(best_moves))", guidance)
+        self.assertIn("random-noise", guidance)
+        self.assertIn("setup_time_between(sched.index, op1, op2)", guidance)
 
     def test_weight_update_slot_allows_bounded_weight_cooldown_replacement(self) -> None:
         worker = DeepSeekSlotWorker()

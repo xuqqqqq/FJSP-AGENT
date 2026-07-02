@@ -692,11 +692,12 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
                 "Do not bypass already-applied tabu filtering from remember_candidate.",
                 "Do not change candidate generation; this slot runs after candidate collection.",
                 "Do not access nonexistent schedule.setup_time, schedule.index.setup_time, or schedule.index.durations APIs.",
+                "If setup_time_between is used, call setup_time_between(schedule.index.instance, machine_id, previous_op, current_op, schedule.index).",
                 "Do not modify parser, evaluator, solution schema, CLI arguments, or benchmark semantics.",
             ],
             allowed_edits=[
                 "Only rewrite code between awls_sdst_move_selection markers.",
-                "May change exact top-k candidate ordering, tie-breaking, and bounded random diversification.",
+                "May change exact top-k candidate ordering, deterministic tie-breaking, and bounded seeded diversification.",
                 "May adjust how best_moves/all_moves are sampled when approximate scores tie.",
                 "May add SDST-only local helper functions inside the slot.",
                 "May clone schedule and apply candidate moves for bounded exact rechecks with local exception handling.",
@@ -707,6 +708,8 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
                 "Do not mutate schedule directly or call trial.apply_move without cloning first.",
                 "Do not use LB/UB, evaluator reports, files, subprocesses, multiprocessing, network, or environment variables.",
                 "Do not optimize setup_time instead of makespan.",
+                "Do not call setup_time_between with schedule/index only or raw nodes; convert nodes to operation keys and pass instance, machine_id, previous_op, current_op, schedule.index.",
+                "Do not add random noise to ranked values or unconditional random all_moves escapes; that move-selection pattern worsened oddla20.",
                 "Do not add unbounded loops over repeated local search; keep rechecks bounded by existing candidate lists.",
             ],
             validation_commands=[

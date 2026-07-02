@@ -707,6 +707,8 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "move_selection_mutates_candidate_lists",
         "move_selection_mutates_schedule_directly",
         "move_selection_retries_small_best_moves_exact_recheck",
+        "move_selection_retries_random_noise_escape",
+        "move_selection_uses_invalid_setup_time_between_signature",
         "move_selection_trial_apply_without_clone",
         "weight_update_calls_forbidden_runtime_api",
         "weight_update_mutates_schedule_structure",
@@ -963,6 +965,8 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "move_selection_mutates_candidate_lists",
         "move_selection_mutates_schedule_directly",
         "move_selection_retries_small_best_moves_exact_recheck",
+        "move_selection_retries_random_noise_escape",
+        "move_selection_uses_invalid_setup_time_between_signature",
         "move_selection_trial_apply_without_clone",
         "weight_update_calls_forbidden_runtime_api",
         "weight_update_mutates_schedule_structure",
@@ -1257,6 +1261,21 @@ def awls_sdst_move_selection_warnings(content: str) -> list[str]:
     )
     if small_best_moves_exact_recheck:
         warnings.append("move_selection_retries_small_best_moves_exact_recheck")
+    random_noise_escape = (
+        re.search(r"\branked_with_noise\b|\.uniform\(\s*-0\.001\s*,\s*0\.001\s*\)", content)
+        or (
+            re.search(r"\brng\.randrange\(\s*100\s*\)\s*<\s*(?:5|10)\b", content)
+            and re.search(r"\bchoice\(\s*all_moves\s*\)", content)
+        )
+    )
+    if random_noise_escape:
+        warnings.append("move_selection_retries_random_noise_escape")
+    invalid_setup_signature = bool(
+        re.search(r"\bsetup_time_between\(\s*(?:sched|schedule)\.index\s*,", content)
+        or re.search(r"\bsetup_time_between\(\s*[^,\n]+\s*,\s*op1\s*,\s*op2\s*\)", content)
+    )
+    if invalid_setup_signature:
+        warnings.append("move_selection_uses_invalid_setup_time_between_signature")
     return list(dict.fromkeys(warnings))
 
 
@@ -1476,6 +1495,10 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "after exact makespan or approximate value.\n"
             "- Do not retry `min(3, len(best_moves))` exact rechecks over best_moves; both triggered and "
             "unconditional variants tied oddla20 at 1010.\n"
+            "- Do not retry random-noise ranking or unconditional random all_moves escapes; the setup tie-break + "
+            "5%/10% random escape variant worsened oddla20 from 1010 to 1030.\n"
+            "- If using setup_time_between, use the five-argument contract with operation-key tuples; "
+            "`setup_time_between(sched.index, op1, op2)` is invalid.\n"
             "- Keep exact rechecks bounded by exact_select_top_k, ranked_moves, best_moves, or a small deterministic "
             "subset of all_moves; do not add a nested local search loop."
         )
