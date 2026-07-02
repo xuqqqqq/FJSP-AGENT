@@ -714,6 +714,8 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "move_selection_retries_small_best_moves_exact_recheck",
         "move_selection_retries_random_noise_escape",
         "move_selection_uses_invalid_setup_time_between_signature",
+        "move_selection_uses_nonexistent_operations_api",
+        "move_selection_misinterprets_move_key_shape",
         "move_selection_trial_apply_without_clone",
         "weight_update_calls_forbidden_runtime_api",
         "weight_update_mutates_schedule_structure",
@@ -978,6 +980,8 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "move_selection_retries_small_best_moves_exact_recheck",
         "move_selection_retries_random_noise_escape",
         "move_selection_uses_invalid_setup_time_between_signature",
+        "move_selection_uses_nonexistent_operations_api",
+        "move_selection_misinterprets_move_key_shape",
         "move_selection_trial_apply_without_clone",
         "weight_update_calls_forbidden_runtime_api",
         "weight_update_mutates_schedule_structure",
@@ -1363,6 +1367,14 @@ def awls_sdst_move_selection_warnings(content: str) -> list[str]:
     )
     if invalid_setup_signature:
         warnings.append("move_selection_uses_invalid_setup_time_between_signature")
+    if re.search(r"\b(?:sched|schedule|trial)\.operations\b", content):
+        warnings.append("move_selection_uses_nonexistent_operations_api")
+    misreads_move_key_as_op_key = (
+        re.search(r"\b(?:op_key|target_m|target_machine)\b", content)
+        and re.search(r"\b(?:move_type|method)\s*,\s*(?:op_key|op)\s*,\s*(?:target_m|target_machine)\s*=\s*move_key", content)
+    )
+    if misreads_move_key_as_op_key or re.search(r"move_type\s*==\s*['\"]change_machine['\"]", content):
+        warnings.append("move_selection_misinterprets_move_key_shape")
     return list(dict.fromkeys(warnings))
 
 
@@ -1599,6 +1611,11 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "`trial = schedule.clone()` followed by `trial.apply_move(Move(*move_key))`.\n"
             "- Preserve makespan as the primary exact objective.  Setup time may only be a bounded tie-breaker "
             "after exact makespan or approximate value.\n"
+            "- AWLS move keys are `(method, which_node, where_node)` with method constants FRONT, BACK, "
+            "CHANGE_MACHINE_FRONT, and CHANGE_MACHINE_BACK; do not treat them as operation-key tuples or "
+            "use string literals like `change_machine`.\n"
+            "- AwlsSchedule has no `operations` record list.  Use machine_sequences, on_machine, "
+            "machine_predecessor/successor, end_time, backward_path_length, and makespan.\n"
             "- Do not retry `min(3, len(best_moves))` exact rechecks over best_moves; both triggered and "
             "unconditional variants tied oddla20 at 1010.\n"
             "- Do not retry random-noise ranking or unconditional random all_moves escapes; the setup tie-break + "

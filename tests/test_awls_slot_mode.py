@@ -1610,6 +1610,84 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_move_selection_slot_warns_on_nonexistent_operations_api(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "bottleneck_operations_scan",
+                        "type": "local_search_operator",
+                        "novelty": "Different from setup tie-breakers by counting bottleneck records.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_selection",
+                        "content": (
+                            "    loads = {}\n"
+                            "    for op in schedule.operations:\n"
+                            "        loads[op.machine] = max(loads.get(op.machine, 0), op.end)\n"
+                            "    return Move(*best_moves[0])\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "move_selection_uses_nonexistent_operations_api",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_move_selection_slot_warns_on_move_key_shape_misread(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "bottleneck_move_key_shape",
+                        "type": "local_search_operator",
+                        "novelty": "Different from random escapes by classifying move keys.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_selection",
+                        "content": (
+                            "    def score(move_key):\n"
+                            "        move_type, op_key, target_m = move_key\n"
+                            "        if move_type == 'change_machine':\n"
+                            "            return 1\n"
+                            "        return 0\n"
+                            "    return Move(*sorted(best_moves or all_moves, key=score)[0])\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "move_selection_misinterprets_move_key_shape",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_move_selection_repair_guidance_names_select_only_contract(self) -> None:
         slot = _generic_slot_context(slot_id="awls_sdst_move_selection")["slot_manifest"]["slots"][0]
 
@@ -1618,6 +1696,8 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("already collected move keys", guidance)
         self.assertIn("trial = schedule.clone()", guidance)
         self.assertIn("makespan", guidance)
+        self.assertIn("which_node", guidance)
+        self.assertIn("no `operations`", guidance)
         self.assertIn("min(3, len(best_moves))", guidance)
         self.assertIn("random-noise", guidance)
         self.assertIn("setup_time_between(sched.index, op1, op2)", guidance)

@@ -53,6 +53,16 @@ move keys and keep Core evaluator promotion as the only quality authority.
   more exhaustive probes tied or worsened.
 - Do not use nonexistent APIs such as `schedule.setup_time`,
   `schedule.index.setup_time`, or `schedule.index.durations`.
+- A later deterministic bottleneck tie-break proposal failed at runtime before
+  quality evaluation.  It assumed `AwlsSchedule` exposes `schedule.operations`
+  records with `.machine/.end` fields and unpacked move keys as
+  `(move_type, op_key, target_machine)` with a string literal
+  `"change_machine"`.  In this AWLS solver, move keys are
+  `(method, which_node, where_node)` over integer graph nodes, and methods are
+  constants `FRONT`, `BACK`, `CHANGE_MACHINE_FRONT`, and
+  `CHANGE_MACHINE_BACK`.  Use `machine_sequences`, `on_machine`,
+  `machine_predecessor/successor`, `end_time`, `backward_path_length`, and
+  `makespan`; do not invent decoded operation records inside this slot.
 
 ## Guardrails
 
@@ -61,5 +71,8 @@ move keys and keep Core evaluator promotion as the only quality authority.
   schema, or benchmark score semantics.
 - Do not append to `all_moves`, `ranked_moves`, or `best_moves` except by
   preserving existing flow; this slot should select, not generate.
+- Do not use `schedule.operations` or treat `move_key` as an operation-key
+  tuple; selection receives AWLS node ids, not decoded `(job_id, op_id)`
+  records.
 - Do not read files, LB/UB tables, evaluator outputs, environment variables, or
   network resources.
