@@ -68,6 +68,17 @@ are diagnostics only.
 - A later structured AWLS-ZI run tried `aggressive + pct75` with lanes
   `1:random:1:6,7:greedy:1:6,9:mixed:1:6`; it legally tied `1010` and did not
   improve the incumbent.  Do not retry this exact lane string unchanged.
+- A confirmed portfolio-search-control slot run over
+  `0:mixed:1:6,6:mixed:1:6,7:greedy:1:6,11:random:1:6` tried splitting each
+  lane budget into three deterministic sub-runs (`sub_idx * 123457`) and kept
+  the best sub-run per lane.  It legally tied `1010`, so short multi-scramble
+  restarts alone are not enough under the incumbent controls.
+- The same run tried a setup-ratio adaptive two-phase policy: spend up to half
+  of time probing all lanes, then rerun the best lane with doubled restarts,
+  doubled `gamma`, and `critical_block_exhaustive_pct * 1.5` when setup ratio
+  is high.  It also tied `1010`.  Do not retry setup-ratio best-lane
+  exploitation unchanged; it is still a best-lane rerun unless another
+  mechanism changes the accepted move stream or construction state.
 
 ## Worker Directions
 
@@ -101,6 +112,11 @@ Use these as hypotheses, not as manual patches:
 - Do not spend a future portfolio round only changing the effective seed
   formula, including prime/modulo offsets such as `idx * 7919`; this tied
   `1010` on `oddla20`.
+- Do not retry three-subrun lane splitting with deterministic offsets such as
+  `sub_idx * 123457` unchanged; it tied `1010`.
+- Do not retry probe-then-rerun-current-best with only setup-ratio adaptive
+  `gamma`, `critical_block_exhaustive_pct`, and doubled restarts; it tied
+  `1010` and remains too close to prior best-lane exploitation.
 
 ## Guardrails
 
