@@ -702,6 +702,9 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_random_change_only_lane",
         "neighborhood_shuffles_candidate_machine_dict",
         "portfolio_retries_seed_mapping_only",
+        "portfolio_retries_best_lane_rerun",
+        "portfolio_retries_subrun_seed_splitting",
+        "portfolio_retries_setup_ratio_best_lane_exploitation",
         "same_machine_retries_pure_exact_trial",
         "same_machine_retries_legacy_ratio_exact_gate",
         "same_machine_retries_exact_setup_tiebreak",
@@ -977,6 +980,9 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_random_change_only_lane",
         "neighborhood_shuffles_candidate_machine_dict",
         "portfolio_retries_seed_mapping_only",
+        "portfolio_retries_best_lane_rerun",
+        "portfolio_retries_subrun_seed_splitting",
+        "portfolio_retries_setup_ratio_best_lane_exploitation",
         "same_machine_retries_pure_exact_trial",
         "same_machine_retries_legacy_ratio_exact_gate",
         "same_machine_retries_exact_setup_tiebreak",
@@ -1393,6 +1399,27 @@ def awls_sdst_portfolio_search_control_warnings(content: str) -> list[str]:
     )
     if seed_mapping_change and not budget_or_order_change:
         warnings.append("portfolio_retries_seed_mapping_only")
+    best_lane_rerun = (
+        re.search(r"\bbest_lane\b[\s\S]{0,900}\bsolve_awls_single\s*\(", content)
+        and re.search(r"\b(?:best\.makespan|candidate\.makespan)\b", content)
+        and re.search(r"\b(?:remaining_time|remaining_budget|phase2|second_phase|rerun|deepening)\b", content)
+    )
+    if best_lane_rerun:
+        warnings.append("portfolio_retries_best_lane_rerun")
+    subrun_seed_splitting = (
+        re.search(r"\bsub_idx\b|\bsubrun\b|\bsub_run\b", content)
+        and re.search(r"\b123457\b|\b7919\b|\bseed_offset\b", content)
+        and re.search(r"\bsolve_awls_single\s*\(", content)
+    )
+    if subrun_seed_splitting:
+        warnings.append("portfolio_retries_subrun_seed_splitting")
+    setup_ratio_best_lane = (
+        re.search(r"\bsetup[_\w]*ratio\b", content)
+        and re.search(r"\b(?:gamma\s*\*|critical_block_exhaustive_pct\s*\*|doubled|double|restarts\s*\*)", content)
+        and re.search(r"\bbest_lane\b[\s\S]{0,900}\bsolve_awls_single\s*\(", content)
+    )
+    if setup_ratio_best_lane:
+        warnings.append("portfolio_retries_setup_ratio_best_lane_exploitation")
     return list(dict.fromkeys(warnings))
 
 
@@ -1730,6 +1757,12 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
         return (
             "- Do not retry seed-mapping-only perturbations such as adding idx * 7919 modulo 10000; that tied "
             "oddla20 at 1010 without improving the incumbent.\n"
+            "- Do not retry probe-then-rerun-current-best or best-lane deepening with doubled restarts; broad-scan "
+            "then rerun-best variants tied oddla20 at 1010.\n"
+            "- Do not retry splitting each lane into deterministic sub-runs with offsets such as `sub_idx * 123457`; "
+            "short multi-scramble lane splitting tied oddla20 at 1010.\n"
+            "- Do not retry setup-ratio adaptive reruns of the current best lane that only increase gamma, "
+            "critical_block_exhaustive_pct, or restarts; that remained best-lane exploitation and tied 1010.\n"
             "- If editing this slot, change a real search-control mechanism such as bounded lane ordering, "
             "per-lane budget allocation, early-stop policy, or auditable tie-breaking among equal makespans.\n"
             "- Keep the objective as makespan and preserve lane_summaries with seed/init/restarts/time/makespan diagnostics."
