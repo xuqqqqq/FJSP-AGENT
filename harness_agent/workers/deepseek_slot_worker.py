@@ -492,7 +492,7 @@ def compact_context(context: dict[str, Any]) -> dict[str, Any]:
             "selected_slot": selected_slot,
         },
         "docs": docs[:2],
-        "knowledge_cards": context.get("knowledge_cards", [])[:4],
+        "knowledge_cards": prioritize_knowledge_cards_for_slot(context, selected_slot, limit=6),
         "previous_evidence": context.get("previous_evidence", [])[:4],
         "loop_feedback": context.get("loop_feedback", {}),
         "hypothesis": context.get("hypothesis", ""),
@@ -617,6 +617,59 @@ def normalize_context_usage(value: Any, target_file: str) -> dict[str, Any]:
         "referenced_files": [str(item)[:240] for item in referenced[:12]],
         "notes": str(payload.get("notes") or "")[:1000],
     }
+
+
+def prioritize_knowledge_cards_for_slot(
+    context: dict[str, Any],
+    selected_slot: dict[str, Any] | None,
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    cards = context.get("knowledge_cards") or []
+    if not isinstance(cards, list):
+        return []
+    typed_cards = [card for card in cards if isinstance(card, dict)]
+    if selected_slot is None:
+        return typed_cards[:limit]
+
+    slot_id = str(selected_slot.get("slot_id") or "").lower()
+    tags = selected_slot.get("knowledge_tags") or []
+    tag_terms = [str(tag).lower() for tag in tags if str(tag).strip()]
+
+    def card_score(card: dict[str, Any]) -> int:
+        path = str(card.get("path") or "").lower()
+        snippet = str(card.get("snippet") or "").lower()
+        haystack = f"{path}\n{snippet}"
+        score = 0
+        if slot_id and slot_id in haystack:
+            score += 100
+        if "awls_sdst" in path and "sdst" in tag_terms:
+            score += 50
+        score += sum(3 for tag in tag_terms if tag and tag in haystack)
+        return score
+
+    ranked = sorted(enumerate(typed_cards), key=lambda item: (card_score(item[1]), -item[0]), reverse=True)
+    selected: list[dict[str, Any]] = []
+    seen_paths: set[str] = set()
+    for _index, card in ranked:
+        if card_score(card) <= 0:
+            continue
+        path = str(card.get("path") or "")
+        if path in seen_paths:
+            continue
+        selected.append(card)
+        seen_paths.add(path)
+        if len(selected) >= limit:
+            return selected
+    for card in typed_cards:
+        path = str(card.get("path") or "")
+        if path in seen_paths:
+            continue
+        selected.append(card)
+        seen_paths.add(path)
+        if len(selected) >= limit:
+            break
+    return selected
 
 
 def normalize_function_code(code: str) -> str:

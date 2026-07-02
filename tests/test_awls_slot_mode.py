@@ -10,6 +10,7 @@ from harness_agent.worker import NullWorker
 from harness_agent.workers.deepseek_worker import apply_code_edit_proposal
 from harness_agent.workers.deepseek_slot_worker import (
     DeepSeekSlotWorker,
+    compact_context,
     replace_evolve_block,
     selected_confirmed_slot,
     strip_marker_lines,
@@ -238,6 +239,21 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
 
         self.assertEqual("    body()\n", stripped)
+
+    def test_compact_context_prioritizes_selected_slot_knowledge(self) -> None:
+        context = _generic_slot_context()
+        context["knowledge_cards"] = [
+            {"path": "knowledge/benchmarks/standard_fjsp_format.md", "snippet": "generic"},
+            {
+                "path": "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
+                "snippet": "awls_sdst_neighborhood_selection incumbent 1010 failure memory",
+            },
+            {"path": "knowledge/operators/critical_path_machine_block_neighborhood.md", "snippet": "critical_block"},
+        ]
+
+        compact = compact_context(context)
+
+        self.assertTrue(compact["knowledge_cards"][0]["path"].endswith("awls_sdst_neighborhood_selection_notes.md"))
 
 
 def _slot_context(
