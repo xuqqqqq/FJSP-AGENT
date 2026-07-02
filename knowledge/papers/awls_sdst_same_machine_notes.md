@@ -43,6 +43,12 @@ There is no `schedule.setup_time(...)` helper and no
 - Two same-machine slot attempts failed at runtime because they called
   nonexistent APIs: `schedule.setup_time(...)` and
   `schedule.index.setup_time(...)`.  Do not retry those forms.
+- After the setup API contract was hardened, a legal setup-aware local
+  propagation candidate reached `oddla20` makespan `1014` under the incumbent
+  `critical + beta400/gamma40/theta5 + pct75` baseline.  It reduced setup time
+  from `1900` to `1660`, but still worsened makespan from `1010` to `1014`.
+  Do not optimize same-machine scoring for setup-time reduction alone; the
+  evaluator objective is still makespan.
 - If manually adding setup-aware forward/backward local propagation is too
   fragile, prefer exact local scoring:
 

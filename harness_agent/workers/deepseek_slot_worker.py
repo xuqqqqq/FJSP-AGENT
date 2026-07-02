@@ -438,7 +438,7 @@ Context packet excerpt:
                     "path": target_file,
                     "action": "replace_slot_block",
                     "slot_id": slot_id,
-                    "content": strip_marker_lines(content, slot),
+                    "content": normalize_generic_slot_content(content, slot),
                     "rationale": str(item.get("rationale", ""))[:2000],
                 }
             )
@@ -575,6 +575,40 @@ def strip_marker_lines(content: str, slot: dict[str, Any]) -> str:
         except StopIteration:
             pass
     return stripped.rstrip() + "\n"
+
+
+def normalize_generic_slot_content(content: str, slot: dict[str, Any]) -> str:
+    stripped = strip_marker_lines(content, slot)
+    if str(slot.get("language") or "python") != "python":
+        return stripped
+    target_indent = minimum_nonblank_indent(str(slot.get("original_content") or ""))
+    if target_indent <= 0:
+        return stripped
+    current_indent = minimum_nonblank_indent(stripped)
+    if current_indent < 0 or current_indent == target_indent:
+        return stripped
+    if current_indent < target_indent:
+        prefix = " " * (target_indent - current_indent)
+        return "".join(prefix + line if line.strip() else line for line in stripped.splitlines(keepends=True))
+    return dedent_to_indent(stripped, current_indent - target_indent)
+
+
+def minimum_nonblank_indent(text: str) -> int:
+    indents = [len(line) - len(line.lstrip(" ")) for line in text.splitlines() if line.strip()]
+    return min(indents) if indents else -1
+
+
+def dedent_to_indent(text: str, spaces: int) -> str:
+    if spaces <= 0:
+        return text
+    result: list[str] = []
+    prefix = " " * spaces
+    for line in text.splitlines(keepends=True):
+        if line.strip() and line.startswith(prefix):
+            result.append(line[spaces:])
+        else:
+            result.append(line)
+    return "".join(result)
 
 
 def strip_markdown_code_fence(text: str) -> str:

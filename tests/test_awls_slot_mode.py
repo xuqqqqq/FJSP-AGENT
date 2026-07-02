@@ -230,6 +230,26 @@ class AwlsSlotModeTests(unittest.TestCase):
                 target.read_text(encoding="utf-8"),
             )
 
+    def test_generic_slot_normalization_aligns_function_body_indent(self) -> None:
+        worker = DeepSeekSlotWorker()
+        slot = _generic_slot_context(slot_id="awls_sdst_initialization")["slot_manifest"]["slots"][0]
+        slot["original_content"] = "    old_body()\n"
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": "new_body()\nif ready:\n    choose()\n",
+                    }
+                ]
+            },
+            slot,
+        )
+
+        self.assertEqual("    new_body()\n    if ready:\n        choose()\n", normalized["changes"][0]["content"])
+
     def test_strip_marker_lines_removes_fences_and_markers(self) -> None:
         slot = _generic_slot_context()["slot_manifest"]["slots"][0]
 
@@ -298,8 +318,8 @@ def _generic_slot_context(*, slot_id: str = "awls_sdst_neighborhood_selection") 
                     "slot_id": slot_id,
                     "title": "AWLS-SDST critical-block neighborhood candidate selection",
                     "target_file": "examples/standard_fjsp_awls_solver.py",
-                    "marker_start": "# SLOT awls_sdst_neighborhood_selection START",
-                    "marker_end": "# SLOT awls_sdst_neighborhood_selection END",
+                    "marker_start": f"# SLOT {slot_id} START",
+                    "marker_end": f"# SLOT {slot_id} END",
                     "slot_kind": "marked_block",
                     "language": "python",
                     "purpose": "Generate bounded candidate moves.",

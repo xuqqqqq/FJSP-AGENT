@@ -19,6 +19,19 @@ For SDST it should consider:
 completion = max(job_ready[job], machine_ready[machine] + setup(last_on_machine, op)) + duration
 ```
 
+Correct setup lookup shape inside this slot:
+
+```python
+from harness_agent.standard_fjsp import setup_time_between
+
+prev_op = (index.node_to_job[last_node], index.node_to_op[last_node])
+cur_op = (index.node_to_job[node], index.node_to_op[node])
+setup = setup_time_between(index.instance, machine_id, prev_op, cur_op, index)
+```
+
+This slot is the body of `greedy_gt_init`, so replacement code must remain
+indented inside the function.
+
 ## Worker Directions
 
 Use these as hypotheses, not as a manual patch:
@@ -49,6 +62,12 @@ Use these as hypotheses, not as a manual patch:
   `machine_ready + setup(last_on_machine, current)` append scoring unless it
   is materially changed, for example by using a portfolio or post-init
   improvement evidence.
+- Two later setup-aware initialization candidates failed before evaluation:
+  one imported `setup_time_between` from `examples.standard_fjsp_awls_solver`
+  and called it with separate job/op integers, and another emitted unindented
+  code at the start of the function-body slot.  Use
+  `harness_agent.standard_fjsp.setup_time_between`, operation-key tuples, and
+  preserve function-body indentation.
 - Do not compare move/init mode constants with integers.
 - Do not call `setup_time_between` with `current_op=None`.
 - Import `setup_time_between` locally inside the slot before using it.

@@ -142,6 +142,8 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
                 "rng: random.Random used for deterministic seeded tie-breaking",
                 "random_factor and idle_bonus diversification parameters",
                 "index.instance.has_sequence_dependent_setup and setup_time_between when setup-aware scoring is needed",
+                "setup_time_between must be imported from harness_agent.standard_fjsp inside the slot if used",
+                "Operation keys are (index.node_to_job[node], index.node_to_op[node]); pass index as the op_index mapping",
             ],
             outputs=[
                 "sequences: list[list[int]] assigning every operation node exactly once to a machine sequence",
@@ -152,15 +154,21 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
                 "Keep greedy_gt_init signature unchanged.",
                 "Schedule each operation exactly once and respect job operation order in candidate release.",
                 "Keep standard FJSP behavior close to the current greedy initializer when no SDST data exists.",
+                "Keep all replacement lines indented inside greedy_gt_init; the slot is a function body.",
+                "If setup_time_between is used, call setup_time_between(index.instance, machine_id, previous_op, current_op, index).",
                 "Do not modify random_init, build_initial_schedule, parser, evaluator, solution schema, CLI arguments, or benchmark semantics.",
             ],
             allowed_edits=[
                 "Only rewrite code between awls_sdst_initialization markers.",
                 "May add local helper functions or lambdas inside the slot.",
                 "May use setup-aware completion, setup load, projected load, and seeded tie-breaking.",
+                "May import setup_time_between locally inside the slot.",
             ],
             forbidden_edits=[
                 "Do not create helper files for setup parsing or initialization.",
+                "Do not import setup_time_between from examples.standard_fjsp_awls_solver; use harness_agent.standard_fjsp.",
+                "Do not call setup_time_between with separate job/op integer arguments.",
+                "Do not emit unindented top-level code in this function-body slot.",
                 "Do not change AWLS timing propagation, N7/NK move scoring, zi policy, parser, evaluator, or benchmark semantics.",
             ],
             validation_commands=[
