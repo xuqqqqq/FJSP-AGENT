@@ -659,7 +659,15 @@ def build_generic_slot_audit(
     novelty_text = "\n".join(
         str(item.get("novelty") or "") for item in hypotheses if isinstance(item, dict)
     ).lower()
+    risk_notes = proposal.get("risk_notes") or []
+    if isinstance(risk_notes, str):
+        risk_notes = [risk_notes]
+    if not isinstance(risk_notes, list):
+        risk_notes = []
+    has_risk_notes = any(str(item).strip() for item in risk_notes)
     warnings: list[str] = []
+    if not normalized_changes and not rejected_changes and not has_risk_notes:
+        warnings.append("empty_slot_proposal_without_risk_note")
     if normalized_changes and not hypotheses:
         warnings.append("missing_rule_operator_hypotheses")
     avoid_patterns = failure_memory.get("avoid_patterns") or []

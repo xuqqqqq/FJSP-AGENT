@@ -23,6 +23,7 @@ TAGGED_CARDS = {
         "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
         "knowledge/papers/awls_sdst_initialization_notes.md",
         "knowledge/papers/awls_sdst_same_machine_notes.md",
+        "knowledge/papers/awls_sdst_move_evaluation_notes.md",
     ],
     "zi": [
         "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
@@ -32,6 +33,7 @@ TAGGED_CARDS = {
     ],
     "move_scoring": [
         "knowledge/imported_huawei_fjsp_knowledge/operators/xiejin_hgtsa_n8_k_insertion_tabu_spec.md",
+        "knowledge/papers/awls_sdst_move_evaluation_notes.md",
     ],
     "critical_path": [
         "knowledge/imported_huawei_fjsp_knowledge/operators/critical_path_machine_block_neighborhood.md",
@@ -65,6 +67,11 @@ TAGGED_CARDS = {
     ],
     "nk_neighborhood": [
         "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
+        "knowledge/papers/awls_sdst_move_evaluation_notes.md",
+    ],
+    "change_machine": [
+        "knowledge/papers/awls_sdst_move_evaluation_notes.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/operation_machine_reassignment.md",
     ],
     "candidate_generation": [
         "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",

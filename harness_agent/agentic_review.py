@@ -84,11 +84,24 @@ def judge_worker_result(
 
     if isinstance(proposal, dict):
         rejected_changes = proposal.get("rejected_changes") or []
+        accepted_changes = proposal.get("changes") or []
+        risk_notes = _proposal_risk_notes(proposal)
         if rejected_changes and not proposal.get("changes"):
             issues.append("all_proposed_changes_rejected")
             suggestions.append("Revise the proposal so edits use supported actions, include full content, and stay under allowed paths.")
         elif rejected_changes:
             warnings.append("some_proposed_changes_rejected")
+        elif (
+            apply_worker_changes
+            and not worker_result.changed_files
+            and not accepted_changes
+            and not risk_notes
+            and proposal_audit.get("slot_id")
+        ):
+            issues.append("empty_slot_proposal_without_risk_note")
+            suggestions.append(
+                "Return exactly one safe replace_slot_block edit, or include risk_notes explaining why no slot edit is safe."
+            )
 
         hypotheses = proposal.get("rule_operator_hypotheses") or []
         if worker_result.changed_files and not hypotheses:
@@ -260,6 +273,15 @@ def _load_proposal(worker_result: WorkerResult) -> dict[str, Any] | None:
     except (OSError, json.JSONDecodeError):
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def _proposal_risk_notes(proposal: dict[str, Any]) -> list[str]:
+    notes = proposal.get("risk_notes") or []
+    if isinstance(notes, str):
+        notes = [notes]
+    if not isinstance(notes, list):
+        return []
+    return [str(item).strip() for item in notes if str(item).strip()]
 
 
 def _compile_changed_python_files(worktree_path: Path, changed_files: list[str]) -> dict[str, str]:

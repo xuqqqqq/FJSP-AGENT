@@ -135,6 +135,15 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertEqual("awls_sdst_neighborhood_selection", slot["slot_id"])
         self.assertEqual([], validate_generic_slot_contract(context, "awls_sdst_neighborhood_selection"))
 
+    def test_selected_confirmed_slot_accepts_sdst_move_evaluation_slot(self) -> None:
+        context = _generic_slot_context(slot_id="awls_sdst_move_evaluation")
+
+        slot, error = selected_confirmed_slot(context)
+
+        self.assertEqual("", error)
+        self.assertEqual("awls_sdst_move_evaluation", slot["slot_id"])
+        self.assertEqual([], validate_generic_slot_contract(context, "awls_sdst_move_evaluation"))
+
     def test_selected_confirmed_slot_rejects_multiple_confirmed_slots(self) -> None:
         context = _slot_context(user_confirmed=True)
         context["slot_manifest"]["slots"].append(_generic_slot_context()["slot_manifest"]["slots"][0])
@@ -347,6 +356,26 @@ class AwlsSlotModeTests(unittest.TestCase):
             normalized["proposal_audit"]["warnings"],
         )
 
+    def test_generic_slot_audit_warns_on_empty_proposal_without_risk_note(self) -> None:
+        worker = DeepSeekSlotWorker()
+        slot = _generic_slot_context(slot_id="awls_sdst_move_evaluation")["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "summary": "No safe change selected.",
+                "strategy_intent": "Skip editing.",
+                "changes": [],
+                "risk_notes": [],
+            },
+            slot,
+        )
+
+        self.assertEqual([], normalized["changes"])
+        self.assertIn(
+            "empty_slot_proposal_without_risk_note",
+            normalized["proposal_audit"]["warnings"],
+        )
+
 
 def _slot_context(
     *,
@@ -376,6 +405,18 @@ def _slot_context(
 
 
 def _generic_slot_context(*, slot_id: str = "awls_sdst_neighborhood_selection") -> dict[str, object]:
+    marker = f"# SLOT {slot_id}"
+    title = "AWLS-SDST critical-block neighborhood candidate selection"
+    purpose = "Generate bounded candidate moves."
+    inputs = ["schedule", "consider_same", "consider_change"]
+    outputs = ["Populate candidate move containers through closures."]
+    tags = ["awls", "sdst", "neighborhood"]
+    if slot_id == "awls_sdst_move_evaluation":
+        title = "AWLS-SDST setup-aware change-machine NK scoring"
+        purpose = "Rank change-machine moves."
+        inputs = ["schedule", "method", "which", "where", "intersection_first", "intersection_last", "gamma"]
+        outputs = ["Return numeric change-machine move score."]
+        tags = ["awls", "sdst", "move_scoring", "nk_neighborhood", "change_machine"]
     return {
         "edit_policy": {
             "allowed_paths": ["examples", "harness_agent", "configs"],
@@ -388,20 +429,20 @@ def _generic_slot_context(*, slot_id: str = "awls_sdst_neighborhood_selection") 
             "slots": [
                 {
                     "slot_id": slot_id,
-                    "title": "AWLS-SDST critical-block neighborhood candidate selection",
+                    "title": title,
                     "target_file": "examples/standard_fjsp_awls_solver.py",
-                    "marker_start": f"# SLOT {slot_id} START",
-                    "marker_end": f"# SLOT {slot_id} END",
+                    "marker_start": f"{marker} START",
+                    "marker_end": f"{marker} END",
                     "slot_kind": "marked_block",
                     "language": "python",
-                    "purpose": "Generate bounded candidate moves.",
-                    "inputs": ["schedule", "consider_same", "consider_change"],
-                    "outputs": ["Populate candidate move containers through closures."],
+                    "purpose": purpose,
+                    "inputs": inputs,
+                    "outputs": outputs,
                     "invariants": ["Keep parser/evaluator/IO fixed."],
                     "allowed_edits": ["Only rewrite code between markers."],
                     "forbidden_edits": ["Do not edit evaluator semantics."],
                     "validation_commands": ["python -m compileall examples/standard_fjsp_awls_solver.py"],
-                    "knowledge_tags": ["awls", "sdst", "neighborhood"],
+                    "knowledge_tags": tags,
                     "user_confirmed": True,
                 }
             ],

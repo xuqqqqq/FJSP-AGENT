@@ -35,6 +35,7 @@ class SlotManifestPlatformTests(unittest.TestCase):
         self.assertIn("local_search_neighborhood_actions", slot_ids)
         self.assertIn("awls_sdst_initialization", slot_ids)
         self.assertIn("awls_sdst_same_machine_evaluation", slot_ids)
+        self.assertIn("awls_sdst_move_evaluation", slot_ids)
         self.assertIn("awls_sdst_neighborhood_selection", slot_ids)
         same_machine_slot = next(slot for slot in payload["slots"] if slot["slot_id"] == "awls_sdst_same_machine_evaluation")
         same_machine_text = "\n".join(
@@ -42,6 +43,11 @@ class SlotManifestPlatformTests(unittest.TestCase):
         )
         self.assertIn("setup_time_between(schedule.index.instance", same_machine_text)
         self.assertIn("schedule.setup_time", same_machine_text)
+        move_eval_slot = next(slot for slot in payload["slots"] if slot["slot_id"] == "awls_sdst_move_evaluation")
+        move_eval_text = "\n".join(move_eval_slot["inputs"] + move_eval_slot["invariants"] + move_eval_slot["forbidden_edits"])
+        self.assertIn("change_machine_evaluate_parts", move_eval_text)
+        self.assertIn("trial.makespan", move_eval_text)
+        self.assertIn("CHANGE_MACHINE_FRONT", move_eval_text)
         self.assertTrue(payload["confirmation_required"])
 
     def test_context_packet_includes_problem_family_and_slot_manifest(self) -> None:
@@ -111,6 +117,62 @@ class SlotManifestPlatformTests(unittest.TestCase):
         self.assertIn("fjsp_scene_survey_2025_10_17.md", knowledge_paths)
         self.assertIn("xiejin_hgtsa_n8_k_insertion_tabu_spec.md", knowledge_paths)
         self.assertIn("Review slot_manifest", " ".join(packet["worker_instruction"]["required_order"]))
+
+    def test_context_packet_includes_sdst_move_evaluation_slot_and_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            instance = root / "instance.fjs"
+            instance.write_text("1 1 1\n1 1 0 1\n", encoding="utf-8")
+            contract = root / "contract.json"
+            contract.write_text(
+                json.dumps(
+                    {
+                        "task_id": "sdst_move_eval_slot_context",
+                        "problem_family": "standard_fjsp",
+                        "description": "smoke",
+                        "instances": [{"id": "tiny", "path": str(instance)}],
+                        "objectives": [{"name": "makespan", "direction": "minimize"}],
+                        "commands": {
+                            "solver": "python solver.py",
+                            "evaluator": "python evaluator.py",
+                            "quick_test": "python -m compileall .",
+                        },
+                        "budget": {"rounds": 1, "seeds": [0]},
+                        "paths": {"allowed_paths": ["examples"], "forbidden_paths": [".git"]},
+                        "review": {"status": "confirmed"},
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            manifest = root / "slot_manifest.json"
+            from harness_agent.slot_manifest import write_selected_slot_manifest
+
+            write_selected_slot_manifest(
+                problem_family="standard_fjsp",
+                output=manifest,
+                selected_slot_ids=["awls_sdst_move_evaluation"],
+            )
+
+            packet = build_context_packet(
+                ContextPacketRequest(
+                    contract_path=contract,
+                    output_path=root / "context.json",
+                    slot_manifest=manifest,
+                )
+            )
+
+        confirmed = [slot for slot in packet["slot_manifest"]["slots"] if slot["user_confirmed"]]
+        self.assertEqual(["awls_sdst_move_evaluation"], [slot["slot_id"] for slot in confirmed])
+        move_eval_slot = confirmed[0]
+        self.assertIsInstance(move_eval_slot["line_start"], int)
+        self.assertEqual("awls_sdst_move_evaluation", move_eval_slot["block_name"])
+        self.assertIn("weight_perturbation", move_eval_slot["original_content"])
+        self.assertIn("cpp_int_score", move_eval_slot["original_content"])
+        self.assertEqual("# SLOT awls_sdst_move_evaluation START", move_eval_slot["marker_start"])
+        knowledge_paths = {Path(item["path"]).name for item in packet["knowledge_cards"]}
+        self.assertIn("awls_sdst_move_evaluation_notes.md", knowledge_paths)
 
     def test_context_packet_includes_sdst_memory_for_sdst_neighborhood_slot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

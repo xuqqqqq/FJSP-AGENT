@@ -46,5 +46,12 @@ Use these directions as hypotheses, not as a manual patch:
 - Use `trial.makespan` after `trial.apply_move(...)`.  A prior exact-scoring
   candidate incorrectly used `trial.end_time[trial.index.end_node]`; AWLS does
   not maintain the synthetic end node's end time as the schedule makespan.
+- After this slot was exposed as `awls_sdst_move_evaluation`, a legal
+  failure-memory-guided candidate added a conservative `0.5 * setup_delta`
+  penalty to the legacy NK proxy.  On `oddla20` under the current
+  `critical + beta400/gamma40/theta5 + pct75` incumbent controls, it worsened
+  makespan from `1010` to `1030` while reducing setup time from `1900` to
+  `1840`.  Do not retry a simple linear setup-delta penalty as the only change;
+  lower setup time alone is not improvement evidence.
 - Do not change parser/evaluator/IO semantics.
 - Do not change N7 same-machine scoring until a separate slot is confirmed.

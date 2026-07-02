@@ -116,6 +116,52 @@ class ProposalAuditWorker:
         )
 
 
+class EmptySlotProposalWorker:
+    """Test worker that emits an empty confirmed-slot proposal without risk notes."""
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="empty-slot-proposal",
+            supports_code_generation=True,
+            supports_repair=False,
+            supports_structured_output=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        output_dir = Path(spec.output_dir or spec.worktree_path)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        proposal_path = output_dir / "proposal.json"
+        proposal_path.write_text(
+            json.dumps(
+                {
+                    "summary": "No slot edit was emitted.",
+                    "strategy_intent": "Avoid unsafe changes, but without explaining why.",
+                    "rule_operator_hypotheses": [],
+                    "changes": [],
+                    "rejected_changes": [],
+                    "risk_notes": [],
+                    "proposal_audit": {
+                        "slot_id": "awls_sdst_move_evaluation",
+                        "target_file": "examples/standard_fjsp_awls_solver.py",
+                        "accepted_change_count": 0,
+                        "rejected_change_count": 0,
+                        "warnings": ["empty_slot_proposal_without_risk_note"],
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return WorkerResult(
+            status="proposal_created",
+            changed_files=[],
+            summary="Empty slot proposal artifact was written.",
+            artifacts={"proposal": str(proposal_path)},
+        )
+
+
 class BadStandardParserWorker:
     """Test worker that should be rejected by the code judgment gate."""
 
@@ -298,6 +344,30 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertIsNotNone(result.agentic_error_analysis)
             self.assertTrue((tmp_path / "cycle" / "agentic_judgment.json").exists())
             self.assertTrue((tmp_path / "cycle" / "agentic_error_analysis.md").exists())
+
+    def test_code_judgment_rejects_empty_slot_proposal_without_risk_note(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+
+            result = run_worker_cycle(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "cycle",
+                context_packet_path=context_path,
+                worker=EmptySlotProposalWorker(),
+                experiment_id="test_empty_slot_proposal",
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=True,
+            )
+
+            self.assertFalse(result.agentic_judgment.accepted)
+            self.assertIn("no_changed_files_after_apply", result.agentic_judgment.issues)
+            self.assertIn("empty_slot_proposal_without_risk_note", result.agentic_judgment.issues)
+            self.assertEqual(0, result.summary.total)
+            self.assertIsNotNone(result.agentic_error_analysis)
 
 
 def _write_test_context(tmp_path: Path) -> Path:
