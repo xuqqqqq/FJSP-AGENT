@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from examples.standard_fjsp_awls_solver import validate_zi_formula
+from examples.standard_fjsp_awls_solver import parse_portfolio_lanes, validate_zi_formula
 
 from .awls_benchmark import AwlsBenchmarkRequest, run_awls_benchmark, selected_instances
 from .deepseek_client import DeepSeekClient
@@ -227,7 +227,10 @@ Other allowed knobs:
 - `critical_block_exhaustive_pct`: integer 0..25.
 - `portfolio_lanes`: optional AWLS lane string, e.g.
   `3:random:1,5:mixed:1,17:random:1,0:mixed:1,8:greedy:1`.
-  Keep it empty unless evidence suggests a portfolio change.
+  Use it when measured evidence shows seed or initialization variance.  For
+  SDST-HUdata this can be a first-class search lever: a lane such as
+  `2:mixed:1:8` means run AWLS with lane seed 2, mixed initialization, one
+  restart, and an 8-second lane budget.
 
 Baseline evaluator evidence:
 {json.dumps(baseline_summary, ensure_ascii=False, indent=2)}
@@ -262,6 +265,8 @@ Rules:
 - Optimize lower avg_gap_pct first, validity second. The evaluator will decide.
 - Do not repeat an exact prior configuration unless your rationale explains why.
 - Keep `beta` in 50..1500, `gamma` in 5..120, `theta` in 0..20.
+- Keep `portfolio_lanes` bounded: normally 2 to 6 lanes, each formatted
+  `seed:init:restarts[:seconds]`, with init in random/greedy/mixed.
 - Use `zi_policy=formula` for at least one candidate when prior evidence shows
   the fixed policies are flat or worse; keep formulas short and diverse.
 - Prefer interpretable changes to the zi mechanism. This is a controlled
@@ -293,6 +298,7 @@ def normalize_candidates(profile: dict[str, Any], count: int, round_index: int) 
         eval_mode = str(raw.get("same_machine_eval") or "stable")
         if eval_mode not in SAME_MACHINE_EVAL_CHOICES:
             raise ValueError(f"DeepSeek proposed unsupported same_machine_eval: {eval_mode}")
+        portfolio_lanes = normalize_portfolio_lanes(str(raw.get("portfolio_lanes") or ""))
         normalized.append(
             {
                 "name": f"r{round_index:02d}_{name}",
@@ -304,7 +310,7 @@ def normalize_candidates(profile: dict[str, Any], count: int, round_index: int) 
                 "zi_formula": formula,
                 "critical_block_exhaustive_pct": clamp_int(raw.get("critical_block_exhaustive_pct"), 0, 0, 25),
                 "same_machine_eval": eval_mode,
-                "portfolio_lanes": str(raw.get("portfolio_lanes") or ""),
+                "portfolio_lanes": portfolio_lanes,
             }
         )
         if len(normalized) >= count:
@@ -395,8 +401,8 @@ def render_report(manifest: dict[str, Any]) -> str:
         "",
         "## Candidates",
         "",
-        "| Round | Candidate | Avg Makespan | Avg Gap % | Median Gap % | Max Gap % | Invalid Runs | zi Policy | Formula | beta | gamma | theta | Report |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | --- |",
+        "| Round | Candidate | Avg Makespan | Avg Gap % | Median Gap % | Max Gap % | Invalid Runs | zi Policy | Formula | beta | gamma | theta | Portfolio | Report |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | --- | --- |",
     ]
     baseline = manifest.get("baseline") or {}
     lines.append(candidate_row("baseline", baseline))
@@ -427,7 +433,8 @@ def candidate_row(round_label: str, candidate: dict[str, Any]) -> str:
         f"{format_cell(candidate.get('median_gap_pct'))} | {format_cell(candidate.get('max_gap_pct'))} | "
         f"{format_cell(candidate.get('invalid_run_count'))} | {config.get('zi_policy', 'cpp')} | "
         f"`{config.get('zi_formula', '') or ''}` | "
-        f"{config.get('beta', '')} | {config.get('gamma', '')} | {config.get('theta', '')} | {report_cell} |"
+        f"{config.get('beta', '')} | {config.get('gamma', '')} | {config.get('theta', '')} | "
+        f"`{config.get('portfolio_lanes', '') or ''}` | {report_cell} |"
     )
 
 
@@ -459,6 +466,22 @@ def compact_summary(manifest: dict[str, Any]) -> dict[str, Any]:
                 "strategy": item.get("strategy"),
             }
             for item in manifest.get("instances", [])[:20]
+        ],
+        "runs": [
+            {
+                "instance": item.get("instance"),
+                "seed": item.get("seed"),
+                "makespan": item.get("makespan"),
+                "gap_pct": item.get("gap_pct"),
+                "strategy": item.get("strategy"),
+            }
+            for item in sorted(
+                manifest.get("runs", []),
+                key=lambda item: (
+                    float(item.get("makespan")) if isinstance(item.get("makespan"), (int, float)) else float("inf"),
+                    int(item.get("seed", 0) or 0),
+                ),
+            )[:10]
         ],
     }
 
@@ -519,6 +542,29 @@ def clamp_int(value: Any, default: int, lower: int, upper: int) -> int:
     except (TypeError, ValueError):
         parsed = default
     return max(lower, min(upper, parsed))
+
+
+def normalize_portfolio_lanes(raw: str) -> str:
+    text = raw.strip()
+    if not text:
+        return ""
+    lanes = parse_portfolio_lanes(text)
+    if len(lanes) > 8:
+        raise ValueError("DeepSeek proposed too many portfolio lanes; maximum is 8")
+    for lane in lanes:
+        if lane.restarts > 4:
+            raise ValueError("DeepSeek proposed a portfolio lane with restarts > 4")
+        if lane.time_limit_sec is not None and lane.time_limit_sec > 300:
+            raise ValueError("DeepSeek proposed a portfolio lane budget > 300 seconds")
+    return ",".join(
+        f"{lane.seed}:{lane.init_mode}:{lane.restarts}"
+        + (f":{format_float_for_lane(lane.time_limit_sec)}" if lane.time_limit_sec is not None else "")
+        for lane in lanes
+    )
+
+
+def format_float_for_lane(value: float) -> str:
+    return f"{value:.6f}".rstrip("0").rstrip(".")
 
 
 def safe_name(raw: str) -> str:

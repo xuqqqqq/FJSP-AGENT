@@ -21,6 +21,10 @@ from the published UB (`997`; current fast/short baselines are `1202` or
   search lever, not just noise.
 - HUDATA bounds files may name `oddla20.txt` as `la20`.  Gap diagnostics should
   use the `laXX` UB (`la20` UB is `997`) while scoring remains `-makespan`.
+- AWLS-ZI structured evolution with DeepSeek proposed `zi_policy=aggressive`
+  and improved `oddla20` seed-0 short-budget quality to `1154` (gap
+  `15.75%` vs UB `997`).  A simple formula
+  `base * (1 + 0.3 * is_critical)` worsened to `1202`.
 
 This points toward the move-candidate selection layer: the search may not be
 trying the right critical or near-critical N7/NK moves often enough.
