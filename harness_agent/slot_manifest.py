@@ -184,6 +184,8 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
                 "move: Move whose method is FRONT or BACK on the same machine",
                 "gamma: adaptive-weight perturbation scale",
                 "local_sequence_after_same_machine_move(schedule, move)",
+                "setup_time_between from harness_agent.standard_fjsp if setup-aware local estimates are needed",
+                "Operation keys are (schedule.index.node_to_job[node], schedule.index.node_to_op[node]); pass schedule.index as the op_index mapping",
             ],
             outputs=[
                 "A numeric same-machine move score where smaller is preferred by find_move",
@@ -192,15 +194,20 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
             invariants=[
                 "Keep same_machine_evaluate_stable signature unchanged.",
                 "Move method values are string constants FRONT and BACK.",
+                "AwlsSchedule has no setup_time(...) method and OperationIndex has no setup_time(...) method.",
+                "If setup_time_between is used, call setup_time_between(schedule.index.instance, machine_id, previous_op, current_op, schedule.index).",
+                "Never pass node ids directly to setup_time_between; convert nodes to operation keys first.",
                 "Do not change change_machine_evaluate_parts, same_machine_evaluate_cpp_fast, zi policy, parser, evaluator, or benchmark semantics.",
             ],
             allowed_edits=[
                 "Only rewrite code between awls_sdst_same_machine_evaluation markers.",
                 "May add local helper functions or setup-aware propagation inside the local scoring block.",
                 "May clone and apply a move for exact local makespan if errors are handled locally.",
+                "May import setup_time_between locally inside this slot.",
             ],
             forbidden_edits=[
                 "Do not create helper files for setup parsing or move evaluation.",
+                "Do not call schedule.setup_time(...) or schedule.index.setup_time(...); these APIs do not exist.",
                 "Do not change AWLS timing propagation, change-machine scoring, zi policy, parser, evaluator, or benchmark semantics.",
             ],
             validation_commands=[

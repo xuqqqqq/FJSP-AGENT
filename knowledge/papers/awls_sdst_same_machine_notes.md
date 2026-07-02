@@ -20,6 +20,18 @@ Use these as hypotheses, not as a manual patch:
 - Hybrid scoring: preserve the current stable evaluator for standard FJSP and
   only add setup-aware terms when `instance.has_sequence_dependent_setup` is
   true.
+- Correct setup lookup shape:
+
+```python
+from harness_agent.standard_fjsp import setup_time_between
+
+prev_op = (schedule.index.node_to_job[prev_node], schedule.index.node_to_op[prev_node])
+cur_op = (schedule.index.node_to_job[cur_node], schedule.index.node_to_op[cur_node])
+setup = setup_time_between(schedule.index.instance, machine_id, prev_op, cur_op, schedule.index)
+```
+
+There is no `schedule.setup_time(...)` helper and no
+`schedule.index.setup_time(...)` helper.
 
 ## Prior Failure Memory
 
@@ -28,6 +40,23 @@ Use these as hypotheses, not as a manual patch:
 - Do not call `setup_time_between` with `current_op=None`.
 - Import `setup_time_between` locally inside the slot before using it.
 - Use `trial.makespan` after `trial.apply_move(move)` for exact scoring.
+- Two same-machine slot attempts failed at runtime because they called
+  nonexistent APIs: `schedule.setup_time(...)` and
+  `schedule.index.setup_time(...)`.  Do not retry those forms.
+- If manually adding setup-aware forward/backward local propagation is too
+  fragile, prefer exact local scoring:
+
+```python
+legacy = ...  # current stable score
+if not schedule.index.instance.has_sequence_dependent_setup:
+    return legacy
+try:
+    trial = schedule.clone()
+    trial.apply_move(move)
+    return float(trial.makespan) + 0.001 * legacy
+except (ValueError, KeyError, IndexError):
+    return legacy
+```
 
 ## Guardrails
 
