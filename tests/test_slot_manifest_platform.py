@@ -39,6 +39,7 @@ class SlotManifestPlatformTests(unittest.TestCase):
         self.assertIn("awls_sdst_portfolio_search_control", slot_ids)
         self.assertIn("awls_sdst_zi_features", slot_ids)
         self.assertIn("awls_sdst_weight_update", slot_ids)
+        self.assertIn("awls_sdst_search_transition", slot_ids)
         self.assertIn("awls_sdst_neighborhood_selection", slot_ids)
         same_machine_slot = next(slot for slot in payload["slots"] if slot["slot_id"] == "awls_sdst_same_machine_evaluation")
         same_machine_text = "\n".join(
@@ -79,6 +80,17 @@ class SlotManifestPlatformTests(unittest.TestCase):
         self.assertIn("op_weight", weight_update_text)
         self.assertIn("op_cooldown", weight_update_text)
         self.assertIn("Do not mutate schedule machine sequences", weight_update_text)
+        search_transition_slot = next(slot for slot in payload["slots"] if slot["slot_id"] == "awls_sdst_search_transition")
+        search_transition_text = "\n".join(
+            search_transition_slot["inputs"]
+            + search_transition_slot["outputs"]
+            + search_transition_slot["invariants"]
+            + search_transition_slot["forbidden_edits"]
+        )
+        self.assertIn("tabu_search", search_transition_text)
+        self.assertIn("current", search_transition_text)
+        self.assertIn("best", search_transition_text)
+        self.assertIn("Do not call current.apply_move", search_transition_text)
         self.assertTrue(payload["confirmation_required"])
 
     def test_context_packet_includes_problem_family_and_slot_manifest(self) -> None:
@@ -427,6 +439,63 @@ class SlotManifestPlatformTests(unittest.TestCase):
         self.assertEqual("# SLOT awls_sdst_move_selection START", move_selection_slot["marker_start"])
         knowledge_paths = {Path(item["path"]).name for item in packet["knowledge_cards"]}
         self.assertIn("awls_sdst_move_selection_notes.md", knowledge_paths)
+
+    def test_context_packet_includes_sdst_search_transition_slot_and_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            instance = root / "instance.fjs"
+            instance.write_text("1 1 1\n1 1 0 1\n", encoding="utf-8")
+            contract = root / "contract.json"
+            contract.write_text(
+                json.dumps(
+                    {
+                        "task_id": "sdst_search_transition_slot_context",
+                        "problem_family": "standard_fjsp",
+                        "description": "smoke",
+                        "instances": [{"id": "tiny", "path": str(instance)}],
+                        "objectives": [{"name": "makespan", "direction": "minimize"}],
+                        "commands": {
+                            "solver": "python solver.py",
+                            "evaluator": "python evaluator.py",
+                            "quick_test": "python -m compileall .",
+                        },
+                        "budget": {"rounds": 1, "seeds": [0]},
+                        "paths": {"allowed_paths": ["examples"], "forbidden_paths": [".git"]},
+                        "review": {"status": "confirmed"},
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            manifest = root / "slot_manifest.json"
+            from harness_agent.slot_manifest import write_selected_slot_manifest
+
+            write_selected_slot_manifest(
+                problem_family="standard_fjsp",
+                output=manifest,
+                selected_slot_ids=["awls_sdst_search_transition"],
+            )
+
+            packet = build_context_packet(
+                ContextPacketRequest(
+                    contract_path=contract,
+                    output_path=root / "context.json",
+                    slot_manifest=manifest,
+                    project_root=Path.cwd(),
+                )
+            )
+
+        confirmed = [slot for slot in packet["slot_manifest"]["slots"] if slot["user_confirmed"]]
+        self.assertEqual(["awls_sdst_search_transition"], [slot["slot_id"] for slot in confirmed])
+        transition_slot = confirmed[0]
+        self.assertIsInstance(transition_slot["line_start"], int)
+        self.assertEqual("awls_sdst_search_transition", transition_slot["block_name"])
+        self.assertIn("current.makespan < best.makespan", transition_slot["original_content"])
+        self.assertIn("best = current.clone()", transition_slot["original_content"])
+        self.assertEqual("# SLOT awls_sdst_search_transition START", transition_slot["marker_start"])
+        knowledge_paths = {Path(item["path"]).name for item in packet["knowledge_cards"]}
+        self.assertIn("awls_sdst_search_transition_notes.md", knowledge_paths)
 
     def test_context_packet_includes_sdst_memory_for_sdst_neighborhood_slot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

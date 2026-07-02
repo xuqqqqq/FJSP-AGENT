@@ -27,6 +27,7 @@ TAGGED_CARDS = {
         "knowledge/papers/awls_sdst_portfolio_search_control_notes.md",
         "knowledge/papers/awls_sdst_zi_feature_notes.md",
         "knowledge/papers/awls_sdst_weight_update_notes.md",
+        "knowledge/papers/awls_sdst_search_transition_notes.md",
     ],
     "zi": [
         "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
@@ -91,6 +92,7 @@ TAGGED_CARDS = {
     ],
     "search_control": [
         "knowledge/papers/awls_sdst_portfolio_search_control_notes.md",
+        "knowledge/papers/awls_sdst_search_transition_notes.md",
         "knowledge/papers/awls_sdst_move_selection_notes.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
     ],
@@ -107,6 +109,11 @@ TAGGED_CARDS = {
         "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
     ],
     "tabu_search": [
+        "knowledge/papers/awls_sdst_search_transition_notes.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
+    ],
+    "search_transition": [
+        "knowledge/papers/awls_sdst_search_transition_notes.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
     ],
 }

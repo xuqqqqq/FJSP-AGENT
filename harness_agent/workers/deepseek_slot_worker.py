@@ -703,6 +703,11 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "weight_update_calls_forbidden_runtime_api",
         "weight_update_mutates_schedule_structure",
         "weight_update_uses_random_or_io",
+        "search_transition_calls_forbidden_runtime_api",
+        "search_transition_mutates_schedule_structure",
+        "search_transition_promotes_worse_best",
+        "search_transition_stats_without_none_guard",
+        "search_transition_uses_io_or_unseeded_random",
         "all_slot_changes_rejected",
         "slot_change_rejected_wrong_slot_id",
         "slot_content_python_syntax_error",
@@ -941,6 +946,11 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "weight_update_calls_forbidden_runtime_api",
         "weight_update_mutates_schedule_structure",
         "weight_update_uses_random_or_io",
+        "search_transition_calls_forbidden_runtime_api",
+        "search_transition_mutates_schedule_structure",
+        "search_transition_promotes_worse_best",
+        "search_transition_stats_without_none_guard",
+        "search_transition_uses_io_or_unseeded_random",
         "all_slot_changes_rejected",
         "slot_change_rejected_wrong_slot_id",
         "slot_content_python_syntax_error",
@@ -972,6 +982,8 @@ def slot_specific_generic_warnings(slot: dict[str, Any], changes: list[dict[str,
         return warnings + awls_sdst_portfolio_search_control_warnings(content)
     if slot_id == "awls_sdst_weight_update":
         return warnings + awls_sdst_weight_update_warnings(content)
+    if slot_id == "awls_sdst_search_transition":
+        return warnings + awls_sdst_search_transition_warnings(content)
     if slot_id != "awls_sdst_same_machine_evaluation":
         return warnings
     uses_setup_propagation = "setup_time_between" in content and ("new_r" in content or "new_q" in content)
@@ -1184,6 +1196,63 @@ def awls_sdst_weight_update_warnings(content: str) -> list[str]:
     return list(dict.fromkeys(warnings))
 
 
+def awls_sdst_search_transition_warnings(content: str) -> list[str]:
+    """Keep transition edits from becoming hidden move generation or validator bypasses."""
+
+    warnings: list[str] = []
+    if re.search(
+        r"\b(?:find_move|tabu_search|solve_awls|solve_awls_single|validate_standard_schedule)\s*\(",
+        content,
+    ):
+        warnings.append("search_transition_calls_forbidden_runtime_api")
+    if re.search(r"\b(?:current|schedule|trial|best)\s*\.\s*apply_move\s*\(", content):
+        warnings.append("search_transition_calls_forbidden_runtime_api")
+    if re.search(r"\badd_move_tabu\s*\(", content):
+        warnings.append("search_transition_calls_forbidden_runtime_api")
+    if re.search(r"\b(?:open|read_text|write_text|subprocess|multiprocessing|requests|socket|os\.environ)\b", content):
+        warnings.append("search_transition_uses_io_or_unseeded_random")
+    if re.search(r"\brandom\.", content):
+        warnings.append("search_transition_uses_io_or_unseeded_random")
+    mutable_schedule_fields = (
+        "machine_sequences",
+        "job_predecessor",
+        "job_successor",
+        "machine_predecessor",
+        "machine_successor",
+        "on_machine",
+        "on_machine_pos",
+        "start_time",
+        "end_time",
+        "makespan",
+    )
+    field_pattern = "|".join(re.escape(field) for field in mutable_schedule_fields)
+    if re.search(rf"\b(?:current|best|schedule|trial)\.(?:{field_pattern})\b\s*(?:=|\+=|-=|\*=|/=|//=|%=)", content):
+        warnings.append("search_transition_mutates_schedule_structure")
+    if re.search(
+        rf"\b(?:current|best|schedule|trial)\.(?:machine_sequences|job_predecessor|job_successor|machine_predecessor|machine_successor)\b[^\n]*\.(?:append|extend|insert|pop|remove|clear|sort)\s*\(",
+        content,
+    ):
+        warnings.append("search_transition_mutates_schedule_structure")
+    best_assignment = re.search(r"\bbest\s*=\s*current\s*(?!\.)", content)
+    if best_assignment:
+        warnings.append("search_transition_mutates_schedule_structure")
+    worse_best_guard = re.search(
+        r"\bif\s+current\.makespan\s*(?:>|>=)\s*best\.makespan\s*:\s*\n\s*best\s*=\s*current\.clone\(\)",
+        content,
+    )
+    if worse_best_guard:
+        warnings.append("search_transition_promotes_worse_best")
+    if (
+        re.search(r"\bbest\s*=\s*current\.clone\(\)", content)
+        and not re.search(r"current\.makespan\s*<\s*best\.makespan", content)
+    ):
+        warnings.append("search_transition_promotes_worse_best")
+    uses_stats = re.search(r"\bstats\s*(?:\.|\[)", content)
+    if uses_stats and "stats is not none" not in content:
+        warnings.append("search_transition_stats_without_none_guard")
+    return list(dict.fromkeys(warnings))
+
+
 def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
     slot_id = str(slot.get("slot_id") or "")
     if slot_id == "awls_sdst_neighborhood_selection":
@@ -1262,6 +1331,16 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- Do not use random numbers, file IO, subprocesses, multiprocessing, network access, or environment variables.\n"
             "- Preserve the new-best reset behavior after current_makespan < best_makespan_before unless a bounded "
             "alternative is explicitly justified by the hypothesis."
+        )
+    if slot_id == "awls_sdst_search_transition":
+        return (
+            "- This slot controls only the post-move tabu-search transition after a legal move and weight update.\n"
+            "- Preserve `best` as the lowest makespan seen in this tabu_search call; do not assign current to best "
+            "unless current.makespan < best.makespan.\n"
+            "- Do not call find_move, apply_move, add_move_tabu, tabu_search, solve_awls, solve_awls_single, or evaluator/validator APIs.\n"
+            "- Do not mutate schedule topology fields, start/end times, on_machine, or makespan directly; assign whole clones only.\n"
+            "- `stats` is optional; guard every stats read or write with `if stats is not None:`.\n"
+            "- Plateau, backtrack, or restart logic must be bounded and deterministic from in-scope values, using only current.rng if randomness is needed."
         )
     return "- Keep the replacement inside the selected slot contract and make the novelty materially different from failure memory."
 

@@ -1592,8 +1592,10 @@ def tabu_search(
             theta,
             zi_policy,
         )
+        # SLOT awls_sdst_search_transition START
         if current.makespan < best.makespan:
             best = current.clone()
+        # SLOT awls_sdst_search_transition END
     # C++ 参考实现中 Schedule 复制的是共享 OperationList，best 图结构会继续携带
     # 当前搜索轨迹末端积累出的 w/t 记忆。这里显式保留这份长期记忆，避免外层
     # 多轮 AWLS 只继承“发现 best 那一刻”的权重状态。

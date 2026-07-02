@@ -176,6 +176,15 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertEqual("awls_sdst_weight_update", slot["slot_id"])
         self.assertEqual([], validate_generic_slot_contract(context, "awls_sdst_weight_update"))
 
+    def test_selected_confirmed_slot_accepts_sdst_search_transition_slot(self) -> None:
+        context = _generic_slot_context(slot_id="awls_sdst_search_transition")
+
+        slot, error = selected_confirmed_slot(context)
+
+        self.assertEqual("", error)
+        self.assertEqual("awls_sdst_search_transition", slot["slot_id"])
+        self.assertEqual([], validate_generic_slot_contract(context, "awls_sdst_search_transition"))
+
     def test_selected_confirmed_slot_rejects_multiple_confirmed_slots(self) -> None:
         context = _slot_context(user_confirmed=True)
         context["slot_manifest"]["slots"].append(_generic_slot_context()["slot_manifest"]["slots"][0])
@@ -1115,6 +1124,230 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("op_cooldown", guidance)
         self.assertIn("apply_move", guidance)
 
+    def test_search_transition_slot_allows_bounded_best_update_and_backtrack(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_search_transition")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "bounded_best_backtrack",
+                        "type": "search_transition_rule",
+                        "novelty": "Different from cooldown and portfolio ties by changing post-move plateau state.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_search_transition",
+                        "content": (
+                            "        if current.makespan < best.makespan:\n"
+                            "            best = current.clone()\n"
+                            "            if stats is not None:\n"
+                            "                stats['best_updates'] = stats.get('best_updates', 0) + 1\n"
+                            "        elif current.index.instance.has_sequence_dependent_setup and iteration > 0 and iteration % 50 == 0:\n"
+                            "            current = best.clone()\n"
+                            "            if stats is not None:\n"
+                            "                stats['sdst_best_backtracks'] = stats.get('sdst_best_backtracks', 0) + 1\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertEqual(["awls_sdst_search_transition"], [item["slot_id"] for item in normalized["changes"]])
+        self.assertEqual([], validate_generic_slot_contract(context, "awls_sdst_search_transition"))
+        self.assertFalse(generic_slot_needs_repair(normalized))
+
+    def test_search_transition_slot_warns_on_forbidden_runtime_api_calls(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_search_transition")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "recursive_transition_search",
+                        "type": "search_transition_rule",
+                        "novelty": "Different from plateau ties by calling another search.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_search_transition",
+                        "content": (
+                            "        trial = current.clone()\n"
+                            "        trial.apply_move(move)\n"
+                            "        current = tabu_search(trial, 10, 1.0, beta, gamma, theta, 0, 'stable', 75, zi_policy, '', 1)\n"
+                            "        if current.makespan < best.makespan:\n"
+                            "            best = current.clone()\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn("search_transition_calls_forbidden_runtime_api", normalized["proposal_audit"]["warnings"])
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_search_transition_slot_warns_on_schedule_structure_mutation(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_search_transition")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "direct_topology_repair_transition",
+                        "type": "search_transition_rule",
+                        "novelty": "Different from cooldown by repairing machine sequence.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_search_transition",
+                        "content": (
+                            "        current.machine_sequences[0].sort()\n"
+                            "        current.makespan = best.makespan\n"
+                            "        if current.makespan < best.makespan:\n"
+                            "            best = current.clone()\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn("search_transition_mutates_schedule_structure", normalized["proposal_audit"]["warnings"])
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_search_transition_slot_warns_on_promoting_worse_best(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_search_transition")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "accept_worse_best_for_setup",
+                        "type": "search_transition_rule",
+                        "novelty": "Different from setup tie-breaks by changing best promotion.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_search_transition",
+                        "content": (
+                            "        if current.makespan >= best.makespan:\n"
+                            "            best = current.clone()\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn("search_transition_promotes_worse_best", normalized["proposal_audit"]["warnings"])
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_search_transition_slot_warns_on_io_or_unseeded_random(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_search_transition")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "file_driven_transition",
+                        "type": "search_transition_rule",
+                        "novelty": "Different from portfolio ties by reading an external threshold.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_search_transition",
+                        "content": (
+                            "        threshold = random.random()\n"
+                            "        Path('debug.txt').write_text(str(threshold))\n"
+                            "        if current.makespan < best.makespan:\n"
+                            "            best = current.clone()\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn("search_transition_uses_io_or_unseeded_random", normalized["proposal_audit"]["warnings"])
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_search_transition_slot_warns_on_stats_without_none_guard(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_search_transition")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "unguarded_plateau_counter",
+                        "type": "search_transition_rule",
+                        "novelty": "Different from portfolio ties by counting plateau steps.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_search_transition",
+                        "content": (
+                            "        stats.setdefault('plateau_steps', 0)\n"
+                            "        if current.makespan < best.makespan:\n"
+                            "            best = current.clone()\n"
+                            "            stats['plateau_steps'] = 0\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn("search_transition_stats_without_none_guard", normalized["proposal_audit"]["warnings"])
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_search_transition_repair_guidance_names_best_invariant(self) -> None:
+        slot = _generic_slot_context(slot_id="awls_sdst_search_transition")["slot_manifest"]["slots"][0]
+
+        guidance = generic_slot_repair_guidance(slot)
+
+        self.assertIn("best", guidance)
+        self.assertIn("lowest makespan", guidance)
+        self.assertIn("apply_move", guidance)
+        self.assertIn("stats is not None", guidance)
+
     def test_generic_slot_audit_repairs_all_rejected_wrong_slot_changes(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
@@ -1739,6 +1972,12 @@ def _generic_slot_context(*, slot_id: str = "awls_sdst_neighborhood_selection") 
         inputs = ["schedule", "moved_node", "previous_makespan", "current_makespan", "beta", "gamma", "theta"]
         outputs = ["Mutate schedule.op_weight and schedule.op_cooldown only."]
         tags = ["awls", "sdst", "zi", "adaptive_weight", "weight_update"]
+    elif slot_id == "awls_sdst_search_transition":
+        title = "AWLS-SDST tabu search state transition"
+        purpose = "Control post-move tabu_search state transitions without changing parser or evaluator."
+        inputs = ["current", "best", "move", "iteration", "previous_makespan", "best_before", "stats"]
+        outputs = ["May assign best/current AwlsSchedule clones and update stats counters."]
+        tags = ["awls", "sdst", "search_control", "tabu_search", "search_transition"]
     return {
         "edit_policy": {
             "allowed_paths": ["examples", "harness_agent", "configs"],
