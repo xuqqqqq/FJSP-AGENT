@@ -583,7 +583,7 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
             outputs=[
                 "best: AwlsSchedule clone selected from legal lane runs by lowest makespan",
                 "best_lane: PortfolioLane describing the selected effective lane",
-                "lane_summaries: list[str] preserving per-lane diagnostics for the strategy label",
+                "lane_summaries: list[str] initialized inside the slot and preserving per-lane diagnostics for the strategy label",
                 "No change to returned ScheduleRecord schema or benchmark score semantics",
             ],
             invariants=[
@@ -593,7 +593,7 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
                 "Every lane must still call solve_awls_single or an equivalent existing AWLS path that returns AwlsSchedule.",
                 "Preserve deterministic effective_lane_seed = lane.seed + seed * PORTFOLIO_OUTER_SEED_STRIDE unless the replacement explicitly documents an equivalent deterministic mapping.",
                 "Do not mutate parser, evaluator, solution JSON schema, CLI argument names, or benchmark semantics.",
-                "Keep lane_summaries informative enough to audit selected seed/init/restarts/time/makespan.",
+                "Keep lane_summaries initialized and informative enough to audit selected seed/init/restarts/time/makespan.",
             ],
             allowed_edits=[
                 "Only rewrite code between awls_sdst_portfolio_search_control markers.",

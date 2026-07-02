@@ -79,6 +79,14 @@ are diagnostics only.
   is high.  It also tied `1010`.  Do not retry setup-ratio best-lane
   exploitation unchanged; it is still a best-lane rerun unless another
   mechanism changes the accepted move stream or construction state.
+- A later two-phase portfolio worker candidate over
+  `0:mixed:1:6,5:greedy:1:6,10:random:1:6,13:mixed:1:6` crashed before
+  producing a solution: it removed the slot-local
+  `lane_summaries: list[str] = []` initialization but still appended to
+  `lane_summaries`, yielding `NameError` and Core objective key `-Infinity`.
+  Future portfolio edits must preserve all three slot outputs
+  (`best`, `best_lane`, and initialized `lane_summaries`) before changing
+  search-control logic.
 
 ## Worker Directions
 
@@ -126,4 +134,5 @@ Use these as hypotheses, not as manual patches:
 - Do not inspect LB/UB files or evaluator reports inside the solver.
 - Keep lane execution bounded and deterministic through existing seeded AWLS
   calls.
-- Preserve per-lane summaries so Core can audit which lane produced the result.
+- Initialize and preserve per-lane summaries so Core can audit which lane
+  produced the result; deleting `lane_summaries` causes a runtime failure.

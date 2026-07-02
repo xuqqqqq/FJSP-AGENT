@@ -3439,6 +3439,50 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_portfolio_slot_warns_when_lane_summaries_is_not_initialized(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_portfolio_search_control")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "two_phase_budget_without_diagnostics_init",
+                        "type": "search_control",
+                        "novelty": "Uses a two-phase budget but preserves the slot outputs.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_portfolio_search_control",
+                        "content": (
+                            "    lane_budgets = allocate_lane_budgets(portfolio_lanes, time_limit_sec)\n"
+                            "    best = None\n"
+                            "    best_lane = None\n"
+                            "    for lane, lane_budget in zip(portfolio_lanes, lane_budgets, strict=True):\n"
+                            "        effective_lane_seed = lane.seed + seed * PORTFOLIO_OUTER_SEED_STRIDE\n"
+                            "        candidate = solve_awls_single(index, seed=effective_lane_seed, restarts=lane.restarts, cycles_per_restart=cycles_per_restart, iterations=iterations, time_limit_sec=lane_budget, init_mode=lane.init_mode, beta=beta, gamma=gamma, theta=theta, exact_select_top_k=exact_select_top_k, same_machine_eval=same_machine_eval, critical_block_exhaustive_pct=critical_block_exhaustive_pct, zi_policy=zi_policy, zi_formula=zi_formula, initial_state=initial_state, time_check_interval=time_check_interval, cycle_trace=cycle_trace)\n"
+                            "        lane_summaries.append(f'{effective_lane_seed}/{lane.init_mode}=m{candidate.makespan}')\n"
+                            "        if best is None or candidate.makespan < best.makespan:\n"
+                            "            best = candidate.clone()\n"
+                            "            best_lane = PortfolioLane(seed=effective_lane_seed, init_mode=lane.init_mode, restarts=lane.restarts, time_limit_sec=lane.time_limit_sec)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "portfolio_missing_lane_summaries_initialization",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_generic_slot_audit_warns_on_empty_proposal_without_risk_note(self) -> None:
         worker = DeepSeekSlotWorker()
         slot = _generic_slot_context(slot_id="awls_sdst_move_evaluation")["slot_manifest"]["slots"][0]

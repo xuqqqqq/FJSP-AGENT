@@ -705,6 +705,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "portfolio_retries_best_lane_rerun",
         "portfolio_retries_subrun_seed_splitting",
         "portfolio_retries_setup_ratio_best_lane_exploitation",
+        "portfolio_missing_lane_summaries_initialization",
         "same_machine_retries_pure_exact_trial",
         "same_machine_retries_legacy_ratio_exact_gate",
         "same_machine_retries_exact_setup_tiebreak",
@@ -983,6 +984,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "portfolio_retries_best_lane_rerun",
         "portfolio_retries_subrun_seed_splitting",
         "portfolio_retries_setup_ratio_best_lane_exploitation",
+        "portfolio_missing_lane_summaries_initialization",
         "same_machine_retries_pure_exact_trial",
         "same_machine_retries_legacy_ratio_exact_gate",
         "same_machine_retries_exact_setup_tiebreak",
@@ -1379,6 +1381,8 @@ def awls_sdst_portfolio_search_control_warnings(content: str) -> list[str]:
     """Flag repeated SDST portfolio-control proposals that already tied."""
 
     warnings: list[str] = []
+    if not re.search(r"\blane_summaries\s*(?::[^=\n]+)?=\s*(?:\[\s*\]|list\s*\(\s*\))", content):
+        warnings.append("portfolio_missing_lane_summaries_initialization")
     seed_mapping_change = "effective_lane_seed" in content and (
         "7919" in content or "% 10000" in content or "modulo" in content or "lane-order" in content
     )
@@ -1765,7 +1769,9 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "critical_block_exhaustive_pct, or restarts; that remained best-lane exploitation and tied 1010.\n"
             "- If editing this slot, change a real search-control mechanism such as bounded lane ordering, "
             "per-lane budget allocation, early-stop policy, or auditable tie-breaking among equal makespans.\n"
-            "- Keep the objective as makespan and preserve lane_summaries with seed/init/restarts/time/makespan diagnostics."
+            "- Keep the objective as makespan and preserve lane_summaries with seed/init/restarts/time/makespan diagnostics.\n"
+            "- The replacement block must initialize `lane_summaries: list[str] = []` inside the slot before "
+            "appending diagnostics; a prior two-phase candidate crashed with NameError after deleting it."
         )
     if slot_id == "awls_sdst_move_selection":
         return (
