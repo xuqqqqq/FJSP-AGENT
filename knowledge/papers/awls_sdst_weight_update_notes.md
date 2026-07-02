@@ -54,6 +54,15 @@ setup = setup_time_between(schedule.index.instance, machine_id, prev_op, cur_op,
 - Reset after a new best makespan is important.  Do not leave stale high weights
   active after `current_makespan < best_makespan_before` unless the hypothesis
   explicitly explains a safe bounded alternative.
+- A later worker proposed `sdst_cooldown_accel`, accelerating moved-node
+  cooldown when adjacent setup ratio was high.  The platform blocked it before
+  evaluation because it reached into schedule structure (`machine_sequences`,
+  `on_machine`) and used nonexistent APIs (`schedule.operation_key`,
+  `schedule.index.setup_time_between`).  Future weight-update proposals should
+  either stay with in-scope signals (`moved_node`, criticality, makespan
+  progress, existing op_weight/op_cooldown) or use the documented module-level
+  `operation_key(schedule, node)` / `setup_time_between(...)` pattern without
+  mutating or depending on machine-sequence structure.
 
 ## Guardrails
 
