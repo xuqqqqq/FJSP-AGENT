@@ -702,6 +702,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "initialization_retries_max_regret_append_dispatch",
         "initialization_retries_regret_roulette_append_dispatch",
         "initialization_retries_tail_ratio_regret_append_dispatch",
+        "initialization_missing_required_topology_or_repair",
         "initialization_non_append_without_acyclic_guard",
         "initialization_rebuilds_ready_after_committed_insert",
         "initialization_retries_static_bottleneck_ignores_setup",
@@ -905,7 +906,7 @@ def build_generic_slot_audit(
         for cue in ("avoid", "failed", "worsen", "rolled", "different", "material", "instead", "not retry", "失败", "变差")
     ):
         warnings.append("novelty_does_not_reference_failure_memory")
-    warnings.extend(slot_specific_generic_warnings(slot, normalized_changes))
+    warnings.extend(slot_specific_generic_warnings(slot, normalized_changes, context=context))
     if len(normalized_changes) > 1:
         warnings.append("generic_slot_accepts_only_one_change")
     return {
@@ -963,6 +964,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "initialization_retries_max_regret_append_dispatch",
         "initialization_retries_regret_roulette_append_dispatch",
         "initialization_retries_tail_ratio_regret_append_dispatch",
+        "initialization_missing_required_topology_or_repair",
         "initialization_non_append_without_acyclic_guard",
         "initialization_rebuilds_ready_after_committed_insert",
         "initialization_retries_static_bottleneck_ignores_setup",
@@ -994,7 +996,12 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
     return any(str(item) in repair_warnings for item in warnings)
 
 
-def slot_specific_generic_warnings(slot: dict[str, Any], changes: list[dict[str, str]]) -> list[str]:
+def slot_specific_generic_warnings(
+    slot: dict[str, Any],
+    changes: list[dict[str, str]],
+    *,
+    context: dict[str, Any] | None = None,
+) -> list[str]:
     """Detect known failed idea classes that generic novelty text can miss."""
 
     slot_id = str(slot.get("slot_id") or "")
@@ -1009,7 +1016,7 @@ def slot_specific_generic_warnings(slot: dict[str, Any], changes: list[dict[str,
     if re.search(r"\b(?:schedule(?:\.index)?|index)\.setup_time\b", content):
         warnings.append("slot_uses_nonexistent_setup_time_api")
     if slot_id == "awls_sdst_initialization":
-        return warnings + awls_sdst_initialization_warnings(content)
+        return warnings + awls_sdst_initialization_warnings(content, context=context)
     if slot_id == "awls_sdst_neighborhood_selection":
         return warnings + awls_sdst_neighborhood_selection_warnings(content)
     if slot_id == "awls_sdst_move_selection":
@@ -1068,7 +1075,7 @@ def python_slot_content_syntax_error(content: str) -> bool:
     return False
 
 
-def awls_sdst_initialization_warnings(content: str) -> list[str]:
+def awls_sdst_initialization_warnings(content: str, *, context: dict[str, Any] | None = None) -> list[str]:
     """Flag repeated SDST initialization proposals that already regressed."""
 
     warnings: list[str] = []
@@ -1139,6 +1146,28 @@ def awls_sdst_initialization_warnings(content: str) -> list[str]:
     )
     if tail_ratio_regret_append_dispatch:
         warnings.append("initialization_retries_tail_ratio_regret_append_dispatch")
+    context_text = ""
+    if isinstance(context, dict):
+        context_text = str(context.get("hypothesis") or "").lower()
+    requires_topology_or_repair = bool(
+        context_text
+        and re.search(
+            r"(?:must\s+not\s+be\s+another\s+append|not\s+be\s+another\s+append|"
+            r"topology|topological|non-append|nonappend|repair|assignment-then-sequencing|"
+            r"separate\s+sequencing|reorder|insert)",
+            context_text,
+        )
+    )
+    has_required_topology_or_repair = bool(
+        re.search(
+            r"\b(?:awlsschedule|topological_sort|validate_standard_schedule)\b|"
+            r"\.insert\s*\(|\bswap\b|\brepair\b|\bassignment[_-]?then[_-]?sequencing\b|"
+            r"\bseparate\s+sequencing\b|\breorder\b",
+            content,
+        )
+    )
+    if requires_topology_or_repair and append_only and not has_required_topology_or_repair:
+        warnings.append("initialization_missing_required_topology_or_repair")
     committed_non_append = bool(
         re.search(r"sequences\s*\[[^\n\]]+\]\s*\.insert\s*\(", content)
         or re.search(r"\bseq\s*\.\s*insert\s*\(", content)
@@ -1492,6 +1521,9 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "setup time from 1940 to 1910.\n"
             "- Do not retry append-only remaining-work/earliest-completion tail-ratio dispatch with regret "
             "tie-breaks; it worsened oddla20 from 1010 to 1138 despite being legal.\n"
+            "- When the round hypothesis requires topology, repair, non-append insertion, or assignment-then-sequencing, "
+            "the replacement code must contain a real structure for that mechanism, such as `AwlsSchedule(...).topological_sort()`, "
+            "a guarded sequence insert/swap, or a separate sequencing/repair phase; a renamed append-only priority formula is rejected.\n"
             "- Do not retry static single-bottleneck priority that ignores setup/tail/dynamic readiness; it was "
             "legal but worsened oddla20 from 1010 to 1029.\n"
             "- If using non-append insertion, do not directly commit `sequences[machine].insert(...)` without an "

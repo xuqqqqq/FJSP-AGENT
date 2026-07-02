@@ -691,6 +691,91 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_initialization_slot_requires_topology_when_round_hypothesis_demands_it(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        context["hypothesis"] = (
+            "This round must not be another append-only ready-operation priority formula. "
+            "Use topology-guarded non-append insertion or post-construction repair."
+        )
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "plain_priority_formula_despite_topology_request",
+                        "type": "construction_rule",
+                        "novelty": "Claims to address topology request with a new priority.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    ready_ops = []\n"
+                            "    priority = completion + setup_pressure\n"
+                            "    ready_ops.append((priority, node, machine_id))\n"
+                            "    ready_ops.sort()\n"
+                            "    _, node, machine_id = ready_ops[0]\n"
+                            "    sequences[machine_id].append(node)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "initialization_missing_required_topology_or_repair",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_initialization_slot_satisfies_topology_hypothesis_with_real_guard(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        context["hypothesis"] = (
+            "This round must not be another append-only formula; use topology-guarded insertion."
+        )
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "topology_guarded_insertion",
+                        "type": "construction_rule",
+                        "novelty": "Uses a real AwlsSchedule topological guard before accepting insertion.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    candidate_sequences[machine_id].insert(best_pos, node)\n"
+                            "    candidate = AwlsSchedule(index, candidate_sequences, candidate_on_machine, rng)\n"
+                            "    candidate.topological_sort()\n"
+                            "    sequences = candidate_sequences\n"
+                            "    on_machine = candidate_on_machine\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertNotIn(
+            "initialization_missing_required_topology_or_repair",
+            normalized["proposal_audit"]["warnings"],
+        )
+
     def test_initialization_slot_allows_regret_with_critical_tail_pressure(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_initialization")

@@ -171,6 +171,12 @@ Use these as hypotheses, not as a manual patch:
   `1940` to `1590`.  This reinforces that lower total setup is not the
   objective; do not retry classic max-regret append dispatch under renamed
   variables.
+- A topology-required prompt still produced a renamed append-only priority
+  formula instead of real topology repair.  Future rounds that ask for
+  topology, repair, non-append insertion, or assignment-then-sequencing must be
+  enforced structurally: require `AwlsSchedule(...).topological_sort()`, a
+  guarded insert/swap, or a separate sequencing/repair phase in code before
+  evaluation.
 - Do not compare move/init mode constants with integers.
 - Do not call `setup_time_between` with `current_op=None`.
 - Import `setup_time_between` locally inside the slot before using it.
