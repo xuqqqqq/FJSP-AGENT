@@ -38,6 +38,14 @@ are diagnostics only.
   proportional or exponential deepening over the same tied lane family unless
   another search-control mechanism changes the move budget or accepts a
   different incumbent lane.
+- A later diverse-lane portfolio run over
+  `0:mixed,2:greedy,4:random,8:mixed` let DeepSeek assign per-lane
+  beta/gamma/pct perturbations from a small grid:
+  `cfg0=(400,40,75)`, `cfg1=(350,35,60)`, `cfg2=(450,45,80)`,
+  `cfg3=(400,40,50)`.  Core evaluation tied the incumbent at `1010` because
+  lane `0:mixed/cfg0` remained best; the other lanes reached `1086`, `1290`,
+  and `1075`.  This suggests incumbent-adjacent per-lane parameter
+  dissimilarity by itself is not enough to beat `la20`.
 
 ## Worker Directions
 
@@ -57,6 +65,10 @@ Use these as hypotheses, not as manual patches:
 - If revisiting two-phase exploitation, the novelty must be materially
   different from "scan all lanes, rerun current best with doubled restarts" and
   should explain why the prior tie would be broken.
+- Do not spend a future portfolio round only on small per-lane perturbations of
+  `beta/gamma/critical_block_exhaustive_pct` around the incumbent unless it is
+  paired with a different lane set, construction profile, or move-budget rule;
+  the tested diverse-lane parameter grid tied at `1010`.
 
 ## Guardrails
 

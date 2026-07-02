@@ -460,7 +460,11 @@ a natural-language hypothesis and novelty that references failure memory.  If
 no safe edit is possible, return an empty `changes` list only with non-empty
 `risk_notes` explaining the concrete blocker.
 
-Available same-machine exact-trial API, when this is the selected slot:
+Slot-specific repair guidance:
+{generic_slot_repair_guidance(slot)}
+
+Available same-machine exact-trial API, when `awls_sdst_same_machine_evaluation`
+is the selected slot:
 ```python
 legacy = ...  # existing local score inside the slot
 if not schedule.index.instance.has_sequence_dependent_setup:
@@ -672,7 +676,15 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
     warnings = audit.get("warnings")
     if not isinstance(warnings, list):
         return False
-    must_repair = {"same_machine_setup_propagation_without_exact_trial"}
+    must_repair = {
+        "same_machine_setup_propagation_without_exact_trial",
+        "slot_uses_nonexistent_operation_index_durations",
+        "neighborhood_adds_random_no_move_fallback",
+        "neighborhood_gates_change_machine_on_empty_same_moves",
+        "neighborhood_retries_failed_near_critical_threshold",
+        "neighborhood_retries_failed_same_machine_window",
+        "neighborhood_retries_failed_tight_tardiness_filter",
+    }
     return any(str(item) in must_repair for item in warnings)
 
 
@@ -877,6 +889,12 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "empty_slot_proposal_without_concrete_blocker",
         "empty_slot_proposal_reverts_to_baseline",
         "same_machine_setup_propagation_without_exact_trial",
+        "slot_uses_nonexistent_operation_index_durations",
+        "neighborhood_adds_random_no_move_fallback",
+        "neighborhood_gates_change_machine_on_empty_same_moves",
+        "neighborhood_retries_failed_near_critical_threshold",
+        "neighborhood_retries_failed_same_machine_window",
+        "neighborhood_retries_failed_tight_tardiness_filter",
     }
     return any(str(item) in repair_warnings for item in warnings)
 
@@ -885,16 +903,74 @@ def slot_specific_generic_warnings(slot: dict[str, Any], changes: list[dict[str,
     """Detect known failed idea classes that generic novelty text can miss."""
 
     slot_id = str(slot.get("slot_id") or "")
-    if slot_id != "awls_sdst_same_machine_evaluation":
-        return []
     content = "\n".join(str(item.get("content") or "") for item in changes).lower()
     if not content:
         return []
+    warnings: list[str] = []
+    if re.search(r"schedule\.index\.durations\b|\bindex\.durations\b", content):
+        warnings.append("slot_uses_nonexistent_operation_index_durations")
+    if slot_id == "awls_sdst_neighborhood_selection":
+        return warnings + awls_sdst_neighborhood_selection_warnings(content)
+    if slot_id != "awls_sdst_same_machine_evaluation":
+        return warnings
     uses_setup_propagation = "setup_time_between" in content and ("new_r" in content or "new_q" in content)
     uses_exact_trial = ".clone(" in content and ".apply_move(" in content and "trial.makespan" in content
     if uses_setup_propagation and not uses_exact_trial:
-        return ["same_machine_setup_propagation_without_exact_trial"]
-    return []
+        warnings.append("same_machine_setup_propagation_without_exact_trial")
+    return warnings
+
+
+def awls_sdst_neighborhood_selection_warnings(content: str) -> list[str]:
+    """Flag repeated SDST neighborhood proposals that already tied or regressed."""
+
+    warnings: list[str] = []
+    near_critical_cues = ("near_critical", "near-critical", "near critical", "critical_gap", "slack", "tardiness")
+    has_near_critical_cue = any(cue in content for cue in near_critical_cues)
+    if "0.99" in content and "makespan" in content and has_near_critical_cue:
+        warnings.append("neighborhood_retries_failed_near_critical_threshold")
+    if has_near_critical_cue and re.search(
+        r"\b(?:\w*_)?(?:window|radius|span|limit|max_offset)\s*=\s*(?:3|10)\b",
+        content,
+    ):
+        warnings.append("neighborhood_retries_failed_same_machine_window")
+    if has_near_critical_cue and re.search(r"range\([^)]*(?:[-+]\s*(?:3|10)|(?:3|10)\s*[-+])", content):
+        warnings.append("neighborhood_retries_failed_same_machine_window")
+    if re.search(r"[<>]=?\s*-?\s*5\b", content) and "tardiness" in content:
+        warnings.append("neighborhood_retries_failed_tight_tardiness_filter")
+    if "if not all_moves" in content and "schedule.rng" in content and ("shuffle(" in content or "choice(" in content):
+        warnings.append("neighborhood_adds_random_no_move_fallback")
+    if (
+        "if not all_moves" in content
+        and "change_machine_window" in content
+        and "exhaustive_modes" not in content
+        and re.search(r"critical_blocks\([^)]*exhaustive\s*=\s*false", content)
+    ):
+        warnings.append("neighborhood_gates_change_machine_on_empty_same_moves")
+    return list(dict.fromkeys(warnings))
+
+
+def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
+    slot_id = str(slot.get("slot_id") or "")
+    if slot_id == "awls_sdst_neighborhood_selection":
+        return (
+            "- Do not retry the known non-improving neighborhood patterns: near-critical 0.99*makespan filters, "
+            "+/-10 or +/-3 same-machine windows, or tight tardiness > -5 insertion filters.\n"
+            "- If editing this slot, use a materially different bounded candidate-generation idea such as "
+            "boundary-biased N7 moves, bounded NK alternate-machine candidates from change_machine_window, "
+            "or setup-heavy arc focus submitted only through consider_same / consider_change.\n"
+            "- Use schedule.index.duration(node, schedule.on_machine[node]) for processing time; "
+            "OperationIndex has no schedule.index.durations attribute.\n"
+            "- Do not add random fallback moves that run only after all_moves is empty, and do not gate all "
+            "change-machine candidates behind `if not all_moves` after same-machine generation; both patterns "
+            "have tied or badly worsened oddla20.\n"
+            "- Do not call trial.apply_move, directly mutate schedule, or bypass the existing closures."
+        )
+    if slot_id == "awls_sdst_same_machine_evaluation":
+        return (
+            "- Setup-aware R/Q propagation approximations have failed unless backed by an exact cloned trial.\n"
+            "- For SDST same-machine scoring, either preserve legacy behavior or use the available exact-trial pattern below."
+        )
+    return "- Keep the replacement inside the selected slot contract and make the novelty materially different from failure memory."
 
 
 def risk_notes_describe_concrete_blocker(text: str) -> bool:

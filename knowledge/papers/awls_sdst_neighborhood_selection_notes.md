@@ -85,6 +85,27 @@ from the published UB (`997`; current fast/short baselines are `1202` or
   - Tight near-critical insertion into critical blocks worsened to `1030`
     even though setup time dropped to `1840`; lower setup time alone was not
     enough to lower makespan.
+- A guarded neighborhood-selection round asked for materially different
+  boundary/NK/setup-arc candidates, but DeepSeek proposed
+  `PrunedCriticalBlockNeighborhood`: sort critical blocks by total processing
+  time, limit same-machine external targets to two nearest positions, cap move
+  count at `max(50, 2 * operations)`, and cap NK targets.  It failed before
+  quality evaluation with `AttributeError: 'OperationIndex' object has no
+  attribute 'durations'` because it used `schedule.index.durations[node]`.
+  `OperationIndex` exposes `schedule.index.duration(node, machine_id)`, not a
+  `durations` field.  The platform should semantically repair proposals that
+  use this nonexistent API before evaluator time is spent.
+- After the API guard was added, a two-round neighborhood-selection run produced
+  legal but non-improving candidates:
+  - `fallback_random_shake` added random same-machine insertion candidates only
+    when `all_moves` was empty.  It tied the `oddla20` incumbent at `1010`;
+    this fallback rarely changes the active search because the baseline usually
+    already has candidates.
+  - `same_machine_first_fallback_change` removed exhaustive-mode selection and
+    generated change-machine candidates only if same-machine candidates left
+    `all_moves` empty.  It worsened `oddla20` from `1010` to `1295`; the run
+    selected only `5` moves instead of the incumbent `6000`, showing that
+    over-pruning the neighborhood can collapse the tabu search.
 
 This points toward the move-candidate selection layer: the search may not be
 trying the right critical or near-critical N7/NK moves often enough.
@@ -152,6 +173,15 @@ Use these as hypotheses, not as manual patches:
   tested longer pct-20 run was worse than the short pct-20 and pct-50 runs.
 - If setup lookup is used only for candidate ordering, convert node ids to
   `(job_id, op_id)` and pass `schedule.index` as the op-index mapping.
+- Do not use `schedule.index.durations[...]` in this slot.  Use
+  `schedule.index.duration(node, schedule.on_machine[node])` for current-machine
+  processing time, or `schedule.index.duration(node, candidate_machine)` for a
+  candidate-machine processing time.
+- Do not add random shake moves only under `if not all_moves`; this tied
+  `1010` and is usually a dead fallback under the incumbent generator.
+- Do not put all `change_machine_window` / `consider_change` calls behind
+  `if not all_moves` after same-machine generation.  This over-pruned the
+  search to `5` selected moves and worsened `oddla20` to `1295`.
 
 ## Guardrails
 

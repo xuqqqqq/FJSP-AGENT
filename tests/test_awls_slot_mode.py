@@ -13,6 +13,7 @@ from harness_agent.workers.deepseek_slot_worker import (
     compact_context,
     extract_negative_memory_lines,
     extract_generic_slot_proposal,
+    generic_slot_repair_guidance,
     generic_slot_needs_repair,
     replace_evolve_block,
     selected_confirmed_slot,
@@ -368,6 +369,175 @@ class AwlsSlotModeTests(unittest.TestCase):
             "novelty_does_not_reference_failure_memory",
             normalized["proposal_audit"]["warnings"],
         )
+
+    def test_neighborhood_slot_warns_on_repeated_near_critical_window_pattern(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "near_critical_window_retry",
+                        "type": "local_search_operator",
+                        "novelty": "Avoids prior failed memory but still explores near-critical windows.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_neighborhood_selection",
+                        "content": (
+                            "    near_critical_cutoff = 0.99 * schedule.makespan\n"
+                            "    same_machine_window = 10\n"
+                            "    for node in schedule.index.real_nodes:\n"
+                            "        near_critical = schedule.end_time[node] >= near_critical_cutoff\n"
+                            "        if near_critical:\n"
+                            "            consider_same(FRONT, node, node)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "neighborhood_retries_failed_near_critical_threshold",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertIn(
+            "neighborhood_retries_failed_same_machine_window",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_neighborhood_slot_repair_guidance_names_material_alternatives(self) -> None:
+        slot = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")["slot_manifest"]["slots"][0]
+
+        guidance = generic_slot_repair_guidance(slot)
+
+        self.assertIn("boundary-biased N7", guidance)
+        self.assertIn("consider_same / consider_change", guidance)
+        self.assertIn("schedule.index.duration", guidance)
+
+    def test_generic_slot_warns_on_nonexistent_operation_index_durations(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "duration_sorted_blocks",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed near-critical filters by sorting blocks.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_neighborhood_selection",
+                        "content": (
+                            "    blocks = critical_blocks(schedule, schedule.rng, exhaustive=True)\n"
+                            "    sorted(blocks, key=lambda block: sum(schedule.index.durations[node] for node in block))\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "slot_uses_nonexistent_operation_index_durations",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_neighborhood_slot_warns_on_random_empty_move_fallback(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "fallback_random_shake",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed near-critical filters by adding a random fallback.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_neighborhood_selection",
+                        "content": (
+                            "    if not all_moves:\n"
+                            "        operations = list(schedule.index.real_nodes)\n"
+                            "        schedule.rng.shuffle(operations)\n"
+                            "        target = schedule.rng.choice(operations)\n"
+                            "        consider_same(BACK, operations[0], target)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "neighborhood_adds_random_no_move_fallback",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_neighborhood_slot_warns_when_change_machine_is_only_empty_fallback(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "same_machine_first_fallback_change",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed random fallback by prioritizing same-machine moves.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_neighborhood_selection",
+                        "content": (
+                            "    blocks = critical_blocks(schedule, schedule.rng, exhaustive=False)\n"
+                            "    for block in blocks:\n"
+                            "        consider_same(BACK, block[0], block[-1])\n"
+                            "    if not all_moves:\n"
+                            "        for node in schedule.index.real_nodes:\n"
+                            "            sequence, rk_start, lk_end = change_machine_window(schedule, node, schedule.on_machine[node])\n"
+                            "            consider_change(CHANGE_MACHINE_BACK, node, sequence[0], -1, -1)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "neighborhood_gates_change_machine_on_empty_same_moves",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
 
     def test_generic_slot_audit_warns_on_empty_proposal_without_risk_note(self) -> None:
         worker = DeepSeekSlotWorker()

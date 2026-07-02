@@ -416,6 +416,7 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
                 "best_makespan, tabu, iteration, gamma, exact_select_top_k, critical_block_exhaustive_pct from find_move",
                 "Local closures consider_same(...) and consider_change(...)",
                 "critical_blocks(...), change_machine_window(...), and schedule.index.candidates",
+                "Processing time lookup uses schedule.index.duration(node, machine_id); OperationIndex has no durations attribute.",
             ],
             outputs=[
                 "Populate all_moves, ranked_moves, best_moves, and best_value only through consider_same and consider_change",
@@ -428,6 +429,7 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
                 "Do not directly append to move containers; call consider_same or consider_change.",
                 "Move method values are string constants FRONT, BACK, CHANGE_MACHINE_FRONT, and CHANGE_MACHINE_BACK.",
                 "Only pass real operation nodes; never pass START_NODE or schedule.index.end_node.",
+                "Do not access nonexistent OperationIndex fields such as schedule.index.durations.",
                 "Do not modify parser, evaluator, solution schema, CLI arguments, or benchmark semantics.",
             ],
             allowed_edits=[
