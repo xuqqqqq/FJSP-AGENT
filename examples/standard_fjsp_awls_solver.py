@@ -1449,6 +1449,7 @@ def find_move(
             break
     # SLOT awls_sdst_neighborhood_selection END
 
+    # SLOT awls_sdst_move_selection START
     if not all_moves:
         return None
     if exact_select_top_k > 0 and ranked_moves:
@@ -1470,6 +1471,7 @@ def find_move(
     if best_value > schedule.makespan and schedule.rng.randrange(100) < 3:
         return Move(*schedule.rng.choice(all_moves))
     return Move(*schedule.rng.choice(best_moves))
+    # SLOT awls_sdst_move_selection END
 
 
 def update_operation_weights(

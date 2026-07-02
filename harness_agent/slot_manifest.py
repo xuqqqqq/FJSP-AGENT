@@ -461,6 +461,70 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
             knowledge_tags=["awls", "sdst", "critical_block", "n7_neighborhood", "nk_neighborhood", "candidate_generation", "quality"],
             user_confirmed=confirmed,
         ),
+        CodeSlotSpec(
+            slot_id="awls_sdst_move_selection",
+            title="AWLS-SDST final move selection and exact recheck",
+            target_file="examples/standard_fjsp_awls_solver.py",
+            marker_start="# SLOT awls_sdst_move_selection START",
+            marker_end="# SLOT awls_sdst_move_selection END",
+            slot_kind="marked_block",
+            language="python",
+            purpose=(
+                "Select the final AWLS Move after same-machine/change-machine candidates "
+                "have been generated, including exact top-k rechecks and bounded tie-breaking."
+            ),
+            inputs=[
+                "schedule: AwlsSchedule with current machine/job arcs, makespan, rng, and setup-aware timing",
+                "all_moves: list of candidate move keys collected only through consider_same/consider_change",
+                "ranked_moves: optional list[(approx_value, move_key)] when exact_select_top_k > 0",
+                "best_moves and best_value: approximate best candidate set from remember_candidate",
+                "exact_select_top_k, best_makespan, Move, and schedule.rng from find_move scope",
+                "setup_time_between from harness_agent.standard_fjsp if SDST tie-breaking needs setup lookup",
+            ],
+            outputs=[
+                "Return Move or None exactly as find_move expects",
+                "No direct mutation of schedule, tabu, machine sequences, parser, evaluator, or output schema",
+                "Any exact check must use schedule.clone(), trial.apply_move(Move(...)), and trial.makespan",
+            ],
+            invariants=[
+                "Keep find_move signature unchanged.",
+                "If all_moves is empty, return None.",
+                "Use makespan as the primary exact objective; setup_time may only be a bounded tie-breaker.",
+                "Do not bypass already-applied tabu filtering from remember_candidate.",
+                "Do not change candidate generation; this slot runs after candidate collection.",
+                "Do not access nonexistent schedule.setup_time, schedule.index.setup_time, or schedule.index.durations APIs.",
+                "Do not modify parser, evaluator, solution schema, CLI arguments, or benchmark semantics.",
+            ],
+            allowed_edits=[
+                "Only rewrite code between awls_sdst_move_selection markers.",
+                "May change exact top-k candidate ordering, tie-breaking, and bounded random diversification.",
+                "May adjust how best_moves/all_moves are sampled when approximate scores tie.",
+                "May add SDST-only local helper functions inside the slot.",
+                "May clone schedule and apply candidate moves for bounded exact rechecks with local exception handling.",
+                "May import setup_time_between locally inside the slot for setup-aware tie-breakers.",
+            ],
+            forbidden_edits=[
+                "Do not append new moves or call consider_same/consider_change in this slot.",
+                "Do not mutate schedule directly or call trial.apply_move without cloning first.",
+                "Do not use LB/UB, evaluator reports, files, subprocesses, multiprocessing, network, or environment variables.",
+                "Do not optimize setup_time instead of makespan.",
+                "Do not add unbounded loops over repeated local search; keep rechecks bounded by existing candidate lists.",
+            ],
+            validation_commands=[
+                "python -m compileall examples/standard_fjsp_awls_solver.py harness_agent/standard_fjsp.py",
+                "python -m unittest tests.test_standard_fjsp_awls_alignment tests.test_awls_slot_mode tests.test_slot_manifest_platform -v",
+            ],
+            knowledge_tags=[
+                "awls",
+                "sdst",
+                "move_selection",
+                "search_control",
+                "move_scoring",
+                "setup_time",
+                "quality",
+            ],
+            user_confirmed=confirmed,
+        ),
     ]
     return SlotManifest(
         schema_version=1,

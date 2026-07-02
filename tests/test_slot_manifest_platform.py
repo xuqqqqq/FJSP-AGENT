@@ -302,6 +302,63 @@ class SlotManifestPlatformTests(unittest.TestCase):
         knowledge_paths = {Path(item["path"]).name for item in packet["knowledge_cards"]}
         self.assertIn("awls_sdst_move_evaluation_notes.md", knowledge_paths)
 
+    def test_context_packet_includes_sdst_move_selection_slot_and_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            instance = root / "instance.fjs"
+            instance.write_text("1 1 1\n1 1 0 1\n", encoding="utf-8")
+            contract = root / "contract.json"
+            contract.write_text(
+                json.dumps(
+                    {
+                        "task_id": "sdst_move_selection_slot_context",
+                        "problem_family": "standard_fjsp",
+                        "description": "smoke",
+                        "instances": [{"id": "tiny", "path": str(instance)}],
+                        "objectives": [{"name": "makespan", "direction": "minimize"}],
+                        "commands": {
+                            "solver": "python solver.py",
+                            "evaluator": "python evaluator.py",
+                            "quick_test": "python -m compileall .",
+                        },
+                        "budget": {"rounds": 1, "seeds": [0]},
+                        "paths": {"allowed_paths": ["examples"], "forbidden_paths": [".git"]},
+                        "review": {"status": "confirmed"},
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            manifest = root / "slot_manifest.json"
+            from harness_agent.slot_manifest import write_selected_slot_manifest
+
+            write_selected_slot_manifest(
+                problem_family="standard_fjsp",
+                output=manifest,
+                selected_slot_ids=["awls_sdst_move_selection"],
+            )
+
+            packet = build_context_packet(
+                ContextPacketRequest(
+                    contract_path=contract,
+                    output_path=root / "context.json",
+                    slot_manifest=manifest,
+                    project_root=Path.cwd(),
+                )
+            )
+
+        confirmed = [slot for slot in packet["slot_manifest"]["slots"] if slot["user_confirmed"]]
+        self.assertEqual(["awls_sdst_move_selection"], [slot["slot_id"] for slot in confirmed])
+        move_selection_slot = confirmed[0]
+        self.assertIsInstance(move_selection_slot["line_start"], int)
+        self.assertEqual("awls_sdst_move_selection", move_selection_slot["block_name"])
+        self.assertIn("exact_select_top_k", move_selection_slot["original_content"])
+        self.assertIn("ranked_moves", move_selection_slot["original_content"])
+        self.assertEqual("# SLOT awls_sdst_move_selection START", move_selection_slot["marker_start"])
+        knowledge_paths = {Path(item["path"]).name for item in packet["knowledge_cards"]}
+        self.assertIn("awls_sdst_move_selection_notes.md", knowledge_paths)
+
     def test_context_packet_includes_sdst_memory_for_sdst_neighborhood_slot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

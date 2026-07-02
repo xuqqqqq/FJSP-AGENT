@@ -149,6 +149,15 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertEqual("awls_sdst_move_evaluation", slot["slot_id"])
         self.assertEqual([], validate_generic_slot_contract(context, "awls_sdst_move_evaluation"))
 
+    def test_selected_confirmed_slot_accepts_sdst_move_selection_slot(self) -> None:
+        context = _generic_slot_context(slot_id="awls_sdst_move_selection")
+
+        slot, error = selected_confirmed_slot(context)
+
+        self.assertEqual("", error)
+        self.assertEqual("awls_sdst_move_selection", slot["slot_id"])
+        self.assertEqual([], validate_generic_slot_contract(context, "awls_sdst_move_selection"))
+
     def test_selected_confirmed_slot_accepts_sdst_zi_feature_slot(self) -> None:
         context = _generic_slot_context(slot_id="awls_sdst_zi_features")
 
@@ -615,6 +624,203 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("slot_id", guidance)
         self.assertIn("awls_sdst_neighborhood_selection", guidance)
         self.assertIn("schedule.index.duration", guidance)
+
+    def test_move_selection_slot_normalizes_exact_recheck_replacement(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "bounded_exact_tiebreak",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed setup-only tie-breakers by preserving exact makespan first.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_selection",
+                        "content": (
+                            "    if not all_moves:\n"
+                            "        return None\n"
+                            "    if exact_select_top_k > 0 and ranked_moves:\n"
+                            "        exact_best = None\n"
+                            "        for approx_value, move_key in sorted(ranked_moves, key=lambda item: item[0])[:exact_select_top_k]:\n"
+                            "            try:\n"
+                            "                trial = schedule.clone()\n"
+                            "                move = Move(*move_key)\n"
+                            "                trial.apply_move(move)\n"
+                            "            except (ValueError, KeyError):\n"
+                            "                continue\n"
+                            "            key = (trial.makespan, approx_value, move_key)\n"
+                            "            if exact_best is None or key[:2] < exact_best[:2]:\n"
+                            "                exact_best = key\n"
+                            "        if exact_best is not None:\n"
+                            "            return Move(*exact_best[2])\n"
+                            "    if not best_moves:\n"
+                            "        return Move(*schedule.rng.choice(all_moves))\n"
+                            "    if best_value > schedule.makespan and schedule.rng.randrange(100) < 3:\n"
+                            "        return Move(*schedule.rng.choice(all_moves))\n"
+                            "    return Move(*schedule.rng.choice(best_moves))\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertEqual(["awls_sdst_move_selection"], [item["slot_id"] for item in normalized["changes"]])
+        self.assertEqual([], validate_generic_slot_contract(context, "awls_sdst_move_selection"))
+        self.assertNotIn("slot_content_python_syntax_error", normalized["proposal_audit"]["warnings"])
+
+    def test_move_selection_slot_warns_on_candidate_generation(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "late_candidate_generation",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed selectors by adding missing setup candidates.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_selection",
+                        "content": (
+                            "    if not all_moves:\n"
+                            "        consider_same(BACK, block[0], block[-1])\n"
+                            "    return Move(*schedule.rng.choice(all_moves))\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn("move_selection_generates_candidates", normalized["proposal_audit"]["warnings"])
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_move_selection_slot_warns_on_candidate_list_mutation(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "synthetic_best_move",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed selectors by inserting a synthetic best move.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_selection",
+                        "content": (
+                            "    if ranked_moves:\n"
+                            "        best_moves.append(ranked_moves[0][1])\n"
+                            "    return Move(*schedule.rng.choice(best_moves or all_moves))\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn("move_selection_mutates_candidate_lists", normalized["proposal_audit"]["warnings"])
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_move_selection_slot_warns_on_direct_schedule_mutation(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "direct_apply_probe",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed exact selectors by applying candidates in-place.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_selection",
+                        "content": (
+                            "    move = Move(*all_moves[0])\n"
+                            "    schedule.apply_move(move)\n"
+                            "    return move\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn("move_selection_mutates_schedule_directly", normalized["proposal_audit"]["warnings"])
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_move_selection_slot_warns_on_trial_apply_without_clone(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "shared_trial_probe",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed exact selectors by reusing a prepared trial.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_selection",
+                        "content": (
+                            "    trial.apply_move(Move(*all_moves[0]))\n"
+                            "    return Move(*all_moves[0])\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn("move_selection_trial_apply_without_clone", normalized["proposal_audit"]["warnings"])
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_move_selection_repair_guidance_names_select_only_contract(self) -> None:
+        slot = _generic_slot_context(slot_id="awls_sdst_move_selection")["slot_manifest"]["slots"][0]
+
+        guidance = generic_slot_repair_guidance(slot)
+
+        self.assertIn("already collected move keys", guidance)
+        self.assertIn("trial = schedule.clone()", guidance)
+        self.assertIn("makespan", guidance)
 
     def test_generic_slot_audit_repairs_all_rejected_wrong_slot_changes(self) -> None:
         worker = DeepSeekSlotWorker()

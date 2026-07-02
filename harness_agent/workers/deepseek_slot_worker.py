@@ -695,6 +695,10 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "initialization_non_append_without_acyclic_guard",
         "initialization_rebuilds_ready_after_committed_insert",
         "initialization_retries_static_bottleneck_ignores_setup",
+        "move_selection_generates_candidates",
+        "move_selection_mutates_candidate_lists",
+        "move_selection_mutates_schedule_directly",
+        "move_selection_trial_apply_without_clone",
         "all_slot_changes_rejected",
         "slot_change_rejected_wrong_slot_id",
         "slot_content_python_syntax_error",
@@ -925,6 +929,10 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "initialization_non_append_without_acyclic_guard",
         "initialization_rebuilds_ready_after_committed_insert",
         "initialization_retries_static_bottleneck_ignores_setup",
+        "move_selection_generates_candidates",
+        "move_selection_mutates_candidate_lists",
+        "move_selection_mutates_schedule_directly",
+        "move_selection_trial_apply_without_clone",
         "all_slot_changes_rejected",
         "slot_change_rejected_wrong_slot_id",
         "slot_content_python_syntax_error",
@@ -950,6 +958,8 @@ def slot_specific_generic_warnings(slot: dict[str, Any], changes: list[dict[str,
         return warnings + awls_sdst_initialization_warnings(content)
     if slot_id == "awls_sdst_neighborhood_selection":
         return warnings + awls_sdst_neighborhood_selection_warnings(content)
+    if slot_id == "awls_sdst_move_selection":
+        return warnings + awls_sdst_move_selection_warnings(content)
     if slot_id == "awls_sdst_portfolio_search_control":
         return warnings + awls_sdst_portfolio_search_control_warnings(content)
     if slot_id != "awls_sdst_same_machine_evaluation":
@@ -1096,6 +1106,33 @@ def awls_sdst_portfolio_search_control_warnings(content: str) -> list[str]:
     return list(dict.fromkeys(warnings))
 
 
+def awls_sdst_move_selection_warnings(content: str) -> list[str]:
+    """Keep move-selection edits inside the select-only contract."""
+
+    warnings: list[str] = []
+    if re.search(r"\b(?:consider_same|consider_change)\s*\(", content):
+        warnings.append("move_selection_generates_candidates")
+    if re.search(r"\b(?:all_moves|ranked_moves|best_moves)\s*(?:\+=|-=|\*=|/=|//=|%=)", content) or re.search(
+        r"\b(?:all_moves|ranked_moves|best_moves)\s*\.\s*(?:append|extend|insert)\s*\(",
+        content,
+    ):
+        warnings.append("move_selection_mutates_candidate_lists")
+    if re.search(r"\bschedule\s*\.\s*apply_move\s*\(", content):
+        warnings.append("move_selection_mutates_schedule_directly")
+    for line in content.splitlines():
+        if re.search(r"\bschedule\.(?!rng\b|clone\b)[\w\.\[\]\(\)'\", ]+\.(?:append|extend|insert|pop|remove|clear|sort)\s*\(", line):
+            warnings.append("move_selection_mutates_schedule_directly")
+            break
+        if re.search(r"\bschedule\.(?!rng\b|clone\b)[a-z_]\w*(?:\[[^\n=]*\])?\s*(?:=|\+=|-=|\*=|/=|//=|%=)", line):
+            warnings.append("move_selection_mutates_schedule_directly")
+            break
+    if re.search(r"\btrial\s*\.\s*apply_move\s*\(", content) and not re.search(r"\btrial\s*=\s*schedule\s*\.\s*clone\s*\(", content):
+        warnings.append("move_selection_trial_apply_without_clone")
+    if re.search(r"\b(?!trial\b)(?!schedule\b)[a-z_]\w*\s*\.\s*apply_move\s*\(", content):
+        warnings.append("move_selection_trial_apply_without_clone")
+    return list(dict.fromkeys(warnings))
+
+
 def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
     slot_id = str(slot.get("slot_id") or "")
     if slot_id == "awls_sdst_neighborhood_selection":
@@ -1152,6 +1189,17 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- If editing this slot, change a real search-control mechanism such as bounded lane ordering, "
             "per-lane budget allocation, early-stop policy, or auditable tie-breaking among equal makespans.\n"
             "- Keep the objective as makespan and preserve lane_summaries with seed/init/restarts/time/makespan diagnostics."
+        )
+    if slot_id == "awls_sdst_move_selection":
+        return (
+            "- This slot selects among already collected move keys only; do not call consider_same or consider_change.\n"
+            "- Do not append, extend, insert into, or otherwise generate all_moves, ranked_moves, or best_moves.\n"
+            "- Do not mutate schedule directly and do not call schedule.apply_move; exact checks must use "
+            "`trial = schedule.clone()` followed by `trial.apply_move(Move(*move_key))`.\n"
+            "- Preserve makespan as the primary exact objective.  Setup time may only be a bounded tie-breaker "
+            "after exact makespan or approximate value.\n"
+            "- Keep exact rechecks bounded by exact_select_top_k, ranked_moves, best_moves, or a small deterministic "
+            "subset of all_moves; do not add a nested local search loop."
         )
     return "- Keep the replacement inside the selected slot contract and make the novelty materially different from failure memory."
 

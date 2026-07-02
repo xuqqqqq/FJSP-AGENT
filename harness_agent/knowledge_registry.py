@@ -38,6 +38,7 @@ TAGGED_CARDS = {
     "move_scoring": [
         "knowledge/imported_huawei_fjsp_knowledge/operators/xiejin_hgtsa_n8_k_insertion_tabu_spec.md",
         "knowledge/papers/awls_sdst_move_evaluation_notes.md",
+        "knowledge/papers/awls_sdst_move_selection_notes.md",
     ],
     "critical_path": [
         "knowledge/imported_huawei_fjsp_knowledge/operators/critical_path_machine_block_neighborhood.md",
@@ -87,6 +88,11 @@ TAGGED_CARDS = {
     ],
     "search_control": [
         "knowledge/papers/awls_sdst_portfolio_search_control_notes.md",
+        "knowledge/papers/awls_sdst_move_selection_notes.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
+    ],
+    "move_selection": [
+        "knowledge/papers/awls_sdst_move_selection_notes.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
     ],
     "zi_features": [
