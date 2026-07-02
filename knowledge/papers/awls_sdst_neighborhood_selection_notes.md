@@ -56,6 +56,14 @@ from the published UB (`997`; current fast/short baselines are `1202` or
 - More exhaustive or longer is not automatically better.  `exact_select_top_k`
   with aggressive scoring worsened to `1265`, and a longer pct-20 run
   (`60` cycles, `500` iterations, `60s`) worsened to `1033`.
+- Generic slot-worker attempts on `awls_sdst_neighborhood_selection` did not
+  beat the `1010` incumbent:
+  - Near-critical filter plus same-machine +/-10 window tied `1010`.
+  - Same-machine +/-3 window plus near-critical NK boundary insertion worsened
+    to `1039` and increased setup time to `1950`.
+  - Tight near-critical insertion into critical blocks worsened to `1030`
+    even though setup time dropped to `1840`; lower setup time alone was not
+    enough to lower makespan.
 
 This points toward the move-candidate selection layer: the search may not be
 trying the right critical or near-critical N7/NK moves often enough.
@@ -64,9 +72,9 @@ trying the right critical or near-critical N7/NK moves often enough.
 
 Use these as hypotheses, not as manual patches:
 
-- Near-critical expansion: include operations whose
-  `end_time[node] + backward_path_length[node]` is close to `makespan`, not
-  only exactly critical nodes.
+- Avoid another pure near-critical/window-pruning tweak.  Recent slot-worker
+  attempts that only changed near-critical thresholds or bounded windows tied
+  or worsened the `1010` incumbent.
 - Boundary-biased N7 moves: for each critical block, try bounded moves that
   place interior operations just outside the block or move boundary operations
   deeper inside the block.
@@ -76,6 +84,9 @@ Use these as hypotheses, not as manual patches:
 - Setup-arc focus for SDST: when ordering candidate nodes, favor moves touching
   machine arcs with high setup contribution, but still submit them through
   `consider_same` / `consider_change`.
+- If this slot remains stuck, switch to `awls_sdst_initialization` or
+  `awls_sdst_same_machine_evaluation`; the current neighborhood-selection slot
+  has now produced legal but non-improving candidates.
 - Keep exploration seeded and bounded.  Large exhaustive scans can waste the
   short worker-loop budget and may make final-quality comparisons noisy, but
   do not cap `critical_block_exhaustive_pct` below `50` during AWLS-ZI evolution
@@ -110,6 +121,10 @@ Use these as hypotheses, not as manual patches:
   or a formula that changes more than a critical multiplier.
 - Do not expect a simple `critical+pct75` seed/init portfolio over seeds `0..9`
   to beat `1010`; measured lanes only tied or regressed.
+- Do not retry near-critical/window-only slot replacements:
+  `0.99*makespan` filters, +/-10 or +/-3 same-machine windows, and tight
+  tardiness `>-5` critical-block insertion have all tied or worsened
+  `oddla20` under the `critical + beta400/gamma40/theta5 + pct75` baseline.
 - Do not retune aggressive zi by only increasing `gamma` and lowering `theta`
   without another change; `gamma=60, theta=3` was worse than default.
 - Do not assume increasing total runtime alone improves this setting; the
