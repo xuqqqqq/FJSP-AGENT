@@ -148,6 +148,23 @@ class AwlsZiEvolutionTests(unittest.TestCase):
         self.assertEqual("aggressive", record["candidate"]["zi_policy"])
         self.assertEqual(50, record["candidate"]["critical_block_exhaustive_pct"])
 
+    def test_request_can_represent_sdst_incumbent_baseline(self) -> None:
+        request = AwlsZiEvolutionRequest(
+            instance_dir=Path("."),
+            pattern="oddla20.txt",
+            output_dir=Path("out"),
+            beta=400,
+            gamma=40,
+            theta=5,
+            zi_policy="critical",
+            critical_block_exhaustive_pct=75,
+            same_machine_eval="stable",
+        )
+        payload = request.__dict__
+
+        self.assertEqual("critical", payload["zi_policy"])
+        self.assertEqual(75, payload["critical_block_exhaustive_pct"])
+
     def test_candidate_failure_manifest_records_invalid_candidate_without_score(self) -> None:
         with TemporaryDirectory() as tmp:
             manifest = write_candidate_failure_manifest(
@@ -182,6 +199,11 @@ class AwlsZiEvolutionTests(unittest.TestCase):
 
         self.assertIn("Local SDST-HUdata measured memory and cautions", prompt)
         self.assertIn("AWLS-SDST Neighborhood Selection Notes", prompt)
+        self.assertIn("AWLS-SDST Move Evaluation Notes", prompt)
+        self.assertIn("AWLS-SDST Initialization Notes", prompt)
+        self.assertIn("AWLS-SDST Same-Machine N7 Notes", prompt)
+        self.assertIn("non-empty `portfolio_lanes`", prompt)
+        self.assertIn("same_machine_eval=cpp-fast", prompt)
 
 
 if __name__ == "__main__":

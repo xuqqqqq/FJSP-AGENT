@@ -53,5 +53,14 @@ Use these directions as hypotheses, not as a manual patch:
   makespan from `1010` to `1030` while reducing setup time from `1900` to
   `1840`.  Do not retry a simple linear setup-delta penalty as the only change;
   lower setup time alone is not improvement evidence.
+- A later worker candidate tried exact SDST scoring for every change-machine
+  candidate by deep-copying the schedule, applying `Move(method, which, where)`,
+  and ranking by `max(trial.end_time) + zi`.  It was legal but worsened
+  `oddla20` from `1010` to `1032`, again with setup time `1840`.  Do not retry
+  full exact scoring as the only move-evaluation change; it appears to steer
+  the same short-budget search toward lower-setup but worse-makespan basins.
+  If revisited, it needs a materially different gating rule such as applying
+  exact scoring only to a small top-k set after the legacy proxy or combining
+  it with a different candidate-generation/portfolio mechanism.
 - Do not change parser/evaluator/IO semantics.
 - Do not change N7 same-machine scoring until a separate slot is confirmed.

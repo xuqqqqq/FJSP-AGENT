@@ -465,6 +465,23 @@ def build_parser() -> argparse.ArgumentParser:
     awls_zi.add_argument("--seeds", default=DEFAULT_STANDARD_SEEDS)
     awls_zi.add_argument("--max-workers", type=int, default=1)
     add_awls_arguments(awls_zi, default_time_limit=10.0)
+    awls_zi.add_argument(
+        "--awls-critical-block-exhaustive-pct",
+        type=int,
+        default=0,
+        help="Baseline critical-block exhaustive scan probability used before DeepSeek proposes candidates.",
+    )
+    awls_zi.add_argument(
+        "--awls-zi-policy",
+        choices=ZI_POLICY_CHOICES,
+        default="cpp",
+        help="Baseline AWLS zi policy used before DeepSeek proposes candidates.",
+    )
+    awls_zi.add_argument(
+        "--awls-zi-formula",
+        default="",
+        help="Baseline safe arithmetic zi formula used only when --awls-zi-policy formula.",
+    )
     awls_zi.add_argument("--same-machine-eval", choices=("stable", "cpp-fast"), default="stable")
     awls_zi.add_argument("--awls-time-policy", choices=("fixed", "mae2019", "mae2019-hour"), default="fixed")
     awls_zi.add_argument(
@@ -1612,6 +1629,9 @@ def run_awls_zi_evolution_cmd(args: argparse.Namespace) -> int:
             beta=args.awls_beta,
             gamma=args.awls_gamma,
             theta=args.awls_theta,
+            zi_policy=args.awls_zi_policy,
+            zi_formula=args.awls_zi_formula,
+            critical_block_exhaustive_pct=max(0, min(100, args.awls_critical_block_exhaustive_pct)),
             portfolio_lanes=args.awls_portfolio_lanes,
             same_machine_eval=args.same_machine_eval,
             time_policy=args.awls_time_policy,

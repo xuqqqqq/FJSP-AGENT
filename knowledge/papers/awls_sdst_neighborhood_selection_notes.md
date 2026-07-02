@@ -56,6 +56,27 @@ from the published UB (`997`; current fast/short baselines are `1202` or
 - More exhaustive or longer is not automatically better.  `exact_select_top_k`
   with aggressive scoring worsened to `1265`, and a longer pct-20 run
   (`60` cycles, `500` iterations, `60s`) worsened to `1033`.
+- After AWLS-ZI prompt memory was expanded to include move-evaluation,
+  initialization, and same-machine failure cards, a one-round structured
+  evolution from the `1010` incumbent proposed:
+  - `critical + pct75 + same_machine_eval=cpp-fast`, which worsened to `1039`.
+  - `formula=max(0, base * (1 + 0.3 * is_critical * max(0, 1 - cooldown/max(1, rr))))`
+    at pct `75`, which tied `1010`.
+  Do not spend the next AWLS-ZI round on only switching `same_machine_eval` to
+  `cpp-fast` or adding another small critical/cooldown multiplier formula.
+  A materially different next hypothesis should use a bounded lane/portfolio,
+  seed/init mix, or another search-control change that is not just a zi formula
+  perturbation.
+- After the AWLS-ZI prompt explicitly required at least one non-empty
+  `portfolio_lanes` candidate when multiple candidates are requested, DeepSeek
+  proposed `0:mixed:1:6,6:mixed:1:6,7:greedy:1:6` with
+  `critical + beta400/gamma40/theta5 + pct75`.  It legally tied `1010` rather
+  than improving.  A second formula candidate
+  `max(0, base * (1 + 0.3 * is_critical * sqrt_weight))` also tied `1010`.
+  Do not retry this exact three-lane portfolio or this sqrt critical formula
+  unchanged.  If using portfolio again, change the lane budget or choose lanes
+  not already known to tie the incumbent, and keep the comparison under the
+  same evaluator score `-makespan`.
 - Generic slot-worker attempts on `awls_sdst_neighborhood_selection` did not
   beat the `1010` incumbent:
   - Near-critical filter plus same-machine +/-10 window tied `1010`.

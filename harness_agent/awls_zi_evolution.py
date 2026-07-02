@@ -15,10 +15,13 @@ from .deepseek_client import DeepSeekClient
 ZI_POLICY_CHOICES = ("cpp", "none", "sqrt", "aggressive", "critical", "formula")
 SAME_MACHINE_EVAL_CHOICES = ("stable", "cpp-fast")
 CRITICAL_BLOCK_EXHAUSTIVE_PCT_MAX = 100
-SDST_NEIGHBORHOOD_MEMORY_PATH = (
-    Path(__file__).resolve().parents[1] / "knowledge" / "papers" / "awls_sdst_neighborhood_selection_notes.md"
+SDST_MEMORY_PATHS = (
+    Path(__file__).resolve().parents[1] / "knowledge" / "papers" / "awls_sdst_neighborhood_selection_notes.md",
+    Path(__file__).resolve().parents[1] / "knowledge" / "papers" / "awls_sdst_move_evaluation_notes.md",
+    Path(__file__).resolve().parents[1] / "knowledge" / "papers" / "awls_sdst_initialization_notes.md",
+    Path(__file__).resolve().parents[1] / "knowledge" / "papers" / "awls_sdst_same_machine_notes.md",
 )
-SDST_NEIGHBORHOOD_MEMORY_MAX_CHARS = 8000
+SDST_MEMORY_MAX_CHARS_PER_CARD = 6000
 
 
 @dataclass(frozen=True)
@@ -53,6 +56,9 @@ class AwlsZiEvolutionRequest:
     beta: int = 500
     gamma: int = 40
     theta: int = 5
+    zi_policy: str = "cpp"
+    zi_formula: str = ""
+    critical_block_exhaustive_pct: int = 0
     portfolio_lanes: str = ""
     same_machine_eval: str = "stable"
     time_policy: str = "fixed"
@@ -91,8 +97,9 @@ def run_awls_zi_evolution(request: AwlsZiEvolutionRequest) -> dict[str, Any]:
                 "beta": request.beta,
                 "gamma": request.gamma,
                 "theta": request.theta,
-                "zi_policy": "cpp",
-                "critical_block_exhaustive_pct": 0,
+                "zi_policy": request.zi_policy,
+                "zi_formula": request.zi_formula,
+                "critical_block_exhaustive_pct": request.critical_block_exhaustive_pct,
                 "same_machine_eval": request.same_machine_eval,
                 "portfolio_lanes": request.portfolio_lanes,
             },
@@ -186,7 +193,7 @@ def run_candidate(
                 0,
                 min(
                     CRITICAL_BLOCK_EXHAUSTIVE_PCT_MAX,
-                    int(candidate.get("critical_block_exhaustive_pct", 0)),
+                    int(candidate.get("critical_block_exhaustive_pct", request.critical_block_exhaustive_pct)),
                 ),
             ),
             same_machine_eval=str(candidate.get("same_machine_eval") or request.same_machine_eval),
@@ -296,9 +303,10 @@ def build_deepseek_prompt(
     recent_history = compact_history(history[-3:])
     sdst_memory = load_sdst_neighborhood_memory()
     return f"""
-We are evolving the adaptive zi-weight mechanism inside an AWLS solver for
-standard FJSP benchmarks. You must propose structured candidates only; do not
-write solver code and do not claim any unmeasured result.
+We are evolving the adaptive zi-weight and bounded AWLS search controls inside
+an AWLS solver for standard FJSP / FJSP-SDST benchmarks. You must propose
+structured candidates only; do not write solver code and do not claim any
+unmeasured result.
 
 Round: {round_index}
 Selected benchmark instances:
@@ -377,6 +385,13 @@ Rules:
 - Keep `beta` in 50..1500, `gamma` in 5..120, `theta` in 0..20.
 - Keep `portfolio_lanes` bounded: normally 2 to 6 lanes, each formatted
   `seed:init:restarts[:seconds]`, with init in random/greedy/mixed.
+- If more than one candidate is requested, at least one candidate should use a
+  non-empty `portfolio_lanes` string unless the recent measured history proves
+  such lanes are harmful under this exact incumbent.  Treat seed/init/lane
+  choice as a first-class hypothesis, not as noise.
+- Avoid spending a full round only on `same_machine_eval=cpp-fast` or another
+  small critical/cooldown multiplier formula after measured memory says those
+  ideas tied or worsened the `1010` incumbent.
 - Use `zi_policy=formula` for at least one candidate when prior evidence shows
   the fixed policies are flat or worse; keep formulas short and diverse.
 - Prefer interpretable changes to the zi mechanism. This is a controlled
@@ -385,13 +400,18 @@ Rules:
 
 
 def load_sdst_neighborhood_memory() -> str:
-    try:
-        text = SDST_NEIGHBORHOOD_MEMORY_PATH.read_text(encoding="utf-8").strip()
-    except OSError:
-        return "(No project-local SDST memory card found.)"
-    if len(text) <= SDST_NEIGHBORHOOD_MEMORY_MAX_CHARS:
-        return text
-    return text[:SDST_NEIGHBORHOOD_MEMORY_MAX_CHARS].rstrip() + "\n\n...(truncated)"
+    sections: list[str] = []
+    for path in SDST_MEMORY_PATHS:
+        try:
+            text = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if len(text) > SDST_MEMORY_MAX_CHARS_PER_CARD:
+            text = text[:SDST_MEMORY_MAX_CHARS_PER_CARD].rstrip() + "\n\n...(truncated)"
+        sections.append(f"## Memory Card: {path.name}\n\n{text}")
+    if not sections:
+        return "(No project-local SDST memory cards found.)"
+    return "\n\n---\n\n".join(sections)
 
 
 def normalize_candidates(profile: dict[str, Any], count: int, round_index: int) -> list[dict[str, Any]]:
