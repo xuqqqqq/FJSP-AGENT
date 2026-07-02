@@ -63,6 +63,12 @@ setup = setup_time_between(schedule.index.instance, machine_id, prev_op, cur_op,
   progress, existing op_weight/op_cooldown) or use the documented module-level
   `operation_key(schedule, node)` / `setup_time_between(...)` pattern without
   mutating or depending on machine-sequence structure.
+- A later `sdst_guided_cooldown_penalty` proposal described adding extra
+  cooldown to all high-setup non-critical operations, but semantic repair could
+  not produce an acceptable slot replacement.  The proposal was rejected before
+  evaluator execution with no changed files.  Future rounds must return one
+  concrete `replace_slot_block` edit, and they should not depend on scanning or
+  rewriting schedule topology merely to penalize globally high-setup nodes.
 
 ## Guardrails
 
@@ -75,3 +81,5 @@ setup = setup_time_between(schedule.index.instance, machine_id, prev_op, cur_op,
 - Do not mutate `machine_sequences`, job/machine predecessor/successor links,
   `on_machine`, `start_time`, `end_time`, `makespan`, parser, evaluator,
   solution schema, CLI, or benchmark semantics.
+- Do not return only a natural-language hypothesis.  The worker must emit one
+  concrete slot replacement or a concrete contract blocker in `risk_notes`.

@@ -3057,6 +3057,29 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_generic_slot_audit_rejects_empty_proposal_with_algorithm_risk_note(self) -> None:
+        worker = DeepSeekSlotWorker()
+        slot = _generic_slot_context(slot_id="awls_sdst_weight_update")["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "summary": "Describe a setup-aware weight update without code.",
+                "strategy_intent": "Skip editing.",
+                "changes": [],
+                "risk_notes": [
+                    "The setup ratio may be noisy on instances with few operations, but the fallback handles missing neighbors."
+                ],
+            },
+            slot,
+        )
+
+        self.assertEqual([], normalized["changes"])
+        self.assertIn(
+            "empty_slot_proposal_without_concrete_blocker",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_generic_slot_audit_allows_empty_proposal_with_concrete_blocker(self) -> None:
         worker = DeepSeekSlotWorker()
         slot = _generic_slot_context(slot_id="awls_sdst_zi_features")["slot_manifest"]["slots"][0]
@@ -3414,6 +3437,8 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertFalse(should_accept_generic_slot_repair(original, repaired))
         rejected = reject_unrepaired_generic_slot(original)
         self.assertEqual([], rejected["changes"])
+        self.assertEqual(0, rejected["proposal_audit"]["accepted_change_count"])
+        self.assertEqual([], rejected["proposal_audit"]["accepted_change_paths"])
         self.assertIn("unrepaired_must_repair_warning", rejected["proposal_audit"]["warnings"])
 
 

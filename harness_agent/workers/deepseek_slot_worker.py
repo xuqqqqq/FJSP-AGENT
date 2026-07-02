@@ -661,6 +661,8 @@ def reject_unrepaired_generic_slot(proposal: dict[str, Any]) -> dict[str, Any]:
     risk_notes.append("Semantic repair did not produce an acceptable replacement for a must-repair slot warning.")
     rejected["risk_notes"] = risk_notes
     audit = dict(rejected.get("proposal_audit") or {})
+    audit["accepted_change_count"] = 0
+    audit["accepted_change_paths"] = []
     warnings = list(audit.get("warnings") or [])
     if "unrepaired_must_repair_warning" not in warnings:
         warnings.append("unrepaired_must_repair_warning")
@@ -1695,26 +1697,29 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
 def risk_notes_describe_concrete_blocker(text: str) -> bool:
     """Return whether an empty proposal names an actual contract/blocking reason."""
 
-    blocker_cues = (
+    explicit_blocker_cues = (
         "blocked",
         "blocker",
         "cannot safely",
         "unsafe",
+        "no safe edit",
+        "无法安全",
+        "阻塞",
+    )
+    if any(cue in text for cue in explicit_blocker_cues):
+        return True
+
+    contract_blocker_cues = (
         "contract",
         "invariant",
-        "missing",
         "unavailable",
         "unsupported",
         "outside the slot",
         "requires parser",
         "requires evaluator",
         "requires io",
-        "no safe edit",
-        "无法安全",
-        "阻塞",
         "契约",
         "不变量",
-        "缺少",
         "不可用",
         "不支持",
         "超出槽",
@@ -1722,7 +1727,18 @@ def risk_notes_describe_concrete_blocker(text: str) -> bool:
         "需要修改evaluator",
         "需要修改io",
     )
-    return any(cue in text for cue in blocker_cues)
+    missing_blocker_cues = (
+        "missing required",
+        "missing contract",
+        "missing invariant",
+        "missing api",
+        "missing slot",
+        "missing helper",
+        "缺少必要",
+        "缺少契约",
+        "缺少api",
+    )
+    return any(cue in text for cue in contract_blocker_cues + missing_blocker_cues)
 
 
 def validate_awls_slot_contract(context: dict[str, Any]) -> list[str]:

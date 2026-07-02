@@ -408,9 +408,11 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
             forbidden_edits=[
                 "Do not call schedule.apply_move, trial.apply_move, find_move, tabu_search, solve_awls, or any evaluator inside this slot.",
                 "Do not append, insert, delete, sort, or otherwise mutate machine_sequences or job/machine links.",
+                "Do not scan schedule topology to penalize globally high-setup nodes; use moved_node, criticality, makespan progress, and existing weight/cooldown state unless using the documented local operation_key/setup_time_between pattern.",
                 "Do not create helper files, subprocesses, multiprocessing, network access, file IO, or random unseeded behavior.",
                 "Do not modify zi formula validation, move scoring, neighborhood selection, initialization, portfolio control, parser, evaluator, CLI arguments, or benchmark semantics.",
                 "Do not retry pure critical multiplier changes that only increase critical moved-node weight; those tied or worsened earlier zi experiments.",
+                "Do not return only a natural-language proposal; this slot requires one concrete replace_slot_block edit or a concrete slot-contract blocker.",
             ],
             validation_commands=[
                 "python -m compileall examples/standard_fjsp_awls_solver.py harness_agent/standard_fjsp.py",
