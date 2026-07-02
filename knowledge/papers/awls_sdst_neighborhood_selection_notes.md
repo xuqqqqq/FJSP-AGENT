@@ -77,6 +77,14 @@ from the published UB (`997`; current fast/short baselines are `1202` or
   unchanged.  If using portfolio again, change the lane budget or choose lanes
   not already known to tie the incumbent, and keep the comparison under the
   same evaluator score `-makespan`.
+- A later structured AWLS-ZI round after slot-failure memory still did not
+  improve the `1010` incumbent:
+  - `sqrt + stable + pct75` worsened `oddla20` to `1051`.
+  - `aggressive + pct75` with lanes
+    `1:random:1:6,7:greedy:1:6,9:mixed:1:6` tied `1010`.
+  Do not retry these unchanged; future structured candidates should either use
+  a materially different setup-aware formula or a lane/search-control change
+  that is not just another small policy/seed mix.
 - Generic slot-worker attempts on `awls_sdst_neighborhood_selection` did not
   beat the `1010` incumbent:
   - Near-critical filter plus same-machine +/-10 window tied `1010`.
@@ -161,6 +169,10 @@ Use these as hypotheses, not as manual patches:
 - Do not retry `base * (1 + 0.3 * is_critical)` with the simple
   `2:mixed:1,3:random:1` lane portfolio; it was worse than both pct-50
   aggressive and pct-75 critical incumbents.
+- Do not retry `sqrt + stable + pct75`; it worsened `oddla20` from `1010` to
+  `1051`.
+- Do not retry `aggressive + pct75` with
+  `1:random:1:6,7:greedy:1:6,9:mixed:1:6`; it tied `1010`.
 - Do not assume pct `100` is a stronger version of pct `75`; with
   `zi_policy=critical`, pct `100` worsened `1010 -> 1138`.
 - `cpp + pct 75` and `base * (1 + 0.5 * is_critical)` at pct `75` only tied

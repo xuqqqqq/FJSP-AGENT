@@ -256,6 +256,47 @@ class AwlsZiEvolutionTests(unittest.TestCase):
                         0,
                     )
 
+    def test_normalize_candidates_rejects_failed_aggressive_179_portfolio(self) -> None:
+        with self.assertRaisesRegex(ValueError, "repeats failed portfolio_lanes"):
+            normalize_candidates(
+                {
+                    "candidates": [
+                        {
+                            "name": "failed_aggressive_179",
+                            "beta": 400,
+                            "gamma": 40,
+                            "theta": 5,
+                            "zi_policy": "aggressive",
+                            "critical_block_exhaustive_pct": 75,
+                            "portfolio_lanes": "1:random:1:6,7:greedy:1:6,9:mixed:1:6",
+                        }
+                    ]
+                },
+                1,
+                0,
+            )
+
+    def test_normalize_candidates_rejects_failed_sqrt_stable_pct75(self) -> None:
+        with self.assertRaisesRegex(ValueError, "sqrt stable pct75"):
+            normalize_candidates(
+                {
+                    "candidates": [
+                        {
+                            "name": "failed_sqrt_pct75",
+                            "beta": 400,
+                            "gamma": 40,
+                            "theta": 5,
+                            "zi_policy": "sqrt",
+                            "critical_block_exhaustive_pct": 75,
+                            "same_machine_eval": "stable",
+                            "portfolio_lanes": "",
+                        }
+                    ]
+                },
+                1,
+                0,
+            )
+
     def test_collect_candidate_signatures_includes_baseline_and_history(self) -> None:
         signatures = collect_candidate_signatures(
             {

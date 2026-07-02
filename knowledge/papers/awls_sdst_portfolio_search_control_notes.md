@@ -65,6 +65,9 @@ are diagnostics only.
   `oddla20` at `1010` and did not beat the incumbent.  Do not retry
   seed-mapping-only perturbations unless paired with a real lane budget,
   ordering, early-stop, or tie-breaking mechanism.
+- A later structured AWLS-ZI run tried `aggressive + pct75` with lanes
+  `1:random:1:6,7:greedy:1:6,9:mixed:1:6`; it legally tied `1010` and did not
+  improve the incumbent.  Do not retry this exact lane string unchanged.
 
 ## Worker Directions
 
@@ -93,6 +96,8 @@ Use these as hypotheses, not as manual patches:
 - Do not retry `2:random:1:6,5:greedy:1:6,8:mixed:1:6` or
   `1:greedy:1:6,3:random:1:6,7:mixed:1:6` unchanged with setup-ratio formula
   policies; both worsened beyond `1040`.
+- Do not retry `1:random:1:6,7:greedy:1:6,9:mixed:1:6` unchanged; it tied
+  `1010` under `aggressive + pct75`.
 - Do not spend a future portfolio round only changing the effective seed
   formula, including prime/modulo offsets such as `idx * 7919`; this tied
   `1010` on `oddla20`.

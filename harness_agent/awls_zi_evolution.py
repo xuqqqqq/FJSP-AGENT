@@ -23,6 +23,7 @@ FAILED_PORTFOLIO_LANE_STRINGS = (
     "6:mixed:1:6,7:greedy:1:6,3:random:1:6",
     "2:random:1:6,5:greedy:1:6,8:mixed:1:6",
     "1:greedy:1:6,3:random:1:6,7:mixed:1:6",
+    "1:random:1:6,7:greedy:1:6,9:mixed:1:6",
 )
 SDST_SETUP_ZI_SYMBOLS = (
     "setup_prev",
@@ -583,6 +584,14 @@ def normalize_candidates(
             continue
         if portfolio_lanes and portfolio_lanes in forbidden:
             rejection_reasons.append(f"{name}: repeats failed portfolio_lanes {portfolio_lanes}")
+            continue
+        if (
+            policy == "sqrt"
+            and not portfolio_lanes
+            and eval_mode == "stable"
+            and int(candidate.get("critical_block_exhaustive_pct") or 0) == 75
+        ):
+            rejection_reasons.append(f"{name}: repeats failed sqrt stable pct75 configuration")
             continue
         normalized.append(candidate)
         seen_signatures.add(signature)
