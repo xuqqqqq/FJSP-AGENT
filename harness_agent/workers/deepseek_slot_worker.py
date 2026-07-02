@@ -696,6 +696,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "same_machine_retries_pure_exact_trial",
         "same_machine_retries_legacy_ratio_exact_gate",
         "same_machine_retries_exact_setup_tiebreak",
+        "same_machine_retries_noncritical_worsening_exact_gate",
         "same_machine_uses_nonexistent_move_node",
         "same_machine_uses_end_node_end_time_as_makespan",
         "initialization_retries_append_only_setup_completion",
@@ -964,6 +965,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "same_machine_retries_pure_exact_trial",
         "same_machine_retries_legacy_ratio_exact_gate",
         "same_machine_retries_exact_setup_tiebreak",
+        "same_machine_retries_noncritical_worsening_exact_gate",
         "same_machine_uses_nonexistent_move_node",
         "same_machine_uses_end_node_end_time_as_makespan",
         "initialization_retries_append_only_setup_completion",
@@ -1071,6 +1073,16 @@ def slot_specific_generic_warnings(
     )
     if setup_tiebreak_only:
         warnings.append("same_machine_retries_exact_setup_tiebreak")
+    noncritical_worsening_exact_gate = (
+        uses_exact_trial
+        and "move.which" in content
+        and "backward_path_length" in content
+        and "trial_makespan" in content
+        and re.search(r"trial_makespan\s*>\s*schedule\.makespan", content)
+        and re.search(r"trial_makespan\s*\+=\s*0\.1\s*\*", content)
+    )
+    if noncritical_worsening_exact_gate:
+        warnings.append("same_machine_retries_noncritical_worsening_exact_gate")
     return warnings
 
 
@@ -1603,6 +1615,8 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "repair produced that variant and it remained an unrepaired repeat of the same idea class.\n"
             "- Exact cloned trial with only `0.001 * total_setup` / block-setup tie-breaker also tied oddla20; "
             "do not retry setup-time-only tie-breaking unchanged.\n"
+            "- Do not retry exact trial plus a non-critical worsening penalty of `0.1 * (trial_makespan - "
+            "schedule.makespan)` gated by `move.which` and backward_path_length; it legally tied oddla20 at 1010.\n"
             "- Move has fields `method`, `which`, and `where`; do not use nonexistent `move.node`.  Use "
             "`move.which` for the moved operation.\n"
             "- Use `schedule.makespan` / `trial.makespan`; do not use "

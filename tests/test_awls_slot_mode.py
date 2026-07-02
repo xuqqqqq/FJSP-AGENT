@@ -3270,6 +3270,54 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_same_machine_slot_warns_on_noncritical_worsening_exact_gate_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_same_machine_evaluation")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "exact_trial_criticality_gate",
+                        "type": "local_search_operator",
+                        "novelty": "Avoids pure exact trial with a non-critical worsening gate.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_same_machine_evaluation",
+                        "content": (
+                            "    legacy = 1.0\n"
+                            "    if not schedule.index.instance.has_sequence_dependent_setup:\n"
+                            "        return legacy\n"
+                            "    try:\n"
+                            "        trial = schedule.clone()\n"
+                            "        trial.apply_move(move)\n"
+                            "        trial_makespan = float(trial.makespan)\n"
+                            "        op = move.which\n"
+                            "        if schedule.end_time[op] + schedule.backward_path_length[op] < schedule.makespan:\n"
+                            "            if trial_makespan > schedule.makespan:\n"
+                            "                trial_makespan += 0.1 * (trial_makespan - schedule.makespan)\n"
+                            "        return trial_makespan\n"
+                            "    except (ValueError, KeyError, IndexError):\n"
+                            "        return legacy\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "same_machine_retries_noncritical_worsening_exact_gate",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_same_machine_slot_warns_on_nonexistent_move_node_api(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_same_machine_evaluation")

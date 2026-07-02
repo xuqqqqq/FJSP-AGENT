@@ -87,6 +87,13 @@ There is no `schedule.setup_time(...)` helper and no
   (`legacy <= 1.1 * schedule.makespan`) around the already-failed pure exact
   trial score `trial.makespan + 0.001 * legacy`; treat that as a repeat of the
   pure-exact idea class, not as a materially different same-machine operator.
+- A later `exact_trial_criticality_gate` candidate legally ran but tied
+  `oddla20` at `1010`.  It used `trial.makespan` as the score and added a
+  `0.1 * (trial_makespan - schedule.makespan)` penalty only when `move.which`
+  looked non-critical via `end_time + backward_path_length < makespan` and the
+  trial worsened makespan.  This light non-critical worsening gate did not
+  improve over pure exact trial; do not retry it unchanged as the main same
+  machine novelty.
 - If manually adding setup-aware forward/backward local propagation is too
   fragile, prefer exact local scoring:
 
@@ -110,3 +117,6 @@ candidate; reuse only as part of a materially different hybrid rule.
 - Only edit `awls_sdst_same_machine_evaluation`.
 - Do not modify parser/evaluator/IO semantics.
 - Do not change NK/change-machine scoring or zi policy in this stage.
+- Do not retry pure exact trial, setup-only exact tie-breaks, or the light
+  non-critical worsening exact gate; future same-machine attempts need a
+  materially different critical-tail, locality, or acceptance-pressure signal.
