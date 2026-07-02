@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from harness_agent.cli import make_worker
 from harness_agent.standard_worker_loop import StandardWorkerLoopRequest, standard_solver_command
 from harness_agent.worker import NullWorker
 from harness_agent.workers.deepseek_worker import apply_code_edit_proposal
@@ -58,6 +59,39 @@ class AwlsSlotModeTests(unittest.TestCase):
         command = standard_solver_command(request)
 
         self.assertIn("--zi-policy slot", command)
+
+    def test_standard_solver_command_preserves_sdst_incumbent_awls_controls(self) -> None:
+        request = StandardWorkerLoopRequest(
+            docs=[],
+            instance_dir=Path("."),
+            pattern="*.txt",
+            output_dir=Path("."),
+            project_root=Path("."),
+            worker=NullWorker(),
+            solver="awls",
+            awls_zi_policy="critical",
+            awls_critical_block_exhaustive_pct=75,
+            awls_same_machine_eval="stable",
+            awls_beta=400,
+            awls_gamma=40,
+            awls_theta=5,
+        )
+
+        command = standard_solver_command(request)
+
+        self.assertIn("--zi-policy critical", command)
+        self.assertIn("--critical-block-exhaustive-pct 75", command)
+        self.assertIn("--same-machine-eval stable", command)
+        self.assertIn("--beta 400", command)
+
+    def test_cli_deepseek_worker_uses_slot_worker_when_slot_manifest_is_present(self) -> None:
+        worker = make_worker(
+            "deepseek",
+            deepseek_model="deepseek-v4-pro",
+            slot_manifest=Path("slot_manifest.json"),
+        )
+
+        self.assertIsInstance(worker, DeepSeekSlotWorker)
 
     def test_validate_awls_slot_contract_accepts_confirmed_manifest(self) -> None:
         context = _slot_context(user_confirmed=True)

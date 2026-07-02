@@ -60,6 +60,10 @@ class StandardPipelineRequest:
     worker_awls_beta: int = 500
     worker_awls_gamma: int = 40
     worker_awls_theta: int = 5
+    worker_awls_zi_policy: str = "cpp"
+    worker_awls_zi_formula: str = ""
+    worker_awls_critical_block_exhaustive_pct: int = 0
+    worker_awls_same_machine_eval: str = "stable"
     worker_awls_portfolio_lanes: str = ""
     worker_iterations: int = 1
     worker_max_steps: int = 4
@@ -187,6 +191,10 @@ def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
                 awls_beta=max(1, request.worker_awls_beta),
                 awls_gamma=max(1, request.worker_awls_gamma),
                 awls_theta=max(0, request.worker_awls_theta),
+                awls_zi_policy=request.worker_awls_zi_policy,
+                awls_zi_formula=request.worker_awls_zi_formula,
+                awls_critical_block_exhaustive_pct=max(0, min(100, request.worker_awls_critical_block_exhaustive_pct)),
+                awls_same_machine_eval=request.worker_awls_same_machine_eval,
                 awls_portfolio_lanes=request.worker_awls_portfolio_lanes,
                 iterations=max(0, request.worker_iterations),
                 max_steps=max(1, request.worker_max_steps),

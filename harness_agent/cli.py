@@ -47,7 +47,13 @@ from .worker_cycle import run_worker_cycle
 DEFAULT_STANDARD_SEEDS = "0,1,2,3,4,5,6,7,8,9"
 
 
-def add_awls_arguments(parser: argparse.ArgumentParser, *, prefix: str = "", default_time_limit: float = 10.0) -> None:
+def add_awls_arguments(
+    parser: argparse.ArgumentParser,
+    *,
+    prefix: str = "",
+    default_time_limit: float = 10.0,
+    include_worker_loop_controls: bool = False,
+) -> None:
     """Register AWLS solver-template options on a CLI subcommand."""
 
     option_prefix = f"--{prefix}-" if prefix else "--"
@@ -81,6 +87,33 @@ def add_awls_arguments(parser: argparse.ArgumentParser, *, prefix: str = "", def
     parser.add_argument(f"{option_prefix}awls-beta", dest=f"{dest_prefix}awls_beta", type=int, default=500)
     parser.add_argument(f"{option_prefix}awls-gamma", dest=f"{dest_prefix}awls_gamma", type=int, default=40)
     parser.add_argument(f"{option_prefix}awls-theta", dest=f"{dest_prefix}awls_theta", type=int, default=5)
+    if include_worker_loop_controls:
+        parser.add_argument(
+            f"{option_prefix}awls-critical-block-exhaustive-pct",
+            dest=f"{dest_prefix}awls_critical_block_exhaustive_pct",
+            type=int,
+            default=0,
+            help="Percent chance to evaluate all critical blocks first; SDST incumbent uses 75.",
+        )
+        parser.add_argument(
+            f"{option_prefix}awls-same-machine-eval",
+            dest=f"{dest_prefix}awls_same_machine_eval",
+            choices=("stable", "cpp-fast"),
+            default="stable",
+        )
+        parser.add_argument(
+            f"{option_prefix}awls-zi-policy",
+            dest=f"{dest_prefix}awls_zi_policy",
+            choices=ZI_POLICY_CHOICES,
+            default="cpp",
+            help="Adaptive zi perturbation policy used by the AWLS move evaluator.",
+        )
+        parser.add_argument(
+            f"{option_prefix}awls-zi-formula",
+            dest=f"{dest_prefix}awls_zi_formula",
+            default="",
+            help="Safe arithmetic zi formula used only when --awls-zi-policy formula.",
+        )
     parser.add_argument(
         f"{option_prefix}awls-portfolio-lanes",
         dest=f"{dest_prefix}awls_portfolio_lanes",
@@ -471,7 +504,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid", "setup-guided"],
         default="combined",
     )
-    add_awls_arguments(standard_worker, default_time_limit=10.0)
+    add_awls_arguments(standard_worker, default_time_limit=10.0, include_worker_loop_controls=True)
     standard_worker.add_argument("--worker", choices=["null", "deepseek", "opencode"], default="null")
     standard_worker.add_argument("--iterations", type=int, default=1)
     standard_worker.add_argument("--max-steps", type=int, default=4)
@@ -533,7 +566,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid", "setup-guided"],
         default="combined",
     )
-    add_awls_arguments(pipeline, prefix="worker", default_time_limit=10.0)
+    add_awls_arguments(pipeline, prefix="worker", default_time_limit=10.0, include_worker_loop_controls=True)
     pipeline.add_argument("--worker-iterations", type=int, default=1)
     pipeline.add_argument("--worker-max-steps", type=int, default=4)
     pipeline.add_argument("--worker-max-runtime-seconds", type=int, default=120)
@@ -836,10 +869,20 @@ def run_worker_loop_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
-def make_worker(name: str, *, deepseek_model: str, opencode_model: str | None = None):
+def make_worker(
+    name: str,
+    *,
+    deepseek_model: str,
+    opencode_model: str | None = None,
+    slot_manifest: Path | None = None,
+):
     if name == "null":
         return NullWorker()
     if name == "deepseek":
+        if slot_manifest is not None:
+            from .workers.deepseek_slot_worker import DeepSeekSlotWorker
+
+            return DeepSeekSlotWorker(model=deepseek_model)
         from .workers.deepseek_worker import DeepSeekWorker
 
         return DeepSeekWorker(model=deepseek_model)
@@ -1239,7 +1282,12 @@ def run_benchmark_suite_cmd(args: argparse.Namespace) -> int:
 
 def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
     seeds = [int(item.strip()) for item in str(args.seeds).split(",") if item.strip()]
-    worker = make_worker(args.worker, deepseek_model=args.deepseek_model, opencode_model=args.opencode_model)
+    worker = make_worker(
+        args.worker,
+        deepseek_model=args.deepseek_model,
+        opencode_model=args.opencode_model,
+        slot_manifest=args.slot_manifest,
+    )
     manifest = run_standard_worker_loop(
         StandardWorkerLoopRequest(
             docs=args.doc,
@@ -1273,6 +1321,10 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
             awls_beta=args.awls_beta,
             awls_gamma=args.awls_gamma,
             awls_theta=args.awls_theta,
+            awls_zi_policy=args.awls_zi_policy,
+            awls_zi_formula=args.awls_zi_formula,
+            awls_critical_block_exhaustive_pct=args.awls_critical_block_exhaustive_pct,
+            awls_same_machine_eval=args.awls_same_machine_eval,
             awls_portfolio_lanes=args.awls_portfolio_lanes,
             iterations=args.iterations,
             max_steps=args.max_steps,
@@ -1348,6 +1400,10 @@ def run_standard_pipeline_cmd(args: argparse.Namespace) -> int:
         worker_awls_beta=args.worker_awls_beta,
         worker_awls_gamma=args.worker_awls_gamma,
         worker_awls_theta=args.worker_awls_theta,
+        worker_awls_zi_policy=args.worker_awls_zi_policy,
+        worker_awls_zi_formula=args.worker_awls_zi_formula,
+        worker_awls_critical_block_exhaustive_pct=args.worker_awls_critical_block_exhaustive_pct,
+        worker_awls_same_machine_eval=args.worker_awls_same_machine_eval,
         worker_awls_portfolio_lanes=args.worker_awls_portfolio_lanes,
         worker_iterations=args.worker_iterations,
         worker_max_steps=args.worker_max_steps,

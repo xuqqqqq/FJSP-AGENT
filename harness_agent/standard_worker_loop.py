@@ -49,6 +49,8 @@ class StandardWorkerLoopRequest:
     awls_theta: int = 5
     awls_zi_policy: str = "cpp"
     awls_zi_formula: str = ""
+    awls_critical_block_exhaustive_pct: int = 0
+    awls_same_machine_eval: str = "stable"
     awls_portfolio_lanes: str = ""
     iterations: int = 1
     max_steps: int = 4
@@ -207,6 +209,8 @@ def standard_solver_command(request: StandardWorkerLoopRequest) -> str:
             f"--gamma {max(1, request.awls_gamma)} "
             f"--theta {max(0, request.awls_theta)}"
         )
+        command += f" --critical-block-exhaustive-pct {max(0, min(100, request.awls_critical_block_exhaustive_pct))}"
+        command += f" --same-machine-eval {request.awls_same_machine_eval}"
         if request.awls_zi_policy != "cpp":
             command += f" --zi-policy {request.awls_zi_policy}"
             if request.awls_zi_policy == "formula" and request.awls_zi_formula:
@@ -241,6 +245,9 @@ def standard_worker_manifest(
             "solver": request.solver,
             "iterations": max(0, request.iterations),
             "apply_worker_changes": bool(request.apply_worker_changes),
+            "awls_zi_policy": request.awls_zi_policy,
+            "awls_critical_block_exhaustive_pct": max(0, min(100, request.awls_critical_block_exhaustive_pct)),
+            "awls_same_machine_eval": request.awls_same_machine_eval,
         },
         "contract_path": str(contract_path),
         "context_packet_path": str(context_path),
