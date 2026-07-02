@@ -729,9 +729,17 @@ def build_generic_slot_audit(
     if not isinstance(risk_notes, list):
         risk_notes = []
     has_risk_notes = any(str(item).strip() for item in risk_notes)
+    risk_text = "\n".join(str(item) for item in risk_notes).lower()
+    summary_text = str(proposal.get("summary") or "").lower()
+    intent_text = str(proposal.get("strategy_intent") or "").lower()
     warnings: list[str] = []
     if not normalized_changes and not rejected_changes and not has_risk_notes:
         warnings.append("empty_slot_proposal_without_risk_note")
+    if not normalized_changes and not rejected_changes and has_risk_notes:
+        if not risk_notes_describe_concrete_blocker(risk_text):
+            warnings.append("empty_slot_proposal_without_concrete_blocker")
+        if any(cue in f"{summary_text}\n{intent_text}\n{risk_text}" for cue in ("revert", "original", "baseline", "回退", "原始", "基线")):
+            warnings.append("empty_slot_proposal_reverts_to_baseline")
     if normalized_changes and not hypotheses:
         warnings.append("missing_rule_operator_hypotheses")
     avoid_patterns = failure_memory.get("avoid_patterns") or []
@@ -768,7 +776,45 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
     warnings = audit.get("warnings")
     if not isinstance(warnings, list):
         return False
-    return "empty_slot_proposal_without_risk_note" in warnings
+    repair_warnings = {
+        "empty_slot_proposal_without_risk_note",
+        "empty_slot_proposal_without_concrete_blocker",
+        "empty_slot_proposal_reverts_to_baseline",
+    }
+    return any(str(item) in repair_warnings for item in warnings)
+
+
+def risk_notes_describe_concrete_blocker(text: str) -> bool:
+    """Return whether an empty proposal names an actual contract/blocking reason."""
+
+    blocker_cues = (
+        "blocked",
+        "blocker",
+        "cannot safely",
+        "unsafe",
+        "contract",
+        "invariant",
+        "missing",
+        "unavailable",
+        "unsupported",
+        "outside the slot",
+        "requires parser",
+        "requires evaluator",
+        "requires io",
+        "no safe edit",
+        "无法安全",
+        "阻塞",
+        "契约",
+        "不变量",
+        "缺少",
+        "不可用",
+        "不支持",
+        "超出槽",
+        "需要修改parser",
+        "需要修改evaluator",
+        "需要修改io",
+    )
+    return any(cue in text for cue in blocker_cues)
 
 
 def validate_awls_slot_contract(context: dict[str, Any]) -> list[str]:

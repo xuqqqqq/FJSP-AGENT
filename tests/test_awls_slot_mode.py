@@ -387,7 +387,32 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
-    def test_generic_slot_audit_does_not_repair_empty_proposal_with_risk_note(self) -> None:
+    def test_generic_slot_audit_repairs_empty_proposal_with_non_blocking_risk_note(self) -> None:
+        worker = DeepSeekSlotWorker()
+        slot = _generic_slot_context(slot_id="awls_sdst_initialization")["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "summary": "Revert to the original baseline initializer.",
+                "strategy_intent": "Use the original setup-blind greedy baseline.",
+                "changes": [],
+                "risk_notes": ["This does not exploit setup structure, but prior attempts worsened quality."],
+            },
+            slot,
+        )
+
+        self.assertEqual([], normalized["changes"])
+        self.assertIn(
+            "empty_slot_proposal_without_concrete_blocker",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertIn(
+            "empty_slot_proposal_reverts_to_baseline",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_generic_slot_audit_allows_empty_proposal_with_concrete_blocker(self) -> None:
         worker = DeepSeekSlotWorker()
         slot = _generic_slot_context(slot_id="awls_sdst_zi_features")["slot_manifest"]["slots"][0]
 
@@ -396,14 +421,16 @@ class AwlsSlotModeTests(unittest.TestCase):
                 "summary": "No safe change selected.",
                 "strategy_intent": "Skip editing.",
                 "changes": [],
-                "risk_notes": ["The current feature slot already exposes the setup values needed for the proposed formula."],
+                "risk_notes": [
+                    "No safe edit is possible inside this slot because the required feature is outside the slot contract."
+                ],
             },
             slot,
         )
 
         self.assertEqual([], normalized["changes"])
         self.assertNotIn(
-            "empty_slot_proposal_without_risk_note",
+            "empty_slot_proposal_without_concrete_blocker",
             normalized["proposal_audit"]["warnings"],
         )
         self.assertFalse(generic_slot_needs_repair(normalized))

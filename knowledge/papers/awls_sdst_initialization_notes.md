@@ -82,6 +82,18 @@ Use these as hypotheses, not as a manual patch:
   `oddla20` from `1010` to `1310`.  Treat lexicographic low-setup tie-breaking
   inside the same append-style greedy initializer as a failed idea class, not a
   material improvement over the earlier setup-aware append attempts.
+- A later worker tried to emit an empty proposal that simply reverted to the
+  original setup-blind baseline with a generic risk note.  This is not a
+  concrete slot-contract blocker and should be semantically repaired into a
+  real hypothesis or rejected as no-op.
+- After the empty-proposal guard was strengthened, DeepSeek generated a legal
+  five-start SDST GRASP/RCL initialization portfolio with setup-aware append
+  construction and internal best-makespan selection.  Under the current
+  `critical + beta400/gamma40/theta5 + pct75` controls on `oddla20`, Core
+  evaluation worsened from `1010` to `1039` and setup time from `1900` to
+  `1960`; do not retry fixed small-RCL setup-aware append portfolios unless
+  the hypothesis changes materially, for example by using true insertion
+  positions, critical-tail estimates, or post-construction repair.
 - Do not compare move/init mode constants with integers.
 - Do not call `setup_time_between` with `current_op=None`.
 - Import `setup_time_between` locally inside the slot before using it.

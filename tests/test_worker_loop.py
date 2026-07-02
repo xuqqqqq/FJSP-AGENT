@@ -9,7 +9,7 @@ from harness_agent.context_packet import ContextPacketRequest, write_context_pac
 from harness_agent.loop_runner import run_worker_loop
 from harness_agent.models import TaskContract
 from harness_agent.worker import NullWorker, WorkerCapabilities, WorkerResult
-from harness_agent.worker_cycle import run_worker_cycle
+from harness_agent.worker_cycle import render_worktree_patch, run_worker_cycle
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -265,6 +265,37 @@ class WorkerLoopTests(unittest.TestCase):
             round_000_patch = (tmp_path / "loop" / "round_000" / "worker_changes.patch").read_text(encoding="utf-8")
             self.assertIn("examples/dummy_solver.py", round_000_patch)
             self.assertIn("8 + args.seed", round_000_patch)
+
+    def test_render_worktree_patch_ignores_line_ending_noise(self) -> None:
+        patch = render_worktree_patch(
+            root=ROOT,
+            before_snapshot={
+                "examples/solver.py": {
+                    "sha256": "before",
+                    "size": 20,
+                    "_text": "alpha\r\nvalue = 1\r\nomega\r\n",
+                }
+            },
+            after_snapshot={
+                "examples/solver.py": {
+                    "sha256": "after",
+                    "size": 17,
+                    "_text": "alpha\nvalue = 2\nomega\n",
+                }
+            },
+            delta={
+                "added": [],
+                "modified": [{"path": "examples/solver.py"}],
+                "deleted": [],
+            },
+        )
+
+        self.assertIn("-value = 1", patch)
+        self.assertIn("+value = 2", patch)
+        self.assertNotIn("-alpha", patch)
+        self.assertNotIn("+alpha", patch)
+        self.assertNotIn("-omega", patch)
+        self.assertNotIn("+omega", patch)
 
     def test_proposal_diagnostics_feed_next_round_context_and_result(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

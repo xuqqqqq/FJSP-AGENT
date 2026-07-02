@@ -344,8 +344,8 @@ def render_worktree_patch(
                 ]
             )
             continue
-        before_lines = before_text.splitlines(keepends=True)
-        after_lines = after_text.splitlines(keepends=True)
+        before_lines = normalized_diff_lines(before_text)
+        after_lines = normalized_diff_lines(after_text)
         lines.extend(
             difflib.unified_diff(
                 before_lines,
@@ -358,6 +358,12 @@ def render_worktree_patch(
         if lines and lines[-1] != "":
             lines.append("")
     return "\n".join(lines).rstrip() + ("\n" if lines else "")
+
+
+def normalized_diff_lines(text: str) -> list[str]:
+    """Normalize line endings for review diffs without changing delta hashes."""
+
+    return [f"{line}\n" for line in text.splitlines()]
 
 
 def _snapshot_text(
