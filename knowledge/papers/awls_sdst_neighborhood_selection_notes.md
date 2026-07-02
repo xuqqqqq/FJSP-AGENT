@@ -110,6 +110,14 @@ from the published UB (`997`; current fast/short baselines are `1202` or
   attribute 'setup_time'`.  `AwlsSchedule`, `OperationIndex`, and `index` do
   not expose `setup_time`; setup lookup must use `setup_time_between` with
   operation-key tuples.
+- A follow-up run after setup-fallback/API guards tried search-control pruning:
+  iteration-parity lane switching skipped change-machine generation whenever
+  same-machine moves already existed on even iterations and worsened `oddla20`
+  from `1010` to `1134`.  A stochastic same-machine subsampling proposal was
+  malformed with an `unexpected indent` compile error before evaluation.  Do
+  not reduce the neighborhood by parity skipping change-machine moves or random
+  same-machine block subsampling unless paired with stronger evidence and valid
+  slot syntax.
 - A guarded neighborhood-selection round asked for materially different
   boundary/NK/setup-arc candidates, but DeepSeek proposed
   `PrunedCriticalBlockNeighborhood`: sort critical blocks by total processing
@@ -225,6 +233,11 @@ Use these as hypotheses, not as manual patches:
 - Do not use nonexistent setup APIs such as `schedule.setup_time`,
   `schedule.index.setup_time`, or `index.setup_time`; use `setup_time_between`
   with operation-key tuples.
+- Do not use iteration parity to skip all change-machine generation whenever
+  same-machine moves exist; this worsened `oddla20` from `1010` to `1134`.
+- Do not randomly subsample away same-machine block candidates without a valid
+  syntax-checked slot and stronger evidence; the first attempt failed before
+  evaluation due to malformed indentation.
 - Do not put all `change_machine_window` / `consider_change` calls behind
   `if not all_moves` after same-machine generation.  This over-pruned the
   search to `5` selected moves and worsened `oddla20` to `1295`.

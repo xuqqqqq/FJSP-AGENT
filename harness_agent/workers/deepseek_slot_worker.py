@@ -697,6 +697,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "initialization_retries_static_bottleneck_ignores_setup",
         "all_slot_changes_rejected",
         "slot_change_rejected_wrong_slot_id",
+        "slot_content_python_syntax_error",
     }
     return any(str(item) in must_repair for item in warnings)
 
@@ -926,6 +927,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "initialization_retries_static_bottleneck_ignores_setup",
         "all_slot_changes_rejected",
         "slot_change_rejected_wrong_slot_id",
+        "slot_content_python_syntax_error",
     }
     return any(str(item) in repair_warnings for item in warnings)
 
@@ -938,6 +940,8 @@ def slot_specific_generic_warnings(slot: dict[str, Any], changes: list[dict[str,
     if not content:
         return []
     warnings: list[str] = []
+    if python_slot_content_syntax_error(content):
+        warnings.append("slot_content_python_syntax_error")
     if re.search(r"schedule\.index\.durations\b|\bindex\.durations\b", content):
         warnings.append("slot_uses_nonexistent_operation_index_durations")
     if re.search(r"\b(?:schedule(?:\.index)?|index)\.setup_time\b", content):
@@ -965,6 +969,19 @@ def slot_specific_generic_warnings(slot: dict[str, Any], changes: list[dict[str,
     if setup_tiebreak_only:
         warnings.append("same_machine_retries_exact_setup_tiebreak")
     return warnings
+
+
+def python_slot_content_syntax_error(content: str) -> bool:
+    """Return whether normalized Python slot content is structurally invalid."""
+
+    wrapper = "def __slot_probe__():\n" + "".join(
+        f"    {line}" if line.strip() else line for line in content.splitlines(keepends=True)
+    )
+    try:
+        ast.parse(wrapper)
+    except SyntaxError:
+        return True
+    return False
 
 
 def awls_sdst_initialization_warnings(content: str) -> list[str]:

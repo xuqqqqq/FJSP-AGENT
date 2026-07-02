@@ -724,6 +724,44 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_generic_slot_warns_on_slot_content_syntax_error(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "bad_indent_slot",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed filters but malformed.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_neighborhood_selection",
+                        "content": (
+                            "    exhaustive_first = schedule.rng.randrange(100) < 75\n"
+                            "        exhaustive_modes = (True, False)\n"
+                            "    for exhaustive in exhaustive_modes:\n"
+                            "        pass\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "slot_content_python_syntax_error",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_neighborhood_slot_warns_on_random_empty_move_fallback(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
