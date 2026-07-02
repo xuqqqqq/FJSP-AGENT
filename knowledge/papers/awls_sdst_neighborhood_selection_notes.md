@@ -160,6 +160,14 @@ from the published UB (`997`; current fast/short baselines are `1202` or
   is a dict and `schedule.rng.shuffle(...)` requires a mutable sequence.  Do
   not retry random diversity sampling with small fixed caps, and convert dict
   keys to a list before any seeded shuffle.
+- A later main-path boundary/NK prompt asked for bounded candidates that
+  participate in the incumbent traversal, but the worker proposed
+  `randomized_change_only_lane`: with 50% probability it skipped all
+  same-machine/N7 candidate generation and kept only change-machine moves.  It
+  was legal but worsened `oddla20` from `1010` to `1039`.  Do not retry random
+  change-only lanes that omit the same-machine critical-block path; future
+  diversification should add or order candidates without deleting the incumbent
+  N7 traversal.
 
 This points toward the move-candidate selection layer: the search may not be
 trying the right critical or near-critical N7/NK moves often enough.
@@ -263,6 +271,9 @@ Use these as hypotheses, not as manual patches:
 - Do not retry random diversity sampling with `max_blocks`, `max_same_per_block`,
   `max_change_per_node`, or `total_move_limit` as the main novelty; the first
   attempt failed at runtime and is too close to over-pruning.
+- Do not retry random change-machine-only lanes that guard same-machine/N7
+  generation behind `if not use_change_only`; the 50% variant worsened
+  `oddla20` from `1010` to `1039`.
 - Do not call `schedule.rng.shuffle(schedule.index.candidates[node])`;
   `schedule.index.candidates[node]` is a dict.  Use
   `list(schedule.index.candidates[node])` before shuffling candidate machines.

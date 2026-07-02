@@ -689,6 +689,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_latest_block_topk_overpruning",
         "neighborhood_retries_global_move_count_cap",
         "neighborhood_retries_random_diversity_sampling",
+        "neighborhood_retries_random_change_only_lane",
         "neighborhood_shuffles_candidate_machine_dict",
         "portfolio_retries_seed_mapping_only",
         "same_machine_retries_pure_exact_trial",
@@ -951,6 +952,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_latest_block_topk_overpruning",
         "neighborhood_retries_global_move_count_cap",
         "neighborhood_retries_random_diversity_sampling",
+        "neighborhood_retries_random_change_only_lane",
         "neighborhood_shuffles_candidate_machine_dict",
         "portfolio_retries_seed_mapping_only",
         "same_machine_retries_pure_exact_trial",
@@ -1237,6 +1239,15 @@ def awls_sdst_neighborhood_selection_warnings(content: str) -> list[str]:
     )
     if random_diversity_sampling:
         warnings.append("neighborhood_retries_random_diversity_sampling")
+    random_change_only_lane = (
+        re.search(r"\b(?:use_)?change_only\b", content)
+        and re.search(r"\bschedule\.rng\.randrange\(\s*100\s*\)\s*<\s*\w+", content)
+        and re.search(r"\bif\s+not\s+(?:use_)?change_only\s*:", content)
+        and "consider_same" in content
+        and "consider_change" in content
+    )
+    if random_change_only_lane:
+        warnings.append("neighborhood_retries_random_change_only_lane")
     if re.search(r"\bschedule\.rng\.shuffle\(\s*schedule\.index\.candidates\[[^\]]+\]\s*\)", content):
         warnings.append("neighborhood_shuffles_candidate_machine_dict")
     if re.search(r"\bcandidate_machines\s*=\s*schedule\.index\.candidates\[[^\]]+\][\s\S]{0,160}\bschedule\.rng\.shuffle\(\s*candidate_machines\s*\)", content):
@@ -1487,6 +1498,8 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "subset only; top_k=3 latest-block pruning worsened oddla20 from 1010 to 1280.\n"
             "- Do not retry flat global move-count caps such as MAX_MOVES=200 or random diversity sampling with "
             "max_blocks/max_same_per_block/total_move_limit; those tied or failed at runtime.\n"
+            "- Do not add a random change-machine-only lane that skips same-machine/N7 generation; the 50% "
+            "change-only variant worsened oddla20 from 1010 to 1039.\n"
             "- If editing this slot, use a materially different bounded candidate-generation idea such as "
             "boundary-biased N7 moves, bounded NK alternate-machine candidates from change_machine_window, "
             "or setup-heavy arc focus submitted only through consider_same / consider_change.\n"

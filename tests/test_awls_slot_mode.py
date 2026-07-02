@@ -2649,6 +2649,46 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("neighborhood_retries_random_diversity_sampling", normalized["proposal_audit"]["warnings"])
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_neighborhood_slot_warns_on_random_change_only_lane_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "randomized_change_only_lane",
+                        "type": "local_search_operator",
+                        "novelty": "Different from global caps by randomly selecting a change-only lane.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_neighborhood_selection",
+                        "content": (
+                            "    change_only_prob = 50\n"
+                            "    use_change_only = schedule.rng.randrange(100) < change_only_prob\n"
+                            "    for block in critical_blocks(schedule, schedule.rng, exhaustive=False):\n"
+                            "        if not use_change_only:\n"
+                            "            consider_same(BACK, block[0], block[-1])\n"
+                            "    for node in schedule.index.real_nodes:\n"
+                            "        sequence, rk_start, lk_end = change_machine_window(schedule, node, schedule.on_machine[node])\n"
+                            "        if sequence:\n"
+                            "            consider_change(CHANGE_MACHINE_BACK, node, sequence[0], -1, -1)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn("neighborhood_retries_random_change_only_lane", normalized["proposal_audit"]["warnings"])
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_neighborhood_slot_warns_on_shuffling_candidate_machine_dict(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
