@@ -18,6 +18,7 @@ from harness_agent.workers.deepseek_slot_worker import (
     selected_confirmed_slot,
     selected_slot_failure_memory,
     should_accept_generic_slot_repair,
+    reject_unrepaired_generic_slot,
     strip_marker_lines,
     validate_awls_slot_contract,
     validate_generic_slot_contract,
@@ -454,6 +455,60 @@ class AwlsSlotModeTests(unittest.TestCase):
         }
 
         self.assertFalse(should_accept_generic_slot_repair(original, repaired))
+
+    def test_same_machine_slot_warns_when_setup_propagation_repeats_without_exact_trial(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_same_machine_evaluation")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "setup_local_propagation",
+                        "type": "local_search_operator",
+                        "novelty": "Avoids failed setup-only scoring by being different.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_same_machine_evaluation",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    new_r = []\n"
+                            "    new_q = []\n"
+                            "    return setup_time_between\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "same_machine_setup_propagation_without_exact_trial",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_unrepaired_must_repair_slot_warning_drops_changes(self) -> None:
+        original = {
+            "changes": [{"action": "replace_slot_block", "slot_id": "awls_sdst_same_machine_evaluation", "content": "bad"}],
+            "risk_notes": [],
+            "proposal_audit": {"warnings": ["same_machine_setup_propagation_without_exact_trial"]},
+        }
+        repaired = {
+            "changes": [],
+            "proposal_audit": {"warnings": []},
+        }
+
+        self.assertFalse(should_accept_generic_slot_repair(original, repaired))
+        rejected = reject_unrepaired_generic_slot(original)
+        self.assertEqual([], rejected["changes"])
+        self.assertIn("unrepaired_must_repair_warning", rejected["proposal_audit"]["warnings"])
 
 
 def _slot_context(

@@ -240,7 +240,7 @@ class DeepSeekSlotWorker(CodingWorker):
             if should_accept_generic_slot_repair(original_normalized, repaired):
                 normalized = repaired
             else:
-                normalized = original_normalized
+                normalized = reject_unrepaired_generic_slot(original_normalized)
         proposal_path = output_dir / "proposal.json"
         markdown_path = output_dir / "proposal.md"
         changed_files: list[str] = []
@@ -460,9 +460,27 @@ a natural-language hypothesis and novelty that references failure memory.  If
 no safe edit is possible, return an empty `changes` list only with non-empty
 `risk_notes` explaining the concrete blocker.
 
+Available same-machine exact-trial API, when this is the selected slot:
+```python
+legacy = ...  # existing local score inside the slot
+if not schedule.index.instance.has_sequence_dependent_setup:
+    return legacy
+try:
+    trial = schedule.clone()
+    trial.apply_move(move)
+    return float(trial.makespan) + 0.001 * float(legacy)
+except (ValueError, KeyError, IndexError):
+    return legacy
+```
+
 Previous normalized proposal:
 ```json
 {json.dumps(proposal, ensure_ascii=False, indent=2)[:6000]}
+```
+
+Current slot context:
+```python
+{slot_context_for_prompt(slot, max_chars=9000)}
 ```
 
 Original instructions:
@@ -623,11 +641,39 @@ def should_accept_generic_slot_repair(original: dict[str, Any], repaired: dict[s
 
     original_changes = original.get("changes") if isinstance(original.get("changes"), list) else []
     repaired_changes = repaired.get("changes") if isinstance(repaired.get("changes"), list) else []
+    if generic_slot_has_must_repair_warning(original):
+        return bool(repaired_changes) and not generic_slot_has_must_repair_warning(repaired)
     if original_changes and not repaired_changes:
         return False
     if repaired_changes and not original_changes:
         return True
     return generic_repair_warning_count(repaired) <= generic_repair_warning_count(original)
+
+
+def reject_unrepaired_generic_slot(proposal: dict[str, Any]) -> dict[str, Any]:
+    rejected = dict(proposal)
+    rejected["changes"] = []
+    risk_notes = list(rejected.get("risk_notes") or [])
+    risk_notes.append("Semantic repair did not produce an acceptable replacement for a must-repair slot warning.")
+    rejected["risk_notes"] = risk_notes
+    audit = dict(rejected.get("proposal_audit") or {})
+    warnings = list(audit.get("warnings") or [])
+    if "unrepaired_must_repair_warning" not in warnings:
+        warnings.append("unrepaired_must_repair_warning")
+    audit["warnings"] = warnings
+    rejected["proposal_audit"] = audit
+    return rejected
+
+
+def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
+    audit = proposal.get("proposal_audit")
+    if not isinstance(audit, dict):
+        return False
+    warnings = audit.get("warnings")
+    if not isinstance(warnings, list):
+        return False
+    must_repair = {"same_machine_setup_propagation_without_exact_trial"}
+    return any(str(item) in must_repair for item in warnings)
 
 
 def generic_repair_warning_count(proposal: dict[str, Any]) -> int:
@@ -797,6 +843,7 @@ def build_generic_slot_audit(
         for cue in ("avoid", "failed", "worsen", "rolled", "different", "material", "instead", "not retry", "失败", "变差")
     ):
         warnings.append("novelty_does_not_reference_failure_memory")
+    warnings.extend(slot_specific_generic_warnings(slot, normalized_changes))
     if len(normalized_changes) > 1:
         warnings.append("generic_slot_accepts_only_one_change")
     return {
@@ -829,8 +876,25 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "empty_slot_proposal_without_risk_note",
         "empty_slot_proposal_without_concrete_blocker",
         "empty_slot_proposal_reverts_to_baseline",
+        "same_machine_setup_propagation_without_exact_trial",
     }
     return any(str(item) in repair_warnings for item in warnings)
+
+
+def slot_specific_generic_warnings(slot: dict[str, Any], changes: list[dict[str, str]]) -> list[str]:
+    """Detect known failed idea classes that generic novelty text can miss."""
+
+    slot_id = str(slot.get("slot_id") or "")
+    if slot_id != "awls_sdst_same_machine_evaluation":
+        return []
+    content = "\n".join(str(item.get("content") or "") for item in changes).lower()
+    if not content:
+        return []
+    uses_setup_propagation = "setup_time_between" in content and ("new_r" in content or "new_q" in content)
+    uses_exact_trial = ".clone(" in content and ".apply_move(" in content and "trial.makespan" in content
+    if uses_setup_propagation and not uses_exact_trial:
+        return ["same_machine_setup_propagation_without_exact_trial"]
+    return []
 
 
 def risk_notes_describe_concrete_blocker(text: str) -> bool:

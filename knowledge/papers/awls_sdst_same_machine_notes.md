@@ -49,6 +49,18 @@ There is no `schedule.setup_time(...)` helper and no
   from `1900` to `1660`, but still worsened makespan from `1010` to `1014`.
   Do not optimize same-machine scoring for setup-time reduction alone; the
   evaluator objective is still makespan.
+- A later worker-loop round repeated the same setup-aware forward/backward
+  local propagation idea instead of the requested exact clone/apply scoring.
+  It reproduced the legal `1014` result with setup time `1660`.  Treat
+  same-machine setup propagation without `schedule.clone()`,
+  `trial.apply_move(move)`, and `trial.makespan` as a known failed idea class;
+  the platform should semantically repair that proposal before evaluation.
+- After the platform made that warning blocking, semantic repair produced a
+  true exact same-machine trial candidate using `schedule.clone()`,
+  `trial.apply_move(move)`, and `trial.makespan + 0.001 * legacy`.  Core
+  evaluation tied `oddla20` at `1010` with setup time `1850`, so exact local
+  N7 makespan scoring alone is not enough to beat the incumbent under the
+  current short-budget controls.
 - If manually adding setup-aware forward/backward local propagation is too
   fragile, prefer exact local scoring:
 
