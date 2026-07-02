@@ -58,6 +58,13 @@ are diagnostics only.
   - `1:greedy:1:6,3:random:1:6,7:mixed:1:6` with a setup-prev critical formula
     reached `1099` (`1:greedy=1099`, `3:random=1111`, `7:mixed=1158`).
   Do not retry these lane strings unchanged with setup-ratio zi formulas.
+- A confirmed portfolio-search-control slot run over
+  `0:mixed:1:8,4:greedy:1:8,8:random:1:8` changed only the deterministic
+  effective lane seed mapping to
+  `(lane.seed + seed * STRIDE + idx * 7919) % 10000`.  It legally tied
+  `oddla20` at `1010` and did not beat the incumbent.  Do not retry
+  seed-mapping-only perturbations unless paired with a real lane budget,
+  ordering, early-stop, or tie-breaking mechanism.
 
 ## Worker Directions
 
@@ -86,6 +93,9 @@ Use these as hypotheses, not as manual patches:
 - Do not retry `2:random:1:6,5:greedy:1:6,8:mixed:1:6` or
   `1:greedy:1:6,3:random:1:6,7:mixed:1:6` unchanged with setup-ratio formula
   policies; both worsened beyond `1040`.
+- Do not spend a future portfolio round only changing the effective seed
+  formula, including prime/modulo offsets such as `idx * 7919`; this tied
+  `1010` on `oddla20`.
 
 ## Guardrails
 

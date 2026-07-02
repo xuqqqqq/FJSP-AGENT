@@ -401,6 +401,7 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
                 "Do not change parse_portfolio_lanes format or allocate_lane_budgets unless a separate slot is confirmed.",
                 "Do not change solve_awls_single, AWLS move scoring, zi formula validation, parser, evaluator, or output schema.",
                 "Do not skip validation by returning records directly from the slot.",
+                "Do not retry seed-mapping-only perturbations without a real lane budget, order, early-stop, or tie-breaking change.",
                 "Do not add unbounded loops, multiprocessing, subprocesses, network access, file IO, or randomness outside existing seeded AWLS calls.",
             ],
             validation_commands=[

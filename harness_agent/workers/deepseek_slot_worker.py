@@ -685,6 +685,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_failed_same_machine_window",
         "neighborhood_retries_failed_tight_tardiness_filter",
         "neighborhood_retries_latest_block_topk_overpruning",
+        "portfolio_retries_seed_mapping_only",
         "same_machine_retries_pure_exact_trial",
         "initialization_retries_append_only_setup_completion",
         "initialization_retries_low_setup_tiebreak",
@@ -910,6 +911,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_failed_same_machine_window",
         "neighborhood_retries_failed_tight_tardiness_filter",
         "neighborhood_retries_latest_block_topk_overpruning",
+        "portfolio_retries_seed_mapping_only",
         "same_machine_retries_pure_exact_trial",
         "initialization_retries_append_only_setup_completion",
         "initialization_retries_low_setup_tiebreak",
@@ -936,6 +938,8 @@ def slot_specific_generic_warnings(slot: dict[str, Any], changes: list[dict[str,
         return warnings + awls_sdst_initialization_warnings(content)
     if slot_id == "awls_sdst_neighborhood_selection":
         return warnings + awls_sdst_neighborhood_selection_warnings(content)
+    if slot_id == "awls_sdst_portfolio_search_control":
+        return warnings + awls_sdst_portfolio_search_control_warnings(content)
     if slot_id != "awls_sdst_same_machine_evaluation":
         return warnings
     uses_setup_propagation = "setup_time_between" in content and ("new_r" in content or "new_q" in content)
@@ -1026,6 +1030,33 @@ def awls_sdst_neighborhood_selection_warnings(content: str) -> list[str]:
     return list(dict.fromkeys(warnings))
 
 
+def awls_sdst_portfolio_search_control_warnings(content: str) -> list[str]:
+    """Flag repeated SDST portfolio-control proposals that already tied."""
+
+    warnings: list[str] = []
+    seed_mapping_change = "effective_lane_seed" in content and (
+        "7919" in content or "% 10000" in content or "modulo" in content or "lane-order" in content
+    )
+    budget_or_order_change = any(
+        cue in content
+        for cue in (
+            "lane_budgets.sort",
+            "sorted(portfolio_lanes",
+            "remaining_time",
+            "early_stop",
+            "early-stop",
+            "break",
+            "reverse=",
+            "time_limit_sec -",
+            "rerun",
+            "deepening",
+        )
+    )
+    if seed_mapping_change and not budget_or_order_change:
+        warnings.append("portfolio_retries_seed_mapping_only")
+    return list(dict.fromkeys(warnings))
+
+
 def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
     slot_id = str(slot.get("slot_id") or "")
     if slot_id == "awls_sdst_neighborhood_selection":
@@ -1067,6 +1098,14 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- Pure exact cloned trial scored as `trial.makespan + 0.001 * legacy` has already tied oddla20; "
             "do not retry it unchanged.  If using exact trial, add a materially different bounded tie-breaker "
             "or gating rule while preserving makespan pressure."
+        )
+    if slot_id == "awls_sdst_portfolio_search_control":
+        return (
+            "- Do not retry seed-mapping-only perturbations such as adding idx * 7919 modulo 10000; that tied "
+            "oddla20 at 1010 without improving the incumbent.\n"
+            "- If editing this slot, change a real search-control mechanism such as bounded lane ordering, "
+            "per-lane budget allocation, early-stop policy, or auditable tie-breaking among equal makespans.\n"
+            "- Keep the objective as makespan and preserve lane_summaries with seed/init/restarts/time/makespan diagnostics."
         )
     return "- Keep the replacement inside the selected slot contract and make the novelty materially different from failure memory."
 
