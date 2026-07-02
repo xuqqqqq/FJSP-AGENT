@@ -43,6 +43,11 @@ must stay inside the existing `SequenceTabuList` mechanism.
   are not real APIs, so future setup-aware tabu-memory proposals must use
   `schedule.index.instance.has_sequence_dependent_setup` and the module-level
   `operation_key(schedule, node)`.
+- `move_type_sequence_and_tenure_bias` was legal but worsened `oddla20` from
+  `1010` to `1039`: it shortened FRONT/BACK tabu memory to only
+  `[move.which, move.where]` or `[move.where, move.which]`, assigned shorter
+  local-move tenure, and longer machine-change tenure.  Do not retry this
+  short FRONT/BACK sequence plus move-type tenure split unchanged.
 - Fixed best-reset transition rules worsened `oddla20` to `1033` and `1023`;
   do not emulate restart/backtrack behavior inside tabu memory.
 - Portfolio seed remapping, multi-scramble restarts, and best-lane reruns tied

@@ -1898,6 +1898,51 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("tabu_memory_uses_nonexistent_api", normalized["proposal_audit"]["warnings"])
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_tabu_memory_slot_warns_on_short_front_back_sequence_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_tabu_memory")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "move_type_sequence_and_tenure_bias",
+                        "type": "tabu_memory_rule",
+                        "novelty": "Different from criticality-only tenure by shortening local move memory.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_tabu_memory",
+                        "content": (
+                            "    machine_id = schedule.on_machine[move.which]\n"
+                            "    if move.method == FRONT:\n"
+                            "        sequence = [move.which, move.where]\n"
+                            "        tenure = schedule.rng.randint(tenure_min, (tenure_min + tenure_max) // 2)\n"
+                            "    elif move.method == BACK:\n"
+                            "        sequence = [move.where, move.which]\n"
+                            "        tenure = schedule.rng.randint(tenure_min, (tenure_min + tenure_max) // 2)\n"
+                            "    else:\n"
+                            "        sequence = [move.which]\n"
+                            "        tenure = tenure_max\n"
+                            "    tabu.add(machine_id, sequence, iteration + tenure)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "tabu_memory_retries_short_front_back_sequence",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_tabu_memory_repair_guidance_names_single_tabu_add_contract(self) -> None:
         slot = _generic_slot_context(slot_id="awls_sdst_tabu_memory")["slot_manifest"]["slots"][0]
 
@@ -1907,6 +1952,7 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("exactly once", guidance)
         self.assertIn("apply_move", guidance)
         self.assertIn("operation_key(schedule, node)", guidance)
+        self.assertIn("[move.which, move.where]", guidance)
 
     def test_generic_slot_audit_repairs_all_rejected_wrong_slot_changes(self) -> None:
         worker = DeepSeekSlotWorker()
