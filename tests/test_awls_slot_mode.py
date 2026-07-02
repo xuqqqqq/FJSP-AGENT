@@ -2613,6 +2613,89 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("neighborhood_retries_global_move_count_cap", normalized["proposal_audit"]["warnings"])
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_neighborhood_slot_warns_on_unordered_candidate_machine_cap_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "bounded_nk_alternate_machine",
+                        "type": "local_search_operator",
+                        "novelty": "Different from global caps by limiting machines per operation.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_neighborhood_selection",
+                        "content": (
+                            "    max_candidate_machines = 3\n"
+                            "    for node in schedule.index.real_nodes:\n"
+                            "        candidate_list = list(schedule.index.candidates[node])\n"
+                            "        bounded_candidates = [m for m in candidate_list if m != schedule.on_machine[node]]\n"
+                            "        for candidate_machine in bounded_candidates[:max_candidate_machines]:\n"
+                            "            sequence, rk_start, lk_end = change_machine_window(schedule, node, candidate_machine)\n"
+                            "            if sequence:\n"
+                            "                consider_change(CHANGE_MACHINE_BACK, node, sequence[0], -1, -1)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "neighborhood_retries_unordered_candidate_machine_cap",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_neighborhood_slot_allows_ordered_candidate_machine_cap(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "setup_ordered_bounded_nk",
+                        "type": "local_search_operator",
+                        "novelty": "Different from unordered caps by sorting alternate machines before slicing.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_neighborhood_selection",
+                        "content": (
+                            "    max_candidate_machines = 3\n"
+                            "    for node in schedule.index.real_nodes:\n"
+                            "        candidate_list = list(schedule.index.candidates[node])\n"
+                            "        bounded_candidates = sorted(candidate_list, key=lambda m: schedule.index.duration(node, m))\n"
+                            "        for candidate_machine in bounded_candidates[:max_candidate_machines]:\n"
+                            "            sequence, rk_start, lk_end = change_machine_window(schedule, node, candidate_machine)\n"
+                            "            if sequence:\n"
+                            "                consider_change(CHANGE_MACHINE_BACK, node, sequence[0], -1, -1)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertNotIn(
+            "neighborhood_retries_unordered_candidate_machine_cap",
+            normalized["proposal_audit"]["warnings"],
+        )
+
     def test_neighborhood_slot_warns_on_random_diversity_sampling_retry(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")

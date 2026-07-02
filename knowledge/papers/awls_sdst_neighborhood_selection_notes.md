@@ -168,6 +168,13 @@ from the published UB (`997`; current fast/short baselines are `1202` or
   change-only lanes that omit the same-machine critical-block path; future
   diversification should add or order candidates without deleting the incumbent
   N7 traversal.
+- A follow-up preserve-main-path round proposed `bounded_nk_alternate_machine`:
+  keep incumbent same-machine moves but convert candidate machines to a list
+  and take the first three `bounded_candidates[:max_candidate_machines]`
+  without setup/load/slack ordering.  It was legal but tied `oddla20` at
+  `1010`.  Do not retry unordered first-N candidate-machine caps as the main
+  novelty; if alternate machines are bounded, sort them by an actual
+  setup-aware or load/slack score before slicing.
 
 This points toward the move-candidate selection layer: the search may not be
 trying the right critical or near-critical N7/NK moves often enough.
@@ -274,6 +281,9 @@ Use these as hypotheses, not as manual patches:
 - Do not retry random change-machine-only lanes that guard same-machine/N7
   generation behind `if not use_change_only`; the 50% variant worsened
   `oddla20` from `1010` to `1039`.
+- Do not retry unordered first-N alternate-machine caps such as
+  `max_candidate_machines = 3` followed by `bounded_candidates[:3]`; this tied
+  `oddla20` at `1010` without improving the Core objective.
 - Do not call `schedule.rng.shuffle(schedule.index.candidates[node])`;
   `schedule.index.candidates[node]` is a dict.  Use
   `list(schedule.index.candidates[node])` before shuffling candidate machines.

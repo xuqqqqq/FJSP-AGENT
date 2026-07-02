@@ -688,6 +688,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_failed_tight_tardiness_filter",
         "neighborhood_retries_latest_block_topk_overpruning",
         "neighborhood_retries_global_move_count_cap",
+        "neighborhood_retries_unordered_candidate_machine_cap",
         "neighborhood_retries_random_diversity_sampling",
         "neighborhood_retries_random_change_only_lane",
         "neighborhood_shuffles_candidate_machine_dict",
@@ -951,6 +952,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_failed_tight_tardiness_filter",
         "neighborhood_retries_latest_block_topk_overpruning",
         "neighborhood_retries_global_move_count_cap",
+        "neighborhood_retries_unordered_candidate_machine_cap",
         "neighborhood_retries_random_diversity_sampling",
         "neighborhood_retries_random_change_only_lane",
         "neighborhood_shuffles_candidate_machine_dict",
@@ -1231,6 +1233,23 @@ def awls_sdst_neighborhood_selection_warnings(content: str) -> list[str]:
     )
     if global_move_cap and "assignment" not in content and "change_machine_window" in content:
         warnings.append("neighborhood_retries_global_move_count_cap")
+    candidate_machine_cap = (
+        re.search(
+            r"\b(?:max_candidate_machines|max_change_machines|max_candidate_machine_count|machine_limit)\s*=\s*[1-5]\b",
+            content,
+        )
+        and re.search(
+            r"\bfor\s+\w+\s+in\s+\w+\s*\[\s*:\s*(?:max_candidate_machines|max_change_machines|max_candidate_machine_count|machine_limit)\s*\]\s*:",
+            content,
+        )
+        and "change_machine_window" in content
+    )
+    ordered_candidate_cap = bool(
+        re.search(r"\b(?:bounded_candidates|candidate_list|candidate_machines)\s*=\s*sorted\s*\(", content)
+        or re.search(r"\b(?:bounded_candidates|candidate_list|candidate_machines)\.sort\s*\(", content)
+    )
+    if candidate_machine_cap and not ordered_candidate_cap:
+        warnings.append("neighborhood_retries_unordered_candidate_machine_cap")
     random_diversity_sampling = (
         re.search(r"\bmax_blocks\s*=\s*\d+", content)
         and re.search(r"\bmax_same_per_block\s*=\s*\d+", content)
@@ -1498,6 +1517,9 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "subset only; top_k=3 latest-block pruning worsened oddla20 from 1010 to 1280.\n"
             "- Do not retry flat global move-count caps such as MAX_MOVES=200 or random diversity sampling with "
             "max_blocks/max_same_per_block/total_move_limit; those tied or failed at runtime.\n"
+            "- Do not retry unordered first-N candidate-machine caps such as max_candidate_machines=3; that "
+            "bounded NK slice tied oddla20 at 1010. If bounding alternate machines, order them by a real "
+            "setup/load/slack score before slicing.\n"
             "- Do not add a random change-machine-only lane that skips same-machine/N7 generation; the 50% "
             "change-only variant worsened oddla20 from 1010 to 1039.\n"
             "- If editing this slot, use a materially different bounded candidate-generation idea such as "
