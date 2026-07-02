@@ -30,6 +30,14 @@ are diagnostics only.
   time on the best lane with doubled restarts.  It was legal but tied
   `1010 -> 1010` on `oddla20` under the incumbent controls, so do not retry
   best-lane exploitation unchanged.
+- A later confirmed-slot worker candidate used distinct lanes
+  `0:mixed,6:mixed,7:greedy,9:random` and weighted multi-lane deepening after
+  a short probe.  It legally tied `1010`: lanes `0:mixed`, `6:mixed`, and
+  `7:greedy` all reached `1010`, while `9:random` reached `1224`; weighted
+  second-phase reruns of the tied lanes also stayed at `1010`.  Do not retry
+  proportional or exponential deepening over the same tied lane family unless
+  another search-control mechanism changes the move budget or accepts a
+  different incumbent lane.
 
 ## Worker Directions
 
