@@ -391,6 +391,7 @@ def write_manifest(
 
 
 def render_report(manifest: dict[str, Any]) -> str:
+    baseline = manifest.get("baseline") or {}
     lines = [
         "# DeepSeek AWLS zi Evolution Report",
         "",
@@ -401,15 +402,14 @@ def render_report(manifest: dict[str, Any]) -> str:
         "",
         "## Candidates",
         "",
-        "| Round | Candidate | Avg Makespan | Avg Gap % | Median Gap % | Max Gap % | Invalid Runs | zi Policy | Formula | beta | gamma | theta | Portfolio | Report |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | --- | --- |",
+        "| Round | Candidate | Avg Makespan | ΔMakespan | Avg Gap % | ΔGap % | Median Gap % | Max Gap % | Invalid Runs | zi Policy | Formula | beta | gamma | theta | Portfolio | Report |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | --- | --- |",
     ]
-    baseline = manifest.get("baseline") or {}
-    lines.append(candidate_row("baseline", baseline))
+    lines.append(candidate_row("baseline", baseline, baseline))
     for round_record in manifest.get("rounds", []):
         round_label = f"round_{round_record.get('round_index', 0):02d}"
         for candidate in round_record.get("candidates", []):
-            lines.append(candidate_row(round_label, candidate))
+            lines.append(candidate_row(round_label, candidate, baseline))
     lines.extend(
         [
             "",
@@ -423,13 +423,15 @@ def render_report(manifest: dict[str, Any]) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
-def candidate_row(round_label: str, candidate: dict[str, Any]) -> str:
+def candidate_row(round_label: str, candidate: dict[str, Any], baseline: dict[str, Any] | None = None) -> str:
     config = candidate.get("candidate") or {}
     report = candidate.get("report") or ""
     report_cell = f"[report]({report})" if report else ""
+    delta_makespan = numeric_delta(candidate.get("avg_makespan"), (baseline or {}).get("avg_makespan"))
+    delta_gap = numeric_delta(candidate.get("avg_gap_pct"), (baseline or {}).get("avg_gap_pct"))
     return (
         f"| {round_label} | {candidate.get('name')} | {format_cell(candidate.get('avg_makespan'))} | "
-        f"{format_cell(candidate.get('avg_gap_pct'))} | "
+        f"{format_cell(delta_makespan)} | {format_cell(candidate.get('avg_gap_pct'))} | {format_cell(delta_gap)} | "
         f"{format_cell(candidate.get('median_gap_pct'))} | {format_cell(candidate.get('max_gap_pct'))} | "
         f"{format_cell(candidate.get('invalid_run_count'))} | {config.get('zi_policy', 'cpp')} | "
         f"`{config.get('zi_formula', '') or ''}` | "
@@ -565,6 +567,12 @@ def normalize_portfolio_lanes(raw: str) -> str:
 
 def format_float_for_lane(value: float) -> str:
     return f"{value:.6f}".rstrip("0").rstrip(".")
+
+
+def numeric_delta(value: Any, baseline: Any) -> float | None:
+    if isinstance(value, (int, float)) and isinstance(baseline, (int, float)):
+        return float(value) - float(baseline)
+    return None
 
 
 def safe_name(raw: str) -> str:

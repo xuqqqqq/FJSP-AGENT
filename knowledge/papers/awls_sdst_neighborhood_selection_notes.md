@@ -25,6 +25,10 @@ from the published UB (`997`; current fast/short baselines are `1202` or
   and improved `oddla20` seed-0 short-budget quality to `1154` (gap
   `15.75%` vs UB `997`).  A simple formula
   `base * (1 + 0.3 * is_critical)` worsened to `1202`.
+- A follow-up two-round AWLS-ZI run confirmed `zi_policy=aggressive` with
+  default `beta/gamma/theta=500/40/5` as the current best (`1154`).  Tuning it
+  to `gamma=60, theta=3` worsened to `1202`; critical formulas worsened to
+  `1202` or `1265`; simple mixed-seed portfolios tied `1177` or `1154`.
 
 This points toward the move-candidate selection layer: the search may not be
 trying the right critical or near-critical N7/NK moves often enough.
@@ -60,6 +64,11 @@ Use these as hypotheses, not as manual patches:
 - Do not retry the broad `near_critical_gap = gamma // 5` expansion with
   same-machine front/back extremes unless it is materially narrowed or paired
   with evidence that the added candidates are improving exact top-k outcomes.
+- Do not retry critical-boost zi formulas of the form
+  `base + k * weight * is_critical` unless the coefficient or context differs
+  materially; tested `k=0.3` and `k=0.02` were worse than aggressive zi.
+- Do not retune aggressive zi by only increasing `gamma` and lowering `theta`
+  without another change; `gamma=60, theta=3` was worse than default.
 - If setup lookup is used only for candidate ordering, convert node ids to
   `(job_id, op_id)` and pass `schedule.index` as the op-index mapping.
 

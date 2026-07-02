@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from harness_agent.awls_zi_evolution import is_better, normalize_candidates, normalize_portfolio_lanes
+from harness_agent.awls_zi_evolution import candidate_row, is_better, normalize_candidates, normalize_portfolio_lanes
 
 
 class AwlsZiEvolutionTests(unittest.TestCase):
@@ -49,6 +49,23 @@ class AwlsZiEvolutionTests(unittest.TestCase):
         )
 
         self.assertEqual("2:mixed:1:8,0:mixed:1:8", candidates[0]["portfolio_lanes"])
+
+    def test_candidate_row_reports_delta_against_baseline(self) -> None:
+        baseline = {"avg_makespan": 1177.0, "avg_gap_pct": 18.0542, "candidate": {}}
+        candidate = {
+            "name": "aggressive",
+            "avg_makespan": 1154.0,
+            "avg_gap_pct": 15.7472,
+            "median_gap_pct": 15.7472,
+            "max_gap_pct": 15.7472,
+            "invalid_run_count": 0,
+            "candidate": {"zi_policy": "aggressive", "beta": 500, "gamma": 40, "theta": 5},
+        }
+
+        row = candidate_row("round_00", candidate, baseline)
+
+        self.assertIn("| -23 |", row)
+        self.assertIn("| 15.7472 | -2.307 |", row)
 
 
 if __name__ == "__main__":
