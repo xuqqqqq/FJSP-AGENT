@@ -443,6 +443,87 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_initialization_slot_warns_on_seq_insert_with_textual_acyclic_claim_only(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "claimed_acyclic_forward_insert",
+                        "type": "construction_rule",
+                        "novelty": "Avoids failed insertion by claiming acyclic forward propagation.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    sequences = [[] for _ in range(index.instance.machine_count)]\n"
+                            "    on_machine = [-1] * index.node_count\n"
+                            "    seq = sequences[0]\n"
+                            "    # acyclic forward propagation avoids cycle_detected states\n"
+                            "    seq.insert(0, index.job_to_nodes[0][0])\n"
+                            "    return sequences, on_machine\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "initialization_non_append_without_acyclic_guard",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_initialization_slot_allows_non_append_with_real_topology_guard(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "guarded_committed_insert",
+                        "type": "construction_rule",
+                        "novelty": "Avoids failed insertion by checking topological_sort before accepting.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    sequences = [[] for _ in range(index.instance.machine_count)]\n"
+                            "    on_machine = [-1] * index.node_count\n"
+                            "    node = index.job_to_nodes[0][0]\n"
+                            "    on_machine[node] = 0\n"
+                            "    sequences[0].insert(0, node)\n"
+                            "    candidate = AwlsSchedule(index, sequences, on_machine, rng)\n"
+                            "    candidate.topological_sort()\n"
+                            "    return sequences, on_machine\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertNotIn(
+            "initialization_non_append_without_acyclic_guard",
+            normalized["proposal_audit"]["warnings"],
+        )
+
     def test_initialization_slot_warns_when_insert_rebuilds_global_ready_state(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_initialization")

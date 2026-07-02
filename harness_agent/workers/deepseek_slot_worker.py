@@ -1008,12 +1008,12 @@ def awls_sdst_initialization_warnings(content: str) -> list[str]:
     low_setup_tie = uses_setup and re.search(r"(setup|setup_time|setup_cost)[^\n]*(?:min|best|tie|sort|key)", content)
     if append_only and low_setup_tie:
         warnings.append("initialization_retries_low_setup_tiebreak")
-    committed_non_append = bool(re.search(r"sequences\s*\[[^\n\]]+\]\s*\.insert\s*\(", content))
-    has_acyclic_guard = bool(
-        re.search(
-            r"\b(?:topological_sort|validate_standard_schedule|awlsschedule|is_acyclic|acyclic|cycle_detected)\b",
-            content,
-        )
+    committed_non_append = bool(
+        re.search(r"sequences\s*\[[^\n\]]+\]\s*\.insert\s*\(", content)
+        or re.search(r"\bseq\s*\.\s*insert\s*\(", content)
+    )
+    has_real_topology_guard = bool(
+        re.search(r"\b(?:topological_sort|validate_standard_schedule|awlsschedule)\b", content)
     )
     rebuilds_ready_after_insert = bool(
         committed_non_append
@@ -1022,7 +1022,7 @@ def awls_sdst_initialization_warnings(content: str) -> list[str]:
             content,
         )
     )
-    if committed_non_append and not has_acyclic_guard:
+    if committed_non_append and not has_real_topology_guard:
         warnings.append("initialization_non_append_without_acyclic_guard")
     if rebuilds_ready_after_insert:
         warnings.append("initialization_rebuilds_ready_after_committed_insert")

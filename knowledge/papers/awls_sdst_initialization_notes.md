@@ -109,6 +109,13 @@ Use these as hypotheses, not as a manual patch:
   retry committed non-append insertion unless the proposal has an explicit
   acyclic/topological feasibility guard or only reorders an uncommitted
   temporary construction sequence.
+- A subsequent non-append insertion/projection candidate simulated every
+  insertion position, claimed "acyclic forward propagation", then committed
+  `seq.insert(...)` and only recomputed that machine's local end times.  Core
+  evaluation again failed before metrics with `ValueError: cycle detected in
+  disjunctive graph`.  Textual acyclic claims are not enough: committed
+  non-append insertion must use a real `AwlsSchedule(...)`, `topological_sort`,
+  or `validate_standard_schedule` feasibility guard before returning.
 - After the non-append guard was added, a legal static bottleneck initializer
   identified one machine by total minimum processing time, prioritized
   operations eligible on that bottleneck, and intentionally ignored setup
