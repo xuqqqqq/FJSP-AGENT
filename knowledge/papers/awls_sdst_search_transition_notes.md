@@ -41,6 +41,11 @@ Core evaluator makespan as the only promotion authority.
   `1023`: it reset to best after `200` iterations without improvement, capped
   at three resets per `tabu_search` call.  Do not retry fixed-interval or
   consecutive-worsening best resets unchanged.
+- `probabilistic_plateau_restart` legally tied `oddla20` at `1010`: it tracked
+  `stats['plateau_steps']`, then after 50 non-improving steps used
+  `current.rng.random() < 0.2` to reset `current = best.clone()`, capped at
+  five resets.  Do not spend another round on best-clone plateau restarts that
+  only vary the threshold, probability, or reset cap.
 - Portfolio best-lane reruns, seed remapping, multi-scramble restarts, and
   setup-ratio best-lane exploitation all tied `1010`; do not reproduce those
   as an in-loop transition without a materially different state rule.
