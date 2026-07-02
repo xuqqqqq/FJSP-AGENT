@@ -37,6 +37,7 @@ class SlotManifestPlatformTests(unittest.TestCase):
         self.assertIn("awls_sdst_same_machine_evaluation", slot_ids)
         self.assertIn("awls_sdst_move_evaluation", slot_ids)
         self.assertIn("awls_sdst_portfolio_search_control", slot_ids)
+        self.assertIn("awls_sdst_zi_features", slot_ids)
         self.assertIn("awls_sdst_neighborhood_selection", slot_ids)
         same_machine_slot = next(slot for slot in payload["slots"] if slot["slot_id"] == "awls_sdst_same_machine_evaluation")
         same_machine_text = "\n".join(
@@ -59,6 +60,13 @@ class SlotManifestPlatformTests(unittest.TestCase):
         self.assertIn("portfolio_lanes", portfolio_text)
         self.assertIn("PORTFOLIO_OUTER_SEED_STRIDE", portfolio_text)
         self.assertIn("Do not parse instance files", portfolio_text)
+        zi_features_slot = next(slot for slot in payload["slots"] if slot["slot_id"] == "awls_sdst_zi_features")
+        zi_features_text = "\n".join(
+            zi_features_slot["inputs"] + zi_features_slot["outputs"] + zi_features_slot["invariants"]
+        )
+        self.assertIn("setup_prev", zi_features_text)
+        self.assertIn("operation_key", zi_features_text)
+        self.assertIn("build_zi_feature_values", zi_features_text)
         self.assertTrue(payload["confirmation_required"])
 
     def test_context_packet_includes_problem_family_and_slot_manifest(self) -> None:
@@ -183,6 +191,60 @@ class SlotManifestPlatformTests(unittest.TestCase):
         self.assertIn("solve_awls_single", portfolio_slot["original_content"])
         knowledge_paths = {Path(item["path"]).name for item in packet["knowledge_cards"]}
         self.assertIn("awls_sdst_portfolio_search_control_notes.md", knowledge_paths)
+
+    def test_context_packet_includes_sdst_zi_feature_slot_and_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            instance = root / "instance.fjs"
+            instance.write_text("1 1 1\n1 1 0 1\n", encoding="utf-8")
+            contract = root / "contract.json"
+            contract.write_text(
+                json.dumps(
+                    {
+                        "task_id": "sdst_zi_feature_slot_context",
+                        "problem_family": "standard_fjsp",
+                        "description": "smoke",
+                        "instances": [{"id": "tiny", "path": str(instance)}],
+                        "objectives": [{"name": "makespan", "direction": "minimize"}],
+                        "commands": {
+                            "solver": "python solver.py",
+                            "evaluator": "python evaluator.py",
+                            "quick_test": "python -m compileall .",
+                        },
+                        "budget": {"rounds": 1, "seeds": [0]},
+                        "paths": {"allowed_paths": ["examples"], "forbidden_paths": [".git"]},
+                        "review": {"status": "confirmed"},
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            manifest = root / "slot_manifest.json"
+            from harness_agent.slot_manifest import write_selected_slot_manifest
+
+            write_selected_slot_manifest(
+                problem_family="standard_fjsp",
+                output=manifest,
+                selected_slot_ids=["awls_sdst_zi_features"],
+            )
+
+            packet = build_context_packet(
+                ContextPacketRequest(
+                    contract_path=contract,
+                    output_path=root / "context.json",
+                    slot_manifest=manifest,
+                    project_root=Path.cwd(),
+                )
+            )
+
+        confirmed = [slot for slot in packet["slot_manifest"]["slots"] if slot["user_confirmed"]]
+        self.assertEqual(["awls_sdst_zi_features"], [slot["slot_id"] for slot in confirmed])
+        zi_slot = confirmed[0]
+        self.assertIn("setup_prev", zi_slot["original_content"])
+        self.assertIn("setup_time_between", zi_slot["original_content"])
+        knowledge_paths = {Path(item["path"]).name for item in packet["knowledge_cards"]}
+        self.assertIn("awls_sdst_zi_feature_notes.md", knowledge_paths)
 
     def test_context_packet_includes_sdst_move_evaluation_slot_and_memory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

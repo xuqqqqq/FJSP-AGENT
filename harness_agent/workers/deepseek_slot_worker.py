@@ -31,6 +31,15 @@ ALLOWED_VALUE_KEYS = {
     "duration",
     "machine_load",
     "position",
+    "setup_adjacent",
+    "setup_adjacent_ratio",
+    "setup_is_sdst",
+    "setup_next",
+    "setup_next_ratio",
+    "setup_predecessor_critical",
+    "setup_prev",
+    "setup_prev_ratio",
+    "setup_successor_critical",
 }
 FORBIDDEN_AST_NODES = (
     ast.Import,
@@ -196,6 +205,30 @@ class DeepSeekSlotWorker(CodingWorker):
             proposal = extract_json_object(repair)
 
         normalized = self._normalize_generic_slot_proposal(proposal, slot, context=context)
+        if generic_slot_needs_repair(normalized):
+            repair_prompt = self._repair_generic_slot_proposal_prompt(
+                prompt=prompt,
+                proposal=normalized,
+                slot=slot,
+            )
+            (output_dir / "deepseek_slot_semantic_repair_prompt.md").write_text(repair_prompt, encoding="utf-8")
+            repair = client.chat(
+                [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Repair the rejected slot-block proposal. Return compact JSON only. "
+                            "Modify only the user-confirmed slot block."
+                        ),
+                    },
+                    {"role": "user", "content": repair_prompt},
+                ],
+                temperature=0.1,
+                max_tokens=9000,
+                json_mode=True,
+            )
+            (output_dir / "deepseek_slot_semantic_repair_response.json").write_text(repair, encoding="utf-8")
+            normalized = self._normalize_generic_slot_proposal(extract_json_object(repair), slot, context=context)
         proposal_path = output_dir / "proposal.json"
         markdown_path = output_dir / "proposal.md"
         changed_files: list[str] = []
@@ -392,6 +425,37 @@ Context packet excerpt:
             max_tokens=max_tokens,
             json_mode=True,
         )
+
+    def _repair_generic_slot_proposal_prompt(
+        self,
+        *,
+        prompt: str,
+        proposal: dict[str, Any],
+        slot: dict[str, Any],
+    ) -> str:
+        audit = proposal.get("proposal_audit") if isinstance(proposal.get("proposal_audit"), dict) else {}
+        warnings = audit.get("warnings") if isinstance(audit, dict) else []
+        return f"""
+Your previous slot proposal was syntactically valid JSON but failed the platform
+semantic proposal gate.
+
+Rejected warnings:
+{json.dumps(warnings or [], ensure_ascii=False, indent=2)}
+
+The selected slot is `{slot.get('slot_id')}` in `{slot.get('target_file')}`.
+If a safe edit is possible, return exactly one `replace_slot_block` change with
+a natural-language hypothesis and novelty that references failure memory.  If
+no safe edit is possible, return an empty `changes` list only with non-empty
+`risk_notes` explaining the concrete blocker.
+
+Previous normalized proposal:
+```json
+{json.dumps(proposal, ensure_ascii=False, indent=2)[:6000]}
+```
+
+Original instructions:
+{prompt[:12000]}
+""".strip()
 
     def _normalize_slot_proposal(self, proposal: dict[str, Any]) -> dict[str, Any]:
         summary = str(proposal.get("summary", ""))[:3000]
@@ -695,6 +759,16 @@ def build_generic_slot_audit(
         },
         "warnings": warnings,
     }
+
+
+def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
+    audit = proposal.get("proposal_audit")
+    if not isinstance(audit, dict):
+        return False
+    warnings = audit.get("warnings")
+    if not isinstance(warnings, list):
+        return False
+    return "empty_slot_proposal_without_risk_note" in warnings
 
 
 def validate_awls_slot_contract(context: dict[str, Any]) -> list[str]:

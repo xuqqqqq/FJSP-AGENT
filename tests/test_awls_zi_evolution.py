@@ -326,6 +326,8 @@ class AwlsZiEvolutionTests(unittest.TestCase):
         self.assertIn("AWLS-SDST Initialization Notes", prompt)
         self.assertIn("AWLS-SDST Same-Machine N7 Notes", prompt)
         self.assertIn("AWLS-SDST Portfolio Search-Control Notes", prompt)
+        self.assertIn("AWLS-SDST zi Feature Notes", prompt)
+        self.assertIn("setup_adjacent_ratio", prompt)
         self.assertIn("non-empty `portfolio_lanes`", prompt)
         self.assertIn("same_machine_eval=cpp-fast", prompt)
 

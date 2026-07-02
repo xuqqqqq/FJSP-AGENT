@@ -66,6 +66,15 @@ ZI_FORMULA_ALLOWED_NAMES = {
     "duration",
     "machine_load",
     "position",
+    "setup_prev",
+    "setup_next",
+    "setup_adjacent",
+    "setup_prev_ratio",
+    "setup_next_ratio",
+    "setup_adjacent_ratio",
+    "setup_is_sdst",
+    "setup_predecessor_critical",
+    "setup_successor_critical",
 }
 ZI_FORMULA_FUNCTIONS = {
     "abs": abs,
@@ -770,6 +779,91 @@ def critical_blocks(schedule: AwlsSchedule, rng: random.Random, exhaustive: bool
     return machine_scan_critical_blocks(schedule)
 
 
+def operation_key(schedule: AwlsSchedule, node: int) -> tuple[int, int] | None:
+    if node <= START_NODE or node >= schedule.index.end_node:
+        return None
+    return (schedule.index.node_to_job[node], schedule.index.node_to_op[node])
+
+
+def build_zi_feature_values(
+    schedule: AwlsSchedule,
+    node: int,
+    gamma: int,
+    rr: float,
+    cooling_factor: float,
+    perturbation: float,
+) -> dict[str, float]:
+    """Build the bounded numeric feature map used by formula/slot zi policies."""
+
+    weight = schedule.op_weight[node]
+    machine_id = schedule.on_machine[node]
+    values = {
+        "weight": float(weight),
+        "cooldown": float(schedule.op_cooldown[node]),
+        "rr": float(rr),
+        "gamma": float(gamma),
+        "cooling": float(cooling_factor),
+        "base": float(perturbation),
+        "sqrt_weight": math.sqrt(max(0.0, float(weight))),
+        "log_weight": math.log1p(max(0.0, float(weight))),
+        "is_critical": 1.0 if schedule.is_critical_operation(node) else 0.0,
+        "forward": float(schedule.forward_path_length[node]),
+        "backward": float(schedule.backward_path_length[node]),
+        "duration": float(schedule.index.duration(node, machine_id)),
+        "machine_load": float(schedule.machine_operation_count[machine_id]),
+        "position": float(schedule.on_machine_pos[node]),
+    }
+    # SLOT awls_sdst_zi_features START
+    values.update(
+        {
+            "setup_prev": 0.0,
+            "setup_next": 0.0,
+            "setup_adjacent": 0.0,
+            "setup_prev_ratio": 0.0,
+            "setup_next_ratio": 0.0,
+            "setup_adjacent_ratio": 0.0,
+            "setup_is_sdst": 0.0,
+            "setup_predecessor_critical": 0.0,
+            "setup_successor_critical": 0.0,
+        }
+    )
+    if schedule.index.instance.has_sequence_dependent_setup:
+        from harness_agent.standard_fjsp import setup_time_between
+
+        current_op = operation_key(schedule, node)
+        predecessor = schedule.machine_predecessor[node]
+        successor = schedule.machine_successor[node]
+        predecessor_op = operation_key(schedule, predecessor) if predecessor != -1 else None
+        successor_op = operation_key(schedule, successor) if successor != -1 else None
+        setup_prev = 0
+        setup_next = 0
+        if current_op is not None:
+            setup_prev = setup_time_between(schedule.index.instance, machine_id, predecessor_op, current_op, schedule.index)
+            if successor_op is not None:
+                setup_next = setup_time_between(schedule.index.instance, machine_id, current_op, successor_op, schedule.index)
+        duration = max(1.0, values["duration"])
+        setup_adjacent = float(setup_prev + setup_next)
+        values.update(
+            {
+                "setup_prev": float(setup_prev),
+                "setup_next": float(setup_next),
+                "setup_adjacent": setup_adjacent,
+                "setup_prev_ratio": float(setup_prev) / duration,
+                "setup_next_ratio": float(setup_next) / duration,
+                "setup_adjacent_ratio": setup_adjacent / duration,
+                "setup_is_sdst": 1.0,
+                "setup_predecessor_critical": 1.0
+                if predecessor != -1 and schedule.is_critical_operation(predecessor)
+                else 0.0,
+                "setup_successor_critical": 1.0
+                if successor != -1 and schedule.is_critical_operation(successor)
+                else 0.0,
+            }
+        )
+    # SLOT awls_sdst_zi_features END
+    return values
+
+
 def weight_perturbation(schedule: AwlsSchedule, node: int, gamma: int) -> float:
     weight = schedule.op_weight[node]
     policy = schedule.zi_policy
@@ -791,23 +885,7 @@ def weight_perturbation(schedule: AwlsSchedule, node: int, gamma: int) -> float:
 
     perturbation = cooling_factor * weight
     if policy in {"formula", "slot"}:
-        machine_id = schedule.on_machine[node]
-        values = {
-            "weight": float(weight),
-            "cooldown": float(schedule.op_cooldown[node]),
-            "rr": float(rr),
-            "gamma": float(gamma),
-            "cooling": float(cooling_factor),
-            "base": float(perturbation),
-            "sqrt_weight": math.sqrt(max(0.0, float(weight))),
-            "log_weight": math.log1p(max(0.0, float(weight))),
-            "is_critical": 1.0 if schedule.is_critical_operation(node) else 0.0,
-            "forward": float(schedule.forward_path_length[node]),
-            "backward": float(schedule.backward_path_length[node]),
-            "duration": float(schedule.index.duration(node, machine_id)),
-            "machine_load": float(schedule.machine_operation_count[machine_id]),
-            "position": float(schedule.on_machine_pos[node]),
-        }
+        values = build_zi_feature_values(schedule, node, gamma, rr, cooling_factor, perturbation)
         if policy == "slot":
             if safe_evolved_zi is None:
                 return perturbation

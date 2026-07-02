@@ -26,6 +26,7 @@ SDST_MEMORY_PATHS = (
     Path(__file__).resolve().parents[1] / "knowledge" / "papers" / "awls_sdst_initialization_notes.md",
     Path(__file__).resolve().parents[1] / "knowledge" / "papers" / "awls_sdst_same_machine_notes.md",
     Path(__file__).resolve().parents[1] / "knowledge" / "papers" / "awls_sdst_portfolio_search_control_notes.md",
+    Path(__file__).resolve().parents[1] / "knowledge" / "papers" / "awls_sdst_zi_feature_notes.md",
 )
 SDST_MEMORY_MAX_CHARS_PER_CARD = 6000
 
@@ -362,7 +363,10 @@ AWLS zi mechanism currently exposed to you:
 - When `zi_policy=formula`, `zi_formula` can use only these variables:
   `base`, `weight`, `cooldown`, `rr`, `gamma`, `cooling`, `sqrt_weight`,
   `log_weight`, `is_critical`, `forward`, `backward`, `duration`,
-  `machine_load`, `position`.
+  `machine_load`, `position`, `setup_prev`, `setup_next`, `setup_adjacent`,
+  `setup_prev_ratio`, `setup_next_ratio`, `setup_adjacent_ratio`,
+  `setup_is_sdst`, `setup_predecessor_critical`, and
+  `setup_successor_critical`.
 - Allowed functions in `zi_formula`: `max`, `min`, `abs`, `sqrt`, `log1p`.
 - Formula outputs are clipped to finite non-negative values. Prefer simple
   interpretable formulas such as `base * (1 + 0.3 * is_critical)` or
@@ -433,6 +437,9 @@ Rules:
   ideas tied or worsened the `1010` incumbent.
 - Use `zi_policy=formula` for at least one candidate when prior evidence shows
   the fixed policies are flat or worse; keep formulas short and diverse.
+- If using `zi_policy=formula` on SDST-HUdata, prefer at least one materially
+  setup-aware expression using `setup_prev`, `setup_next`, or
+  `setup_adjacent_ratio` rather than another pure critical multiplier.
 - Prefer interpretable changes to the zi mechanism. This is a controlled
   evolution experiment, not a free code rewrite.
 """.strip()

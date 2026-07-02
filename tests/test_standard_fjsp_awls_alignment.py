@@ -17,12 +17,14 @@ from examples.standard_fjsp_awls_solver import (
     Move,
     OperationIndex,
     all_path_critical_blocks,
+    build_zi_feature_values,
     candidate_tabu_sequence,
     change_machine_evaluate,
     change_machine_evaluate_parts,
     change_machine_intersection,
     change_machine_window,
     cpp_tabu_tenure_bounds,
+    evaluate_zi_formula,
     machine_scan_critical_blocks,
     solve_awls,
     validate_zi_formula,
@@ -144,6 +146,53 @@ class StandardFjspAwlsAlignmentTests(unittest.TestCase):
     def test_cpp_tabu_tenure_bounds_match_reference_branches(self) -> None:
         self.assertEqual((11, 15), cpp_tabu_tenure_bounds(job_count=20, machine_count=15))
         self.assertEqual((14, 21), cpp_tabu_tenure_bounds(job_count=40, machine_count=10))
+
+    def test_zi_formula_accepts_setup_feature_symbols(self) -> None:
+        formula = validate_zi_formula("base + setup_adjacent_ratio * is_critical + setup_next")
+
+        self.assertEqual("base + setup_adjacent_ratio * is_critical + setup_next", formula)
+        self.assertEqual(
+            8.0,
+            evaluate_zi_formula(
+                formula,
+                {
+                    "base": 2.0,
+                    "setup_adjacent_ratio": 3.0,
+                    "is_critical": 1.0,
+                    "setup_next": 3.0,
+                },
+            ),
+        )
+
+    def test_sdst_zi_feature_values_include_adjacent_setup_arcs(self) -> None:
+        instance = make_single_machine_sdst_instance("job_pair")
+        schedule = make_schedule(instance, [[1, 2]])
+
+        values = build_zi_feature_values(
+            schedule,
+            2,
+            gamma=40,
+            rr=10.0,
+            cooling_factor=1.0,
+            perturbation=5.0,
+        )
+
+        self.assertEqual(7.0, values["setup_prev"])
+        self.assertEqual(0.0, values["setup_next"])
+        self.assertEqual(7.0, values["setup_adjacent"])
+        self.assertEqual(7.0 / 5.0, values["setup_prev_ratio"])
+        self.assertEqual(1.0, values["setup_is_sdst"])
+        self.assertIn("setup_successor_critical", values)
+
+    def test_standard_fjsp_zi_feature_setup_values_are_zero(self) -> None:
+        instance = make_instance([[[(0, 3)]], [[(0, 5)]]], machine_count=1)
+        schedule = make_schedule(instance, [[1, 2]])
+
+        values = build_zi_feature_values(schedule, 2, gamma=40, rr=10.0, cooling_factor=1.0, perturbation=5.0)
+
+        self.assertEqual(0.0, values["setup_prev"])
+        self.assertEqual(0.0, values["setup_adjacent"])
+        self.assertEqual(0.0, values["setup_is_sdst"])
 
     def test_candidate_tabu_sequence_matches_cpp_local_sequence_cases(self) -> None:
         instance = make_instance(

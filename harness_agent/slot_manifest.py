@@ -67,6 +67,7 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
                 "values['rr'], values['gamma'], values['cooling']",
                 "values['is_critical'], values['forward'], values['backward']",
                 "values['duration'], values['machine_load'], values['position']",
+                "SDST-aware values may include values['setup_prev'], values['setup_next'], values['setup_adjacent'], and setup ratio/critical-neighbor flags",
             ],
             outputs=["返回有限的非负 float；外层 wrapper 会裁剪不安全数值。"],
             invariants=[
@@ -87,7 +88,7 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
                 "python -m compileall examples/awls_evolved_slots.py examples/standard_fjsp_awls_solver.py",
                 "python examples/standard_fjsp_awls_solver.py --input examples/fjsp.brandimarte.Mk01.m6j10c3.txt --output outputs/slot_smoke.json --zi-policy slot --time-limit-sec 1",
             ],
-            knowledge_tags=["awls", "zi", "adaptive_weight", "move_scoring"],
+            knowledge_tags=["awls", "zi", "adaptive_weight", "move_scoring", "zi_features"],
             user_confirmed=confirmed,
         ),
         CodeSlotSpec(
@@ -290,6 +291,60 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
                 "change_machine",
                 "quality",
             ],
+            user_confirmed=confirmed,
+        ),
+        CodeSlotSpec(
+            slot_id="awls_sdst_zi_features",
+            title="AWLS-SDST setup-aware zi feature extraction",
+            target_file="examples/standard_fjsp_awls_solver.py",
+            marker_start="# SLOT awls_sdst_zi_features START",
+            marker_end="# SLOT awls_sdst_zi_features END",
+            slot_kind="marked_block",
+            language="python",
+            purpose=(
+                "Expose bounded setup-aware numeric features to AWLS zi formula/slot policies "
+                "without changing the fixed evaluator, parser, or default AWLS policies."
+            ),
+            inputs=[
+                "schedule: AwlsSchedule with machine links, criticality, forward/backward times, and OperationIndex",
+                "node: real operation node currently being scored by weight_perturbation",
+                "values: dict[str, float] already containing base, weight, cooldown, rr, gamma, cooling, is_critical, forward, backward, duration, machine_load, and position",
+                "operation_key(schedule, node) converts AWLS node ids to (job_id, op_id) tuples",
+                "setup_time_between from harness_agent.standard_fjsp if setup-aware features are used",
+                "schedule.index.instance.has_sequence_dependent_setup tells whether SDST setup data exists",
+            ],
+            outputs=[
+                "Mutate values only by adding finite numeric feature entries",
+                "Expected setup feature keys: setup_prev, setup_next, setup_adjacent, setup_prev_ratio, setup_next_ratio, setup_adjacent_ratio, setup_is_sdst, setup_predecessor_critical, setup_successor_critical",
+                "Return flow must continue to build_zi_feature_values and then formula/slot evaluation",
+            ],
+            invariants=[
+                "Keep build_zi_feature_values and weight_perturbation signatures unchanged.",
+                "Do not change cpp, aggressive, critical, sqrt, or none zi-policy behavior; this slot only enriches formula/slot values.",
+                "If setup_time_between is used, call setup_time_between(schedule.index.instance, machine_id, previous_op, current_op, schedule.index).",
+                "Never pass node ids directly to setup_time_between; convert nodes with operation_key.",
+                "Never call setup_time_between with current_op=None; missing predecessor/successor contributes zero setup.",
+                "Do not read LB/UB, evaluator output, instance files, environment variables, network, or filesystem state.",
+                "Do not mutate schedule, machine sequences, tabu state, parser, evaluator, solution schema, or benchmark semantics.",
+            ],
+            allowed_edits=[
+                "Only rewrite code between awls_sdst_zi_features markers.",
+                "May add local bounded setup feature calculations and numeric ratios inside the slot.",
+                "May use schedule.index.instance.has_sequence_dependent_setup to keep standard FJSP values at zero.",
+                "May catch local lookup errors and fall back to zero setup features.",
+            ],
+            forbidden_edits=[
+                "Do not create helper files or parallel setup parsers.",
+                "Do not change formula validation outside the documented setup feature names unless a separate platform change is made.",
+                "Do not make makespan, LB/UB, or setup_time alone the objective.",
+                "Do not call trial.apply_move or run local search inside this feature slot.",
+                "Do not add randomness, subprocesses, multiprocessing, network calls, or file IO.",
+            ],
+            validation_commands=[
+                "python -m compileall examples/standard_fjsp_awls_solver.py harness_agent/standard_fjsp.py",
+                "python -m unittest tests.test_standard_fjsp_awls_alignment tests.test_awls_slot_mode tests.test_slot_manifest_platform -v",
+            ],
+            knowledge_tags=["awls", "sdst", "zi", "zi_features", "setup_time", "quality"],
             user_confirmed=confirmed,
         ),
         CodeSlotSpec(

@@ -12,6 +12,7 @@ from harness_agent.workers.deepseek_slot_worker import (
     DeepSeekSlotWorker,
     compact_context,
     extract_negative_memory_lines,
+    generic_slot_needs_repair,
     replace_evolve_block,
     selected_confirmed_slot,
     selected_slot_failure_memory,
@@ -143,6 +144,15 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertEqual("", error)
         self.assertEqual("awls_sdst_move_evaluation", slot["slot_id"])
         self.assertEqual([], validate_generic_slot_contract(context, "awls_sdst_move_evaluation"))
+
+    def test_selected_confirmed_slot_accepts_sdst_zi_feature_slot(self) -> None:
+        context = _generic_slot_context(slot_id="awls_sdst_zi_features")
+
+        slot, error = selected_confirmed_slot(context)
+
+        self.assertEqual("", error)
+        self.assertEqual("awls_sdst_zi_features", slot["slot_id"])
+        self.assertEqual([], validate_generic_slot_contract(context, "awls_sdst_zi_features"))
 
     def test_selected_confirmed_slot_rejects_multiple_confirmed_slots(self) -> None:
         context = _slot_context(user_confirmed=True)
@@ -375,6 +385,28 @@ class AwlsSlotModeTests(unittest.TestCase):
             "empty_slot_proposal_without_risk_note",
             normalized["proposal_audit"]["warnings"],
         )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_generic_slot_audit_does_not_repair_empty_proposal_with_risk_note(self) -> None:
+        worker = DeepSeekSlotWorker()
+        slot = _generic_slot_context(slot_id="awls_sdst_zi_features")["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "summary": "No safe change selected.",
+                "strategy_intent": "Skip editing.",
+                "changes": [],
+                "risk_notes": ["The current feature slot already exposes the setup values needed for the proposed formula."],
+            },
+            slot,
+        )
+
+        self.assertEqual([], normalized["changes"])
+        self.assertNotIn(
+            "empty_slot_proposal_without_risk_note",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertFalse(generic_slot_needs_repair(normalized))
 
 
 def _slot_context(
@@ -417,6 +449,12 @@ def _generic_slot_context(*, slot_id: str = "awls_sdst_neighborhood_selection") 
         inputs = ["schedule", "method", "which", "where", "intersection_first", "intersection_last", "gamma"]
         outputs = ["Return numeric change-machine move score."]
         tags = ["awls", "sdst", "move_scoring", "nk_neighborhood", "change_machine"]
+    elif slot_id == "awls_sdst_zi_features":
+        title = "AWLS-SDST setup-aware zi feature extraction"
+        purpose = "Add setup-aware numeric features to zi values."
+        inputs = ["schedule", "node", "values", "operation_key", "setup_time_between"]
+        outputs = ["Mutate values with finite setup feature entries."]
+        tags = ["awls", "sdst", "zi", "zi_features", "setup_time"]
     return {
         "edit_policy": {
             "allowed_paths": ["examples", "harness_agent", "configs"],
