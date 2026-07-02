@@ -62,5 +62,13 @@ Use these directions as hypotheses, not as a manual patch:
   If revisited, it needs a materially different gating rule such as applying
   exact scoring only to a small top-k set after the legacy proxy or combining
   it with a different candidate-generation/portfolio mechanism.
+- A follow-up gated-exact proposal kept a function-local best proxy value,
+  exact-scored only SDST candidates within `5%` of that proxy, and assigned a
+  huge penalty to candidates outside the gate.  It was legal but worsened the
+  current `critical + beta400/gamma40/theta5 + pct75` `oddla20` control line
+  from `1010` to `1023`.  Do not retry proxy-ratio gates with function
+  attribute state and outside-gate hard penalties as the main novelty; the
+  gate can suppress useful change-machine moves even when it avoids the prior
+  full-exact failure.
 - Do not change parser/evaluator/IO semantics.
 - Do not change N7 same-machine scoring until a separate slot is confirmed.

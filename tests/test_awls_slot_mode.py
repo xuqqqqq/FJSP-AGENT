@@ -149,6 +149,54 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertEqual("awls_sdst_move_evaluation", slot["slot_id"])
         self.assertEqual([], validate_generic_slot_contract(context, "awls_sdst_move_evaluation"))
 
+    def test_move_evaluation_slot_warns_on_proxy_ratio_exact_gate_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_evaluation")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "gated_exact_sdst_move_evaluation",
+                        "type": "local_search_operator",
+                        "novelty": "Different from full exact scoring by exact-scoring only candidates near the best proxy.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_evaluation",
+                        "content": (
+                            "    proxy_val = which_time + zi\n"
+                            "    if (not hasattr(change_machine_evaluate_parts, '_best_proxy_for_schedule')\n"
+                            "            or change_machine_evaluate_parts._best_proxy_for_schedule is not schedule):\n"
+                            "        change_machine_evaluate_parts._best_proxy = float('inf')\n"
+                            "        change_machine_evaluate_parts._best_proxy_for_schedule = schedule\n"
+                            "    best_proxy = change_machine_evaluate_parts._best_proxy\n"
+                            "    if proxy_val <= best_proxy * 1.05:\n"
+                            "        trial = schedule.clone()\n"
+                            "        trial.apply_move(Move(method, which, where))\n"
+                            "        return trial.makespan\n"
+                            "    return proxy_val + 1e9\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "move_evaluation_retries_proxy_ratio_exact_gate",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+        guidance = generic_slot_repair_guidance(slot)
+        self.assertIn("_best_proxy", guidance)
+        self.assertIn("1010 to 1023", guidance)
+
     def test_selected_confirmed_slot_accepts_sdst_move_selection_slot(self) -> None:
         context = _generic_slot_context(slot_id="awls_sdst_move_selection")
 

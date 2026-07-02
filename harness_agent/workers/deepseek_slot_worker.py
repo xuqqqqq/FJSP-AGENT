@@ -711,6 +711,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "initialization_non_append_without_acyclic_guard",
         "initialization_rebuilds_ready_after_committed_insert",
         "initialization_retries_static_bottleneck_ignores_setup",
+        "move_evaluation_retries_proxy_ratio_exact_gate",
         "move_selection_generates_candidates",
         "move_selection_mutates_candidate_lists",
         "move_selection_mutates_schedule_directly",
@@ -983,6 +984,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "initialization_non_append_without_acyclic_guard",
         "initialization_rebuilds_ready_after_committed_insert",
         "initialization_retries_static_bottleneck_ignores_setup",
+        "move_evaluation_retries_proxy_ratio_exact_gate",
         "move_selection_generates_candidates",
         "move_selection_mutates_candidate_lists",
         "move_selection_mutates_schedule_directly",
@@ -1039,6 +1041,8 @@ def slot_specific_generic_warnings(
         warnings.append("slot_uses_nonexistent_setup_time_api")
     if slot_id == "awls_sdst_initialization":
         return warnings + awls_sdst_initialization_warnings(content, context=context)
+    if slot_id == "awls_sdst_move_evaluation":
+        return warnings + awls_sdst_move_evaluation_warnings(content)
     if slot_id == "awls_sdst_neighborhood_selection":
         return warnings + awls_sdst_neighborhood_selection_warnings(content)
     if slot_id == "awls_sdst_move_selection":
@@ -1091,6 +1095,27 @@ def slot_specific_generic_warnings(
     )
     if noncritical_worsening_exact_gate:
         warnings.append("same_machine_retries_noncritical_worsening_exact_gate")
+    return warnings
+
+
+def awls_sdst_move_evaluation_warnings(content: str) -> list[str]:
+    warnings: list[str] = []
+    uses_exact_trial = ".apply_move(" in content and "trial.makespan" in content
+    uses_proxy_ratio_gate = re.search(r"\bbest_proxy\b[\s\S]{0,160}\b1\.0?5\b", content) or re.search(
+        r"\b1\.0?5\b[\s\S]{0,160}\bbest_proxy\b", content
+    )
+    uses_function_attribute_proxy_state = (
+        "change_machine_evaluate_parts._best_proxy" in content
+        or "_best_proxy_for_schedule" in content
+    )
+    uses_hard_outside_gate_penalty = re.search(r"\b1e9\b|\b1000000000(?:\.0)?\b", content)
+    if (
+        uses_exact_trial
+        and uses_proxy_ratio_gate
+        and uses_function_attribute_proxy_state
+        and uses_hard_outside_gate_penalty
+    ):
+        warnings.append("move_evaluation_retries_proxy_ratio_exact_gate")
     return warnings
 
 
@@ -1652,6 +1677,21 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "`schedule.end_time[schedule.index.end_node]` as a makespan proxy.\n"
             "- If using exact trial again, add a materially different bounded gating rule, critical-tail pressure, "
             "or move-locality rule while preserving makespan pressure."
+        )
+    if slot_id == "awls_sdst_move_evaluation":
+        return (
+            "- Do not retry simple linear setup-delta penalties or full exact scoring over every change-machine "
+            "candidate; both worsened oddla20.\n"
+            "- Do not retry proxy-ratio gated exact scoring that stores `_best_proxy` on "
+            "`change_machine_evaluate_parts`, exact-scores only candidates within about 5% of that proxy, "
+            "and assigns 1e9-style hard penalties outside the gate; it worsened oddla20 from 1010 to 1023.\n"
+            "- Preserve the legacy AWLS proxy for makespan/tail pressure unless the replacement has a materially "
+            "different bounded mechanism, such as move-local critical-tail pressure, ordered candidate context, "
+            "or a gate that does not suppress outside-gate candidates with huge constants.\n"
+            "- If exact scoring is used, clone first, apply `Move(method, which, where)`, catch ValueError/KeyError, "
+            "and use `trial.makespan`; do not read `end_time[index.end_node]` as the makespan.\n"
+            "- If setup lookup is used, import and call `setup_time_between(instance, machine_id, previous_op, "
+            "current_op, op_index)` with operation-key tuples and never with `current_op=None`."
         )
     if slot_id == "awls_sdst_portfolio_search_control":
         return (
