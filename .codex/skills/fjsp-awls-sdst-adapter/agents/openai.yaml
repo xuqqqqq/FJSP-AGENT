@@ -1,0 +1,4 @@
+interface:
+  display_name: "FJSP AWLS-SDST"
+  short_description: "Adapt AWLS to setup-aware FJSP"
+  default_prompt: "Use this skill to design and validate agent-first AWLS-SDST code-slot adaptations under the fixed evaluator."

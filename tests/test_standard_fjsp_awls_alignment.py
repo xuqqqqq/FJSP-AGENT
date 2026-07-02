@@ -62,6 +62,19 @@ def make_instance(raw_jobs: list[list[list[tuple[int, int]]]], machine_count: in
     )
 
 
+def make_single_machine_sdst_instance(setup_time_kind: str) -> StandardFjspInstance:
+    base = make_instance([[[(0, 3)]], [[(0, 5)]]], machine_count=1)
+    return StandardFjspInstance(
+        name=f"unit_{setup_time_kind}",
+        job_count=base.job_count,
+        machine_count=base.machine_count,
+        max_candidate_count=base.max_candidate_count,
+        jobs=base.jobs,
+        setup_times=(((0, 7), (0, 0)),),
+        setup_time_kind=setup_time_kind,
+    )
+
+
 def make_schedule(instance: StandardFjspInstance, machine_sequences: list[list[int]]) -> AwlsSchedule:
     """Create an AWLS schedule from explicit machine sequences."""
 
@@ -265,6 +278,25 @@ class StandardFjspAwlsAlignmentTests(unittest.TestCase):
         self.assertEqual([], errors)
         self.assertEqual(float(instance.operation_count), metrics["scheduled_operations"])
         self.assertIn("awls:init=greedy", label)
+
+    def test_awls_sdst_time_propagation_uses_canonical_setup_lookup(self) -> None:
+        for setup_time_kind in ("job_pair", "operation_pair"):
+            with self.subTest(setup_time_kind=setup_time_kind):
+                instance = make_single_machine_sdst_instance(setup_time_kind)
+                schedule = make_schedule(instance, [[1, 2]])
+
+                records = schedule.to_records()
+                by_op = {(record.job_id, record.op_id): record for record in records}
+                self.assertEqual((0, 3), (by_op[(0, 0)].start, by_op[(0, 0)].end))
+                self.assertEqual((10, 15), (by_op[(1, 0)].start, by_op[(1, 0)].end))
+                self.assertEqual(15, schedule.makespan)
+                self.assertEqual(12, schedule.backward_path_length[1])
+
+                errors, metrics = validate_standard_schedule(instance, records)
+                self.assertEqual([], errors)
+                self.assertEqual(15.0, metrics["makespan"])
+                self.assertEqual(7.0, metrics["setup_time"])
+                self.assertEqual(1.0, metrics["setup_count"])
 
     def test_awls_formula_zi_policy_returns_valid_schedule(self) -> None:
         instance = make_instance(

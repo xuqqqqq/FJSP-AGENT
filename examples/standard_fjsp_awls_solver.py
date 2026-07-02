@@ -227,6 +227,10 @@ class OperationIndex:
             return 0
         return self.candidates[node][machine_id]
 
+    def __getitem__(self, op_key: tuple[int, int]) -> int:
+        job_id, op_id = op_key
+        return self.job_to_nodes[job_id][op_id] - 1
+
     def can_run_on(self, node: int, machine_id: int) -> bool:
         return machine_id in self.candidates[node]
 
@@ -395,6 +399,7 @@ class AwlsSchedule:
         return order
 
     def update_time(self) -> None:
+        # SLOT awls_sdst_time_propagation START
         order = self.topological_sort()
         self.topological_order = order
         node_count = self.index.node_count
@@ -413,6 +418,12 @@ class AwlsSchedule:
         end_time = self.end_time
         backward_path_length = self.backward_path_length
 
+        from harness_agent.standard_fjsp import setup_time_between
+        instance = self.index.instance
+        has_sdst = instance.has_sequence_dependent_setup
+        node_to_job = self.index.node_to_job
+        node_to_op = self.index.node_to_op
+
         for node in order:
             if node <= START_NODE or node >= end_node:
                 continue
@@ -422,9 +433,15 @@ class AwlsSchedule:
             if job_prev != -1:
                 start = max(start, end_time[job_prev])
             if machine_prev != -1:
-                start = max(start, end_time[machine_prev])
-            machine_id = on_machine[node]
-            end = start + durations[node][machine_id]
+                machine_id = on_machine[node]
+                if has_sdst:
+                    prev_op = (node_to_job[machine_prev], node_to_op[machine_prev])
+                    cur_op = (node_to_job[node], node_to_op[node])
+                    setup = setup_time_between(instance, machine_id, prev_op, cur_op, self.index)
+                else:
+                    setup = 0
+                start = max(start, end_time[machine_prev] + setup)
+            end = start + durations[node][on_machine[node]]
             forward_path_length[node] = start
             end_time[node] = end
             self.makespan = max(self.makespan, end)
@@ -444,12 +461,19 @@ class AwlsSchedule:
                 )
             if machine_next != -1:
                 machine_id = on_machine[machine_next]
+                if has_sdst:
+                    cur_op = (node_to_job[node], node_to_op[node])
+                    next_op = (node_to_job[machine_next], node_to_op[machine_next])
+                    setup = setup_time_between(instance, machine_id, cur_op, next_op, self.index)
+                else:
+                    setup = 0
                 q = max(
                     q,
-                    backward_path_length[machine_next]
+                    setup + backward_path_length[machine_next]
                     + durations[machine_next][machine_id],
                 )
             backward_path_length[node] = q
+        # SLOT awls_sdst_time_propagation END
 
     def is_critical_operation(self, node: int) -> bool:
         return (
@@ -1057,6 +1081,7 @@ def change_machine_evaluate_parts(
     intersection_last: int,
     gamma: int,
 ) -> float:
+    # SLOT awls_sdst_move_evaluation START
     on_machine = schedule.on_machine
     end_time = schedule.end_time
     backward_path_length = schedule.backward_path_length
@@ -1098,6 +1123,7 @@ def change_machine_evaluate_parts(
     if schedule.zi_policy in {"cpp", "cpp-exact"}:
         return cpp_int_score(value)
     return value
+    # SLOT awls_sdst_move_evaluation END
 
 
 def is_legal_same_machine_move(schedule: AwlsSchedule, move: Move) -> bool:

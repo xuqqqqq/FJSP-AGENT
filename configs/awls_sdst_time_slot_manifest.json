@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "problem_family": "standard_fjsp",
+  "status": "confirmed",
+  "confirmation_required": false,
+  "notes": [
+    "AWLS-SDST first milestone: make AWLS internal timing and emitted operation records respect sequence-dependent setup gaps.",
+    "The worker must reuse harness_agent.standard_fjsp.parse_standard_fjsp and setup_time_between; it must not create a parallel SDST parser.",
+    "Only awls_sdst_time_propagation is user-confirmed in this manifest. N7/NK move evaluation and zi policy are later-stage slots."
+  ],
+  "slots": [
+    {
+      "slot_id": "awls_sdst_time_propagation",
+      "title": "AWLS-SDST setup-aware time propagation",
+      "target_file": "examples/standard_fjsp_awls_solver.py",
+      "marker_start": "# SLOT awls_sdst_time_propagation START",
+      "marker_end": "# SLOT awls_sdst_time_propagation END",
+      "slot_kind": "marked_block",
+      "language": "python",
+      "purpose": "Update AWLS graph head/tail timing so machine arcs include sequence-dependent setup time when the parsed instance contains setup data.",
+      "inputs": [
+        "self.index.instance: StandardFjspInstance with optional setup_times/setup_time_kind",
+        "self.index: OperationIndex mapping AWLS node ids to job/op ids and candidate durations",
+        "self.job_predecessor/job_successor and machine_predecessor/machine_successor",
+        "self.on_machine and self.topological_sort()"
+      ],
+      "outputs": [
+        "self.forward_path_length: setup-aware operation start times",
+        "self.end_time: setup-aware operation end times",
+        "self.backward_path_length: setup-aware tail lengths",
+        "self.makespan: max setup-aware completion time"
+      ],
+      "invariants": [
+        "Keep AwlsSchedule.update_time signature and public fields unchanged.",
+        "Keep standard FJSP behavior unchanged when instance.has_sequence_dependent_setup is false.",
+        "Use setup_time_between from harness_agent.standard_fjsp; do not implement a new SDST parser.",
+        "Do not modify evaluator, parser, solution schema, CLI arguments, or benchmark semantics.",
+        "Emitted ScheduleRecord start/end times remain processing intervals only; setup intervals are implicit and checked by evaluator."
+      ],
+      "allowed_edits": [
+        "Only rewrite code between awls_sdst_time_propagation markers.",
+        "May add local helper variables inside the slot.",
+        "May call setup_time_between(instance, machine_id, previous_op, current_op, op_index).",
+        "May map AWLS node ids to operation keys using self.index.node_to_job and self.index.node_to_op."
+      ],
+      "forbidden_edits": [
+        "Do not create helper files for setup parsing.",
+        "Do not change OperationIndex.from_instance or parse_standard_fjsp.",
+        "Do not touch same-machine/change-machine move generation in this stage.",
+        "Do not change zi policy in this stage."
+      ],
+      "validation_commands": [
+        "python -m compileall examples/standard_fjsp_awls_solver.py harness_agent/standard_fjsp.py",
+        "python -m unittest tests.test_standard_fjsp_awls_alignment.StandardFjspAwlsAlignmentTests.test_awls_sdst_time_propagation_uses_canonical_setup_lookup -v",
+        "python examples/standard_fjsp_awls_solver.py --input examples/fjsp.brandimarte.Mk01.m6j10c3.txt --output outputs/awls_sdst_standard_smoke.json --seed 0 --restarts 1 --cycles-per-restart 2 --iterations 20 --time-limit-sec 1",
+        "python examples/standard_fjsp_awls_solver.py --input C:/Users/ASUS/Downloads/FJSP_SDST_HUdata_instances_package/FJSP_SDST_HUdata_instances_package/instances/oddla20.txt --output outputs/awls_sdst_hudata_smoke.json --seed 0 --restarts 1 --cycles-per-restart 2 --iterations 20 --time-limit-sec 1"
+      ],
+      "knowledge_tags": [
+        "awls",
+        "sdst",
+        "setup_time",
+        "time_propagation",
+        "legality"
+      ],
+      "user_confirmed": true
+    }
+  ]
+}
