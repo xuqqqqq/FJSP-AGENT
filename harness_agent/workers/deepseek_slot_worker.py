@@ -735,6 +735,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "tabu_memory_calls_forbidden_runtime_api",
         "tabu_memory_mutates_schedule_or_tabu_directly",
         "tabu_memory_uses_nonexistent_api",
+        "tabu_memory_uses_setup_without_import",
         "tabu_memory_uses_io_or_unseeded_random",
         "tabu_memory_retries_short_front_back_sequence",
         "all_slot_changes_rejected",
@@ -1005,6 +1006,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "tabu_memory_calls_forbidden_runtime_api",
         "tabu_memory_mutates_schedule_or_tabu_directly",
         "tabu_memory_uses_nonexistent_api",
+        "tabu_memory_uses_setup_without_import",
         "tabu_memory_uses_io_or_unseeded_random",
         "tabu_memory_retries_short_front_back_sequence",
         "all_slot_changes_rejected",
@@ -1523,8 +1525,14 @@ def awls_sdst_tabu_memory_warnings(content: str) -> list[str]:
         warnings.append("tabu_memory_uses_io_or_unseeded_random")
     if re.search(r"\brandom\.", content):
         warnings.append("tabu_memory_uses_io_or_unseeded_random")
-    if "has_sequence_dependent_setup(" in content or re.search(r"\bschedule\.index\.operation_key\b", content):
+    if (
+        "has_sequence_dependent_setup(" in content
+        or re.search(r"\bschedule\.index\.operation_key\b", content)
+        or re.search(r"\bschedule\.is_critical\s*\(", content)
+    ):
         warnings.append("tabu_memory_uses_nonexistent_api")
+    if "setup_time_between" in content and "from harness_agent.standard_fjsp import setup_time_between" not in content:
+        warnings.append("tabu_memory_uses_setup_without_import")
     short_front_back_sequence = (
         re.search(r"move\.method\s*==\s*front[\s\S]{0,180}sequence\s*=\s*\[\s*move\.which\s*,\s*move\.where\s*\]", content)
         and re.search(r"move\.method\s*==\s*back[\s\S]{0,180}sequence\s*=\s*\[\s*move\.where\s*,\s*move\.which\s*\]", content)

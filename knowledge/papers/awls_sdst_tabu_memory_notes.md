@@ -48,6 +48,12 @@ must stay inside the existing `SequenceTabuList` mechanism.
   `[move.which, move.where]` or `[move.where, move.which]`, assigned shorter
   local-move tenure, and longer machine-change tenure.  Do not retry this
   short FRONT/BACK sequence plus move-type tenure split unchanged.
+- `merit_based_tenure_with_sdst` failed at runtime before evaluation: it used
+  `setup_time_between(...)` inside the slot without importing it from
+  `harness_agent.standard_fjsp`, and it attempted `schedule.is_critical(...)`
+  even though the real AWLS API is `schedule.is_critical_operation(node)`.
+  Future setup-aware tabu memory proposals must import `setup_time_between`
+  locally and use `schedule.is_critical_operation`.
 - Fixed best-reset transition rules worsened `oddla20` to `1033` and `1023`;
   do not emulate restart/backtrack behavior inside tabu memory.
 - Portfolio seed remapping, multi-scramble restarts, and best-lane reruns tied
@@ -68,3 +74,7 @@ must stay inside the existing `SequenceTabuList` mechanism.
 - Do not mutate `tabu.items` directly.  Use exactly one `tabu.add(...)` call.
 - Do not change move generation, candidate scoring, parser, evaluator, CLI, or
   benchmark semantics.
+- If using setup lookup, include `from harness_agent.standard_fjsp import
+  setup_time_between` inside the slot.  The solver does not expose
+  `setup_time_between` as a global name here.
+- Use `schedule.is_critical_operation(node)`, not `schedule.is_critical(node)`.

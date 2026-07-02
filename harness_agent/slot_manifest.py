@@ -525,7 +525,9 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
                 "Do not mutate tabu.items directly; use exactly one tabu.add call.",
                 "Do not call apply_move, find_move, tabu_search, solve_awls, solve_awls_single, evaluator, or validate_standard_schedule inside this slot.",
                 "Do not read LB/UB, evaluator reports, instance files, environment variables, network, or filesystem state.",
+                "If setup_time_between is used, import it locally inside this slot with from harness_agent.standard_fjsp import setup_time_between.",
                 "If setup_time_between is used, convert nodes with operation_key and call setup_time_between(schedule.index.instance, machine_id, previous_op, current_op, schedule.index).",
+                "If criticality is used, call schedule.is_critical_operation(node); AwlsSchedule has no schedule.is_critical(node) method.",
                 "Do not make setup_time the objective; setup may only shape a bounded tabu tenure or local tabu sequence.",
             ],
             allowed_edits=[

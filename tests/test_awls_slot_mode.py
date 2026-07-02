@@ -2423,6 +2423,77 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("tabu_memory_uses_nonexistent_api", normalized["proposal_audit"]["warnings"])
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_tabu_memory_slot_warns_on_setup_without_import(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_tabu_memory")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "setup_delta_tenure_missing_import",
+                        "type": "tabu_memory_rule",
+                        "novelty": "Different from failed setup ratio tenure by using documented operation keys.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_tabu_memory",
+                        "content": (
+                            "    machine_id, sequence = candidate_tabu_sequence_parts(schedule, move.method, move.which, move.where)\n"
+                            "    prev_op = operation_key(schedule, sequence[0])\n"
+                            "    cur_op = operation_key(schedule, sequence[-1])\n"
+                            "    setup = setup_time_between(schedule.index.instance, machine_id, prev_op, cur_op, schedule.index)\n"
+                            "    expires_at = iteration + schedule.rng.randint(tenure_min, tenure_max) + int(setup > 0)\n"
+                            "    tabu.add(machine_id, sequence, expires_at)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn("tabu_memory_uses_setup_without_import", normalized["proposal_audit"]["warnings"])
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_tabu_memory_slot_warns_on_nonexistent_is_critical_api(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_tabu_memory")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "critical_setup_tenure",
+                        "type": "tabu_memory_rule",
+                        "novelty": "Different from failed critical-only tenure by combining setup pressure.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_tabu_memory",
+                        "content": (
+                            "    machine_id, sequence = candidate_tabu_sequence_parts(schedule, move.method, move.which, move.where)\n"
+                            "    tenure = tenure_max if schedule.is_critical(move.which) else tenure_min\n"
+                            "    tabu.add(machine_id, sequence, iteration + tenure)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn("tabu_memory_uses_nonexistent_api", normalized["proposal_audit"]["warnings"])
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_tabu_memory_slot_warns_on_short_front_back_sequence_retry(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_tabu_memory")
