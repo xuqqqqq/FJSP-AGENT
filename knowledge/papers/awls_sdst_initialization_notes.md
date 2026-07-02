@@ -101,6 +101,14 @@ Use these as hypotheses, not as a manual patch:
   future initialization hypotheses should target bottleneck-machine timing,
   true sequence insertion with precedence-safe recomputation, or leave
   initialization and shift effort to move evaluation/neighborhood control.
+- A later bounded non-append insertion candidate tried to insert a newly
+  released operation after the lowest-setup predecessor in an already committed
+  machine sequence, then replayed that whole machine and rewrote global
+  `job_ready` for already scheduled operations.  It crashed before evaluation
+  with `ValueError: cycle detected in disjunctive graph` on `oddla20`.  Do not
+  retry committed non-append insertion unless the proposal has an explicit
+  acyclic/topological feasibility guard or only reorders an uncommitted
+  temporary construction sequence.
 - Do not compare move/init mode constants with integers.
 - Do not call `setup_time_between` with `current_op=None`.
 - Import `setup_time_between` locally inside the slot before using it.

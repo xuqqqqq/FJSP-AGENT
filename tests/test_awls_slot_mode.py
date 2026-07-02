@@ -321,6 +321,158 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("worsened makespan", evidence)
         self.assertIn("Do not retry plain setup-aware append", evidence)
 
+    def test_initialization_slot_warns_on_append_only_setup_completion_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "setup_append_completion",
+                        "type": "construction_rule",
+                        "novelty": "Avoids prior failure by using setup in completion.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    setup_ready = machine_ready[machine_id] + setup_time_between(index.instance, machine_id, prev_op, cur_op, index)\n"
+                            "    completion = max(job_ready[job_id], setup_ready) + duration\n"
+                            "    sequences[machine_id].append(node)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "initialization_retries_append_only_setup_completion",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_initialization_slot_warns_on_append_only_low_setup_tiebreak_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "low_setup_append_tie",
+                        "type": "construction_rule",
+                        "novelty": "Uses setup as a tie-breaker.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    setup_cost = setup_time_between(index.instance, machine_id, prev_op, cur_op, index)\n"
+                            "    best_setup = min(best_setup, setup_cost)\n"
+                            "    sequences[machine_id].append(node)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "initialization_retries_low_setup_tiebreak",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_initialization_slot_warns_on_non_append_without_cycle_guard(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "unguarded_committed_insert",
+                        "type": "construction_rule",
+                        "novelty": "Avoids failed append-only ideas by using non-append insertion.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    insert_pos = best_pos\n"
+                            "    sequences[machine_id].insert(insert_pos, node)\n"
+                            "    on_machine[node] = machine_id\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "initialization_non_append_without_acyclic_guard",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_initialization_slot_warns_when_insert_rebuilds_global_ready_state(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "insert_replay_machine",
+                        "type": "construction_rule",
+                        "novelty": "Avoids append-only construction and claims to check topological_sort.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    sequences[machine_id].insert(insert_pos, node)\n"
+                            "    topological_sort = True\n"
+                            "    for op_node in sequences[machine_id]:\n"
+                            "        completion = machine_ready[machine_id] + index.duration(op_node, machine_id)\n"
+                            "        job_ready[index.node_to_job[op_node]] = completion\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "initialization_rebuilds_ready_after_committed_insert",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_extract_negative_memory_lines_merges_multiline_bullets(self) -> None:
         lines = extract_negative_memory_lines(
             "- A setup-aware attempt failed because it used the wrong API.\n"

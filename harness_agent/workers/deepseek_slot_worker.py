@@ -685,6 +685,10 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_failed_same_machine_window",
         "neighborhood_retries_failed_tight_tardiness_filter",
         "same_machine_retries_pure_exact_trial",
+        "initialization_retries_append_only_setup_completion",
+        "initialization_retries_low_setup_tiebreak",
+        "initialization_non_append_without_acyclic_guard",
+        "initialization_rebuilds_ready_after_committed_insert",
     }
     return any(str(item) in must_repair for item in warnings)
 
@@ -897,6 +901,10 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_failed_same_machine_window",
         "neighborhood_retries_failed_tight_tardiness_filter",
         "same_machine_retries_pure_exact_trial",
+        "initialization_retries_append_only_setup_completion",
+        "initialization_retries_low_setup_tiebreak",
+        "initialization_non_append_without_acyclic_guard",
+        "initialization_rebuilds_ready_after_committed_insert",
     }
     return any(str(item) in repair_warnings for item in warnings)
 
@@ -911,6 +919,8 @@ def slot_specific_generic_warnings(slot: dict[str, Any], changes: list[dict[str,
     warnings: list[str] = []
     if re.search(r"schedule\.index\.durations\b|\bindex\.durations\b", content):
         warnings.append("slot_uses_nonexistent_operation_index_durations")
+    if slot_id == "awls_sdst_initialization":
+        return warnings + awls_sdst_initialization_warnings(content)
     if slot_id == "awls_sdst_neighborhood_selection":
         return warnings + awls_sdst_neighborhood_selection_warnings(content)
     if slot_id != "awls_sdst_same_machine_evaluation":
@@ -922,6 +932,39 @@ def slot_specific_generic_warnings(slot: dict[str, Any], changes: list[dict[str,
     if uses_exact_trial and "setup_time_between" not in content and re.search(r"0\.00?1\s*\*\s*float\(legacy\)", content):
         warnings.append("same_machine_retries_pure_exact_trial")
     return warnings
+
+
+def awls_sdst_initialization_warnings(content: str) -> list[str]:
+    """Flag repeated SDST initialization proposals that already regressed."""
+
+    warnings: list[str] = []
+    uses_setup = "setup_time_between" in content
+    append_only = ".append(node)" in content and not re.search(r"\.insert\(|sequence\[[^\n]+:[^\n]+\]", content)
+    setup_completion = uses_setup and ("machine_ready" in content or "setup_ready" in content) and "completion" in content
+    if append_only and setup_completion:
+        warnings.append("initialization_retries_append_only_setup_completion")
+    low_setup_tie = uses_setup and re.search(r"(setup|setup_time|setup_cost)[^\n]*(?:min|best|tie|sort|key)", content)
+    if append_only and low_setup_tie:
+        warnings.append("initialization_retries_low_setup_tiebreak")
+    committed_non_append = bool(re.search(r"sequences\s*\[[^\n\]]+\]\s*\.insert\s*\(", content))
+    has_acyclic_guard = bool(
+        re.search(
+            r"\b(?:topological_sort|validate_standard_schedule|awlsschedule|is_acyclic|acyclic|cycle_detected)\b",
+            content,
+        )
+    )
+    rebuilds_ready_after_insert = bool(
+        committed_non_append
+        and re.search(
+            r"for\s+\w+\s+in\s+sequences\s*\[[^\n\]]+\]\s*:[\s\S]{0,900}job_ready\s*\[[^\n]+\]\s*=",
+            content,
+        )
+    )
+    if committed_non_append and not has_acyclic_guard:
+        warnings.append("initialization_non_append_without_acyclic_guard")
+    if rebuilds_ready_after_insert:
+        warnings.append("initialization_rebuilds_ready_after_committed_insert")
+    return list(dict.fromkeys(warnings))
 
 
 def awls_sdst_neighborhood_selection_warnings(content: str) -> list[str]:
@@ -968,6 +1011,19 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "change-machine candidates behind `if not all_moves` after same-machine generation; both patterns "
             "have tied or badly worsened oddla20.\n"
             "- Do not call trial.apply_move, directly mutate schedule, or bypass the existing closures."
+        )
+    if slot_id == "awls_sdst_initialization":
+        return (
+            "- Do not retry append-only setup-aware earliest completion, low-setup tie-breaks, fixed small RCL, "
+            "or tail-aware append scoring unchanged; those worsened oddla20.\n"
+            "- If editing this slot, use a materially different construction idea such as bottleneck-machine "
+            "pressure, critical-tail/remaining-work pressure, or bounded non-append insertion while scheduling "
+            "each operation exactly once.\n"
+            "- If using non-append insertion, do not directly commit `sequences[machine].insert(...)` without an "
+            "acyclic/topological feasibility guard, and do not rebuild global job_ready for already scheduled "
+            "operations after insertion; that produced a disjunctive-graph cycle on oddla20.\n"
+            "- Use setup_time_between(index.instance, machine_id, previous_op, current_op, index) with operation-key tuples; "
+            "never pass raw node ids or index.op_index."
         )
     if slot_id == "awls_sdst_same_machine_evaluation":
         return (
