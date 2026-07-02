@@ -149,6 +149,14 @@ Use these as hypotheses, not as a manual patch:
   attempt must materially combine regret with critical-tail/bottleneck timing,
   post-construction repair, or topology-guarded insertion rather than merely
   choosing the highest regret ready operation.
+- A later legal `regret_biased_setup_aware_dispatch` initializer computed true
+  second-best-machine regret for every ready operation, then used append-only
+  roulette/weighted-random selection by `(regret + 1)` plus idle-machine bonus.
+  Core evaluation tied `oddla20` at `1010` while only reducing setup time from
+  `1940` to `1910`, so it was rolled back.  Do not retry append-only
+  second-best-regret roulette/weighted-random dispatch unless it adds a real
+  critical-tail/bottleneck term, post-construction repair, assignment-then-
+  sequencing phase, or topology-guarded insertion mechanism.
 - Do not compare move/init mode constants with integers.
 - Do not call `setup_time_between` with `current_op=None`.
 - Import `setup_time_between` locally inside the slot before using it.

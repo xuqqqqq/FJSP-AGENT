@@ -688,6 +688,99 @@ class AwlsSlotModeTests(unittest.TestCase):
             normalized["proposal_audit"]["warnings"],
         )
 
+    def test_initialization_slot_warns_on_regret_roulette_append_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "regret_roulette_append_retry",
+                        "type": "construction_rule",
+                        "novelty": "Retries true second-best regret with roulette selection.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    candidates = []\n"
+                            "    machine_costs = []\n"
+                            "    machine_costs.sort()\n"
+                            "    best_cost = machine_costs[0][0]\n"
+                            "    second_best_cost = machine_costs[1][0] if len(machine_costs) > 1 else best_cost\n"
+                            "    regret = second_best_cost - best_cost\n"
+                            "    candidates.append((node, machine_id, completion, regret))\n"
+                            "    filtered = candidates\n"
+                            "    weights = [regret + 1 for (_, _, _, regret) in filtered]\n"
+                            "    total_weight = sum(weights)\n"
+                            "    node, machine_id, _, _ = rng.choices(filtered, weights=weights, k=1)[0]\n"
+                            "    sequences[machine_id].append(node)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "initialization_retries_regret_roulette_append_dispatch",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_initialization_slot_allows_regret_roulette_with_tail_pressure(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "regret_roulette_tail_pressure",
+                        "type": "construction_rule",
+                        "novelty": "Materially changes failed regret roulette by adding critical tail pressure.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    candidates = []\n"
+                            "    machine_costs = []\n"
+                            "    machine_costs.sort()\n"
+                            "    best_cost = machine_costs[0][0]\n"
+                            "    second_best_cost = machine_costs[1][0] if len(machine_costs) > 1 else best_cost\n"
+                            "    regret = second_best_cost - best_cost\n"
+                            "    critical_tail = remaining_tail_by_job[job_id]\n"
+                            "    candidates.append((node, machine_id, completion, regret, critical_tail))\n"
+                            "    filtered = candidates\n"
+                            "    weights = [regret + 0.25 * critical_tail + 1 for (_, _, _, regret, critical_tail) in filtered]\n"
+                            "    node, machine_id, _, _, _ = rng.choices(filtered, weights=weights, k=1)[0]\n"
+                            "    sequences[machine_id].append(node)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertNotIn(
+            "initialization_retries_regret_roulette_append_dispatch",
+            normalized["proposal_audit"]["warnings"],
+        )
+
     def test_initialization_slot_warns_on_non_append_without_cycle_guard(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_initialization")

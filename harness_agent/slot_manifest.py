@@ -179,6 +179,7 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
                 "Do not call setup_time_between with separate job/op integer arguments.",
                 "Do not retry plain append-only setup-aware earliest-completion, low-setup tie-breaking, fixed small RCL, or tail-aware append scoring unchanged.",
                 "Do not claim regret initialization unless the code computes a second-best candidate-machine cost and subtracts the best candidate-machine cost.",
+                "Do not retry append-only second-best-regret roulette/weighted-random dispatch unless it adds real tail, bottleneck, repair, or topology mechanisms.",
                 "Do not retry static single-bottleneck priority that ignores setup, tail pressure, and dynamic readiness.",
                 "Do not directly commit sequences[machine].insert(...) and then rebuild global job_ready for already scheduled operations without a cycle/topology guard.",
                 "Do not emit unindented top-level code in this function-body slot.",
