@@ -708,6 +708,11 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "search_transition_promotes_worse_best",
         "search_transition_stats_without_none_guard",
         "search_transition_uses_io_or_unseeded_random",
+        "tabu_memory_missing_or_multiple_tabu_add",
+        "tabu_memory_calls_forbidden_runtime_api",
+        "tabu_memory_mutates_schedule_or_tabu_directly",
+        "tabu_memory_uses_nonexistent_api",
+        "tabu_memory_uses_io_or_unseeded_random",
         "all_slot_changes_rejected",
         "slot_change_rejected_wrong_slot_id",
         "slot_content_python_syntax_error",
@@ -951,6 +956,11 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "search_transition_promotes_worse_best",
         "search_transition_stats_without_none_guard",
         "search_transition_uses_io_or_unseeded_random",
+        "tabu_memory_missing_or_multiple_tabu_add",
+        "tabu_memory_calls_forbidden_runtime_api",
+        "tabu_memory_mutates_schedule_or_tabu_directly",
+        "tabu_memory_uses_nonexistent_api",
+        "tabu_memory_uses_io_or_unseeded_random",
         "all_slot_changes_rejected",
         "slot_change_rejected_wrong_slot_id",
         "slot_content_python_syntax_error",
@@ -984,6 +994,8 @@ def slot_specific_generic_warnings(slot: dict[str, Any], changes: list[dict[str,
         return warnings + awls_sdst_weight_update_warnings(content)
     if slot_id == "awls_sdst_search_transition":
         return warnings + awls_sdst_search_transition_warnings(content)
+    if slot_id == "awls_sdst_tabu_memory":
+        return warnings + awls_sdst_tabu_memory_warnings(content)
     if slot_id != "awls_sdst_same_machine_evaluation":
         return warnings
     uses_setup_propagation = "setup_time_between" in content and ("new_r" in content or "new_q" in content)
@@ -1253,6 +1265,51 @@ def awls_sdst_search_transition_warnings(content: str) -> list[str]:
     return list(dict.fromkeys(warnings))
 
 
+def awls_sdst_tabu_memory_warnings(content: str) -> list[str]:
+    """Keep tabu-memory edits as bounded bookkeeping, not hidden search rewrites."""
+
+    warnings: list[str] = []
+    tabu_add_count = len(re.findall(r"\btabu\s*\.\s*add\s*\(", content))
+    if tabu_add_count != 1:
+        warnings.append("tabu_memory_missing_or_multiple_tabu_add")
+    if re.search(
+        r"\b(?:find_move|tabu_search|solve_awls|solve_awls_single|validate_standard_schedule)\s*\(",
+        content,
+    ):
+        warnings.append("tabu_memory_calls_forbidden_runtime_api")
+    if re.search(r"\b(?:schedule|current|trial|best)\s*\.\s*(?:apply_move|clone)\s*\(", content):
+        warnings.append("tabu_memory_calls_forbidden_runtime_api")
+    if re.search(r"\b(?:open|read_text|write_text|subprocess|multiprocessing|requests|socket|os\.environ)\b", content):
+        warnings.append("tabu_memory_uses_io_or_unseeded_random")
+    if re.search(r"\brandom\.", content):
+        warnings.append("tabu_memory_uses_io_or_unseeded_random")
+    if "has_sequence_dependent_setup(" in content or re.search(r"\bschedule\.index\.operation_key\b", content):
+        warnings.append("tabu_memory_uses_nonexistent_api")
+    if re.search(r"\btabu\s*\.\s*items\b", content):
+        warnings.append("tabu_memory_mutates_schedule_or_tabu_directly")
+    mutable_schedule_fields = (
+        "machine_sequences",
+        "job_predecessor",
+        "job_successor",
+        "machine_predecessor",
+        "machine_successor",
+        "on_machine",
+        "on_machine_pos",
+        "start_time",
+        "end_time",
+        "makespan",
+    )
+    field_pattern = "|".join(re.escape(field) for field in mutable_schedule_fields)
+    if re.search(rf"\b(?:schedule|current|trial|best)\.(?:{field_pattern})\b\s*(?:=|\+=|-=|\*=|/=|//=|%=)", content):
+        warnings.append("tabu_memory_mutates_schedule_or_tabu_directly")
+    if re.search(
+        rf"\b(?:schedule|current|trial|best)\.(?:machine_sequences|job_predecessor|job_successor|machine_predecessor|machine_successor)\b[^\n]*\.(?:append|extend|insert|pop|remove|clear|sort)\s*\(",
+        content,
+    ):
+        warnings.append("tabu_memory_mutates_schedule_or_tabu_directly")
+    return list(dict.fromkeys(warnings))
+
+
 def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
     slot_id = str(slot.get("slot_id") or "")
     if slot_id == "awls_sdst_neighborhood_selection":
@@ -1341,6 +1398,16 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- Do not mutate schedule topology fields, start/end times, on_machine, or makespan directly; assign whole clones only.\n"
             "- `stats` is optional; guard every stats read or write with `if stats is not None:`.\n"
             "- Plateau, backtrack, or restart logic must be bounded and deterministic from in-scope values, using only current.rng if randomness is needed."
+        )
+    if slot_id == "awls_sdst_tabu_memory":
+        return (
+            "- This slot only computes the local tabu memory update for the accepted move.\n"
+            "- Call `tabu.add(machine_id, sequence, expires_at)` exactly once; do not mutate `tabu.items` directly.\n"
+            "- Do not call apply_move, clone, find_move, tabu_search, solve_awls, solve_awls_single, or evaluator/validator APIs.\n"
+            "- Use `schedule.index.instance.has_sequence_dependent_setup` as a property and module-level "
+            "`operation_key(schedule, node)`; there is no `schedule.index.operation_key` helper.\n"
+            "- Do not mutate schedule topology fields, start/end times, on_machine, or makespan.\n"
+            "- Use only schedule.rng for seeded random tenure, and keep expires_at finite and >= iteration."
         )
     return "- Keep the replacement inside the selected slot contract and make the novelty materially different from failure memory."
 

@@ -1276,6 +1276,7 @@ def candidate_tabu_sequence_parts(schedule: AwlsSchedule, method: str, which: in
 
 
 def add_move_tabu(tabu: SequenceTabuList, schedule: AwlsSchedule, move: Move, iteration: int, tenure_min: int, tenure_max: int) -> None:
+    # SLOT awls_sdst_tabu_memory START
     machine_id = schedule.on_machine[move.which]
     if move.method == FRONT:
         sequence = []
@@ -1301,6 +1302,7 @@ def add_move_tabu(tabu: SequenceTabuList, schedule: AwlsSchedule, move: Move, it
         if successor != -1:
             sequence.append(successor)
     tabu.add(machine_id, sequence, iteration + schedule.rng.randint(tenure_min, tenure_max))
+    # SLOT awls_sdst_tabu_memory END
 
 
 def is_change_move_acyclic(schedule: AwlsSchedule, move: Move) -> bool:
