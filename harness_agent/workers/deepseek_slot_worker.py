@@ -695,6 +695,8 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "same_machine_retries_exact_setup_tiebreak",
         "initialization_retries_append_only_setup_completion",
         "initialization_retries_low_setup_tiebreak",
+        "initialization_regret_label_without_second_best",
+        "initialization_retries_max_regret_append_dispatch",
         "initialization_non_append_without_acyclic_guard",
         "initialization_rebuilds_ready_after_committed_insert",
         "initialization_retries_static_bottleneck_ignores_setup",
@@ -946,6 +948,8 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "same_machine_retries_exact_setup_tiebreak",
         "initialization_retries_append_only_setup_completion",
         "initialization_retries_low_setup_tiebreak",
+        "initialization_regret_label_without_second_best",
+        "initialization_retries_max_regret_append_dispatch",
         "initialization_non_append_without_acyclic_guard",
         "initialization_rebuilds_ready_after_committed_insert",
         "initialization_retries_static_bottleneck_ignores_setup",
@@ -1040,12 +1044,49 @@ def awls_sdst_initialization_warnings(content: str) -> list[str]:
     warnings: list[str] = []
     uses_setup = "setup_time_between" in content
     append_only = ".append(node)" in content and not re.search(r"\.insert\(|sequence\[[^\n]+:[^\n]+\]", content)
+    has_regret_word = "regret" in content
+    has_named_second_best = bool(
+        re.search(r"\bsecond[_\s-]*best[_a-z0-9]*\b", content)
+        or re.search(r"\bsecond[_\s-]*(?:cost|score|completion|finish|machine)\b", content)
+        or re.search(r"\b(?:two_best|best_two|top_two|sorted_costs|candidate_costs)\b", content)
+    ) and bool(
+        re.search(r"\bregret\s*=", content)
+        or re.search(
+            r"\b(?:second[_\s-]*best[_a-z0-9]*|second[_\s-]*(?:cost|score|completion|finish)|candidate_costs\[[^\]]*1[^\]]*\])\s*[-]",
+            content,
+        )
+    )
+    has_sorted_pair_regret = bool(
+        re.search(r"\b(?:completions|costs|candidate_costs|machine_costs)\s*\.sort\s*\(", content)
+        and re.search(
+            r"\bregret\s*=\s*(?:\w+\s*if\s+)?"
+            r"(?:completions|costs|candidate_costs|machine_costs)\s*\[[^\]]*1[^\]]*\][^\n-]*"
+            r"-\s*(?:completions|costs|candidate_costs|machine_costs)\s*\[[^\]]*0[^\]]*\]",
+            content,
+        )
+    )
+    has_second_best_regret = has_regret_word and (has_named_second_best or has_sorted_pair_regret)
+    if has_regret_word and not has_second_best_regret:
+        warnings.append("initialization_regret_label_without_second_best")
     setup_completion = uses_setup and ("machine_ready" in content or "setup_ready" in content) and "completion" in content
-    if append_only and setup_completion:
+    if append_only and setup_completion and not has_second_best_regret:
         warnings.append("initialization_retries_append_only_setup_completion")
     low_setup_tie = uses_setup and re.search(r"(setup|setup_time|setup_cost)[^\n]*(?:min|best|tie|sort|key)", content)
-    if append_only and low_setup_tie:
+    if append_only and low_setup_tie and not has_second_best_regret:
         warnings.append("initialization_retries_low_setup_tiebreak")
+    max_regret_append_dispatch = (
+        append_only
+        and has_second_best_regret
+        and re.search(r"\bmax_regret\s*=", content)
+        and re.search(r"\bready_ops\b", content)
+        and re.search(r"\bbest_comp\b", content)
+        and not re.search(
+            r"(?:tail|remaining|bottleneck|critical|repair|local[_\s-]*search|awlsschedule|topological_sort)",
+            content,
+        )
+    )
+    if max_regret_append_dispatch:
+        warnings.append("initialization_retries_max_regret_append_dispatch")
     committed_non_append = bool(
         re.search(r"sequences\s*\[[^\n\]]+\]\s*\.insert\s*\(", content)
         or re.search(r"\bseq\s*\.\s*insert\s*\(", content)
@@ -1365,9 +1406,14 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
         return (
             "- Do not retry append-only setup-aware earliest completion, low-setup tie-breaks, fixed small RCL, "
             "or tail-aware append scoring unchanged; those worsened oddla20.\n"
-            "- If editing this slot, use a materially different construction idea such as bottleneck-machine "
-            "pressure, critical-tail/remaining-work pressure, or bounded non-append insertion while scheduling "
-            "each operation exactly once.\n"
+            "- The next acceptable initialization attempts should use true second-best-machine regret, "
+            "assignment-then-sequencing, or bounded non-append insertion while scheduling each operation exactly once.\n"
+            "- If using regret, compute best_machine_cost, second_best_machine_cost, and "
+            "`regret = second_best_machine_cost - best_machine_cost` from candidate machine costs; a variable named "
+            "`regret` without a second-best comparison is rejected.\n"
+            "- Do not retry maximum-regret append-only dispatch that selects the highest "
+            "`second_best_comp - best_comp` ready operation and assigns it to its best append machine; it worsened "
+            "oddla20 from 1010 to 1066 despite reducing setup time.\n"
             "- Do not retry static single-bottleneck priority that ignores setup/tail/dynamic readiness; it was "
             "legal but worsened oddla20 from 1010 to 1029.\n"
             "- If using non-append insertion, do not directly commit `sequences[machine].insert(...)` without an "

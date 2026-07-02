@@ -42,6 +42,10 @@ class SlotManifestPlatformTests(unittest.TestCase):
         self.assertIn("awls_sdst_search_transition", slot_ids)
         self.assertIn("awls_sdst_tabu_memory", slot_ids)
         self.assertIn("awls_sdst_neighborhood_selection", slot_ids)
+        init_slot = next(slot for slot in payload["slots"] if slot["slot_id"] == "awls_sdst_initialization")
+        init_text = "\n".join(init_slot["inputs"] + init_slot["invariants"] + init_slot["allowed_edits"] + init_slot["forbidden_edits"])
+        self.assertIn("second_best_machine_cost", init_text)
+        self.assertIn("second_best_machine_cost - best_machine_cost", init_text)
         same_machine_slot = next(slot for slot in payload["slots"] if slot["slot_id"] == "awls_sdst_same_machine_evaluation")
         same_machine_text = "\n".join(
             same_machine_slot["inputs"] + same_machine_slot["invariants"] + same_machine_slot["forbidden_edits"]

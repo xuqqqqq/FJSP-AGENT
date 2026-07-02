@@ -36,12 +36,19 @@ indented inside the function.
 
 Use these as hypotheses, not as a manual patch:
 
-- Setup-aware earliest completion: include setup from the last operation on the
-  candidate machine before scoring `(node, machine)`.
-- Setup/load balance: break ties by lower setup, lower projected machine load,
-  then lower completion.
-- Deterministic portfolio behavior: preserve seeded random tie-breaking by using
-  `rng.choice` among a bounded near-best filtered set.
+- True second-best-machine regret: for each ready operation, compute candidate
+  machine costs, keep `best_machine_cost` and `second_best_machine_cost`, then
+  use `regret = second_best_machine_cost - best_machine_cost` together with
+  setup-aware completion and remaining tail pressure.  A variable named
+  `regret` is not enough; it must compare the best and second-best machine
+  choices.
+- Assignment-then-sequencing: choose machines from setup-aware projected load,
+  regret, and tail pressure, then sequence with the existing deterministic
+  ready-operation loop.  This is safer than committing arbitrary insertion
+  cycles.
+- Bounded non-append insertion: only if the worker uses a real
+  `AwlsSchedule(...)`, `topological_sort`, or `validate_standard_schedule`
+  guard before returning the sequence.
 - Avoid pure least-setup greediness because it may delay critical jobs.
 
 ## Prior Failure Memory
@@ -124,6 +131,24 @@ Use these as hypotheses, not as a manual patch:
   single-bottleneck priority unless it is materially combined with dynamic
   readiness, critical-tail/regret pressure, or setup-aware feasibility rather
   than simply lowering setup/load diagnostics.
+- A later initialization/regret prompt still produced append-only setup-aware
+  completion variants with low-setup tie-breaks and no real second-best-machine
+  regret.  Core blocked them before application with
+  `initialization_retries_append_only_setup_completion`,
+  `initialization_retries_low_setup_tiebreak`, and
+  `unrepaired_must_repair_warning`.  Do not treat these as useful new
+  candidates; the worker must implement actual best/second-best regret,
+  assignment-then-sequencing, or topology-guarded insertion.
+- After the second-best regret detector was widened, DeepSeek generated a legal
+  `regret_driven_setup_aware_dispatch` initializer that selected the ready
+  operation with maximum `second_best_comp - best_comp`, assigned it to the
+  best setup-aware append machine, and tie-broke by best completion.  Core
+  evaluation on `oddla20` worsened makespan from `1010` to `1066`, although
+  setup time fell from `1940` to `1710`.  Do not retry maximum-regret
+  append-only dispatch as the primary initialization rule; any future regret
+  attempt must materially combine regret with critical-tail/bottleneck timing,
+  post-construction repair, or topology-guarded insertion rather than merely
+  choosing the highest regret ready operation.
 - Do not compare move/init mode constants with integers.
 - Do not call `setup_time_between` with `current_op=None`.
 - Import `setup_time_between` locally inside the slot before using it.

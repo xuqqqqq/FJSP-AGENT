@@ -433,6 +433,261 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_initialization_slot_warns_on_regret_label_without_second_best(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "setup_regret_label_only",
+                        "type": "construction_rule",
+                        "novelty": "Avoids failed append-only setup completion by using a regret label.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    setup_cost = setup_time_between(index.instance, machine_id, prev_op, cur_op, index)\n"
+                            "    regret = setup_cost + index.duration(node, machine_id)\n"
+                            "    choices.append((regret, node, machine_id))\n"
+                            "    sequences[machine_id].append(node)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "initialization_regret_label_without_second_best",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_initialization_slot_allows_true_second_best_regret_append(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "second_best_machine_regret",
+                        "type": "construction_rule",
+                        "novelty": "Materially changes failed append-only setup completion by ranking operations with second-best machine regret.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    candidate_costs = []\n"
+                            "    for machine_id, duration in index.candidates[node].items():\n"
+                            "        setup_cost = setup_time_between(index.instance, machine_id, prev_op, cur_op, index)\n"
+                            "        completion = max(job_ready[job_id], machine_ready[machine_id] + setup_cost) + duration\n"
+                            "        candidate_costs.append((completion, machine_id))\n"
+                            "    candidate_costs.sort()\n"
+                            "    best_machine_cost = candidate_costs[0][0]\n"
+                            "    second_best_machine_cost = candidate_costs[1][0] if len(candidate_costs) > 1 else best_machine_cost\n"
+                            "    regret = second_best_machine_cost - best_machine_cost\n"
+                            "    machine_id = candidate_costs[0][1]\n"
+                            "    choices.append((-regret, best_machine_cost, machine_id, node))\n"
+                            "    sequences[machine_id].append(node)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        warnings = normalized["proposal_audit"]["warnings"]
+        self.assertNotIn("initialization_regret_label_without_second_best", warnings)
+        self.assertNotIn("initialization_retries_append_only_setup_completion", warnings)
+        self.assertNotIn("initialization_retries_low_setup_tiebreak", warnings)
+
+    def test_initialization_slot_allows_second_best_cost_regret_variable(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "second_best_cost_regret",
+                        "type": "construction_rule",
+                        "novelty": "Materially changes failed append-only setup completion by computing second_best_cost - best_cost before append.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    costs = []\n"
+                            "    for machine_id, duration in index.candidates[node].items():\n"
+                            "        setup = setup_time_between(index.instance, machine_id, prev_op, cur_op, index)\n"
+                            "        costs.append((max(job_ready[job_id], machine_ready[machine_id] + setup) + duration, machine_id))\n"
+                            "    costs.sort()\n"
+                            "    best_cost, best_machine = costs[0]\n"
+                            "    second_best_cost = costs[1][0] if len(costs) > 1 else best_cost\n"
+                            "    regret = second_best_cost - best_cost\n"
+                            "    sequences[best_machine].append(node)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        warnings = normalized["proposal_audit"]["warnings"]
+        self.assertNotIn("initialization_regret_label_without_second_best", warnings)
+        self.assertNotIn("initialization_retries_append_only_setup_completion", warnings)
+        self.assertNotIn("initialization_retries_low_setup_tiebreak", warnings)
+
+    def test_initialization_slot_allows_sorted_completion_pair_regret(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "sorted_completion_regret",
+                        "type": "construction_rule",
+                        "novelty": "Materially changes failed append-only setup completion by sorting candidate machine completions and subtracting second-best minus best.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    completions = []\n"
+                            "    for machine_id, duration in index.candidates[node].items():\n"
+                            "        setup = setup_time_between(index.instance, machine_id, prev_op, (job_id, op_id), index)\n"
+                            "        completion = max(job_ready[job_id], machine_ready[machine_id]) + setup + duration\n"
+                            "        completions.append((machine_id, completion))\n"
+                            "    completions.sort(key=lambda item: item[1])\n"
+                            "    regret = completions[1][1] - completions[0][1] if len(completions) >= 2 else 0\n"
+                            "    machine_id = completions[0][0]\n"
+                            "    sequences[machine_id].append(node)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        warnings = normalized["proposal_audit"]["warnings"]
+        self.assertNotIn("initialization_regret_label_without_second_best", warnings)
+        self.assertNotIn("initialization_retries_append_only_setup_completion", warnings)
+        self.assertNotIn("initialization_retries_low_setup_tiebreak", warnings)
+
+    def test_initialization_slot_warns_on_repeated_max_regret_append_dispatch(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "max_regret_append_retry",
+                        "type": "construction_rule",
+                        "novelty": "Retries true regret by choosing the maximum regret ready operation.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    ready_ops = []\n"
+                            "    second_best_comp = best_comp\n"
+                            "    regret = second_best_comp - best_comp\n"
+                            "    ready_ops.append((node, best_mach, regret, best_comp))\n"
+                            "    max_regret = max(r for (_, _, r, _) in ready_ops)\n"
+                            "    node, machine_id = rng.choice([(node, mach) for (node, mach, regret, best_comp) in ready_ops if regret == max_regret])\n"
+                            "    sequences[machine_id].append(node)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "initialization_retries_max_regret_append_dispatch",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_initialization_slot_allows_regret_with_critical_tail_pressure(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "regret_tail_pressure",
+                        "type": "construction_rule",
+                        "novelty": "Materially changes failed max-regret append dispatch by combining second-best regret with critical tail pressure.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    ready_ops = []\n"
+                            "    second_best_comp = best_comp\n"
+                            "    regret = second_best_comp - best_comp\n"
+                            "    critical_tail = remaining_tail_by_job[job_id]\n"
+                            "    ready_ops.append((regret + 0.25 * critical_tail, node, best_mach, best_comp))\n"
+                            "    max_regret = max(score for (score, _, _, _) in ready_ops)\n"
+                            "    node, machine_id = rng.choice([(node, mach) for (score, node, mach, best_comp) in ready_ops if score == max_regret])\n"
+                            "    sequences[machine_id].append(node)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertNotIn(
+            "initialization_retries_max_regret_append_dispatch",
+            normalized["proposal_audit"]["warnings"],
+        )
+
     def test_initialization_slot_warns_on_non_append_without_cycle_guard(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_initialization")
