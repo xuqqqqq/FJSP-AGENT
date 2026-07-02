@@ -612,7 +612,43 @@ class AwlsSlotModeTests(unittest.TestCase):
 
         self.assertIn("boundary-biased N7", guidance)
         self.assertIn("consider_same / consider_change", guidance)
+        self.assertIn("slot_id", guidance)
+        self.assertIn("awls_sdst_neighborhood_selection", guidance)
         self.assertIn("schedule.index.duration", guidance)
+
+    def test_generic_slot_audit_repairs_all_rejected_wrong_slot_changes(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "summary": "Filter setup-heavy moves.",
+                "strategy_intent": "Change neighborhood selection.",
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "wrong_slot_edit",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed near-critical filters.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_evaluation",
+                        "content": "    consider_same(FRONT, block[0], block[-1])\n",
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertEqual([], normalized["changes"])
+        self.assertIn("all_slot_changes_rejected", normalized["proposal_audit"]["warnings"])
+        self.assertIn("slot_change_rejected_wrong_slot_id", normalized["proposal_audit"]["warnings"])
+        self.assertTrue(generic_slot_needs_repair(normalized))
 
     def test_generic_slot_warns_on_nonexistent_operation_index_durations(self) -> None:
         worker = DeepSeekSlotWorker()

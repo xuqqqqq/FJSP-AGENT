@@ -690,6 +690,8 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "initialization_non_append_without_acyclic_guard",
         "initialization_rebuilds_ready_after_committed_insert",
         "initialization_retries_static_bottleneck_ignores_setup",
+        "all_slot_changes_rejected",
+        "slot_change_rejected_wrong_slot_id",
     }
     return any(str(item) in must_repair for item in warnings)
 
@@ -846,6 +848,11 @@ def build_generic_slot_audit(
     summary_text = str(proposal.get("summary") or "").lower()
     intent_text = str(proposal.get("strategy_intent") or "").lower()
     warnings: list[str] = []
+    rejected_reasons = " ".join(str(item.get("reason") or "") for item in rejected_changes if isinstance(item, dict)).lower()
+    if rejected_changes and not normalized_changes:
+        warnings.append("all_slot_changes_rejected")
+    if "slot_id must be" in rejected_reasons:
+        warnings.append("slot_change_rejected_wrong_slot_id")
     if not normalized_changes and not rejected_changes and not has_risk_notes:
         warnings.append("empty_slot_proposal_without_risk_note")
     if not normalized_changes and not rejected_changes and has_risk_notes:
@@ -907,6 +914,8 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "initialization_non_append_without_acyclic_guard",
         "initialization_rebuilds_ready_after_committed_insert",
         "initialization_retries_static_bottleneck_ignores_setup",
+        "all_slot_changes_rejected",
+        "slot_change_rejected_wrong_slot_id",
     }
     return any(str(item) in repair_warnings for item in warnings)
 
@@ -1015,6 +1024,8 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- If editing this slot, use a materially different bounded candidate-generation idea such as "
             "boundary-biased N7 moves, bounded NK alternate-machine candidates from change_machine_window, "
             "or setup-heavy arc focus submitted only through consider_same / consider_change.\n"
+            "- Return exactly one `replace_slot_block` change with `slot_id` set to `awls_sdst_neighborhood_selection`; "
+            "wrong slot IDs or proposal-only responses are rejected before evaluation.\n"
             "- Use schedule.index.duration(node, schedule.on_machine[node]) for processing time; "
             "OperationIndex has no schedule.index.durations attribute.\n"
             "- Do not add random fallback moves that run only after all_moves is empty, and do not gate all "
