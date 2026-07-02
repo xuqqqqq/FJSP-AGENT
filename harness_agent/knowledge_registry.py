@@ -29,6 +29,7 @@ TAGGED_CARDS = {
         "knowledge/papers/awls_sdst_weight_update_notes.md",
         "knowledge/papers/awls_sdst_search_transition_notes.md",
         "knowledge/papers/awls_sdst_tabu_memory_notes.md",
+        "knowledge/papers/awls_sdst_literature_direction_notes.md",
     ],
     "zi": [
         "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
@@ -51,15 +52,18 @@ TAGGED_CARDS = {
     ],
     "critical_block": [
         "knowledge/imported_huawei_fjsp_knowledge/operators/critical_path_machine_block_neighborhood.md",
+        "knowledge/papers/awls_sdst_literature_direction_notes.md",
         "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
     ],
     "neighborhood": [
         "knowledge/imported_huawei_fjsp_knowledge/operators/hgtsa_fjsp_n8_k_insertion_blueprint.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/xiejin_hgtsa_n8_k_insertion_tabu_spec.md",
+        "knowledge/papers/awls_sdst_literature_direction_notes.md",
     ],
     "machine_reassignment": [
         "knowledge/imported_huawei_fjsp_knowledge/operators/operation_machine_reassignment.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/hgtsa_fjsp_n8_k_insertion_blueprint.md",
+        "knowledge/papers/awls_sdst_literature_direction_notes.md",
     ],
     "setup_time": [
         "knowledge/papers/awls_sdst_initialization_notes.md",
@@ -67,16 +71,19 @@ TAGGED_CARDS = {
         "knowledge/papers/awls_sdst_zi_feature_notes.md",
     ],
     "initialization": [
+        "knowledge/papers/awls_sdst_literature_direction_notes.md",
         "knowledge/papers/awls_sdst_initialization_notes.md",
     ],
     "same_machine": [
         "knowledge/papers/awls_sdst_same_machine_notes.md",
     ],
     "n7_neighborhood": [
+        "knowledge/papers/awls_sdst_literature_direction_notes.md",
         "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
         "knowledge/papers/awls_sdst_same_machine_notes.md",
     ],
     "nk_neighborhood": [
+        "knowledge/papers/awls_sdst_literature_direction_notes.md",
         "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
         "knowledge/papers/awls_sdst_move_evaluation_notes.md",
     ],
@@ -85,6 +92,7 @@ TAGGED_CARDS = {
         "knowledge/imported_huawei_fjsp_knowledge/operators/operation_machine_reassignment.md",
     ],
     "candidate_generation": [
+        "knowledge/papers/awls_sdst_literature_direction_notes.md",
         "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
     ],
     "portfolio": [
@@ -92,6 +100,7 @@ TAGGED_CARDS = {
         "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
     ],
     "search_control": [
+        "knowledge/papers/awls_sdst_literature_direction_notes.md",
         "knowledge/papers/awls_sdst_portfolio_search_control_notes.md",
         "knowledge/papers/awls_sdst_search_transition_notes.md",
         "knowledge/papers/awls_sdst_tabu_memory_notes.md",
@@ -99,6 +108,7 @@ TAGGED_CARDS = {
         "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
     ],
     "move_selection": [
+        "knowledge/papers/awls_sdst_literature_direction_notes.md",
         "knowledge/papers/awls_sdst_move_selection_notes.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
     ],

@@ -615,6 +615,7 @@ class SlotManifestPlatformTests(unittest.TestCase):
         self.assertEqual(["awls_sdst_neighborhood_selection"], [slot["slot_id"] for slot in confirmed])
         knowledge_paths = {Path(item["path"]).name for item in packet["knowledge_cards"]}
         self.assertIn("awls_sdst_neighborhood_selection_notes.md", knowledge_paths)
+        self.assertIn("awls_sdst_literature_direction_notes.md", knowledge_paths)
 
     def test_context_packet_reads_slot_source_from_project_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
