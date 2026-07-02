@@ -2539,6 +2539,61 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_tabu_memory_slot_warns_on_expanded_critical_fraction_sequence_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_tabu_memory")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "criticality_proportional_tenure_with_expanded_sequence",
+                        "type": "tabu_memory_rule",
+                        "novelty": "Different from binary split by using a criticality fraction.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_tabu_memory",
+                        "content": (
+                            "    machine_id = schedule.on_machine[move.which]\n"
+                            "    sequence = []\n"
+                            "    pred = schedule.machine_predecessor[move.where]\n"
+                            "    if pred != -1:\n"
+                            "        sequence.append(pred)\n"
+                            "    node = move.where\n"
+                            "    stop = schedule.machine_successor[move.which]\n"
+                            "    while node != stop:\n"
+                            "        sequence.append(node)\n"
+                            "        node = schedule.machine_successor[node]\n"
+                            "    if stop != -1:\n"
+                            "        succ = schedule.machine_successor[stop]\n"
+                            "        if succ != -1:\n"
+                            "            sequence.append(succ)\n"
+                            "    critical_count = 0\n"
+                            "    for node in sequence:\n"
+                            "        if schedule.is_critical_operation(node):\n"
+                            "            critical_count += 1\n"
+                            "    fraction = critical_count / len(sequence) if sequence else 0.5\n"
+                            "    tenure = tenure_min + int((tenure_max - tenure_min) * fraction)\n"
+                            "    tabu.add(machine_id, sequence, iteration + tenure)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "tabu_memory_retries_expanded_critical_fraction_sequence",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_tabu_memory_repair_guidance_names_single_tabu_add_contract(self) -> None:
         slot = _generic_slot_context(slot_id="awls_sdst_tabu_memory")["slot_manifest"]["slots"][0]
 

@@ -54,6 +54,12 @@ must stay inside the existing `SequenceTabuList` mechanism.
   even though the real AWLS API is `schedule.is_critical_operation(node)`.
   Future setup-aware tabu memory proposals must import `setup_time_between`
   locally and use `schedule.is_critical_operation`.
+- `criticality_proportional_tenure_with_expanded_sequence` was legal but
+  worsened `oddla20` from `1010` to `1072`: it expanded the tabu sequence by
+  adding adjacent predecessor/successor nodes and set tenure from the fraction
+  of critical operations in that expanded sequence.  It reduced setup time from
+  `1940` to `1720`, again without improving makespan.  Do not retry expanded
+  tabu sequence plus criticality-fraction tenure unchanged.
 - Fixed best-reset transition rules worsened `oddla20` to `1033` and `1023`;
   do not emulate restart/backtrack behavior inside tabu memory.
 - Portfolio seed remapping, multi-scramble restarts, and best-lane reruns tied

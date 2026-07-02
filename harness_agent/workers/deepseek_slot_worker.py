@@ -738,6 +738,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "tabu_memory_uses_setup_without_import",
         "tabu_memory_uses_io_or_unseeded_random",
         "tabu_memory_retries_short_front_back_sequence",
+        "tabu_memory_retries_expanded_critical_fraction_sequence",
         "all_slot_changes_rejected",
         "slot_change_rejected_wrong_slot_id",
         "slot_content_python_syntax_error",
@@ -1009,6 +1010,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "tabu_memory_uses_setup_without_import",
         "tabu_memory_uses_io_or_unseeded_random",
         "tabu_memory_retries_short_front_back_sequence",
+        "tabu_memory_retries_expanded_critical_fraction_sequence",
         "all_slot_changes_rejected",
         "slot_change_rejected_wrong_slot_id",
         "slot_content_python_syntax_error",
@@ -1539,6 +1541,15 @@ def awls_sdst_tabu_memory_warnings(content: str) -> list[str]:
     )
     if short_front_back_sequence:
         warnings.append("tabu_memory_retries_short_front_back_sequence")
+    expanded_critical_fraction = (
+        "critical_count" in content
+        and "fraction" in content
+        and "schedule.is_critical_operation" in content
+        and re.search(r"schedule\.machine_predecessor\s*\[\s*move\.where\s*\]", content)
+        and re.search(r"schedule\.machine_successor\s*\[\s*stop\s*\]", content)
+    )
+    if expanded_critical_fraction:
+        warnings.append("tabu_memory_retries_expanded_critical_fraction_sequence")
     if re.search(r"\btabu\s*\.\s*items\b", content):
         warnings.append("tabu_memory_mutates_schedule_or_tabu_directly")
     mutable_schedule_fields = (
