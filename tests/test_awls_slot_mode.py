@@ -167,6 +167,15 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertEqual("awls_sdst_zi_features", slot["slot_id"])
         self.assertEqual([], validate_generic_slot_contract(context, "awls_sdst_zi_features"))
 
+    def test_selected_confirmed_slot_accepts_sdst_weight_update_slot(self) -> None:
+        context = _generic_slot_context(slot_id="awls_sdst_weight_update")
+
+        slot, error = selected_confirmed_slot(context)
+
+        self.assertEqual("", error)
+        self.assertEqual("awls_sdst_weight_update", slot["slot_id"])
+        self.assertEqual([], validate_generic_slot_contract(context, "awls_sdst_weight_update"))
+
     def test_selected_confirmed_slot_rejects_multiple_confirmed_slots(self) -> None:
         context = _slot_context(user_confirmed=True)
         context["slot_manifest"]["slots"].append(_generic_slot_context()["slot_manifest"]["slots"][0])
@@ -947,6 +956,165 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("makespan", guidance)
         self.assertIn("min(3, len(best_moves))", guidance)
 
+    def test_weight_update_slot_allows_bounded_weight_cooldown_replacement(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_weight_update")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "bounded_sdst_cooldown_pressure",
+                        "type": "adaptive_weight_rule",
+                        "novelty": "Different from failed setup-ratio formulas by changing cooldown pressure only.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_weight_update",
+                        "content": (
+                            "    critical = {node for node in schedule.index.real_nodes if schedule.is_critical_operation(node)}\n"
+                            "    if current_makespan >= previous_makespan:\n"
+                            "        increment = 2 if moved_node in critical else 1\n"
+                            "        schedule.op_weight[moved_node] += increment\n"
+                            "        schedule.op_cooldown[moved_node] = max(schedule.op_cooldown[moved_node] - theta, 0)\n"
+                            "        for node in schedule.index.real_nodes:\n"
+                            "            if node not in critical and node != moved_node:\n"
+                            "                schedule.op_cooldown[node] += 1\n"
+                            "    else:\n"
+                            "        for node in schedule.index.real_nodes:\n"
+                            "            schedule.op_cooldown[node] += 1\n"
+                            "    if current_makespan < best_makespan_before:\n"
+                            "        for node in schedule.index.real_nodes:\n"
+                            "            schedule.op_cooldown[node] = 10**9\n"
+                            "            schedule.op_weight[node] = 0\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertEqual(["awls_sdst_weight_update"], [item["slot_id"] for item in normalized["changes"]])
+        self.assertEqual([], validate_generic_slot_contract(context, "awls_sdst_weight_update"))
+        self.assertFalse(generic_slot_needs_repair(normalized))
+
+    def test_weight_update_slot_warns_on_runtime_api_calls(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_weight_update")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "self_evaluating_weight_update",
+                        "type": "adaptive_weight_rule",
+                        "novelty": "Different from failed formulas by evaluating a trial move.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_weight_update",
+                        "content": (
+                            "    trial = schedule.clone()\n"
+                            "    trial.apply_move(move)\n"
+                            "    if validate_standard_schedule(schedule.index.instance, records):\n"
+                            "        schedule.op_weight[moved_node] += 1\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn("weight_update_calls_forbidden_runtime_api", normalized["proposal_audit"]["warnings"])
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_weight_update_slot_warns_on_schedule_structure_mutation(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_weight_update")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "sequence_repair_weight_update",
+                        "type": "adaptive_weight_rule",
+                        "novelty": "Different from failed cooldown rules by repairing machine order.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_weight_update",
+                        "content": (
+                            "    schedule.machine_sequences[0].sort()\n"
+                            "    schedule.makespan = current_makespan\n"
+                            "    schedule.op_weight[moved_node] += 1\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn("weight_update_mutates_schedule_structure", normalized["proposal_audit"]["warnings"])
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_weight_update_slot_warns_on_random_or_io(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_weight_update")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "randomized_weight_update",
+                        "type": "adaptive_weight_rule",
+                        "novelty": "Different from failed formulas by adding random pressure.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_weight_update",
+                        "content": (
+                            "    if schedule.rng.random() < 0.5:\n"
+                            "        schedule.op_weight[moved_node] += 1\n"
+                            "    Path('debug.txt').write_text(str(current_makespan))\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn("weight_update_uses_random_or_io", normalized["proposal_audit"]["warnings"])
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_weight_update_repair_guidance_names_weight_only_contract(self) -> None:
+        slot = _generic_slot_context(slot_id="awls_sdst_weight_update")["slot_manifest"]["slots"][0]
+
+        guidance = generic_slot_repair_guidance(slot)
+
+        self.assertIn("op_weight", guidance)
+        self.assertIn("op_cooldown", guidance)
+        self.assertIn("apply_move", guidance)
+
     def test_generic_slot_audit_repairs_all_rejected_wrong_slot_changes(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
@@ -1565,6 +1733,12 @@ def _generic_slot_context(*, slot_id: str = "awls_sdst_neighborhood_selection") 
         inputs = ["schedule", "node", "values", "operation_key", "setup_time_between"]
         outputs = ["Mutate values with finite setup feature entries."]
         tags = ["awls", "sdst", "zi", "zi_features", "setup_time"]
+    elif slot_id == "awls_sdst_weight_update":
+        title = "AWLS-SDST adaptive operation weight update"
+        purpose = "Update op_weight and op_cooldown after accepted moves."
+        inputs = ["schedule", "moved_node", "previous_makespan", "current_makespan", "beta", "gamma", "theta"]
+        outputs = ["Mutate schedule.op_weight and schedule.op_cooldown only."]
+        tags = ["awls", "sdst", "zi", "adaptive_weight", "weight_update"]
     return {
         "edit_policy": {
             "allowed_paths": ["examples", "harness_agent", "configs"],

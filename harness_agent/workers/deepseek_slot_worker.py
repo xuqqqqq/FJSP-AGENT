@@ -700,6 +700,9 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "move_selection_mutates_schedule_directly",
         "move_selection_retries_small_best_moves_exact_recheck",
         "move_selection_trial_apply_without_clone",
+        "weight_update_calls_forbidden_runtime_api",
+        "weight_update_mutates_schedule_structure",
+        "weight_update_uses_random_or_io",
         "all_slot_changes_rejected",
         "slot_change_rejected_wrong_slot_id",
         "slot_content_python_syntax_error",
@@ -935,6 +938,9 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "move_selection_mutates_schedule_directly",
         "move_selection_retries_small_best_moves_exact_recheck",
         "move_selection_trial_apply_without_clone",
+        "weight_update_calls_forbidden_runtime_api",
+        "weight_update_mutates_schedule_structure",
+        "weight_update_uses_random_or_io",
         "all_slot_changes_rejected",
         "slot_change_rejected_wrong_slot_id",
         "slot_content_python_syntax_error",
@@ -964,6 +970,8 @@ def slot_specific_generic_warnings(slot: dict[str, Any], changes: list[dict[str,
         return warnings + awls_sdst_move_selection_warnings(content)
     if slot_id == "awls_sdst_portfolio_search_control":
         return warnings + awls_sdst_portfolio_search_control_warnings(content)
+    if slot_id == "awls_sdst_weight_update":
+        return warnings + awls_sdst_weight_update_warnings(content)
     if slot_id != "awls_sdst_same_machine_evaluation":
         return warnings
     uses_setup_propagation = "setup_time_between" in content and ("new_r" in content or "new_q" in content)
@@ -1143,6 +1151,39 @@ def awls_sdst_move_selection_warnings(content: str) -> list[str]:
     return list(dict.fromkeys(warnings))
 
 
+def awls_sdst_weight_update_warnings(content: str) -> list[str]:
+    """Keep adaptive-weight edits from becoming hidden solver or schedule rewrites."""
+
+    warnings: list[str] = []
+    if re.search(
+        r"\b(?:apply_move|find_move|tabu_search|solve_awls|solve_awls_single|validate_standard_schedule)\s*\(",
+        content,
+    ):
+        warnings.append("weight_update_calls_forbidden_runtime_api")
+    if re.search(r"\b(?:open|read_text|write_text|subprocess|multiprocessing|requests|socket)\b", content):
+        warnings.append("weight_update_uses_random_or_io")
+    if re.search(r"\b(?:random\.|schedule\.rng\.|rng\.)", content):
+        warnings.append("weight_update_uses_random_or_io")
+    mutable_schedule_fields = (
+        "machine_sequences",
+        "job_predecessor",
+        "job_successor",
+        "machine_predecessor",
+        "machine_successor",
+        "on_machine",
+        "on_machine_pos",
+        "start_time",
+        "end_time",
+        "makespan",
+    )
+    field_pattern = "|".join(re.escape(field) for field in mutable_schedule_fields)
+    if re.search(rf"\bschedule\.(?:{field_pattern})\b", content):
+        warnings.append("weight_update_mutates_schedule_structure")
+    if re.search(r"\bschedule\.(?!op_weight\b|op_cooldown\b)[a-z_]\w*(?:\[[^\n=]*\])?\s*(?:=|\+=|-=|\*=|/=|//=|%=)", content):
+        warnings.append("weight_update_mutates_schedule_structure")
+    return list(dict.fromkeys(warnings))
+
+
 def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
     slot_id = str(slot.get("slot_id") or "")
     if slot_id == "awls_sdst_neighborhood_selection":
@@ -1212,6 +1253,15 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "unconditional variants tied oddla20 at 1010.\n"
             "- Keep exact rechecks bounded by exact_select_top_k, ranked_moves, best_moves, or a small deterministic "
             "subset of all_moves; do not add a nested local search loop."
+        )
+    if slot_id == "awls_sdst_weight_update":
+        return (
+            "- This slot may mutate only schedule.op_weight and schedule.op_cooldown for real operation nodes.\n"
+            "- Do not call apply_move, find_move, tabu_search, solve_awls, solve_awls_single, or evaluator/validator APIs.\n"
+            "- Do not mutate machine_sequences, predecessor/successor links, on_machine, start/end times, or makespan.\n"
+            "- Do not use random numbers, file IO, subprocesses, multiprocessing, network access, or environment variables.\n"
+            "- Preserve the new-best reset behavior after current_makespan < best_makespan_before unless a bounded "
+            "alternative is explicitly justified by the hypothesis."
         )
     return "- Keep the replacement inside the selected slot contract and make the novelty materially different from failure memory."
 

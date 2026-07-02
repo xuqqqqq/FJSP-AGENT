@@ -356,6 +356,68 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
             user_confirmed=confirmed,
         ),
         CodeSlotSpec(
+            slot_id="awls_sdst_weight_update",
+            title="AWLS-SDST adaptive operation weight update",
+            target_file="examples/standard_fjsp_awls_solver.py",
+            marker_start="# SLOT awls_sdst_weight_update START",
+            marker_end="# SLOT awls_sdst_weight_update END",
+            slot_kind="marked_block",
+            language="python",
+            purpose=(
+                "Update AWLS operation weights and cooldowns after each accepted move so SDST search pressure "
+                "can adapt without changing move generation, schedule legality, parser, or evaluator semantics."
+            ),
+            inputs=[
+                "schedule: AwlsSchedule after the current move, with op_weight, op_cooldown, real_nodes, criticality, and setup-aware timing",
+                "moved_node: real operation moved in the current iteration",
+                "best_makespan_before, previous_makespan, current_makespan: integer makespan signals from tabu_search",
+                "beta, gamma, theta: AWLS adaptive-weight control parameters",
+                "zi_policy: current AWLS zi policy string such as critical, aggressive, formula, slot, sqrt, or none",
+                "operation_key(schedule, node) and setup_time_between may be used for bounded SDST adjacent-setup signals",
+            ],
+            outputs=[
+                "Mutate only schedule.op_weight and schedule.op_cooldown entries for existing real operation nodes",
+                "Keep values finite non-negative integers/floats suitable for weight_perturbation",
+                "Return None exactly as update_operation_weights expects",
+            ],
+            invariants=[
+                "Keep update_operation_weights signature unchanged.",
+                "Do not mutate schedule machine sequences, predecessor/successor links, on_machine, times, makespan, tabu state, parser, evaluator, or output schema.",
+                "Preserve the best-improvement reset semantics: when current_makespan < best_makespan_before, cooldowns should become very large and weights reset or otherwise stop stale perturbation pressure.",
+                "Do not read LB/UB, evaluator reports, instance files, environment variables, network, or filesystem state.",
+                "If setup_time_between is used, convert nodes with operation_key and call setup_time_between(schedule.index.instance, machine_id, previous_op, current_op, schedule.index).",
+                "Do not optimize setup_time instead of makespan; setup may only shape bounded weight/cooldown pressure.",
+            ],
+            allowed_edits=[
+                "Only rewrite code between awls_sdst_weight_update markers.",
+                "May change how moved_node, critical operations, cooldowns, and weights are incremented or reset.",
+                "May add bounded SDST-aware local setup pressure for moved_node or adjacent real operations.",
+                "May use schedule.index.instance.has_sequence_dependent_setup to keep standard FJSP behavior close to baseline.",
+                "May use local helper variables or small local loops over schedule.index.real_nodes.",
+            ],
+            forbidden_edits=[
+                "Do not call schedule.apply_move, trial.apply_move, find_move, tabu_search, solve_awls, or any evaluator inside this slot.",
+                "Do not append, insert, delete, sort, or otherwise mutate machine_sequences or job/machine links.",
+                "Do not create helper files, subprocesses, multiprocessing, network access, file IO, or random unseeded behavior.",
+                "Do not modify zi formula validation, move scoring, neighborhood selection, initialization, portfolio control, parser, evaluator, CLI arguments, or benchmark semantics.",
+                "Do not retry pure critical multiplier changes that only increase critical moved-node weight; those tied or worsened earlier zi experiments.",
+            ],
+            validation_commands=[
+                "python -m compileall examples/standard_fjsp_awls_solver.py harness_agent/standard_fjsp.py",
+                "python -m unittest tests.test_standard_fjsp_awls_alignment tests.test_awls_slot_mode tests.test_slot_manifest_platform -v",
+            ],
+            knowledge_tags=[
+                "awls",
+                "sdst",
+                "zi",
+                "adaptive_weight",
+                "weight_update",
+                "setup_time",
+                "quality",
+            ],
+            user_confirmed=confirmed,
+        ),
+        CodeSlotSpec(
             slot_id="awls_sdst_portfolio_search_control",
             title="AWLS-SDST portfolio lane search control",
             target_file="examples/standard_fjsp_awls_solver.py",

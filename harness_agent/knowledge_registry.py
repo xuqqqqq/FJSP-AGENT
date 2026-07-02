@@ -26,14 +26,17 @@ TAGGED_CARDS = {
         "knowledge/papers/awls_sdst_move_evaluation_notes.md",
         "knowledge/papers/awls_sdst_portfolio_search_control_notes.md",
         "knowledge/papers/awls_sdst_zi_feature_notes.md",
+        "knowledge/papers/awls_sdst_weight_update_notes.md",
     ],
     "zi": [
         "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
         "knowledge/papers/awls_sdst_zi_feature_notes.md",
+        "knowledge/papers/awls_sdst_weight_update_notes.md",
     ],
     "adaptive_weight": [
         "knowledge/imported_huawei_fjsp_knowledge/lessons/profile_driven_local_search_20260615.md",
         "knowledge/papers/awls_sdst_zi_feature_notes.md",
+        "knowledge/papers/awls_sdst_weight_update_notes.md",
     ],
     "move_scoring": [
         "knowledge/imported_huawei_fjsp_knowledge/operators/xiejin_hgtsa_n8_k_insertion_tabu_spec.md",
@@ -98,6 +101,10 @@ TAGGED_CARDS = {
     "zi_features": [
         "knowledge/papers/awls_sdst_zi_feature_notes.md",
         "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
+    ],
+    "weight_update": [
+        "knowledge/papers/awls_sdst_weight_update_notes.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
     ],
     "tabu_search": [
         "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",

@@ -1485,6 +1485,7 @@ def update_operation_weights(
     theta: int,
     zi_policy: str,
 ) -> None:
+    # SLOT awls_sdst_weight_update START
     critical = {node for node in schedule.index.real_nodes if schedule.is_critical_operation(node)}
     if current_makespan >= previous_makespan:
         if schedule.op_cooldown[moved_node] > beta:
@@ -1516,6 +1517,7 @@ def update_operation_weights(
         for node in schedule.index.real_nodes:
             schedule.op_cooldown[node] = 10**9
             schedule.op_weight[node] = 0
+    # SLOT awls_sdst_weight_update END
 
 
 def tabu_search(
