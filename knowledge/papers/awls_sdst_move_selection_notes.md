@@ -69,6 +69,14 @@ move keys and keep Core evaluator promotion as the only quality authority.
   mapping; this solver provides module-level `operation_key(schedule, node)`.
   When setup tie-breaks need operation keys, call `operation_key(schedule,
   node)` and skip sentinel/non-real nodes that return `None`.
+- After the node conversion contract was fixed, the worker generated a legal
+  `exact_setup_tie_breaker`: exact-check top-k `ranked_moves`, key by
+  `(trial.makespan, total_setup_sum, approx_value, move_key)` using
+  `operation_key(schedule, node)` and `setup_time_between(...)`, remove the
+  3% random all-moves escape, and otherwise keep random choice among
+  `best_moves`.  Core evaluation tied `oddla20` at `1010`.  Do not retry a
+  full machine-sequence/global setup-sum tie-break as the main novelty; it is
+  now legal but non-improving under the current incumbent controls.
 
 ## Guardrails
 
@@ -82,5 +90,7 @@ move keys and keep Core evaluator promotion as the only quality authority.
   records.
 - Do not use `schedule.index.node_to_operation_key` or
   `idx.node_to_operation_key`; use `operation_key(schedule, node)`.
+- Do not retry exact top-k selection whose main novelty is a global setup-sum
+  tie-break after exact makespan; the legal version tied `oddla20` at `1010`.
 - Do not read files, LB/UB tables, evaluator outputs, environment variables, or
   network resources.

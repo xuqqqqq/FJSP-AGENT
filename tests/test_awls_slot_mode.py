@@ -1535,6 +1535,56 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_move_selection_slot_warns_on_global_setup_sum_tiebreak_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "exact_setup_tie_breaker",
+                        "type": "local_search_operator",
+                        "novelty": "Different from random escapes by summing setup after exact recheck.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_selection",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    def _total_setup(sched):\n"
+                            "        setup_sum = 0\n"
+                            "        for machine_id, sequence in enumerate(sched.machine_sequences):\n"
+                            "            for idx in range(1, len(sequence)):\n"
+                            "                setup_sum += setup_time_between(sched.index.instance, machine_id, operation_key(sched, sequence[idx - 1]), operation_key(sched, sequence[idx]), sched.index)\n"
+                            "        return setup_sum\n"
+                            "    exact_best = None\n"
+                            "    for approx_value, move_key in sorted(ranked_moves, key=lambda item: item[0])[:exact_select_top_k]:\n"
+                            "        trial = schedule.clone()\n"
+                            "        trial.apply_move(Move(*move_key))\n"
+                            "        trial_setup = _total_setup(trial)\n"
+                            "        key = (trial.makespan, trial_setup, approx_value, move_key)\n"
+                            "        if exact_best is None or key[:3] < exact_best[:3]:\n"
+                            "            exact_best = key\n"
+                            "    return Move(*exact_best[3])\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "move_selection_retries_global_setup_sum_tiebreak",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_move_selection_slot_warns_on_random_noise_escape_retry(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_move_selection")
@@ -1737,6 +1787,7 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("no `operations`", guidance)
         self.assertIn("operation_key(schedule, node)", guidance)
         self.assertIn("min(3, len(best_moves))", guidance)
+        self.assertIn("global setup-sum", guidance)
         self.assertIn("random-noise", guidance)
         self.assertIn("setup_time_between(sched.index, op1, op2)", guidance)
 

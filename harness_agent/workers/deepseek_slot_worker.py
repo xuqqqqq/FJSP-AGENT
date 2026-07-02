@@ -712,6 +712,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "move_selection_mutates_candidate_lists",
         "move_selection_mutates_schedule_directly",
         "move_selection_retries_small_best_moves_exact_recheck",
+        "move_selection_retries_global_setup_sum_tiebreak",
         "move_selection_retries_random_noise_escape",
         "move_selection_uses_invalid_setup_time_between_signature",
         "move_selection_uses_nonexistent_node_to_operation_key",
@@ -979,6 +980,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "move_selection_mutates_candidate_lists",
         "move_selection_mutates_schedule_directly",
         "move_selection_retries_small_best_moves_exact_recheck",
+        "move_selection_retries_global_setup_sum_tiebreak",
         "move_selection_retries_random_noise_escape",
         "move_selection_uses_invalid_setup_time_between_signature",
         "move_selection_uses_nonexistent_node_to_operation_key",
@@ -1354,6 +1356,15 @@ def awls_sdst_move_selection_warnings(content: str) -> list[str]:
     )
     if small_best_moves_exact_recheck:
         warnings.append("move_selection_retries_small_best_moves_exact_recheck")
+    global_setup_sum_tiebreak = (
+        re.search(r"\b(?:_?total_setup|setup_sum|trial_setup)\b", content)
+        and "setup_time_between" in content
+        and "machine_sequences" in content
+        and "trial.makespan" in content
+        and re.search(r"\(\s*trial\.makespan\s*,\s*(?:trial_setup|setup_sum|_total_setup\([^)]+\))", content)
+    )
+    if global_setup_sum_tiebreak:
+        warnings.append("move_selection_retries_global_setup_sum_tiebreak")
     random_noise_escape = (
         re.search(r"\branked_with_noise\b|\.uniform\(\s*-0\.001\s*,\s*0\.001\s*\)", content)
         or (
@@ -1624,6 +1635,8 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "OperationIndex has no `node_to_operation_key` field.\n"
             "- Do not retry `min(3, len(best_moves))` exact rechecks over best_moves; both triggered and "
             "unconditional variants tied oddla20 at 1010.\n"
+            "- Do not retry exact top-k selection whose main novelty is a full machine-sequence/global setup-sum "
+            "tie-break; the operation_key/setup_time_between version tied oddla20 at 1010.\n"
             "- Do not retry random-noise ranking or unconditional random all_moves escapes; the setup tie-break + "
             "5%/10% random escape variant worsened oddla20 from 1010 to 1030.\n"
             "- If using setup_time_between, use the five-argument contract with operation-key tuples; "
