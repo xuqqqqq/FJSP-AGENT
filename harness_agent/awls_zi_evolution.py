@@ -14,6 +14,11 @@ from .deepseek_client import DeepSeekClient
 
 ZI_POLICY_CHOICES = ("cpp", "none", "sqrt", "aggressive", "critical", "formula")
 SAME_MACHINE_EVAL_CHOICES = ("stable", "cpp-fast")
+CRITICAL_BLOCK_EXHAUSTIVE_PCT_MAX = 100
+SDST_NEIGHBORHOOD_MEMORY_PATH = (
+    Path(__file__).resolve().parents[1] / "knowledge" / "papers" / "awls_sdst_neighborhood_selection_notes.md"
+)
+SDST_NEIGHBORHOOD_MEMORY_MAX_CHARS = 8000
 
 
 @dataclass(frozen=True)
@@ -129,7 +134,10 @@ def run_awls_zi_evolution(request: AwlsZiEvolutionRequest) -> dict[str, Any]:
         candidate_records: list[dict[str, Any]] = []
         for candidate in candidates:
             candidate_dir = round_dir / "candidates" / candidate["name"]
-            manifest = run_candidate(request, instance_names, candidate_dir, candidate)
+            try:
+                manifest = run_candidate(request, instance_names, candidate_dir, candidate)
+            except Exception as exc:  # noqa: BLE001 - candidate failures must not abort the round.
+                manifest = write_candidate_failure_manifest(request, instance_names, candidate_dir, candidate, exc)
             record = candidate_record(candidate["name"], f"round_{round_index:02d}", manifest, candidate)
             candidate_records.append(record)
             if is_better(record, best):
@@ -174,11 +182,106 @@ def run_candidate(
             zi_policy=str(candidate["zi_policy"]),
             zi_formula=str(candidate.get("zi_formula") or ""),
             portfolio_lanes=str(candidate.get("portfolio_lanes") or request.portfolio_lanes or ""),
-            critical_block_exhaustive_pct=max(0, min(25, int(candidate.get("critical_block_exhaustive_pct", 0)))),
+            critical_block_exhaustive_pct=max(
+                0,
+                min(
+                    CRITICAL_BLOCK_EXHAUSTIVE_PCT_MAX,
+                    int(candidate.get("critical_block_exhaustive_pct", 0)),
+                ),
+            ),
             same_machine_eval=str(candidate.get("same_machine_eval") or request.same_machine_eval),
             time_policy=request.time_policy,
         )
     )
+
+
+def write_candidate_failure_manifest(
+    request: AwlsZiEvolutionRequest,
+    instance_names: list[str],
+    output_dir: Path,
+    candidate: dict[str, Any],
+    exc: Exception,
+) -> dict[str, Any]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = output_dir / "summary.json"
+    report_path = output_dir / "report.md"
+    seeds = request.seeds or [0]
+    error = f"{type(exc).__name__}: {exc}"
+    manifest = {
+        "status": "candidate_failed",
+        "request": {
+            **request_to_json(request),
+            "candidate": candidate,
+        },
+        "selected_instance_names": instance_names,
+        "errors": [error],
+        "aggregate": {
+            "instance_count": len(instance_names),
+            "seed_count": len(seeds),
+            "seeds": seeds,
+            "run_count": len(instance_names) * len(seeds),
+            "valid_run_count": 0,
+            "invalid_run_count": max(1, len(instance_names) * len(seeds)),
+            "valid_instance_count": 0,
+            "invalid_instance_count": len(instance_names),
+            "avg_makespan": None,
+            "avg_gap_pct": None,
+            "median_gap_pct": None,
+            "max_gap_pct": None,
+            "best_reached_count": 0,
+            "within_1pct_count": 0,
+            "within_2pct_count": 0,
+            "gap_count": 0,
+        },
+        "instances": [
+            {
+                "instance": name,
+                "status": "failed",
+                "valid": False,
+                "error_count": 1,
+                "errors": [error],
+                "makespan": None,
+                "gap_pct": None,
+            }
+            for name in instance_names
+        ],
+        "runs": [
+            {
+                "instance": name,
+                "seed": seed,
+                "status": "failed",
+                "valid": False,
+                "error_count": 1,
+                "errors": [error],
+                "makespan": None,
+                "gap_pct": None,
+            }
+            for name in instance_names
+            for seed in seeds
+        ],
+        "artifacts": {
+            "summary": str(manifest_path),
+            "report": str(report_path),
+        },
+    }
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    report_path.write_text(render_candidate_failure_report(manifest), encoding="utf-8")
+    return manifest
+
+
+def render_candidate_failure_report(manifest: dict[str, Any]) -> str:
+    lines = [
+        "# AWLS zi Candidate Failure",
+        "",
+        f"- Status: `{manifest.get('status')}`",
+        f"- Instances: `{len(manifest.get('selected_instance_names') or [])}`",
+        "",
+        "## Errors",
+        "",
+    ]
+    for error in manifest.get("errors", []):
+        lines.append(f"- `{error}`")
+    return "\n".join(lines).strip() + "\n"
 
 
 def build_deepseek_prompt(
@@ -191,6 +294,7 @@ def build_deepseek_prompt(
 ) -> str:
     baseline_summary = compact_summary(baseline_manifest)
     recent_history = compact_history(history[-3:])
+    sdst_memory = load_sdst_neighborhood_memory()
     return f"""
 We are evolving the adaptive zi-weight mechanism inside an AWLS solver for
 standard FJSP benchmarks. You must propose structured candidates only; do not
@@ -224,13 +328,19 @@ AWLS zi mechanism currently exposed to you:
 
 Other allowed knobs:
 - `same_machine_eval`: {", ".join(SAME_MACHINE_EVAL_CHOICES)}.
-- `critical_block_exhaustive_pct`: integer 0..25.
+- `critical_block_exhaustive_pct`: integer 0..100.  This controls how often
+  AWLS exhaustively scans critical-block candidates before falling back to the
+  faster stochastic sampler; measured SDST-HUdata `oddla20` evidence found
+  values above 25 can be materially better.
 - `portfolio_lanes`: optional AWLS lane string, e.g.
   `3:random:1,5:mixed:1,17:random:1,0:mixed:1,8:greedy:1`.
   Use it when measured evidence shows seed or initialization variance.  For
   SDST-HUdata this can be a first-class search lever: a lane such as
   `2:mixed:1:8` means run AWLS with lane seed 2, mixed initialization, one
   restart, and an 8-second lane budget.
+
+Local SDST-HUdata measured memory and cautions:
+{sdst_memory}
 
 Baseline evaluator evidence:
 {json.dumps(baseline_summary, ensure_ascii=False, indent=2)}
@@ -274,6 +384,16 @@ Rules:
 """.strip()
 
 
+def load_sdst_neighborhood_memory() -> str:
+    try:
+        text = SDST_NEIGHBORHOOD_MEMORY_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        return "(No project-local SDST memory card found.)"
+    if len(text) <= SDST_NEIGHBORHOOD_MEMORY_MAX_CHARS:
+        return text
+    return text[:SDST_NEIGHBORHOOD_MEMORY_MAX_CHARS].rstrip() + "\n\n...(truncated)"
+
+
 def normalize_candidates(profile: dict[str, Any], count: int, round_index: int) -> list[dict[str, Any]]:
     raw_candidates = profile.get("candidates")
     if not isinstance(raw_candidates, list):
@@ -308,7 +428,12 @@ def normalize_candidates(profile: dict[str, Any], count: int, round_index: int) 
                 "theta": clamp_int(raw.get("theta"), 5, 0, 20),
                 "zi_policy": policy,
                 "zi_formula": formula,
-                "critical_block_exhaustive_pct": clamp_int(raw.get("critical_block_exhaustive_pct"), 0, 0, 25),
+                "critical_block_exhaustive_pct": clamp_int(
+                    raw.get("critical_block_exhaustive_pct"),
+                    0,
+                    0,
+                    CRITICAL_BLOCK_EXHAUSTIVE_PCT_MAX,
+                ),
                 "same_machine_eval": eval_mode,
                 "portfolio_lanes": portfolio_lanes,
             }
@@ -322,10 +447,13 @@ def normalize_candidates(profile: dict[str, Any], count: int, round_index: int) 
 
 def candidate_record(name: str, source: str, manifest: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
     aggregate = manifest.get("aggregate") or {}
+    config = candidate or candidate_config_from_benchmark_manifest(manifest)
     return {
         "name": name,
         "source": source,
-        "candidate": candidate,
+        "status": manifest.get("status"),
+        "errors": manifest_errors(manifest),
+        "candidate": config,
         "summary": str(manifest.get("artifacts", {}).get("summary") or ""),
         "report": str(manifest.get("artifacts", {}).get("report") or ""),
         "valid_instance_count": aggregate.get("valid_instance_count"),
@@ -338,6 +466,19 @@ def candidate_record(name: str, source: str, manifest: dict[str, Any], candidate
         "within_1pct_count": aggregate.get("within_1pct_count"),
         "gap_count": aggregate.get("gap_count"),
     }
+
+
+def manifest_errors(manifest: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    for error in manifest.get("errors") or []:
+        if isinstance(error, str) and error not in errors:
+            errors.append(error)
+    for section in ("instances", "runs"):
+        for item in manifest.get(section, []):
+            for error in item.get("errors") or []:
+                if isinstance(error, str) and error not in errors:
+                    errors.append(error)
+    return errors[:5]
 
 
 def is_better(candidate: dict[str, Any], incumbent: dict[str, Any]) -> bool:
@@ -402,8 +543,8 @@ def render_report(manifest: dict[str, Any]) -> str:
         "",
         "## Candidates",
         "",
-        "| Round | Candidate | Avg Makespan | ΔMakespan | Avg Gap % | ΔGap % | Median Gap % | Max Gap % | Invalid Runs | zi Policy | Formula | beta | gamma | theta | Portfolio | Report |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | --- | --- |",
+        "| Round | Candidate | Status | Avg Makespan | ΔMakespan | Avg Gap % | ΔGap % | Median Gap % | Max Gap % | Invalid Runs | Error | zi Policy | Formula | beta | gamma | theta | Critical Exhaustive % | Portfolio | Report |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |",
     ]
     lines.append(candidate_row("baseline", baseline, baseline))
     for round_record in manifest.get("rounds", []):
@@ -429,13 +570,17 @@ def candidate_row(round_label: str, candidate: dict[str, Any], baseline: dict[st
     report_cell = f"[report]({report})" if report else ""
     delta_makespan = numeric_delta(candidate.get("avg_makespan"), (baseline or {}).get("avg_makespan"))
     delta_gap = numeric_delta(candidate.get("avg_gap_pct"), (baseline or {}).get("avg_gap_pct"))
+    errors = candidate.get("errors") or []
+    error_cell = inline_code_cell(str(errors[0])) if errors else ""
     return (
-        f"| {round_label} | {candidate.get('name')} | {format_cell(candidate.get('avg_makespan'))} | "
+        f"| {round_label} | {candidate.get('name')} | {candidate.get('status', '')} | "
+        f"{format_cell(candidate.get('avg_makespan'))} | "
         f"{format_cell(delta_makespan)} | {format_cell(candidate.get('avg_gap_pct'))} | {format_cell(delta_gap)} | "
         f"{format_cell(candidate.get('median_gap_pct'))} | {format_cell(candidate.get('max_gap_pct'))} | "
-        f"{format_cell(candidate.get('invalid_run_count'))} | {config.get('zi_policy', 'cpp')} | "
+        f"{format_cell(candidate.get('invalid_run_count'))} | {error_cell} | {config.get('zi_policy', 'cpp')} | "
         f"`{config.get('zi_formula', '') or ''}` | "
         f"{config.get('beta', '')} | {config.get('gamma', '')} | {config.get('theta', '')} | "
+        f"{format_cell(config.get('critical_block_exhaustive_pct'))} | "
         f"`{config.get('portfolio_lanes', '') or ''}` | {report_cell} |"
     )
 
@@ -485,7 +630,32 @@ def compact_summary(manifest: dict[str, Any]) -> dict[str, Any]:
                 ),
             )[:10]
         ],
+        "request": candidate_config_from_benchmark_manifest(manifest),
     }
+
+
+def candidate_config_from_benchmark_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
+    request = manifest.get("request") or {}
+    if not isinstance(request, dict):
+        return {}
+    keys = (
+        "init_mode",
+        "restarts",
+        "cycles_per_restart",
+        "iterations",
+        "time_limit_sec",
+        "exact_select_top_k",
+        "beta",
+        "gamma",
+        "theta",
+        "zi_policy",
+        "zi_formula",
+        "critical_block_exhaustive_pct",
+        "same_machine_eval",
+        "portfolio_lanes",
+        "time_policy",
+    )
+    return {key: request.get(key) for key in keys if request.get(key) not in (None, "")}
 
 
 def compact_history(rounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -497,6 +667,8 @@ def compact_history(rounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "candidates": [
                     {
                         "name": candidate.get("name"),
+                        "status": candidate.get("status"),
+                        "errors": candidate.get("errors"),
                         "candidate": candidate.get("candidate"),
                         "avg_gap_pct": candidate.get("avg_gap_pct"),
                         "invalid_run_count": candidate.get("invalid_run_count"),
@@ -586,3 +758,10 @@ def format_cell(value: Any) -> str:
     if value is None:
         return "N/A"
     return str(value)
+
+
+def inline_code_cell(value: str, limit: int = 160) -> str:
+    text = value.replace("|", "\\|").replace("`", "'")
+    if len(text) > limit:
+        text = text[: limit - 3] + "..."
+    return f"`{text}`"

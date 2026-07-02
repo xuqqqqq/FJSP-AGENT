@@ -29,6 +29,33 @@ from the published UB (`997`; current fast/short baselines are `1202` or
   default `beta/gamma/theta=500/40/5` as the current best (`1154`).  Tuning it
   to `gamma=60, theta=3` worsened to `1202`; critical formulas worsened to
   `1202` or `1265`; simple mixed-seed portfolios tied `1177` or `1154`.
+- Direct AWLS parameter probes found `critical_block_exhaustive_pct` is a high
+  leverage control for SDST `oddla20`: with `zi_policy=aggressive`, pct `5`
+  and `10` reached `1078`, pct `20` reached `1024`, and pct `50` reached
+  `1023` (gap `2.61%` vs UB `997`) on the short seed-0 budget.
+- After the evolution layer was allowed to search pct `0..100`, DeepSeek found
+  `zi_policy=critical`, `beta=400`, `gamma=40`, `theta=5`, pct `75`, which
+  reached `1010` on `oddla20` seed `0` with the same short budget (gap
+  `1.30%` vs UB `997`).  Treat `critical + pct 75` as the current incumbent
+  for this la20 line.
+- Follow-up AWLS-ZI evolution from the `1010` incumbent did not improve:
+  `cpp + pct 75` tied `1010`; `base * (1 + 0.5 * is_critical)` at pct `75`
+  tied `1010`; `critical + pct 100` worsened badly to `1138`.
+- Direct local grid around the incumbent showed a plateau, not a smooth pct
+  optimum: `critical` with beta `400` tied `1010` at pct `60`, `65`, `75`,
+  `80`, and `90`; pct `70` worsened to `1024`, pct `85` worsened to `1039`.
+  Beta `300`, `500`, and `600` at pct `75` also tied `1010`.
+- A seed/init grid for `critical + beta400/gamma40/theta5 + pct75` over seeds
+  `0..9` and `random/greedy/mixed` did not beat `1010`.  Best ties were
+  `mixed` seeds `0` and `6`, and `greedy` seed `7`; `random` seed `7` reached
+  `1015`, while many other lanes were worse.
+- In the same round, the formula candidate
+  `max(0, base * (1 + 0.3 * is_critical))` with lanes
+  `2:mixed:1,3:random:1` reached only `1024`, so the old critical multiplier
+  formula remains unattractive even with a small portfolio.
+- More exhaustive or longer is not automatically better.  `exact_select_top_k`
+  with aggressive scoring worsened to `1265`, and a longer pct-20 run
+  (`60` cycles, `500` iterations, `60s`) worsened to `1033`.
 
 This points toward the move-candidate selection layer: the search may not be
 trying the right critical or near-critical N7/NK moves often enough.
@@ -50,7 +77,9 @@ Use these as hypotheses, not as manual patches:
   machine arcs with high setup contribution, but still submit them through
   `consider_same` / `consider_change`.
 - Keep exploration seeded and bounded.  Large exhaustive scans can waste the
-  short worker-loop budget and may make final-quality comparisons noisy.
+  short worker-loop budget and may make final-quality comparisons noisy, but
+  do not cap `critical_block_exhaustive_pct` below `50` during AWLS-ZI evolution
+  because pct `50` is the best measured `oddla20` setting so far.
 
 ## Prior Failure Memory
 
@@ -67,8 +96,24 @@ Use these as hypotheses, not as manual patches:
 - Do not retry critical-boost zi formulas of the form
   `base + k * weight * is_critical` unless the coefficient or context differs
   materially; tested `k=0.3` and `k=0.02` were worse than aggressive zi.
+- Do not retry `base * (1 + 0.3 * is_critical)` with the simple
+  `2:mixed:1,3:random:1` lane portfolio; it was worse than both pct-50
+  aggressive and pct-75 critical incumbents.
+- Do not assume pct `100` is a stronger version of pct `75`; with
+  `zi_policy=critical`, pct `100` worsened `1010 -> 1138`.
+- `cpp + pct 75` and `base * (1 + 0.5 * is_critical)` at pct `75` only tied
+  the `critical + pct 75` incumbent; retry only if paired with a new seed,
+  construction mode, or another materially different knob.
+- Do not spend another round only sweeping `critical` beta at pct `75` or pct
+  neighbors near `60..90`; the measured grid found ties or regressions.  The
+  next distinct lever should be seed/initialization portfolio, move structure,
+  or a formula that changes more than a critical multiplier.
+- Do not expect a simple `critical+pct75` seed/init portfolio over seeds `0..9`
+  to beat `1010`; measured lanes only tied or regressed.
 - Do not retune aggressive zi by only increasing `gamma` and lowering `theta`
   without another change; `gamma=60, theta=3` was worse than default.
+- Do not assume increasing total runtime alone improves this setting; the
+  tested longer pct-20 run was worse than the short pct-20 and pct-50 runs.
 - If setup lookup is used only for candidate ordering, convert node ids to
   `(job_id, op_id)` and pass `schedule.index` as the op-index mapping.
 
