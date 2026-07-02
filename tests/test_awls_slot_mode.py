@@ -1248,6 +1248,57 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_initialization_slot_normalizes_nested_replace_block_and_warns_on_wrong_api(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "non_append_insert_from_other_api",
+                        "type": "construction_rule",
+                        "novelty": "Uses non-append insertion instead of failed append-only setup dispatch.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "replace_slot_block": {
+                            "slot_id": "awls_sdst_initialization",
+                            "content": (
+                                "def awls_sdst_initialization(self):\n"
+                                "    instance = self.index.instance\n"
+                                "    n_jobs = instance.n_jobs\n"
+                                "    n_machines = instance.n_machines\n"
+                                "    sds = instance.sds_data\n"
+                                "    op_data = instance.ops[0][0]\n"
+                                "    return [], []\n"
+                            ),
+                        }
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertEqual(1, len(normalized["changes"]))
+        self.assertIn(
+            "initialization_defines_wrong_entrypoint",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertIn(
+            "initialization_uses_nonexistent_instance_api",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+        guidance = generic_slot_repair_guidance(slot)
+        self.assertIn("greedy_gt_init", guidance)
+        self.assertIn("index.instance.job_count", guidance)
+        self.assertIn("has no", guidance)
+
     def test_extract_negative_memory_lines_merges_multiline_bullets(self) -> None:
         lines = extract_negative_memory_lines(
             "- A setup-aware attempt failed because it used the wrong API.\n"

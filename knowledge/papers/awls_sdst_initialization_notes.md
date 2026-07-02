@@ -177,6 +177,19 @@ Use these as hypotheses, not as a manual patch:
   enforced structurally: require `AwlsSchedule(...).topological_sort()`, a
   guarded insert/swap, or a separate sequencing/repair phase in code before
   evaluation.
+- A later topology/repair-focused worker run did not reach Core quality
+  evaluation.  The first proposal again collapsed to append-only setup-aware
+  regret/tail dispatch and was rejected by the semantic gate
+  (`initialization_retries_append_only_setup_completion` and
+  `initialization_missing_required_topology_or_repair`).  The second proposal
+  used an invalid nested `replace_slot_block` schema and API from another
+  project (`self.index`, `instance.n_jobs`, `instance.ops`,
+  `instance.sds_data`) instead of the real `greedy_gt_init(index, rng, ...)`
+  function-body contract.  Future repair prompts must explicitly name the real
+  inputs: `index.instance.job_count`, `index.instance.machine_count`,
+  `index.job_to_nodes`, `index.candidates[node]`,
+  `index.duration(node, machine_id)`, `index.node_to_job[node]`, and
+  `index.node_to_op[node]`.
 - Do not compare move/init mode constants with integers.
 - Do not call `setup_time_between` with `current_op=None`.
 - Import `setup_time_between` locally inside the slot before using it.

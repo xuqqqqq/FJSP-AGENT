@@ -533,6 +533,13 @@ Original instructions:
         for item in proposal.get("changes", []):
             if not isinstance(item, dict):
                 continue
+            if isinstance(item.get("replace_slot_block"), dict):
+                nested = dict(item["replace_slot_block"])
+                item = {
+                    **nested,
+                    "action": "replace_slot_block",
+                    "rationale": item.get("rationale", nested.get("rationale", "")),
+                }
             action = str(item.get("action", "") or "replace_slot_block").strip()
             proposed_slot_id = str(item.get("slot_id", slot_id)).strip()
             content = item.get("content", item.get("replacement"))
@@ -711,6 +718,8 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "initialization_non_append_without_acyclic_guard",
         "initialization_rebuilds_ready_after_committed_insert",
         "initialization_retries_static_bottleneck_ignores_setup",
+        "initialization_defines_wrong_entrypoint",
+        "initialization_uses_nonexistent_instance_api",
         "move_evaluation_retries_proxy_ratio_exact_gate",
         "move_selection_generates_candidates",
         "move_selection_mutates_candidate_lists",
@@ -984,6 +993,8 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "initialization_non_append_without_acyclic_guard",
         "initialization_rebuilds_ready_after_committed_insert",
         "initialization_retries_static_bottleneck_ignores_setup",
+        "initialization_defines_wrong_entrypoint",
+        "initialization_uses_nonexistent_instance_api",
         "move_evaluation_retries_proxy_ratio_exact_gate",
         "move_selection_generates_candidates",
         "move_selection_mutates_candidate_lists",
@@ -1203,6 +1214,18 @@ def awls_sdst_initialization_warnings(content: str, *, context: dict[str, Any] |
     )
     if tail_ratio_regret_append_dispatch:
         warnings.append("initialization_retries_tail_ratio_regret_append_dispatch")
+    if re.search(r"^\s*def\s+awls_sdst_initialization\s*\(", content, re.MULTILINE):
+        warnings.append("initialization_defines_wrong_entrypoint")
+    nonexistent_instance_api = bool(
+        re.search(
+            r"\b(?:index\.)?instance\.(?:ops|n_jobs|n_machines|sds_data)\b|"
+            r"\bself\.index\b|\bself\.initial_sequences\b|"
+            r"\bprocessing_times\b|\beligible_machines\b",
+            content,
+        )
+    )
+    if nonexistent_instance_api:
+        warnings.append("initialization_uses_nonexistent_instance_api")
     context_text = ""
     if isinstance(context, dict):
         context_text = str(context.get("hypothesis") or "").lower()
@@ -1652,6 +1675,12 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- When the round hypothesis requires topology, repair, non-append insertion, or assignment-then-sequencing, "
             "the replacement code must contain a real structure for that mechanism, such as `AwlsSchedule(...).topological_sort()`, "
             "a guarded sequence insert/swap, or a separate sequencing/repair phase; a renamed append-only priority formula is rejected.\n"
+            "- This is a function-body slot inside `greedy_gt_init(index, rng, random_factor, idle_bonus)`: do not define "
+            "`def awls_sdst_initialization`, do not use `self`, and return `(sequences, on_machine)`.\n"
+            "- Use the real local APIs: `index.instance.job_count`, `index.instance.machine_count`, "
+            "`index.job_to_nodes`, `index.candidates[node]`, `index.duration(node, machine_id)`, "
+            "`index.node_to_job[node]`, and `index.node_to_op[node]`.  `StandardFjspInstance` has no "
+            "`n_jobs`, `n_machines`, `ops`, `eligible_machines`, `processing_times`, or `sds_data` attributes.\n"
             "- Do not retry static single-bottleneck priority that ignores setup/tail/dynamic readiness; it was "
             "legal but worsened oddla20 from 1010 to 1029.\n"
             "- If using non-append insertion, do not directly commit `sequences[machine].insert(...)` without an "
