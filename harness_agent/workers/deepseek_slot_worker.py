@@ -692,6 +692,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "neighborhood_shuffles_candidate_machine_dict",
         "portfolio_retries_seed_mapping_only",
         "same_machine_retries_pure_exact_trial",
+        "same_machine_retries_legacy_ratio_exact_gate",
         "same_machine_retries_exact_setup_tiebreak",
         "same_machine_uses_nonexistent_move_node",
         "same_machine_uses_end_node_end_time_as_makespan",
@@ -947,6 +948,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "neighborhood_shuffles_candidate_machine_dict",
         "portfolio_retries_seed_mapping_only",
         "same_machine_retries_pure_exact_trial",
+        "same_machine_retries_legacy_ratio_exact_gate",
         "same_machine_retries_exact_setup_tiebreak",
         "same_machine_uses_nonexistent_move_node",
         "same_machine_uses_end_node_end_time_as_makespan",
@@ -1024,6 +1026,14 @@ def slot_specific_generic_warnings(slot: dict[str, Any], changes: list[dict[str,
         warnings.append("same_machine_uses_end_node_end_time_as_makespan")
     if uses_exact_trial and "setup_time_between" not in content and re.search(r"0\.00?1\s*\*\s*float\(legacy\)", content):
         warnings.append("same_machine_retries_pure_exact_trial")
+    legacy_ratio_exact_gate = (
+        uses_exact_trial
+        and "setup_time_between" not in content
+        and re.search(r"\blegacy\s*<=\s*schedule\.makespan\s*\*\s*1\.1\b", content)
+        and re.search(r"0\.00?1\s*\*\s*float\(legacy\)", content)
+    )
+    if legacy_ratio_exact_gate:
+        warnings.append("same_machine_retries_legacy_ratio_exact_gate")
     setup_tiebreak_only = (
         uses_exact_trial
         and "setup_time_between" in content
@@ -1437,6 +1447,8 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- Setup-aware R/Q propagation approximations have failed unless backed by an exact cloned trial.\n"
             "- Pure exact cloned trial scored as `trial.makespan + 0.001 * legacy` has already tied oddla20; "
             "do not retry it unchanged.\n"
+            "- Do not wrap that pure exact trial in only a `legacy <= 1.1 * schedule.makespan` gate; semantic "
+            "repair produced that variant and it remained an unrepaired repeat of the same idea class.\n"
             "- Exact cloned trial with only `0.001 * total_setup` / block-setup tie-breaker also tied oddla20; "
             "do not retry setup-time-only tie-breaking unchanged.\n"
             "- Move has fields `method`, `which`, and `where`; do not use nonexistent `move.node`.  Use "

@@ -81,6 +81,12 @@ There is no `schedule.setup_time(...)` helper and no
   `move.which` for the moved operation.  The same candidate also used
   `schedule.end_time[schedule.index.end_node]` as makespan in the gate; use
   `schedule.makespan` or `trial.makespan` instead.
+- After those API guardrails were added, a guarded retry again proposed
+  setup-aware local R/Q propagation without exact trial and was blocked before
+  evaluation.  Its semantic repair fallback was only a legacy-ratio gate
+  (`legacy <= 1.1 * schedule.makespan`) around the already-failed pure exact
+  trial score `trial.makespan + 0.001 * legacy`; treat that as a repeat of the
+  pure-exact idea class, not as a materially different same-machine operator.
 - If manually adding setup-aware forward/backward local propagation is too
   fragile, prefer exact local scoring:
 

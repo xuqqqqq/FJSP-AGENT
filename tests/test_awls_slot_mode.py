@@ -2448,6 +2448,51 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_same_machine_slot_warns_when_legacy_ratio_exact_gate_repeats(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_same_machine_evaluation")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "exact_trial_with_legacy_ratio_gate",
+                        "type": "local_search_operator",
+                        "novelty": "Avoids setup propagation by gating exact trial with legacy score.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_same_machine_evaluation",
+                        "content": (
+                            "    legacy = 1.0\n"
+                            "    if not schedule.index.instance.has_sequence_dependent_setup:\n"
+                            "        return legacy\n"
+                            "    if legacy <= schedule.makespan * 1.1:\n"
+                            "        try:\n"
+                            "            trial = schedule.clone()\n"
+                            "            trial.apply_move(move)\n"
+                            "            return float(trial.makespan) + 0.001 * float(legacy)\n"
+                            "        except (ValueError, KeyError, IndexError):\n"
+                            "            return legacy\n"
+                            "    return legacy\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "same_machine_retries_legacy_ratio_exact_gate",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_same_machine_slot_warns_when_exact_setup_tiebreak_repeats(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_same_machine_evaluation")
