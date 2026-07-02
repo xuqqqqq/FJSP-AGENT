@@ -46,6 +46,11 @@ Core evaluator makespan as the only promotion authority.
   `current.rng.random() < 0.2` to reset `current = best.clone()`, capped at
   five resets.  Do not spend another round on best-clone plateau restarts that
   only vary the threshold, probability, or reset cap.
+- `degradation_threshold_reset` worsened `oddla20` from `1010` to `1180`: it
+  reset `current = best.clone()` whenever `current.makespan > 1.01 *
+  best.makespan`.  Although setup time fell from `1940` to `1700`, the
+  makespan degradation was severe.  Do not retry relative-makespan degradation
+  best resets such as 1%, 2%, or 5% gap thresholds.
 - Portfolio best-lane reruns, seed remapping, multi-scramble restarts, and
   setup-ratio best-lane exploitation all tied `1010`; do not reproduce those
   as an in-loop transition without a materially different state rule.

@@ -2164,6 +2164,46 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("search_transition_stats_without_none_guard", normalized["proposal_audit"]["warnings"])
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_search_transition_slot_warns_on_relative_degradation_best_reset_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_search_transition")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "degradation_threshold_reset",
+                        "type": "search_transition_rule",
+                        "novelty": "Different from fixed resets by using a relative makespan gap.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_search_transition",
+                        "content": (
+                            "        if current.makespan < best.makespan:\n"
+                            "            best = current.clone()\n"
+                            "        if current.makespan > int(best.makespan * 1.01):\n"
+                            "            current = best.clone()\n"
+                            "            if stats is not None:\n"
+                            "                stats['degradation_resets'] = stats.get('degradation_resets', 0) + 1\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "search_transition_retries_relative_degradation_best_reset",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_search_transition_repair_guidance_names_best_invariant(self) -> None:
         slot = _generic_slot_context(slot_id="awls_sdst_search_transition")["slot_manifest"]["slots"][0]
 

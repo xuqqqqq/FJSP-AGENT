@@ -730,6 +730,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "search_transition_promotes_worse_best",
         "search_transition_stats_without_none_guard",
         "search_transition_uses_io_or_unseeded_random",
+        "search_transition_retries_relative_degradation_best_reset",
         "tabu_memory_missing_or_multiple_tabu_add",
         "tabu_memory_calls_forbidden_runtime_api",
         "tabu_memory_mutates_schedule_or_tabu_directly",
@@ -999,6 +1000,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "search_transition_promotes_worse_best",
         "search_transition_stats_without_none_guard",
         "search_transition_uses_io_or_unseeded_random",
+        "search_transition_retries_relative_degradation_best_reset",
         "tabu_memory_missing_or_multiple_tabu_add",
         "tabu_memory_calls_forbidden_runtime_api",
         "tabu_memory_mutates_schedule_or_tabu_directly",
@@ -1491,6 +1493,12 @@ def awls_sdst_search_transition_warnings(content: str) -> list[str]:
         and not re.search(r"current\.makespan\s*<\s*best\.makespan", content)
     ):
         warnings.append("search_transition_promotes_worse_best")
+    relative_degradation_reset = (
+        re.search(r"\bcurrent\.makespan\s*>\s*(?:int\()?best\.makespan\s*\*\s*1\.0[1-9]", content)
+        and re.search(r"\bcurrent\s*=\s*best\.clone\(\)", content)
+    )
+    if relative_degradation_reset:
+        warnings.append("search_transition_retries_relative_degradation_best_reset")
     uses_stats = re.search(r"\bstats\s*(?:\.|\[)", content)
     if uses_stats and "stats is not none" not in content:
         warnings.append("search_transition_stats_without_none_guard")
