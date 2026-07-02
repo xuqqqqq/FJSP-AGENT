@@ -192,20 +192,21 @@ class DeepSeekSlotWorker(CodingWorker):
                 {"role": "user", "content": prompt},
             ],
             temperature=0.2,
-            max_tokens=9000,
+            max_tokens=12000,
             json_mode=True,
         )
         raw_path = output_dir / "deepseek_slot_raw.json"
         raw_path.write_text(raw, encoding="utf-8")
         try:
-            proposal = extract_json_object(raw)
+            proposal = extract_generic_slot_proposal(raw)
         except json.JSONDecodeError as exc:
-            repair = self._repair_generic_slot_json(client, raw, str(exc), max_tokens=9000)
+            repair = self._repair_generic_slot_json(client, raw, str(exc), max_tokens=12000)
             (output_dir / "deepseek_slot_repair_response.json").write_text(repair, encoding="utf-8")
-            proposal = extract_json_object(repair)
+            proposal = extract_generic_slot_proposal(repair)
 
         normalized = self._normalize_generic_slot_proposal(proposal, slot, context=context)
         if generic_slot_needs_repair(normalized):
+            original_normalized = normalized
             repair_prompt = self._repair_generic_slot_proposal_prompt(
                 prompt=prompt,
                 proposal=normalized,
@@ -224,11 +225,22 @@ class DeepSeekSlotWorker(CodingWorker):
                     {"role": "user", "content": repair_prompt},
                 ],
                 temperature=0.1,
-                max_tokens=9000,
+                max_tokens=12000,
                 json_mode=True,
             )
             (output_dir / "deepseek_slot_semantic_repair_response.json").write_text(repair, encoding="utf-8")
-            normalized = self._normalize_generic_slot_proposal(extract_json_object(repair), slot, context=context)
+            try:
+                repaired = self._normalize_generic_slot_proposal(
+                    extract_generic_slot_proposal(repair),
+                    slot,
+                    context=context,
+                )
+            except json.JSONDecodeError:
+                repaired = original_normalized
+            if should_accept_generic_slot_repair(original_normalized, repaired):
+                normalized = repaired
+            else:
+                normalized = original_normalized
         proposal_path = output_dir / "proposal.json"
         markdown_path = output_dir / "proposal.md"
         changed_files: list[str] = []
@@ -587,6 +599,43 @@ def compact_context(context: dict[str, Any]) -> dict[str, Any]:
         "loop_feedback": context.get("loop_feedback", {}),
         "hypothesis": context.get("hypothesis", ""),
     }
+
+
+def extract_generic_slot_proposal(text: str) -> dict[str, Any]:
+    """Extract a top-level generic slot proposal, not an arbitrary nested JSON object."""
+
+    proposal = extract_json_object(text)
+    if is_generic_slot_proposal_shape(proposal):
+        return proposal
+    raise json.JSONDecodeError(
+        "top-level JSON object must include generic slot proposal keys",
+        text,
+        0,
+    )
+
+
+def is_generic_slot_proposal_shape(proposal: dict[str, Any]) -> bool:
+    return any(key in proposal for key in ("summary", "strategy_intent", "changes", "risk_notes", "context_usage"))
+
+
+def should_accept_generic_slot_repair(original: dict[str, Any], repaired: dict[str, Any]) -> bool:
+    """Keep semantic repair only when it makes proposal quality no worse."""
+
+    original_changes = original.get("changes") if isinstance(original.get("changes"), list) else []
+    repaired_changes = repaired.get("changes") if isinstance(repaired.get("changes"), list) else []
+    if original_changes and not repaired_changes:
+        return False
+    if repaired_changes and not original_changes:
+        return True
+    return generic_repair_warning_count(repaired) <= generic_repair_warning_count(original)
+
+
+def generic_repair_warning_count(proposal: dict[str, Any]) -> int:
+    audit = proposal.get("proposal_audit")
+    if not isinstance(audit, dict):
+        return 0
+    warnings = audit.get("warnings")
+    return len(warnings) if isinstance(warnings, list) else 0
 
 
 def selected_slot_failure_memory(

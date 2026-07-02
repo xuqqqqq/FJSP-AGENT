@@ -12,10 +12,12 @@ from harness_agent.workers.deepseek_slot_worker import (
     DeepSeekSlotWorker,
     compact_context,
     extract_negative_memory_lines,
+    extract_generic_slot_proposal,
     generic_slot_needs_repair,
     replace_evolve_block,
     selected_confirmed_slot,
     selected_slot_failure_memory,
+    should_accept_generic_slot_repair,
     strip_marker_lines,
     validate_awls_slot_contract,
     validate_generic_slot_contract,
@@ -434,6 +436,24 @@ class AwlsSlotModeTests(unittest.TestCase):
             normalized["proposal_audit"]["warnings"],
         )
         self.assertFalse(generic_slot_needs_repair(normalized))
+
+    def test_extract_generic_slot_proposal_rejects_nested_hypothesis_object(self) -> None:
+        with self.assertRaises(Exception):
+            extract_generic_slot_proposal(
+                '{"name":"nested_hypothesis","type":"local_search_operator"} trailing truncated outer proposal'
+            )
+
+    def test_generic_slot_semantic_repair_cannot_discard_existing_change(self) -> None:
+        original = {
+            "changes": [{"action": "replace_slot_block", "slot_id": "awls_sdst_initialization", "content": "body()"}],
+            "proposal_audit": {"warnings": ["novelty_does_not_reference_failure_memory"]},
+        }
+        repaired = {
+            "changes": [],
+            "proposal_audit": {"warnings": []},
+        }
+
+        self.assertFalse(should_accept_generic_slot_repair(original, repaired))
 
 
 def _slot_context(

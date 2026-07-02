@@ -94,6 +94,13 @@ Use these as hypotheses, not as a manual patch:
   `1960`; do not retry fixed small-RCL setup-aware append portfolios unless
   the hypothesis changes materially, for example by using true insertion
   positions, critical-tail estimates, or post-construction repair.
+- A later tail-aware setup greedy candidate added a remaining-work suffix
+  estimate to setup-aware append completion.  It was legal and reduced setup
+  time to `1680`, but Core evaluation again worsened `oddla20` from `1010` to
+  `1046`.  This reinforces that lowering aggregate setup time is not enough;
+  future initialization hypotheses should target bottleneck-machine timing,
+  true sequence insertion with precedence-safe recomputation, or leave
+  initialization and shift effort to move evaluation/neighborhood control.
 - Do not compare move/init mode constants with integers.
 - Do not call `setup_time_between` with `current_op=None`.
 - Import `setup_time_between` locally inside the slot before using it.
