@@ -293,6 +293,61 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
             user_confirmed=confirmed,
         ),
         CodeSlotSpec(
+            slot_id="awls_sdst_portfolio_search_control",
+            title="AWLS-SDST portfolio lane search control",
+            target_file="examples/standard_fjsp_awls_solver.py",
+            marker_start="# SLOT awls_sdst_portfolio_search_control START",
+            marker_end="# SLOT awls_sdst_portfolio_search_control END",
+            slot_kind="marked_block",
+            language="python",
+            purpose=(
+                "Control how explicit AWLS portfolio lanes are budgeted, ordered, "
+                "and selected for SDST instances without changing schedule semantics."
+            ),
+            inputs=[
+                "portfolio_lanes: list[PortfolioLane] parsed from CLI/benchmark as seed:init:restarts[:seconds]",
+                "time_limit_sec: global AWLS wall-clock cap for this solver call",
+                "seed: outer benchmark seed used to offset lane seeds with PORTFOLIO_OUTER_SEED_STRIDE",
+                "index: fixed OperationIndex built from parse_standard_fjsp output",
+                "solve_awls_single(...) and format_awls_stats(...) from this module",
+                "All AWLS controls already passed to solve_awls: cycles_per_restart, iterations, beta/gamma/theta, exact_select_top_k, same_machine_eval, critical_block_exhaustive_pct, zi_policy, zi_formula, initial_state, time_check_interval",
+            ],
+            outputs=[
+                "best: AwlsSchedule clone selected from legal lane runs by lowest makespan",
+                "best_lane: PortfolioLane describing the selected effective lane",
+                "lane_summaries: list[str] preserving per-lane diagnostics for the strategy label",
+                "No change to returned ScheduleRecord schema or benchmark score semantics",
+            ],
+            invariants=[
+                "Keep solve_awls signature unchanged.",
+                "Only execute when portfolio_lanes is non-empty; non-portfolio AWLS path must remain unchanged.",
+                "Keep score objective as makespan; do not use LB/UB or setup_time as the objective.",
+                "Every lane must still call solve_awls_single or an equivalent existing AWLS path that returns AwlsSchedule.",
+                "Preserve deterministic effective_lane_seed = lane.seed + seed * PORTFOLIO_OUTER_SEED_STRIDE unless the replacement explicitly documents an equivalent deterministic mapping.",
+                "Do not mutate parser, evaluator, solution JSON schema, CLI argument names, or benchmark semantics.",
+                "Keep lane_summaries informative enough to audit selected seed/init/restarts/time/makespan.",
+            ],
+            allowed_edits=[
+                "Only rewrite code between awls_sdst_portfolio_search_control markers.",
+                "May change lane ordering, per-lane budget allocation, early-stop policy, or tie-breaking among equal makespans.",
+                "May add local bounded diagnostics or helper lists inside the slot.",
+                "May adapt search-control decisions for instance.has_sequence_dependent_setup while preserving standard FJSP legality.",
+            ],
+            forbidden_edits=[
+                "Do not parse instance files, setup matrices, LB/UB tables, or evaluator output in this slot.",
+                "Do not change parse_portfolio_lanes format or allocate_lane_budgets unless a separate slot is confirmed.",
+                "Do not change solve_awls_single, AWLS move scoring, zi formula validation, parser, evaluator, or output schema.",
+                "Do not skip validation by returning records directly from the slot.",
+                "Do not add unbounded loops, multiprocessing, subprocesses, network access, file IO, or randomness outside existing seeded AWLS calls.",
+            ],
+            validation_commands=[
+                "python -m compileall examples/standard_fjsp_awls_solver.py harness_agent/standard_fjsp.py",
+                "python -m unittest tests.test_benchmark_suite tests.test_awls_slot_mode tests.test_slot_manifest_platform -v",
+            ],
+            knowledge_tags=["awls", "sdst", "portfolio", "search_control", "quality"],
+            user_confirmed=confirmed,
+        ),
+        CodeSlotSpec(
             slot_id="awls_sdst_neighborhood_selection",
             title="AWLS-SDST critical-block neighborhood candidate selection",
             target_file="examples/standard_fjsp_awls_solver.py",

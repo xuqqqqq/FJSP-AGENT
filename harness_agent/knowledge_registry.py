@@ -24,6 +24,7 @@ TAGGED_CARDS = {
         "knowledge/papers/awls_sdst_initialization_notes.md",
         "knowledge/papers/awls_sdst_same_machine_notes.md",
         "knowledge/papers/awls_sdst_move_evaluation_notes.md",
+        "knowledge/papers/awls_sdst_portfolio_search_control_notes.md",
     ],
     "zi": [
         "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
@@ -75,6 +76,14 @@ TAGGED_CARDS = {
     ],
     "candidate_generation": [
         "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
+    ],
+    "portfolio": [
+        "knowledge/papers/awls_sdst_portfolio_search_control_notes.md",
+        "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
+    ],
+    "search_control": [
+        "knowledge/papers/awls_sdst_portfolio_search_control_notes.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
     ],
     "tabu_search": [
         "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",

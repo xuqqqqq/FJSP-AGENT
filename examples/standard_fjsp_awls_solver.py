@@ -1740,6 +1740,7 @@ def solve_awls(
         zi_formula = ""
     index = OperationIndex.from_instance(instance)
     if portfolio_lanes:
+        # SLOT awls_sdst_portfolio_search_control START
         lane_budgets = allocate_lane_budgets(portfolio_lanes, time_limit_sec)
         best: AwlsSchedule | None = None
         best_lane: PortfolioLane | None = None
@@ -1778,6 +1779,7 @@ def solve_awls(
                     restarts=lane.restarts,
                     time_limit_sec=lane.time_limit_sec,
                 )
+        # SLOT awls_sdst_portfolio_search_control END
         if best is None or best_lane is None:
             raise RuntimeError("AWLS portfolio did not run any lane")
         label = (

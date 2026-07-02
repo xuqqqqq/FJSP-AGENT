@@ -9,6 +9,8 @@ from harness_agent.awls_zi_evolution import (
     build_deepseek_prompt,
     candidate_record,
     candidate_row,
+    candidate_signature,
+    collect_candidate_signatures,
     is_better,
     normalize_candidates,
     normalize_portfolio_lanes,
@@ -60,6 +62,127 @@ class AwlsZiEvolutionTests(unittest.TestCase):
         )
 
         self.assertEqual("2:mixed:1:8,0:mixed:1:8", candidates[0]["portfolio_lanes"])
+
+    def test_normalize_candidates_rejects_prior_duplicate_configuration(self) -> None:
+        prior = {
+            candidate_signature(
+                {
+                    "beta": 400,
+                    "gamma": 40,
+                    "theta": 5,
+                    "zi_policy": "critical",
+                    "zi_formula": "",
+                    "critical_block_exhaustive_pct": 75,
+                    "same_machine_eval": "stable",
+                    "portfolio_lanes": "",
+                }
+            )
+        }
+
+        with self.assertRaisesRegex(ValueError, "repeats prior measured configuration"):
+            normalize_candidates(
+                {
+                    "candidates": [
+                        {
+                            "name": "incumbent_repeat",
+                            "beta": 400,
+                            "gamma": 40,
+                            "theta": 5,
+                            "zi_policy": "critical",
+                            "critical_block_exhaustive_pct": 75,
+                            "same_machine_eval": "stable",
+                        }
+                    ]
+                },
+                1,
+                0,
+                prior_signatures=prior,
+            )
+
+    def test_normalize_candidates_requires_portfolio_candidate_for_multi_candidate_round(self) -> None:
+        with self.assertRaisesRegex(ValueError, "portfolio_lanes"):
+            normalize_candidates(
+                {
+                    "candidates": [
+                        {
+                            "name": "formula_a",
+                            "beta": 400,
+                            "gamma": 40,
+                            "theta": 5,
+                            "zi_policy": "formula",
+                            "zi_formula": "base * (1 + 0.2 * is_critical)",
+                            "critical_block_exhaustive_pct": 75,
+                        },
+                        {
+                            "name": "formula_b",
+                            "beta": 500,
+                            "gamma": 40,
+                            "theta": 5,
+                            "zi_policy": "formula",
+                            "zi_formula": "max(0, base + 0.02 * backward * is_critical)",
+                            "critical_block_exhaustive_pct": 75,
+                        },
+                    ]
+                },
+                2,
+                0,
+                require_portfolio_candidate=True,
+            )
+
+    def test_normalize_candidates_rejects_known_failed_portfolio_lanes(self) -> None:
+        with self.assertRaisesRegex(ValueError, "repeats failed portfolio_lanes"):
+            normalize_candidates(
+                {
+                    "candidates": [
+                        {
+                            "name": "failed_lane_repeat",
+                            "beta": 400,
+                            "gamma": 40,
+                            "theta": 5,
+                            "zi_policy": "critical",
+                            "critical_block_exhaustive_pct": 75,
+                            "portfolio_lanes": "0:mixed:1:6,6:mixed:1:6,7:greedy:1:6",
+                        }
+                    ]
+                },
+                1,
+                0,
+            )
+
+    def test_collect_candidate_signatures_includes_baseline_and_history(self) -> None:
+        signatures = collect_candidate_signatures(
+            {
+                "request": {
+                    "beta": 400,
+                    "gamma": 40,
+                    "theta": 5,
+                    "zi_policy": "critical",
+                    "critical_block_exhaustive_pct": 75,
+                    "same_machine_eval": "stable",
+                }
+            },
+            [
+                {
+                    "candidates": [
+                        {
+                            "candidate": {
+                                "beta": 500,
+                                "gamma": 40,
+                                "theta": 5,
+                                "zi_policy": "formula",
+                                "zi_formula": "base * 1.1",
+                                "critical_block_exhaustive_pct": 75,
+                                "same_machine_eval": "stable",
+                                "portfolio_lanes": "1:mixed:1:5",
+                            }
+                        }
+                    ]
+                }
+            ],
+        )
+
+        self.assertTrue(any("zi_policy=critical" in item for item in signatures))
+        self.assertTrue(any("portfolio_lanes=1:mixed:1:5" in item for item in signatures))
 
     def test_normalize_candidates_preserves_large_critical_exhaustive_pct(self) -> None:
         candidates = normalize_candidates(
@@ -202,6 +325,7 @@ class AwlsZiEvolutionTests(unittest.TestCase):
         self.assertIn("AWLS-SDST Move Evaluation Notes", prompt)
         self.assertIn("AWLS-SDST Initialization Notes", prompt)
         self.assertIn("AWLS-SDST Same-Machine N7 Notes", prompt)
+        self.assertIn("AWLS-SDST Portfolio Search-Control Notes", prompt)
         self.assertIn("non-empty `portfolio_lanes`", prompt)
         self.assertIn("same_machine_eval=cpp-fast", prompt)
 

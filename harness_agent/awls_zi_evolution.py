@@ -15,13 +15,23 @@ from .deepseek_client import DeepSeekClient
 ZI_POLICY_CHOICES = ("cpp", "none", "sqrt", "aggressive", "critical", "formula")
 SAME_MACHINE_EVAL_CHOICES = ("stable", "cpp-fast")
 CRITICAL_BLOCK_EXHAUSTIVE_PCT_MAX = 100
+CANDIDATE_REPAIR_ATTEMPTS = 1
+FAILED_PORTFOLIO_LANE_STRINGS = (
+    "0:mixed:1:6,6:mixed:1:6,7:greedy:1:6",
+    "2:mixed:1,3:random:1",
+)
 SDST_MEMORY_PATHS = (
     Path(__file__).resolve().parents[1] / "knowledge" / "papers" / "awls_sdst_neighborhood_selection_notes.md",
     Path(__file__).resolve().parents[1] / "knowledge" / "papers" / "awls_sdst_move_evaluation_notes.md",
     Path(__file__).resolve().parents[1] / "knowledge" / "papers" / "awls_sdst_initialization_notes.md",
     Path(__file__).resolve().parents[1] / "knowledge" / "papers" / "awls_sdst_same_machine_notes.md",
+    Path(__file__).resolve().parents[1] / "knowledge" / "papers" / "awls_sdst_portfolio_search_control_notes.md",
 )
 SDST_MEMORY_MAX_CHARS_PER_CARD = 6000
+
+
+class CandidateNormalizationError(ValueError):
+    """DeepSeek returned syntactically valid JSON that violates search guards."""
 
 
 @dataclass(frozen=True)
@@ -116,23 +126,47 @@ def run_awls_zi_evolution(request: AwlsZiEvolutionRequest) -> dict[str, Any]:
         prompt = build_deepseek_prompt(request, instance_names, baseline_manifest, history, best, round_index)
         (round_dir / "deepseek_prompt.md").write_text(prompt, encoding="utf-8")
         raw = client.chat(
-            [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are an FJSP AWLS parameter-policy designer. Return compact valid JSON only. "
-                        "Use only measured evaluator evidence provided by the user."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
+            build_deepseek_messages(prompt),
             temperature=0.35,
             max_tokens=4500,
             json_mode=True,
         )
-        (round_dir / "deepseek_raw_response.json").write_text(raw, encoding="utf-8")
-        profile = extract_json_object(raw)
-        candidates = normalize_candidates(profile, request.candidates_per_round, round_index)
+        prior_signatures = collect_candidate_signatures(baseline_manifest, history)
+        validation_errors: list[str] = []
+        current_prompt = prompt
+        candidates: list[dict[str, Any]] | None = None
+        for attempt in range(CANDIDATE_REPAIR_ATTEMPTS + 1):
+            raw_path = round_dir / ("deepseek_raw_response.json" if attempt == 0 else f"deepseek_repair_response_{attempt:02d}.json")
+            raw_path.write_text(raw, encoding="utf-8")
+            profile = extract_json_object(raw)
+            try:
+                candidates = normalize_candidates(
+                    profile,
+                    request.candidates_per_round,
+                    round_index,
+                    prior_signatures=prior_signatures,
+                    require_portfolio_candidate=request.candidates_per_round > 1,
+                )
+                break
+            except CandidateNormalizationError as exc:
+                validation_errors.append(str(exc))
+                if attempt >= CANDIDATE_REPAIR_ATTEMPTS:
+                    raise
+                current_prompt = build_candidate_repair_prompt(current_prompt, exc, prior_signatures)
+                (round_dir / f"deepseek_repair_prompt_{attempt + 1:02d}.md").write_text(current_prompt, encoding="utf-8")
+                raw = client.chat(
+                    build_deepseek_messages(current_prompt),
+                    temperature=0.25,
+                    max_tokens=4500,
+                    json_mode=True,
+                )
+        if validation_errors:
+            (round_dir / "candidate_validation_errors.json").write_text(
+                json.dumps(validation_errors, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+        if candidates is None:
+            raise CandidateNormalizationError("DeepSeek candidate normalization did not produce candidates")
         (round_dir / "normalized_candidates.json").write_text(
             json.dumps(candidates, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
@@ -346,6 +380,9 @@ Other allowed knobs:
   SDST-HUdata this can be a first-class search lever: a lane such as
   `2:mixed:1:8` means run AWLS with lane seed 2, mixed initialization, one
   restart, and an 8-second lane budget.
+- The platform rejects exact duplicate configurations, known failed portfolio
+  lane strings, all-formula-only multi-candidate rounds, and multi-candidate
+  rounds with no bounded `portfolio_lanes` candidate.
 
 Local SDST-HUdata measured memory and cautions:
 {sdst_memory}
@@ -389,6 +426,8 @@ Rules:
   non-empty `portfolio_lanes` string unless the recent measured history proves
   such lanes are harmful under this exact incumbent.  Treat seed/init/lane
   choice as a first-class hypothesis, not as noise.
+- Do not retry known failed portfolio strings:
+  `{", ".join(FAILED_PORTFOLIO_LANE_STRINGS)}`.
 - Avoid spending a full round only on `same_machine_eval=cpp-fast` or another
   small critical/cooldown multiplier formula after measured memory says those
   ideas tied or worsened the `1010` incumbent.
@@ -396,6 +435,42 @@ Rules:
   the fixed policies are flat or worse; keep formulas short and diverse.
 - Prefer interpretable changes to the zi mechanism. This is a controlled
   evolution experiment, not a free code rewrite.
+""".strip()
+
+
+def build_deepseek_messages(prompt: str) -> list[dict[str, str]]:
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You are an FJSP AWLS parameter-policy designer. Return compact valid JSON only. "
+                "Use only measured evaluator evidence provided by the user."
+            ),
+        },
+        {"role": "user", "content": prompt},
+    ]
+
+
+def build_candidate_repair_prompt(
+    prompt: str,
+    error: CandidateNormalizationError,
+    prior_signatures: set[str],
+) -> str:
+    signatures = "\n".join(f"- {item}" for item in sorted(prior_signatures)) or "- (none)"
+    return f"""
+{prompt}
+
+Your previous JSON was rejected by the platform candidate gate.
+
+Validation error:
+{error}
+
+Already measured / forbidden exact configuration signatures:
+{signatures}
+
+Return corrected JSON only. Keep the same schema and candidate count, but make
+the candidates materially distinct. At least one candidate must use a bounded,
+non-empty portfolio_lanes string that is not listed as a failed portfolio.
 """.strip()
 
 
@@ -414,12 +489,24 @@ def load_sdst_neighborhood_memory() -> str:
     return "\n\n---\n\n".join(sections)
 
 
-def normalize_candidates(profile: dict[str, Any], count: int, round_index: int) -> list[dict[str, Any]]:
+def normalize_candidates(
+    profile: dict[str, Any],
+    count: int,
+    round_index: int,
+    *,
+    prior_signatures: set[str] | None = None,
+    require_portfolio_candidate: bool = False,
+    forbidden_portfolios: set[str] | None = None,
+) -> list[dict[str, Any]]:
     raw_candidates = profile.get("candidates")
     if not isinstance(raw_candidates, list):
-        raise ValueError("DeepSeek response must contain a candidates list")
+        raise CandidateNormalizationError("DeepSeek response must contain a candidates list")
     normalized: list[dict[str, Any]] = []
     seen: set[str] = set()
+    seen_signatures: set[str] = set()
+    prior = set(prior_signatures or set())
+    forbidden = set(forbidden_portfolios or normalized_failed_portfolios())
+    rejection_reasons: list[str] = []
     for index, raw in enumerate(raw_candidates):
         if not isinstance(raw, dict):
             continue
@@ -429,40 +516,99 @@ def normalize_candidates(profile: dict[str, Any], count: int, round_index: int) 
         seen.add(name)
         policy = str(raw.get("zi_policy") or "cpp")
         if policy not in ZI_POLICY_CHOICES:
-            raise ValueError(f"DeepSeek proposed unsupported zi_policy: {policy}")
+            raise CandidateNormalizationError(f"DeepSeek proposed unsupported zi_policy: {policy}")
         formula = str(raw.get("zi_formula") or "")
         if policy == "formula":
-            formula = validate_zi_formula(formula)
+            try:
+                formula = validate_zi_formula(formula)
+            except ValueError as exc:
+                raise CandidateNormalizationError(f"{name}: invalid zi_formula: {exc}") from exc
         else:
             formula = ""
         eval_mode = str(raw.get("same_machine_eval") or "stable")
         if eval_mode not in SAME_MACHINE_EVAL_CHOICES:
-            raise ValueError(f"DeepSeek proposed unsupported same_machine_eval: {eval_mode}")
-        portfolio_lanes = normalize_portfolio_lanes(str(raw.get("portfolio_lanes") or ""))
-        normalized.append(
-            {
-                "name": f"r{round_index:02d}_{name}",
-                "rationale": str(raw.get("rationale") or ""),
-                "beta": clamp_int(raw.get("beta"), 500, 50, 1500),
-                "gamma": clamp_int(raw.get("gamma"), 40, 5, 120),
-                "theta": clamp_int(raw.get("theta"), 5, 0, 20),
-                "zi_policy": policy,
-                "zi_formula": formula,
-                "critical_block_exhaustive_pct": clamp_int(
-                    raw.get("critical_block_exhaustive_pct"),
-                    0,
-                    0,
-                    CRITICAL_BLOCK_EXHAUSTIVE_PCT_MAX,
-                ),
-                "same_machine_eval": eval_mode,
-                "portfolio_lanes": portfolio_lanes,
-            }
-        )
+            raise CandidateNormalizationError(f"DeepSeek proposed unsupported same_machine_eval: {eval_mode}")
+        try:
+            portfolio_lanes = normalize_portfolio_lanes(str(raw.get("portfolio_lanes") or ""))
+        except ValueError as exc:
+            raise CandidateNormalizationError(f"{name}: invalid portfolio_lanes: {exc}") from exc
+        candidate = {
+            "name": f"r{round_index:02d}_{name}",
+            "rationale": str(raw.get("rationale") or ""),
+            "beta": clamp_int(raw.get("beta"), 500, 50, 1500),
+            "gamma": clamp_int(raw.get("gamma"), 40, 5, 120),
+            "theta": clamp_int(raw.get("theta"), 5, 0, 20),
+            "zi_policy": policy,
+            "zi_formula": formula,
+            "critical_block_exhaustive_pct": clamp_int(
+                raw.get("critical_block_exhaustive_pct"),
+                0,
+                0,
+                CRITICAL_BLOCK_EXHAUSTIVE_PCT_MAX,
+            ),
+            "same_machine_eval": eval_mode,
+            "portfolio_lanes": portfolio_lanes,
+        }
+        signature = candidate_signature(candidate)
+        if signature in prior:
+            rejection_reasons.append(f"{name}: repeats prior measured configuration {signature}")
+            continue
+        if signature in seen_signatures:
+            rejection_reasons.append(f"{name}: duplicates another candidate in this round {signature}")
+            continue
+        if portfolio_lanes and portfolio_lanes in forbidden:
+            rejection_reasons.append(f"{name}: repeats failed portfolio_lanes {portfolio_lanes}")
+            continue
+        normalized.append(candidate)
+        seen_signatures.add(signature)
         if len(normalized) >= count:
             break
     if len(normalized) != count:
-        raise ValueError(f"DeepSeek returned {len(normalized)} usable candidates; expected {count}")
+        suffix = "; ".join(rejection_reasons[:5])
+        detail = f" ({suffix})" if suffix else ""
+        raise CandidateNormalizationError(f"DeepSeek returned {len(normalized)} usable candidates; expected {count}{detail}")
+    if require_portfolio_candidate and not any(candidate.get("portfolio_lanes") for candidate in normalized):
+        raise CandidateNormalizationError("multi-candidate SDST rounds require at least one non-empty portfolio_lanes candidate")
+    if count > 1 and all(candidate.get("zi_policy") == "formula" and not candidate.get("portfolio_lanes") for candidate in normalized):
+        raise CandidateNormalizationError("multi-candidate rounds may not be all formula-only without portfolio_lanes")
     return normalized
+
+
+def candidate_signature(candidate: dict[str, Any]) -> str:
+    policy = str(candidate.get("zi_policy") or "cpp")
+    formula = str(candidate.get("zi_formula") or "") if policy == "formula" else ""
+    return ";".join(
+        [
+            f"beta={candidate.get('beta', '')}",
+            f"gamma={candidate.get('gamma', '')}",
+            f"theta={candidate.get('theta', '')}",
+            f"zi_policy={policy}",
+            f"zi_formula={formula}",
+            f"critical_block_exhaustive_pct={candidate.get('critical_block_exhaustive_pct', '')}",
+            f"same_machine_eval={candidate.get('same_machine_eval', '')}",
+            f"portfolio_lanes={candidate.get('portfolio_lanes', '') or ''}",
+        ]
+    )
+
+
+def collect_candidate_signatures(baseline_manifest: dict[str, Any], history: list[dict[str, Any]]) -> set[str]:
+    signatures: set[str] = set()
+    baseline_config = candidate_config_from_benchmark_manifest(baseline_manifest)
+    if baseline_config:
+        signatures.add(candidate_signature(baseline_config))
+    for round_record in history:
+        for record in round_record.get("candidates", []):
+            if not isinstance(record, dict):
+                continue
+            config = record.get("candidate")
+            if isinstance(config, dict) and config:
+                signatures.add(candidate_signature(config))
+        best = round_record.get("best_after_round")
+        if isinstance(best, dict):
+            config = best.get("candidate")
+            if isinstance(config, dict) and config:
+                signatures.add(candidate_signature(config))
+    return signatures
 
 
 def candidate_record(name: str, source: str, manifest: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
@@ -755,6 +901,16 @@ def normalize_portfolio_lanes(raw: str) -> str:
         + (f":{format_float_for_lane(lane.time_limit_sec)}" if lane.time_limit_sec is not None else "")
         for lane in lanes
     )
+
+
+def normalized_failed_portfolios() -> set[str]:
+    failed: set[str] = set()
+    for raw in FAILED_PORTFOLIO_LANE_STRINGS:
+        try:
+            failed.add(normalize_portfolio_lanes(raw))
+        except ValueError:
+            failed.add(raw)
+    return failed
 
 
 def format_float_for_lane(value: float) -> str:
