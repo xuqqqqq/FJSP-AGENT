@@ -687,6 +687,9 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_failed_same_machine_window",
         "neighborhood_retries_failed_tight_tardiness_filter",
         "neighborhood_retries_latest_block_topk_overpruning",
+        "neighborhood_retries_global_move_count_cap",
+        "neighborhood_retries_random_diversity_sampling",
+        "neighborhood_shuffles_candidate_machine_dict",
         "portfolio_retries_seed_mapping_only",
         "same_machine_retries_pure_exact_trial",
         "same_machine_retries_exact_setup_tiebreak",
@@ -935,6 +938,9 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_failed_same_machine_window",
         "neighborhood_retries_failed_tight_tardiness_filter",
         "neighborhood_retries_latest_block_topk_overpruning",
+        "neighborhood_retries_global_move_count_cap",
+        "neighborhood_retries_random_diversity_sampling",
+        "neighborhood_shuffles_candidate_machine_dict",
         "portfolio_retries_seed_mapping_only",
         "same_machine_retries_pure_exact_trial",
         "same_machine_retries_exact_setup_tiebreak",
@@ -1095,6 +1101,24 @@ def awls_sdst_neighborhood_selection_warnings(content: str) -> list[str]:
     )
     if topk_latest_blocks:
         warnings.append("neighborhood_retries_latest_block_topk_overpruning")
+    global_move_cap = (
+        re.search(r"\bMAX_MOVES\s*=\s*(?:50|100|200|300)\b", content)
+        or re.search(r"\b(?:max_moves|total_move_limit)\s*=\s*(?:50|100|200|300)\b", content)
+    )
+    if global_move_cap and "assignment" not in content and "change_machine_window" in content:
+        warnings.append("neighborhood_retries_global_move_count_cap")
+    random_diversity_sampling = (
+        re.search(r"\bmax_blocks\s*=\s*\d+", content)
+        and re.search(r"\bmax_same_per_block\s*=\s*\d+", content)
+        and re.search(r"\btotal_move_limit\s*=\s*\d+", content)
+        and ("shuffle(" in content or ".sample(" in content)
+    )
+    if random_diversity_sampling:
+        warnings.append("neighborhood_retries_random_diversity_sampling")
+    if re.search(r"\bschedule\.rng\.shuffle\(\s*schedule\.index\.candidates\[[^\]]+\]\s*\)", content):
+        warnings.append("neighborhood_shuffles_candidate_machine_dict")
+    if re.search(r"\bcandidate_machines\s*=\s*schedule\.index\.candidates\[[^\]]+\][\s\S]{0,160}\bschedule\.rng\.shuffle\(\s*candidate_machines\s*\)", content):
+        warnings.append("neighborhood_shuffles_candidate_machine_dict")
     if "if not all_moves" in content and "schedule.rng" in content and ("shuffle(" in content or "choice(" in content):
         warnings.append("neighborhood_adds_random_no_move_fallback")
     if (
@@ -1318,6 +1342,8 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "+/-10 or +/-3 same-machine windows, or tight tardiness > -5 insertion filters.\n"
             "- Do not replace the incumbent exhaustive/non-exhaustive critical-block pass with a fixed top-K latest-block "
             "subset only; top_k=3 latest-block pruning worsened oddla20 from 1010 to 1280.\n"
+            "- Do not retry flat global move-count caps such as MAX_MOVES=200 or random diversity sampling with "
+            "max_blocks/max_same_per_block/total_move_limit; those tied or failed at runtime.\n"
             "- If editing this slot, use a materially different bounded candidate-generation idea such as "
             "boundary-biased N7 moves, bounded NK alternate-machine candidates from change_machine_window, "
             "or setup-heavy arc focus submitted only through consider_same / consider_change.\n"
@@ -1332,6 +1358,7 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "and usually does not affect the active incumbent traversal.\n"
             "- Do not call `schedule.setup_time`, `schedule.index.setup_time`, or `index.setup_time`; use "
             "`setup_time_between` with operation-key tuples if setup lookup is necessary.\n"
+            "- If shuffling candidate machines, convert `schedule.index.candidates[node]` to a list first; it is a dict.\n"
             "- Do not call trial.apply_move, directly mutate schedule, or bypass the existing closures."
         )
     if slot_id == "awls_sdst_initialization":

@@ -1882,6 +1882,114 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_neighborhood_slot_warns_on_global_move_count_cap_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "BoundedNeighborhood",
+                        "type": "local_search_operator",
+                        "novelty": "Different from exhaustive search by using a global cap.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_neighborhood_selection",
+                        "content": (
+                            "    MAX_MOVES = 200\n"
+                            "    for node in schedule.index.real_nodes:\n"
+                            "        for candidate_machine in schedule.index.candidates[node]:\n"
+                            "            sequence, rk_start, lk_end = change_machine_window(schedule, node, candidate_machine)\n"
+                            "            if len(all_moves) >= MAX_MOVES:\n"
+                            "                break\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn("neighborhood_retries_global_move_count_cap", normalized["proposal_audit"]["warnings"])
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_neighborhood_slot_warns_on_random_diversity_sampling_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "BoundedDiversitySampling",
+                        "type": "local_search_operator",
+                        "novelty": "Different from global cap by sampling blocks.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_neighborhood_selection",
+                        "content": (
+                            "    max_blocks = 10\n"
+                            "    max_same_per_block = 3\n"
+                            "    total_move_limit = 50\n"
+                            "    blocks = critical_blocks(schedule, schedule.rng, exhaustive=False)\n"
+                            "    schedule.rng.shuffle(blocks)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn("neighborhood_retries_random_diversity_sampling", normalized["proposal_audit"]["warnings"])
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_neighborhood_slot_warns_on_shuffling_candidate_machine_dict(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "shuffle_candidate_machine_dict",
+                        "type": "local_search_operator",
+                        "novelty": "Different from setup fallback by shuffling candidate machines.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_neighborhood_selection",
+                        "content": (
+                            "    candidate_machines = schedule.index.candidates[node]\n"
+                            "    schedule.rng.shuffle(candidate_machines)\n"
+                            "    for candidate_machine in candidate_machines:\n"
+                            "        consider_change(CHANGE_MACHINE_FRONT, node, candidate_machine, -1, -1)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn("neighborhood_shuffles_candidate_machine_dict", normalized["proposal_audit"]["warnings"])
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_portfolio_slot_warns_on_seed_mapping_only_retry(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_portfolio_search_control")

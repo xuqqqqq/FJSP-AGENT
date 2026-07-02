@@ -148,6 +148,18 @@ from the published UB (`997`; current fast/short baselines are `1202` or
   despite setup time falling to `1850`.  Do not retry fixed latest-block
   top-K pruning as the whole neighborhood replacement; it removes too much
   useful same-machine search.
+- A literature-direction neighborhood run asked for critical-block
+  assignment-then-sequencing moves, but the worker instead proposed a flat
+  `MAX_MOVES=200` global cap while preserving the old move families.  It
+  legally tied `oddla20` at `1010`, so do not retry global candidate-count
+  caps as the primary novelty.
+- The follow-up `BoundedDiversitySampling` proposal randomly sampled up to
+  ten critical blocks, capped same-machine moves to three per block, capped
+  total moves around fifty, and shuffled critical nodes/candidate machines.
+  It failed at runtime with `KeyError` because `schedule.index.candidates[node]`
+  is a dict and `schedule.rng.shuffle(...)` requires a mutable sequence.  Do
+  not retry random diversity sampling with small fixed caps, and convert dict
+  keys to a list before any seeded shuffle.
 
 This points toward the move-candidate selection layer: the search may not be
 trying the right critical or near-critical N7/NK moves often enough.
@@ -245,6 +257,15 @@ Use these as hypotheses, not as manual patches:
   with only `critical_blocks(..., exhaustive=False)` sorted by latest
   `end_time` and clipped to a small fixed `top_k`; the tested top-3 version
   worsened `oddla20` to `1280`.
+- Do not retry flat global move-count caps such as `MAX_MOVES=200`; that tied
+  `1010` and did not implement the requested critical-block
+  assignment-then-sequencing idea.
+- Do not retry random diversity sampling with `max_blocks`, `max_same_per_block`,
+  `max_change_per_node`, or `total_move_limit` as the main novelty; the first
+  attempt failed at runtime and is too close to over-pruning.
+- Do not call `schedule.rng.shuffle(schedule.index.candidates[node])`;
+  `schedule.index.candidates[node]` is a dict.  Use
+  `list(schedule.index.candidates[node])` before shuffling candidate machines.
 
 ## Guardrails
 
