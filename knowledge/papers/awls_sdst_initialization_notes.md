@@ -109,6 +109,14 @@ Use these as hypotheses, not as a manual patch:
   retry committed non-append insertion unless the proposal has an explicit
   acyclic/topological feasibility guard or only reorders an uncommitted
   temporary construction sequence.
+- After the non-append guard was added, a legal static bottleneck initializer
+  identified one machine by total minimum processing time, prioritized
+  operations eligible on that bottleneck, and intentionally ignored setup
+  times.  Core evaluation worsened `oddla20` from `1010` to `1029`, even
+  though setup time fell from `1900` to `1730`.  Do not retry static
+  single-bottleneck priority unless it is materially combined with dynamic
+  readiness, critical-tail/regret pressure, or setup-aware feasibility rather
+  than simply lowering setup/load diagnostics.
 - Do not compare move/init mode constants with integers.
 - Do not call `setup_time_between` with `current_op=None`.
 - Import `setup_time_between` locally inside the slot before using it.

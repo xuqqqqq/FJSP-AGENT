@@ -689,6 +689,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "initialization_retries_low_setup_tiebreak",
         "initialization_non_append_without_acyclic_guard",
         "initialization_rebuilds_ready_after_committed_insert",
+        "initialization_retries_static_bottleneck_ignores_setup",
     }
     return any(str(item) in must_repair for item in warnings)
 
@@ -905,6 +906,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "initialization_retries_low_setup_tiebreak",
         "initialization_non_append_without_acyclic_guard",
         "initialization_rebuilds_ready_after_committed_insert",
+        "initialization_retries_static_bottleneck_ignores_setup",
     }
     return any(str(item) in repair_warnings for item in warnings)
 
@@ -964,6 +966,14 @@ def awls_sdst_initialization_warnings(content: str) -> list[str]:
         warnings.append("initialization_non_append_without_acyclic_guard")
     if rebuilds_ready_after_insert:
         warnings.append("initialization_rebuilds_ready_after_committed_insert")
+    static_bottleneck_only = (
+        "bottleneck_machine" in content
+        and "bottleneck_priority" in content
+        and ("machine_loads" in content or "machine_load_count" in content)
+        and not uses_setup
+    )
+    if static_bottleneck_only:
+        warnings.append("initialization_retries_static_bottleneck_ignores_setup")
     return list(dict.fromkeys(warnings))
 
 
@@ -1019,6 +1029,8 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- If editing this slot, use a materially different construction idea such as bottleneck-machine "
             "pressure, critical-tail/remaining-work pressure, or bounded non-append insertion while scheduling "
             "each operation exactly once.\n"
+            "- Do not retry static single-bottleneck priority that ignores setup/tail/dynamic readiness; it was "
+            "legal but worsened oddla20 from 1010 to 1029.\n"
             "- If using non-append insertion, do not directly commit `sequences[machine].insert(...)` without an "
             "acyclic/topological feasibility guard, and do not rebuild global job_ready for already scheduled "
             "operations after insertion; that produced a disjunctive-graph cycle on oddla20.\n"

@@ -175,6 +175,7 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
                 "Do not import setup_time_between from examples.standard_fjsp_awls_solver; use harness_agent.standard_fjsp.",
                 "Do not call setup_time_between with separate job/op integer arguments.",
                 "Do not retry plain append-only setup-aware earliest-completion, low-setup tie-breaking, fixed small RCL, or tail-aware append scoring unchanged.",
+                "Do not retry static single-bottleneck priority that ignores setup, tail pressure, and dynamic readiness.",
                 "Do not directly commit sequences[machine].insert(...) and then rebuild global job_ready for already scheduled operations without a cycle/topology guard.",
                 "Do not emit unindented top-level code in this function-body slot.",
                 "Do not change AWLS timing propagation, N7/NK move scoring, zi policy, parser, evaluator, or benchmark semantics.",

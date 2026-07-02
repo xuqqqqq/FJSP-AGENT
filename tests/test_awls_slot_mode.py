@@ -473,6 +473,45 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_initialization_slot_warns_on_static_bottleneck_without_setup_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "static_bottleneck_priority",
+                        "type": "construction_rule",
+                        "novelty": "Avoids setup-aware append and unsafe insertion by focusing on bottleneck load.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    machine_loads = [0.0] * index.instance.machine_count\n"
+                            "    bottleneck_machine = max(range(index.instance.machine_count), key=lambda m: machine_loads[m])\n"
+                            "    def bottleneck_priority(node):\n"
+                            "        return index.candidates[node].get(bottleneck_machine, 0)\n"
+                            "    chosen = max(ready_nodes, key=bottleneck_priority)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "initialization_retries_static_bottleneck_ignores_setup",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_extract_negative_memory_lines_merges_multiline_bullets(self) -> None:
         lines = extract_negative_memory_lines(
             "- A setup-aware attempt failed because it used the wrong API.\n"
