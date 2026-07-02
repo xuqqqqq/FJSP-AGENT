@@ -679,7 +679,9 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
     must_repair = {
         "same_machine_setup_propagation_without_exact_trial",
         "slot_uses_nonexistent_operation_index_durations",
+        "slot_uses_nonexistent_setup_time_api",
         "neighborhood_adds_random_no_move_fallback",
+        "neighborhood_adds_setup_no_move_fallback",
         "neighborhood_gates_change_machine_on_empty_same_moves",
         "neighborhood_retries_failed_near_critical_threshold",
         "neighborhood_retries_failed_same_machine_window",
@@ -906,7 +908,9 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "empty_slot_proposal_reverts_to_baseline",
         "same_machine_setup_propagation_without_exact_trial",
         "slot_uses_nonexistent_operation_index_durations",
+        "slot_uses_nonexistent_setup_time_api",
         "neighborhood_adds_random_no_move_fallback",
+        "neighborhood_adds_setup_no_move_fallback",
         "neighborhood_gates_change_machine_on_empty_same_moves",
         "neighborhood_retries_failed_near_critical_threshold",
         "neighborhood_retries_failed_same_machine_window",
@@ -936,6 +940,8 @@ def slot_specific_generic_warnings(slot: dict[str, Any], changes: list[dict[str,
     warnings: list[str] = []
     if re.search(r"schedule\.index\.durations\b|\bindex\.durations\b", content):
         warnings.append("slot_uses_nonexistent_operation_index_durations")
+    if re.search(r"\b(?:schedule(?:\.index)?|index)\.setup_time\b", content):
+        warnings.append("slot_uses_nonexistent_setup_time_api")
     if slot_id == "awls_sdst_initialization":
         return warnings + awls_sdst_initialization_warnings(content)
     if slot_id == "awls_sdst_neighborhood_selection":
@@ -1032,6 +1038,12 @@ def awls_sdst_neighborhood_selection_warnings(content: str) -> list[str]:
         warnings.append("neighborhood_adds_random_no_move_fallback")
     if (
         "if not all_moves" in content
+        and "setup" in content
+        and ("consider_same" in content or "consider_change" in content)
+    ):
+        warnings.append("neighborhood_adds_setup_no_move_fallback")
+    if (
+        "if not all_moves" in content
         and "change_machine_window" in content
         and "exhaustive_modes" not in content
         and re.search(r"critical_blocks\([^)]*exhaustive\s*=\s*false", content)
@@ -1085,6 +1097,10 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- Do not add random fallback moves that run only after all_moves is empty, and do not gate all "
             "change-machine candidates behind `if not all_moves` after same-machine generation; both patterns "
             "have tied or badly worsened oddla20.\n"
+            "- Do not add setup-heavy candidates only under `if not all_moves`; that setup fallback tied oddla20 "
+            "and usually does not affect the active incumbent traversal.\n"
+            "- Do not call `schedule.setup_time`, `schedule.index.setup_time`, or `index.setup_time`; use "
+            "`setup_time_between` with operation-key tuples if setup lookup is necessary.\n"
             "- Do not call trial.apply_move, directly mutate schedule, or bypass the existing closures."
         )
     if slot_id == "awls_sdst_initialization":

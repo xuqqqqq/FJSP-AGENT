@@ -686,6 +686,44 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_generic_slot_warns_on_nonexistent_setup_time_api(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "setup_api_lookup",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed near-critical filters by using setup arcs.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_neighborhood_selection",
+                        "content": (
+                            "    for node in schedule.index.real_nodes:\n"
+                            "        setup = schedule.setup_time[schedule.on_machine[node]].get(node, {})\n"
+                            "        if setup:\n"
+                            "            consider_same(BACK, node, node)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "slot_uses_nonexistent_setup_time_api",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_neighborhood_slot_warns_on_random_empty_move_fallback(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
@@ -721,6 +759,44 @@ class AwlsSlotModeTests(unittest.TestCase):
 
         self.assertIn(
             "neighborhood_adds_random_no_move_fallback",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_neighborhood_slot_warns_on_setup_empty_move_fallback(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "setup_fallback_candidates",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed random fallback by using setup-heavy arcs.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_neighborhood_selection",
+                        "content": (
+                            "    if not all_moves:\n"
+                            "        setup_heavy_nodes = list(schedule.index.real_nodes)\n"
+                            "        for node in setup_heavy_nodes:\n"
+                            "            consider_same(BACK, node, node)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "neighborhood_adds_setup_no_move_fallback",
             normalized["proposal_audit"]["warnings"],
         )
         self.assertTrue(generic_slot_needs_repair(normalized))

@@ -99,6 +99,17 @@ from the published UB (`997`; current fast/short baselines are `1202` or
   - Tight near-critical insertion into critical blocks worsened to `1030`
     even though setup time dropped to `1840`; lower setup time alone was not
     enough to lower makespan.
+- A later neighborhood slot run asked for setup-heavy arc augmentation while
+  preserving incumbent traversal, but DeepSeek placed the setup-heavy moves
+  behind `if not all_moves`; it legally tied `1010`, so the idea rarely affects
+  the active search path.  The next setup-heavy proposal must participate in
+  the main incumbent traversal with strict bounds, not only as a no-candidate
+  fallback.
+- In the same run, a high-setup operation filter replaced broad move generation
+  and crashed at runtime with `AttributeError: 'AwlsSchedule' object has no
+  attribute 'setup_time'`.  `AwlsSchedule`, `OperationIndex`, and `index` do
+  not expose `setup_time`; setup lookup must use `setup_time_between` with
+  operation-key tuples.
 - A guarded neighborhood-selection round asked for materially different
   boundary/NK/setup-arc candidates, but DeepSeek proposed
   `PrunedCriticalBlockNeighborhood`: sort critical blocks by total processing
@@ -209,6 +220,11 @@ Use these as hypotheses, not as manual patches:
   candidate-machine processing time.
 - Do not add random shake moves only under `if not all_moves`; this tied
   `1010` and is usually a dead fallback under the incumbent generator.
+- Do not add setup-heavy SDST arc moves only under `if not all_moves`; this
+  also tied `1010` and usually does not influence the incumbent generator.
+- Do not use nonexistent setup APIs such as `schedule.setup_time`,
+  `schedule.index.setup_time`, or `index.setup_time`; use `setup_time_between`
+  with operation-key tuples.
 - Do not put all `change_machine_window` / `consider_change` calls behind
   `if not all_moves` after same-machine generation.  This over-pruned the
   search to `5` selected moves and worsened `oddla20` to `1295`.
