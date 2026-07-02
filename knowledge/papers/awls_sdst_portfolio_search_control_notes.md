@@ -46,6 +46,18 @@ are diagnostics only.
   lane `0:mixed/cfg0` remained best; the other lanes reached `1086`, `1290`,
   and `1075`.  This suggests incumbent-adjacent per-lane parameter
   dissimilarity by itself is not enough to beat `la20`.
+- A setup-aware AWLS-ZI round proposed `critical + pct80` with lanes
+  `6:mixed:1:6,7:greedy:1:6,3:random:1:6`.  It worsened `oddla20` from
+  `1010` to `1026`; the selected lane was `7:greedy` at `1026`, while
+  `6:mixed` reached `1322` and `3:random` reached `1031`.  Do not retry this
+  lane string unchanged under the same incumbent controls.
+- A follow-up setup-aware formula portfolio round worsened two more lane
+  families:
+  - `2:random:1:6,5:greedy:1:6,8:mixed:1:6` with a backward/setup-next formula
+    reached `1042` (`2:random=1042`, `5:greedy=1135`, `8:mixed=1051`).
+  - `1:greedy:1:6,3:random:1:6,7:mixed:1:6` with a setup-prev critical formula
+    reached `1099` (`1:greedy=1099`, `3:random=1111`, `7:mixed=1158`).
+  Do not retry these lane strings unchanged with setup-ratio zi formulas.
 
 ## Worker Directions
 
@@ -69,6 +81,11 @@ Use these as hypotheses, not as manual patches:
   `beta/gamma/critical_block_exhaustive_pct` around the incumbent unless it is
   paired with a different lane set, construction profile, or move-budget rule;
   the tested diverse-lane parameter grid tied at `1010`.
+- Do not retry `6:mixed:1:6,7:greedy:1:6,3:random:1:6` with
+  `critical_block_exhaustive_pct=80`; it worsened to `1026`.
+- Do not retry `2:random:1:6,5:greedy:1:6,8:mixed:1:6` or
+  `1:greedy:1:6,3:random:1:6,7:mixed:1:6` unchanged with setup-ratio formula
+  policies; both worsened beyond `1040`.
 
 ## Guardrails
 

@@ -20,6 +20,9 @@ FAILED_PORTFOLIO_LANE_STRINGS = (
     "0:mixed:1:6,6:mixed:1:6,7:greedy:1:6",
     "2:mixed:1,3:random:1",
     "1:mixed:1:10,4:mixed:1:10",
+    "6:mixed:1:6,7:greedy:1:6,3:random:1:6",
+    "2:random:1:6,5:greedy:1:6,8:mixed:1:6",
+    "1:greedy:1:6,3:random:1:6,7:mixed:1:6",
 )
 SDST_SETUP_ZI_SYMBOLS = (
     "setup_prev",
@@ -451,6 +454,10 @@ Rules:
 - If using `zi_policy=formula` on SDST-HUdata, prefer at least one materially
   setup-aware expression using `setup_prev`, `setup_next`, or
   `setup_adjacent_ratio` rather than another pure critical multiplier.
+- Recent setup-ratio formulas that only multiply `base` by
+  `is_critical * setup_*_ratio` tied or worsened.  A new formula should change
+  the gate structure, include another AWLS pressure term, or use a different
+  mechanism rather than only adjusting that coefficient.
 - Prefer interpretable changes to the zi mechanism. This is a controlled
   evolution experiment, not a free code rewrite.
 """.strip()

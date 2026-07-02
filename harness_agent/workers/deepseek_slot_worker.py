@@ -684,6 +684,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_failed_near_critical_threshold",
         "neighborhood_retries_failed_same_machine_window",
         "neighborhood_retries_failed_tight_tardiness_filter",
+        "same_machine_retries_pure_exact_trial",
     }
     return any(str(item) in must_repair for item in warnings)
 
@@ -895,6 +896,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_failed_near_critical_threshold",
         "neighborhood_retries_failed_same_machine_window",
         "neighborhood_retries_failed_tight_tardiness_filter",
+        "same_machine_retries_pure_exact_trial",
     }
     return any(str(item) in repair_warnings for item in warnings)
 
@@ -917,6 +919,8 @@ def slot_specific_generic_warnings(slot: dict[str, Any], changes: list[dict[str,
     uses_exact_trial = ".clone(" in content and ".apply_move(" in content and "trial.makespan" in content
     if uses_setup_propagation and not uses_exact_trial:
         warnings.append("same_machine_setup_propagation_without_exact_trial")
+    if uses_exact_trial and "setup_time_between" not in content and re.search(r"0\.00?1\s*\*\s*float\(legacy\)", content):
+        warnings.append("same_machine_retries_pure_exact_trial")
     return warnings
 
 
@@ -968,7 +972,9 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
     if slot_id == "awls_sdst_same_machine_evaluation":
         return (
             "- Setup-aware R/Q propagation approximations have failed unless backed by an exact cloned trial.\n"
-            "- For SDST same-machine scoring, either preserve legacy behavior or use the available exact-trial pattern below."
+            "- Pure exact cloned trial scored as `trial.makespan + 0.001 * legacy` has already tied oddla20; "
+            "do not retry it unchanged.  If using exact trial, add a materially different bounded tie-breaker "
+            "or gating rule while preserving makespan pressure."
         )
     return "- Keep the replacement inside the selected slot contract and make the novelty materially different from failure memory."
 

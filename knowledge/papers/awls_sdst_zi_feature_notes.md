@@ -64,6 +64,22 @@ solution schema, or benchmark score semantics.
     `1010 -> 1010`.
   Do not retry these exact formulas or the `1:mixed:1:10,4:mixed:1:10`
   portfolio unchanged.
+- A later setup-aware AWLS-ZI structured round tested neighbor-critical gated
+  setup pressure:
+  `max(0, base * (1 + 0.3 * is_critical * (setup_predecessor_critical * setup_prev_ratio + setup_successor_critical * setup_next_ratio)))`.
+  It legally tied the `oddla20` incumbent at `1010` under
+  `critical_block_exhaustive_pct=75`, so the next setup-aware formula should
+  change more than just adjacent critical gating, for example by using
+  asymmetric backward/forward tail pressure or a distinct portfolio/search
+  control.
+- A follow-up guarded AWLS-ZI round tried two setup-aware formulas with bounded
+  portfolios, and both worsened sharply:
+  - `max(0, base * (1 + 0.2 * is_critical * max(0, backward / (forward + 1)) * setup_next_ratio))`
+    with `2:random:1:6,5:greedy:1:6,8:mixed:1:6` worsened `1010 -> 1042`.
+  - `max(0, base * (1 + 0.25 * is_critical * setup_prev_ratio))` with
+    `1:greedy:1:6,3:random:1:6,7:mixed:1:6` worsened `1010 -> 1099`.
+  This strengthens the caution that multiplying `base` by critical setup ratios
+  tends to steer the short-budget search into worse basins on `la20`.
 
 ## Worker Directions
 
@@ -83,6 +99,15 @@ Use these as hypotheses, not as manual patches:
 - Prefer the next formula to change the gate structure, for example combining
   setup features with `backward`, `forward`, or neighbor-critical flags, rather
   than only multiplying `base` by `is_critical * setup_*_ratio`.
+- Do not retry the exact neighbor-critical formula
+  `base * (1 + 0.3 * is_critical * (setup_predecessor_critical * setup_prev_ratio + setup_successor_critical * setup_next_ratio))`
+  unchanged; it tied `1010`.
+- Do not spend the next zi round only on `base * (1 + k * is_critical *
+  setup_*_ratio)` formulas, even with backward/forward gates or small
+  portfolios; the measured variants tied or worsened.  Prefer a different
+  mechanism such as same-machine N7 scoring, initialization with true insertion,
+  or a formula that changes cooldown/weight pressure rather than simply
+  scaling `base` by setup ratios.
 
 ## Guardrails
 

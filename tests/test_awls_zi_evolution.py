@@ -210,6 +210,52 @@ class AwlsZiEvolutionTests(unittest.TestCase):
                 0,
             )
 
+    def test_normalize_candidates_rejects_failed_pct80_diverse_lanes(self) -> None:
+        with self.assertRaisesRegex(ValueError, "repeats failed portfolio_lanes"):
+            normalize_candidates(
+                {
+                    "candidates": [
+                        {
+                            "name": "failed_pct80_lanes",
+                            "beta": 400,
+                            "gamma": 40,
+                            "theta": 5,
+                            "zi_policy": "critical",
+                            "critical_block_exhaustive_pct": 80,
+                            "portfolio_lanes": "6:mixed:1:6.0, 7:greedy:1:6, 3:random:1:6",
+                        }
+                    ]
+                },
+                1,
+                0,
+            )
+
+    def test_normalize_candidates_rejects_failed_setup_formula_portfolios(self) -> None:
+        for lane_string in (
+            "2:random:1:6,5:greedy:1:6,8:mixed:1:6",
+            "1:greedy:1:6,3:random:1:6,7:mixed:1:6",
+        ):
+            with self.subTest(lane_string=lane_string):
+                with self.assertRaisesRegex(ValueError, "repeats failed portfolio_lanes"):
+                    normalize_candidates(
+                        {
+                            "candidates": [
+                                {
+                                    "name": "failed_setup_formula_lanes",
+                                    "beta": 400,
+                                    "gamma": 40,
+                                    "theta": 5,
+                                    "zi_policy": "formula",
+                                    "zi_formula": "base * (1 + 0.2 * is_critical * setup_next_ratio)",
+                                    "critical_block_exhaustive_pct": 75,
+                                    "portfolio_lanes": lane_string,
+                                }
+                            ]
+                        },
+                        1,
+                        0,
+                    )
+
     def test_collect_candidate_signatures_includes_baseline_and_history(self) -> None:
         signatures = collect_candidate_signatures(
             {

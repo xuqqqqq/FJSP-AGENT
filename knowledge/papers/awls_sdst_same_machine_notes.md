@@ -61,6 +61,12 @@ There is no `schedule.setup_time(...)` helper and no
   evaluation tied `oddla20` at `1010` with setup time `1850`, so exact local
   N7 makespan scoring alone is not enough to beat the incumbent under the
   current short-budget controls.
+- A later guarded same-machine slot run again proposed the same pure exact
+  trial pattern (`trial.makespan + 0.001 * legacy`) despite being asked for a
+  hybrid tail/setup tie-breaker.  Core evaluation again tied `oddla20` at
+  `1010` with setup time `1850`.  Treat this exact-trial-only pattern as a
+  repeated failed idea class; if exact trial is used again, it needs a
+  materially different bounded tie-breaker or gating rule.
 - If manually adding setup-aware forward/backward local propagation is too
   fragile, prefer exact local scoring:
 
@@ -75,6 +81,9 @@ try:
 except (ValueError, KeyError, IndexError):
     return legacy
 ```
+
+This exact snippet is now failure memory, not a recommended next standalone
+candidate; reuse only as part of a materially different hybrid rule.
 
 ## Guardrails
 
