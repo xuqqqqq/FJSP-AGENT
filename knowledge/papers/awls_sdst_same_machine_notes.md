@@ -75,6 +75,12 @@ There is no `schedule.setup_time(...)` helper and no
   setup-time/block-setup tie-breaker unchanged; a future same-machine
   hypothesis needs a real gating rule, critical-tail pressure, or move-locality
   mechanism.
+- A later critical-gated exact-trial/flow-time candidate passed proposal audit
+  but failed at runtime before evaluation because it used nonexistent
+  `move.node`.  `Move` only has `method`, `which`, and `where`; use
+  `move.which` for the moved operation.  The same candidate also used
+  `schedule.end_time[schedule.index.end_node]` as makespan in the gate; use
+  `schedule.makespan` or `trial.makespan` instead.
 - If manually adding setup-aware forward/backward local propagation is too
   fragile, prefer exact local scoring:
 

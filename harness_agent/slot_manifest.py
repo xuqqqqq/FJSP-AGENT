@@ -215,7 +215,9 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
             invariants=[
                 "Keep same_machine_evaluate_stable signature unchanged.",
                 "Move method values are string constants FRONT and BACK.",
+                "Move fields are method, which, and where; use move.which for the moved operation, not move.node.",
                 "AwlsSchedule has no setup_time(...) method and OperationIndex has no setup_time(...) method.",
+                "Use schedule.makespan or trial.makespan for makespan; do not read schedule.end_time[schedule.index.end_node].",
                 "If setup_time_between is used, call setup_time_between(schedule.index.instance, machine_id, previous_op, current_op, schedule.index).",
                 "Never pass node ids directly to setup_time_between; convert nodes to operation keys first.",
                 "Do not change change_machine_evaluate_parts, same_machine_evaluate_cpp_fast, zi policy, parser, evaluator, or benchmark semantics.",
@@ -229,6 +231,8 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
             forbidden_edits=[
                 "Do not create helper files for setup parsing or move evaluation.",
                 "Do not call schedule.setup_time(...) or schedule.index.setup_time(...); these APIs do not exist.",
+                "Do not call move.node; Move exposes move.which and move.where.",
+                "Do not use schedule.end_time[schedule.index.end_node] as makespan; use schedule.makespan.",
                 "Do not change AWLS timing propagation, change-machine scoring, zi policy, parser, evaluator, or benchmark semantics.",
             ],
             validation_commands=[

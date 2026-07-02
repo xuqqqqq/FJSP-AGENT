@@ -2494,6 +2494,88 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_same_machine_slot_warns_on_nonexistent_move_node_api(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_same_machine_evaluation")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "critical_gate_move_node",
+                        "type": "local_search_operator",
+                        "novelty": "Uses a critical-path gate and flow-time tie-breaker.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_same_machine_evaluation",
+                        "content": (
+                            "    legacy = 1.0\n"
+                            "    node = move.node\n"
+                            "    if schedule.forward_path_length[node] < schedule.makespan:\n"
+                            "        return legacy\n"
+                            "    trial = schedule.clone()\n"
+                            "    trial.apply_move(move)\n"
+                            "    return float(trial.makespan)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "same_machine_uses_nonexistent_move_node",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_same_machine_slot_warns_on_end_node_end_time_as_makespan(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_same_machine_evaluation")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "end_node_makespan_gate",
+                        "type": "local_search_operator",
+                        "novelty": "Uses a makespan gate before exact trial.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_same_machine_evaluation",
+                        "content": (
+                            "    legacy = 1.0\n"
+                            "    makespan = schedule.end_time[schedule.index.end_node]\n"
+                            "    if makespan <= legacy:\n"
+                            "        return legacy\n"
+                            "    trial = schedule.clone()\n"
+                            "    trial.apply_move(move)\n"
+                            "    return float(trial.makespan)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "same_machine_uses_end_node_end_time_as_makespan",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_unrepaired_must_repair_slot_warning_drops_changes(self) -> None:
         original = {
             "changes": [{"action": "replace_slot_block", "slot_id": "awls_sdst_same_machine_evaluation", "content": "bad"}],

@@ -52,6 +52,8 @@ class SlotManifestPlatformTests(unittest.TestCase):
         )
         self.assertIn("setup_time_between(schedule.index.instance", same_machine_text)
         self.assertIn("schedule.setup_time", same_machine_text)
+        self.assertIn("move.which", same_machine_text)
+        self.assertIn("schedule.makespan", same_machine_text)
         move_eval_slot = next(slot for slot in payload["slots"] if slot["slot_id"] == "awls_sdst_move_evaluation")
         move_eval_text = "\n".join(move_eval_slot["inputs"] + move_eval_slot["invariants"] + move_eval_slot["forbidden_edits"])
         self.assertIn("change_machine_evaluate_parts", move_eval_text)
