@@ -80,6 +80,13 @@ solution schema, or benchmark score semantics.
     `1:greedy:1:6,3:random:1:6,7:mixed:1:6` worsened `1010 -> 1099`.
   This strengthens the caution that multiplying `base` by critical setup ratios
   tends to steer the short-budget search into worse basins on `la20`.
+- A later `awls_sdst_zi_features` slot-only worker added idle/slack/waste
+  feature keys (`setup_before_idle`, `setup_after_idle`,
+  `setup_before_waste`, `setup_total_waste`).  It was legal but tied
+  `oddla20` at `1010` because the active run used `zi_policy=critical`, which
+  does not consume formula-only feature additions.  Do not spend another round
+  only adding zi feature keys unless the benchmark also uses `zi_policy=formula`
+  or `zi_policy=slot`, or a paired slot actually consumes those features.
 
 ## Worker Directions
 
@@ -96,6 +103,10 @@ Use these as hypotheses, not as manual patches:
   than only changing a coefficient.
 - Do not spend another round only changing setup ratio normalization unless a
   formula or downstream zi policy actually uses the new feature differently.
+- Under the current `critical` zi policy, feature extraction changes alone are
+  usually inert; prefer `awls_sdst_weight_update`, `awls_sdst_search_transition`,
+  or a paired `awls_zi_policy`/formula run if the goal is immediate makespan
+  movement.
 - Prefer the next formula to change the gate structure, for example combining
   setup features with `backward`, `forward`, or neighbor-critical flags, rather
   than only multiplying `base` by `is_critical * setup_*_ratio`.
