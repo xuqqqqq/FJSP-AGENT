@@ -19,6 +19,17 @@ CANDIDATE_REPAIR_ATTEMPTS = 1
 FAILED_PORTFOLIO_LANE_STRINGS = (
     "0:mixed:1:6,6:mixed:1:6,7:greedy:1:6",
     "2:mixed:1,3:random:1",
+    "1:mixed:1:10,4:mixed:1:10",
+)
+SDST_SETUP_ZI_SYMBOLS = (
+    "setup_prev",
+    "setup_next",
+    "setup_adjacent",
+    "setup_prev_ratio",
+    "setup_next_ratio",
+    "setup_adjacent_ratio",
+    "setup_predecessor_critical",
+    "setup_successor_critical",
 )
 SDST_MEMORY_PATHS = (
     Path(__file__).resolve().parents[1] / "knowledge" / "papers" / "awls_sdst_neighborhood_selection_notes.md",
@@ -578,7 +589,19 @@ def normalize_candidates(
         raise CandidateNormalizationError("multi-candidate SDST rounds require at least one non-empty portfolio_lanes candidate")
     if count > 1 and all(candidate.get("zi_policy") == "formula" and not candidate.get("portfolio_lanes") for candidate in normalized):
         raise CandidateNormalizationError("multi-candidate rounds may not be all formula-only without portfolio_lanes")
+    if count > 1 and any(candidate.get("zi_policy") == "formula" for candidate in normalized):
+        setup_formula_count = sum(
+            1
+            for candidate in normalized
+            if candidate.get("zi_policy") == "formula" and formula_uses_sdst_setup_features(str(candidate.get("zi_formula") or ""))
+        )
+        if setup_formula_count == 0:
+            raise CandidateNormalizationError("SDST formula rounds require at least one zi_formula using setup_* features")
     return normalized
+
+
+def formula_uses_sdst_setup_features(formula: str) -> bool:
+    return any(symbol in formula for symbol in SDST_SETUP_ZI_SYMBOLS)
 
 
 def candidate_signature(candidate: dict[str, Any]) -> str:
@@ -716,8 +739,8 @@ def render_report(manifest: dict[str, Any]) -> str:
         "",
         "## Candidates",
         "",
-        "| Round | Candidate | Status | Avg Makespan | ΔMakespan | Avg Gap % | ΔGap % | Median Gap % | Max Gap % | Invalid Runs | Error | zi Policy | Formula | beta | gamma | theta | Critical Exhaustive % | Portfolio | Report |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |",
+        "| Round | Candidate | Status | Avg Makespan | ΔMakespan | Avg Gap % | ΔGap % | Median Gap % | Max Gap % | Invalid Runs | Error | zi Policy | Formula | beta | gamma | theta | Critical Exhaustive % | Same-Machine Eval | Portfolio | Report |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |",
     ]
     lines.append(candidate_row("baseline", baseline, baseline))
     for round_record in manifest.get("rounds", []):
@@ -754,6 +777,7 @@ def candidate_row(round_label: str, candidate: dict[str, Any], baseline: dict[st
         f"`{config.get('zi_formula', '') or ''}` | "
         f"{config.get('beta', '')} | {config.get('gamma', '')} | {config.get('theta', '')} | "
         f"{format_cell(config.get('critical_block_exhaustive_pct'))} | "
+        f"{config.get('same_machine_eval', '') or ''} | "
         f"`{config.get('portfolio_lanes', '') or ''}` | {report_cell} |"
     )
 

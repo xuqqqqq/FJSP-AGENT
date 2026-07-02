@@ -56,6 +56,14 @@ solution schema, or benchmark score semantics.
   `oddla20` incumbent (`1010 -> 1010`) under `zi_policy=formula` with
   `zi_formula=base`, so do not retry this exact normalization-only feature
   change unchanged.
+- A setup-aware AWLS-ZI structured round tested actual formula use of these
+  features under the short `oddla20` gate:
+  - `max(0, base * (1 + 0.2 * is_critical * setup_adjacent_ratio))` with
+    portfolio `1:mixed:1:10,4:mixed:1:10` worsened `1010 -> 1050`.
+  - `max(0, base * (1 + 0.3 * is_critical * setup_next_ratio))` tied
+    `1010 -> 1010`.
+  Do not retry these exact formulas or the `1:mixed:1:10,4:mixed:1:10`
+  portfolio unchanged.
 
 ## Worker Directions
 
@@ -72,6 +80,9 @@ Use these as hypotheses, not as manual patches:
   than only changing a coefficient.
 - Do not spend another round only changing setup ratio normalization unless a
   formula or downstream zi policy actually uses the new feature differently.
+- Prefer the next formula to change the gate structure, for example combining
+  setup features with `backward`, `forward`, or neighbor-critical flags, rather
+  than only multiplying `base` by `is_critical * setup_*_ratio`.
 
 ## Guardrails
 

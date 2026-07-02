@@ -129,6 +129,67 @@ class AwlsZiEvolutionTests(unittest.TestCase):
                 require_portfolio_candidate=True,
             )
 
+    def test_normalize_candidates_requires_setup_feature_formula_when_formula_round_has_portfolio(self) -> None:
+        with self.assertRaisesRegex(ValueError, "setup_"):
+            normalize_candidates(
+                {
+                    "candidates": [
+                        {
+                            "name": "old_formula_with_portfolio",
+                            "beta": 400,
+                            "gamma": 40,
+                            "theta": 5,
+                            "zi_policy": "formula",
+                            "zi_formula": "base * (1 + 0.2 * is_critical)",
+                            "critical_block_exhaustive_pct": 75,
+                            "portfolio_lanes": "1:mixed:1:5,4:mixed:1:5",
+                        },
+                        {
+                            "name": "critical",
+                            "beta": 400,
+                            "gamma": 40,
+                            "theta": 5,
+                            "zi_policy": "critical",
+                            "critical_block_exhaustive_pct": 75,
+                        },
+                    ]
+                },
+                2,
+                0,
+                require_portfolio_candidate=True,
+            )
+
+    def test_normalize_candidates_accepts_setup_feature_formula_round(self) -> None:
+        candidates = normalize_candidates(
+            {
+                "candidates": [
+                    {
+                        "name": "setup_formula_with_portfolio",
+                        "beta": 400,
+                        "gamma": 40,
+                        "theta": 5,
+                        "zi_policy": "formula",
+                        "zi_formula": "base * (1 + 0.2 * setup_next_ratio * is_critical)",
+                        "critical_block_exhaustive_pct": 75,
+                        "portfolio_lanes": "1:mixed:1:5,4:mixed:1:5",
+                    },
+                    {
+                        "name": "critical",
+                        "beta": 400,
+                        "gamma": 40,
+                        "theta": 5,
+                        "zi_policy": "critical",
+                        "critical_block_exhaustive_pct": 75,
+                    },
+                ]
+            },
+            2,
+            0,
+            require_portfolio_candidate=True,
+        )
+
+        self.assertIn("setup_next_ratio", candidates[0]["zi_formula"])
+
     def test_normalize_candidates_rejects_known_failed_portfolio_lanes(self) -> None:
         with self.assertRaisesRegex(ValueError, "repeats failed portfolio_lanes"):
             normalize_candidates(
@@ -239,6 +300,7 @@ class AwlsZiEvolutionTests(unittest.TestCase):
                 "gamma": 40,
                 "theta": 5,
                 "critical_block_exhaustive_pct": 50,
+                "same_machine_eval": "stable",
             },
         }
 
@@ -247,6 +309,7 @@ class AwlsZiEvolutionTests(unittest.TestCase):
         self.assertIn("|  | 1154 | -23 |", row)
         self.assertIn("| 15.7472 | -2.307 |", row)
         self.assertIn("| 50 |", row)
+        self.assertIn("| stable |", row)
 
     def test_candidate_record_recovers_config_from_benchmark_manifest(self) -> None:
         record = candidate_record(
