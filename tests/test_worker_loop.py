@@ -91,6 +91,14 @@ class ProposalAuditWorker:
                             "hypothesis_target_files": ["examples/dummy_solver.py"],
                             "target_files_overlap_changes": [],
                         },
+                        "slot_id": "dummy_slot",
+                        "target_file": "examples/dummy_solver.py",
+                        "accepted_change_count": 1,
+                        "rejected_change_count": 0,
+                        "accepted_change_paths": ["examples/dummy_solver.py"],
+                        "failure_memory_status": "available",
+                        "avoid_pattern_count": 2,
+                        "rolled_back_round_count": 1,
                         "warnings": [],
                     },
                 },
@@ -235,6 +243,9 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual("ok", diagnostics["status"])
             self.assertEqual("dummy_finish_shift", diagnostics["rule_operator_hypotheses"][0]["name"])
             self.assertEqual(1, diagnostics["proposal_audit"]["operator_lineage"]["hypothesis_count"])
+            self.assertEqual("dummy_slot", diagnostics["proposal_audit"]["slot_id"])
+            self.assertEqual("available", diagnostics["proposal_audit"]["failure_memory_status"])
+            self.assertEqual(2, diagnostics["proposal_audit"]["avoid_pattern_count"])
             self.assertTrue(diagnostics["context_usage"]["used_project_intake"])
             self.assertEqual(["examples/dummy_solver.py"], diagnostics["proposal_audit"]["changed_core_algorithm_files"])
 
@@ -248,6 +259,11 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual(
                 1,
                 previous["proposal_diagnostics"]["proposal_audit"]["operator_lineage"]["hypothesis_count"],
+            )
+            self.assertEqual("dummy_slot", previous["proposal_diagnostics"]["proposal_audit"]["slot_id"])
+            self.assertEqual(
+                "available",
+                previous["proposal_diagnostics"]["proposal_audit"]["failure_memory_status"],
             )
             self.assertTrue(previous["proposal_diagnostics"]["context_usage"]["used_project_intake"])
             self.assertEqual(

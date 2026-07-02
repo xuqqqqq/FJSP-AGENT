@@ -377,6 +377,14 @@ def worker_proposal_diagnostics(worker_result: WorkerResult) -> dict[str, Any]:
             "project_intake_present": audit.get("project_intake_present"),
             "project_intake_status": audit.get("project_intake_status"),
             "declared_project_intake_used": audit.get("declared_project_intake_used"),
+            "slot_id": audit.get("slot_id"),
+            "target_file": audit.get("target_file"),
+            "accepted_change_count": audit.get("accepted_change_count"),
+            "rejected_change_count": audit.get("rejected_change_count"),
+            "accepted_change_paths": _bounded_list(audit.get("accepted_change_paths"), limit=40),
+            "failure_memory_status": audit.get("failure_memory_status"),
+            "avoid_pattern_count": audit.get("avoid_pattern_count"),
+            "rolled_back_round_count": audit.get("rolled_back_round_count"),
             "detected_referenced_intake_files": _bounded_list(
                 audit.get("detected_referenced_intake_files"), limit=40
             ),
@@ -462,6 +470,11 @@ def compact_proposal_audit(diagnostics: dict[str, Any]) -> dict[str, Any]:
             )
         ],
         "operator_lineage": audit.get("operator_lineage") or {},
+        "slot_id": audit.get("slot_id"),
+        "accepted_change_paths": audit.get("accepted_change_paths") or [],
+        "failure_memory_status": audit.get("failure_memory_status"),
+        "avoid_pattern_count": audit.get("avoid_pattern_count"),
+        "rolled_back_round_count": audit.get("rolled_back_round_count"),
         "changed_core": audit.get("changed_core_algorithm_files") or [],
         "changed_validators": audit.get("changed_validator_files") or [],
         "warnings": audit.get("warnings") or [],

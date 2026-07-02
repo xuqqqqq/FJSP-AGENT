@@ -11,8 +11,10 @@ from harness_agent.workers.deepseek_worker import apply_code_edit_proposal
 from harness_agent.workers.deepseek_slot_worker import (
     DeepSeekSlotWorker,
     compact_context,
+    extract_negative_memory_lines,
     replace_evolve_block,
     selected_confirmed_slot,
+    selected_slot_failure_memory,
     strip_marker_lines,
     validate_awls_slot_contract,
     validate_generic_slot_contract,
@@ -274,6 +276,76 @@ class AwlsSlotModeTests(unittest.TestCase):
         compact = compact_context(context)
 
         self.assertTrue(compact["knowledge_cards"][0]["path"].endswith("awls_sdst_neighborhood_selection_notes.md"))
+
+    def test_selected_slot_failure_memory_extracts_negative_evidence(self) -> None:
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+        context["knowledge_cards"] = [
+            {
+                "path": "knowledge/papers/awls_sdst_initialization_notes.md",
+                "snippet": (
+                    "- Legal setup-aware greedy dispatch worsened makespan from 1010 to 1046.\n"
+                    "- Do not retry plain setup-aware append scoring unchanged.\n"
+                    "- Positive background note without a failure cue.\n"
+                ),
+            }
+        ]
+
+        memory = selected_slot_failure_memory(context, slot, max_items=4)
+
+        self.assertEqual("available", memory["status"])
+        evidence = " ".join(item["evidence"] for item in memory["avoid_patterns"])
+        self.assertIn("worsened makespan", evidence)
+        self.assertIn("Do not retry plain setup-aware append", evidence)
+
+    def test_extract_negative_memory_lines_merges_multiline_bullets(self) -> None:
+        lines = extract_negative_memory_lines(
+            "- A setup-aware attempt failed because it used the wrong API.\n"
+            "  Always pass operation-key tuples.\n"
+            "- This positive line should not appear.\n",
+            limit=3,
+        )
+
+        self.assertEqual(1, len(lines))
+        self.assertIn("Always pass operation-key tuples", lines[0])
+
+    def test_generic_slot_audit_warns_when_failure_memory_is_ignored(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
+        slot = context["slot_manifest"]["slots"][0]
+        context["knowledge_cards"] = [
+            {
+                "path": "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
+                "snippet": "- Do not retry near-critical/window-only slot replacements; they tied or worsened la20.",
+            }
+        ]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "near_critical_tweak",
+                        "type": "local_search_operator",
+                        "novelty": "Uses a small candidate ordering tweak.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_neighborhood_selection",
+                        "content": "    consider_same(FRONT, block[0], block[-1])\n",
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "novelty_does_not_reference_failure_memory",
+            normalized["proposal_audit"]["warnings"],
+        )
 
 
 def _slot_context(

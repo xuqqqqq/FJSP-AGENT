@@ -195,7 +195,7 @@ class DeepSeekSlotWorker(CodingWorker):
             (output_dir / "deepseek_slot_repair_response.json").write_text(repair, encoding="utf-8")
             proposal = extract_json_object(repair)
 
-        normalized = self._normalize_generic_slot_proposal(proposal, slot)
+        normalized = self._normalize_generic_slot_proposal(proposal, slot, context=context)
         proposal_path = output_dir / "proposal.json"
         markdown_path = output_dir / "proposal.md"
         changed_files: list[str] = []
@@ -268,6 +268,7 @@ Context packet excerpt:
     def _generic_slot_prompt(self, *, context: dict[str, Any], slot: dict[str, Any], max_steps: int) -> str:
         slot_id = str(slot.get("slot_id", ""))
         target_file = str(slot.get("target_file", ""))
+        failure_memory = selected_slot_failure_memory(context, slot, max_items=12)
         return f"""
 We are evolving one confirmed code slot under a fixed evaluator. You may modify
 exactly this slot and nothing else:
@@ -284,6 +285,9 @@ Slot IO contract:
 - Invariants: {json.dumps(slot.get('invariants') or [], ensure_ascii=False)}
 - Allowed edits: {json.dumps(slot.get('allowed_edits') or [], ensure_ascii=False)}
 - Forbidden edits: {json.dumps(slot.get('forbidden_edits') or [], ensure_ascii=False)}
+
+Selected-slot failure memory:
+{json.dumps(failure_memory, ensure_ascii=False, indent=2)}
 
 Return JSON only:
 {{
@@ -328,6 +332,12 @@ Rules:
   control flow. The fixed evaluator will decide success.
 - For FJSP-SDST/AWLS slots, score remains makespan only; LB/UB are diagnostic.
 - Prefer bounded candidate-generation or ranking changes over broad rewrites.
+- Before writing code, use selected-slot failure memory and loop_feedback as
+  negative evidence.  The `novelty` field for every hypothesis must name the
+  failed idea class it avoids or materially changes.
+- Do not retry an avoided failed pattern unchanged.  If a prior rolled-back
+  idea is revisited, explain the concrete technical difference in novelty and
+  keep the changed code inside this single slot.
 
 Current slot context:
 ```python
@@ -411,7 +421,13 @@ Context packet excerpt:
             "risk_notes": [str(item)[:1000] for item in risk_notes],
         }
 
-    def _normalize_generic_slot_proposal(self, proposal: dict[str, Any], slot: dict[str, Any]) -> dict[str, Any]:
+    def _normalize_generic_slot_proposal(
+        self,
+        proposal: dict[str, Any],
+        slot: dict[str, Any],
+        *,
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         slot_id = str(slot.get("slot_id", ""))
         target_file = str(slot.get("target_file", ""))
         changes: list[dict[str, str]] = []
@@ -468,6 +484,13 @@ Context packet excerpt:
             "context_usage": normalize_context_usage(proposal.get("context_usage"), target_file),
             "quick_test_plan": str(proposal.get("quick_test_plan", ""))[:2000],
             "risk_notes": [str(item)[:1000] for item in risk_notes],
+            "proposal_audit": build_generic_slot_audit(
+                proposal=proposal,
+                normalized_changes=changes,
+                rejected_changes=rejected_changes,
+                context=context or {},
+                slot=slot,
+            ),
         }
 
 
@@ -493,9 +516,176 @@ def compact_context(context: dict[str, Any]) -> dict[str, Any]:
         },
         "docs": docs[:2],
         "knowledge_cards": prioritize_knowledge_cards_for_slot(context, selected_slot, limit=6),
+        "selected_slot_failure_memory": selected_slot_failure_memory(context, selected_slot, max_items=8)
+        if selected_slot
+        else {},
         "previous_evidence": context.get("previous_evidence", [])[:4],
         "loop_feedback": context.get("loop_feedback", {}),
         "hypothesis": context.get("hypothesis", ""),
+    }
+
+
+def selected_slot_failure_memory(
+    context: dict[str, Any],
+    selected_slot: dict[str, Any] | None,
+    *,
+    max_items: int,
+) -> dict[str, Any]:
+    """Extract compact negative evidence for the selected slot.
+
+    This is prompt context only.  It helps the coding worker avoid stale
+    no-improvement ideas, while Core evaluator promotion remains unchanged.
+    """
+
+    if selected_slot is None:
+        return {"status": "missing_slot", "avoid_patterns": [], "rolled_back_rounds": []}
+    cards = prioritize_knowledge_cards_for_slot(context, selected_slot, limit=6)
+    avoid_patterns: list[dict[str, str]] = []
+    for card in cards:
+        snippet = str(card.get("snippet") or "")
+        path = str(card.get("path") or "")
+        for line in extract_negative_memory_lines(snippet, limit=max_items):
+            avoid_patterns.append({"source": path, "evidence": line})
+            if len(avoid_patterns) >= max_items:
+                break
+        if len(avoid_patterns) >= max_items:
+            break
+
+    rolled_back_rounds: list[dict[str, Any]] = []
+    feedback = context.get("loop_feedback") if isinstance(context.get("loop_feedback"), dict) else {}
+    for item in feedback.get("previous_rounds") or []:
+        if not isinstance(item, dict) or item.get("decision") != "rolled_back":
+            continue
+        diagnostics = item.get("proposal_diagnostics") if isinstance(item.get("proposal_diagnostics"), dict) else {}
+        rolled_back_rounds.append(
+            {
+                "round_index": item.get("round_index"),
+                "candidate_key": item.get("candidate_key"),
+                "summary": str(diagnostics.get("summary") or "")[:260],
+                "strategy_intent": str(diagnostics.get("strategy_intent") or "")[:260],
+                "hypotheses": [
+                    {
+                        "name": hypothesis.get("name"),
+                        "type": hypothesis.get("type"),
+                        "novelty": str(hypothesis.get("novelty") or "")[:220],
+                    }
+                    for hypothesis in (diagnostics.get("rule_operator_hypotheses") or [])[:4]
+                    if isinstance(hypothesis, dict)
+                ],
+            }
+        )
+        if len(rolled_back_rounds) >= max_items:
+            break
+
+    return {
+        "status": "available" if avoid_patterns or rolled_back_rounds else "empty",
+        "slot_id": str(selected_slot.get("slot_id") or ""),
+        "instruction": (
+            "Treat these as negative evidence.  Do not retry an avoided pattern "
+            "unchanged; novelty must explain a concrete technical difference."
+        ),
+        "avoid_patterns": avoid_patterns,
+        "rolled_back_rounds": rolled_back_rounds,
+    }
+
+
+def extract_negative_memory_lines(text: str, *, limit: int) -> list[str]:
+    cues = (
+        "do not",
+        "failed",
+        "worsen",
+        "worse",
+        "rolled back",
+        "rolled-back",
+        "did not improve",
+        "did not beat",
+        "tied",
+        "crashed",
+        "invalid",
+        "avoid",
+        "不要",
+        "失败",
+        "变差",
+        "回退",
+    )
+    lines: list[str] = []
+    current_bullet: list[str] = []
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            if current_bullet:
+                _append_negative_line(lines, " ".join(current_bullet), cues, limit)
+                current_bullet = []
+            continue
+        if stripped.startswith(("-", "*")):
+            if current_bullet:
+                _append_negative_line(lines, " ".join(current_bullet), cues, limit)
+            current_bullet = [stripped.lstrip("-* ").strip()]
+        elif current_bullet and (raw_line.startswith(" ") or raw_line.startswith("\t")):
+            current_bullet.append(stripped)
+        else:
+            if current_bullet:
+                _append_negative_line(lines, " ".join(current_bullet), cues, limit)
+                current_bullet = []
+            _append_negative_line(lines, stripped, cues, limit)
+        if len(lines) >= limit:
+            return lines[:limit]
+    if current_bullet and len(lines) < limit:
+        _append_negative_line(lines, " ".join(current_bullet), cues, limit)
+    return lines[:limit]
+
+
+def _append_negative_line(lines: list[str], text: str, cues: tuple[str, ...], limit: int) -> None:
+    normalized = " ".join(text.split())
+    if not normalized or len(lines) >= limit:
+        return
+    lower = normalized.lower()
+    if any(cue in lower for cue in cues):
+        lines.append(normalized[:700])
+
+
+def build_generic_slot_audit(
+    *,
+    proposal: dict[str, Any],
+    normalized_changes: list[dict[str, str]],
+    rejected_changes: list[dict[str, str]],
+    context: dict[str, Any],
+    slot: dict[str, Any],
+) -> dict[str, Any]:
+    failure_memory = selected_slot_failure_memory(context, slot, max_items=10)
+    hypotheses = proposal.get("rule_operator_hypotheses") or []
+    if not isinstance(hypotheses, list):
+        hypotheses = []
+    novelty_text = "\n".join(
+        str(item.get("novelty") or "") for item in hypotheses if isinstance(item, dict)
+    ).lower()
+    warnings: list[str] = []
+    if normalized_changes and not hypotheses:
+        warnings.append("missing_rule_operator_hypotheses")
+    avoid_patterns = failure_memory.get("avoid_patterns") or []
+    if normalized_changes and avoid_patterns and not any(
+        cue in novelty_text
+        for cue in ("avoid", "failed", "worsen", "rolled", "different", "material", "instead", "not retry", "失败", "变差")
+    ):
+        warnings.append("novelty_does_not_reference_failure_memory")
+    if len(normalized_changes) > 1:
+        warnings.append("generic_slot_accepts_only_one_change")
+    return {
+        "slot_id": str(slot.get("slot_id") or ""),
+        "target_file": str(slot.get("target_file") or ""),
+        "accepted_change_count": len(normalized_changes),
+        "rejected_change_count": len(rejected_changes),
+        "accepted_change_paths": [str(item.get("path") or "") for item in normalized_changes],
+        "failure_memory_status": failure_memory.get("status"),
+        "avoid_pattern_count": len(avoid_patterns),
+        "rolled_back_round_count": len(failure_memory.get("rolled_back_rounds") or []),
+        "operator_lineage": {
+            "hypothesis_count": len([item for item in hypotheses if isinstance(item, dict)]),
+            "hypothesis_names": [
+                str(item.get("name") or "")[:120] for item in hypotheses if isinstance(item, dict)
+            ][:8],
+        },
+        "warnings": warnings,
     }
 
 

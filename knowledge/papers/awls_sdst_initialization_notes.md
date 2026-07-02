@@ -68,6 +68,20 @@ Use these as hypotheses, not as a manual patch:
   code at the start of the function-body slot.  Use
   `harness_agent.standard_fjsp.setup_time_between`, operation-key tuples, and
   preserve function-body indentation.
+- After the setup API contract and indentation normalization were hardened, a
+  legal setup-aware greedy dispatch initializer reached `oddla20` makespan
+  `1046` under the current `critical + beta400/gamma40/theta5 + pct75`
+  incumbent controls.  It reduced setup time to `1680` but worsened makespan
+  from `1010`, so do not retry plain setup-aware greedy dispatch unless the
+  hypothesis materially changes, for example by using a deterministic
+  portfolio, regret/RCL selection, or a different post-init local-search
+  interaction.
+- A later failure-memory-guided candidate changed only the setup-aware greedy
+  tie-breaker: it filtered near-best completion candidates, then chose the
+  lowest setup and lowest machine-ready time.  It was legal but worsened
+  `oddla20` from `1010` to `1310`.  Treat lexicographic low-setup tie-breaking
+  inside the same append-style greedy initializer as a failed idea class, not a
+  material improvement over the earlier setup-aware append attempts.
 - Do not compare move/init mode constants with integers.
 - Do not call `setup_time_between` with `current_op=None`.
 - Import `setup_time_between` locally inside the slot before using it.
