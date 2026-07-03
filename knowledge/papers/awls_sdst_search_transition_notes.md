@@ -46,6 +46,13 @@ Core evaluator makespan as the only promotion authority.
   `current.rng.random() < 0.2` to reset `current = best.clone()`, capped at
   five resets.  Do not spend another round on best-clone plateau restarts that
   only vary the threshold, probability, or reset cap.
+- After `global_sdst_cooldown_boost`, `rng_perturbed_plateau_reset` also tied
+  `oddla20` at `1010`: it reset `current = best.clone()` after 50
+  non-improving steps, capped at five resets, and consumed one seeded
+  `current.rng.random()` after cloning to perturb the future trajectory.  Setup
+  time dropped from `1890` to `1870`, but makespan did not improve.  Do not
+  retry best-clone plateau restarts whose main novelty is only rng
+  perturbation, stats guarding, or threshold/cap adjustment.
 - `degradation_threshold_reset` worsened `oddla20` from `1010` to `1180`: it
   reset `current = best.clone()` whenever `current.makespan > 1.01 *
   best.makespan`.  Although setup time fell from `1940` to `1700`, the
