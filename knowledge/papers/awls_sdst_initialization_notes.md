@@ -199,6 +199,14 @@ Use these as hypotheses, not as a manual patch:
   names (`node`, `chosen_node`, `best_machine`, or `chosen_machine`); it must
   not pass as a materially new initialization idea without a real topology,
   repair, non-append insertion, or separate sequencing phase.
+- After `global_sdst_cooldown_boost`, a topology-required prompt produced
+  `regret_driven_bounded_insertion`, but semantic repair rejected it before
+  evaluator execution.  The proposal described non-append insertion and a
+  same-job ordering guard, but did not contain a real
+  `AwlsSchedule(...).topological_sort()`, `validate_standard_schedule(...)`,
+  or equivalent feasibility check, and the repair still lacked acceptable
+  `second_best - best` regret evidence in code.  Do not rely on textual
+  "cycle guard" claims or same-job-only ordering as a topology proof.
 - Do not compare move/init mode constants with integers.
 - Do not call `setup_time_between` with `current_op=None`.
 - Import `setup_time_between` locally inside the slot before using it.
