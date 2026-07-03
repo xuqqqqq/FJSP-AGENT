@@ -175,6 +175,14 @@ from the published UB (`997`; current fast/short baselines are `1202` or
   `1010`.  Do not retry unordered first-N candidate-machine caps as the main
   novelty; if alternate machines are bounded, sort them by an actual
   setup-aware or load/slack score before slicing.
+- After `global_sdst_cooldown_boost`, a guarded neighborhood round proposed
+  `bounded_neighborhood_sampling`: preserve the broad incumbent structure but
+  randomly shuffle/slice same-machine side targets to 8 and change-machine
+  insertion targets to 5.  It was legal but tied `oddla20` at `1010` and
+  increased setup time from `1890` to `1940`.  Do not retry random target
+  subsampling or small fixed same/change target caps as the main novelty; if
+  bounding is needed, order candidates by a concrete setup/load/slack score and
+  keep the incumbent N7/NK traversal intact.
 
 This points toward the move-candidate selection layer: the search may not be
 trying the right critical or near-critical N7/NK moves often enough.
@@ -195,6 +203,8 @@ Use these as hypotheses, not as manual patches:
 - Setup-arc focus for SDST: when ordering candidate nodes, favor moves touching
   machine arcs with high setup contribution, but still submit them through
   `consider_same` / `consider_change`.
+- Avoid random target subsampling as the main mechanism.  The latest legal
+  bounded sampling tied makespan and worsened setup time.
 - If this slot remains stuck, switch to `awls_sdst_initialization` or
   `awls_sdst_same_machine_evaluation`; the current neighborhood-selection slot
   has now produced legal but non-improving candidates.
