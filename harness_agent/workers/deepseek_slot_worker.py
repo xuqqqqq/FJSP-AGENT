@@ -742,6 +742,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "move_selection_trial_apply_without_clone",
         "weight_update_calls_forbidden_runtime_api",
         "weight_update_mutates_schedule_structure",
+        "weight_update_retries_sdst_improvement_weight_decay",
         "weight_update_uses_random_or_io",
         "search_transition_calls_forbidden_runtime_api",
         "search_transition_mutates_schedule_structure",
@@ -1024,6 +1025,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "move_selection_trial_apply_without_clone",
         "weight_update_calls_forbidden_runtime_api",
         "weight_update_mutates_schedule_structure",
+        "weight_update_retries_sdst_improvement_weight_decay",
         "weight_update_uses_random_or_io",
         "search_transition_calls_forbidden_runtime_api",
         "search_transition_mutates_schedule_structure",
@@ -1562,6 +1564,11 @@ def awls_sdst_weight_update_warnings(content: str) -> list[str]:
         warnings.append("weight_update_mutates_schedule_structure")
     if re.search(r"\bschedule\.(?!op_weight\b|op_cooldown\b)[a-z_]\w*(?:\[[^\n=]*\])?\s*(?:=|\+=|-=|\*=|/=|//=|%=)", content):
         warnings.append("weight_update_mutates_schedule_structure")
+    if re.search(
+        r"schedule\.op_weight\s*\[\s*moved_node\s*\]\s*=\s*max\s*\(\s*0\s*,\s*schedule\.op_weight\s*\[\s*moved_node\s*\]\s*-\s*1\s*\)",
+        content,
+    ):
+        warnings.append("weight_update_retries_sdst_improvement_weight_decay")
     return list(dict.fromkeys(warnings))
 
 
@@ -1848,6 +1855,9 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- Do not call apply_move, find_move, tabu_search, solve_awls, solve_awls_single, or evaluator/validator APIs.\n"
             "- Do not mutate machine_sequences, predecessor/successor links, on_machine, start/end times, or makespan.\n"
             "- Do not use random numbers, file IO, subprocesses, multiprocessing, network access, or environment variables.\n"
+            "- Do not retry SDST improvement-step moved-node weight decay such as "
+            "`schedule.op_weight[moved_node] = max(0, schedule.op_weight[moved_node] - 1)`; it worsened oddla20 "
+            "from 1007 to 1008 under the 28s incumbent contract.\n"
             "- Preserve the new-best reset behavior after current_makespan < best_makespan_before unless a bounded "
             "alternative is explicitly justified by the hypothesis."
         )

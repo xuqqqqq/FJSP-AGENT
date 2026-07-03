@@ -2257,6 +2257,48 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("weight_update_uses_random_or_io", normalized["proposal_audit"]["warnings"])
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_weight_update_slot_warns_on_sdst_improvement_weight_decay_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_weight_update")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "sdst_improvement_weight_decay",
+                        "type": "adaptive_weight_rule",
+                        "novelty": "Different from failed cooldown changes by decaying moved-node weight after improvement.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_weight_update",
+                        "content": (
+                            "    has_sdst = schedule.index.instance.has_sequence_dependent_setup\n"
+                            "    if current_makespan < previous_makespan:\n"
+                            "        if has_sdst:\n"
+                            "            schedule.op_weight[moved_node] = max(0, schedule.op_weight[moved_node] - 1)\n"
+                            "    if current_makespan < best_makespan_before:\n"
+                            "        for node in schedule.index.real_nodes:\n"
+                            "            schedule.op_cooldown[node] = 10**9\n"
+                            "            schedule.op_weight[node] = 0\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "weight_update_retries_sdst_improvement_weight_decay",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_weight_update_repair_guidance_names_weight_only_contract(self) -> None:
         slot = _generic_slot_context(slot_id="awls_sdst_weight_update")["slot_manifest"]["slots"][0]
 

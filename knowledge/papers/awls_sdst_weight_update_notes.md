@@ -82,6 +82,13 @@ setup = setup_time_between(schedule.index.instance, machine_id, prev_op, cur_op,
   `1030 -> 1023`.  The old `20 cycles / 300 iterations / 20s` short line
   remained `1010 -> 1010`.  Treat this as a useful accepted pressure rule, not
   as a stable proof that `997` is always reached.
+- A follow-up continuation round from the accepted cooldown rule tried
+  `sdst_improvement_weight_decay`: when an SDST move improved makespan, it set
+  `schedule.op_weight[moved_node] = max(0, schedule.op_weight[moved_node] - 1)`.
+  Core evaluation on the same 28s `oddla20` contract worsened the incumbent
+  from `1007` to `1008`.  The platform now treats this exact improvement-step
+  moved-node weight decay as a must-repair repeat pattern
+  (`weight_update_retries_sdst_improvement_weight_decay`).
 
 ## Guardrails
 
@@ -99,3 +106,6 @@ setup = setup_time_between(schedule.index.instance, machine_id, prev_op, cur_op,
 - Do not cite the one-shot `997` result without the rerun caveat; independent
   verification showed strict improvement on the 28s worker contract but not a
   stable UB hit on every run.
+- Do not retry improvement-step moved-node weight decay; it reduces pressure on
+  operations that just helped the makespan and worsened the current 28s `la20`
+  line.
