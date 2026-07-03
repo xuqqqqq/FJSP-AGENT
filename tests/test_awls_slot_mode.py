@@ -446,6 +446,53 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertTrue(generic_slot_needs_repair(normalized))
         self.assertIn("1002 incumbent to 1010", generic_slot_repair_guidance(slot))
 
+    def test_move_evaluation_slot_warns_on_invalid_setup_time_between_signature(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_evaluation")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "setup_aware_path_proxy",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed setup delta penalties by estimating path setup directly.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_evaluation",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    which_job = schedule.index.node_to_job[which]\n"
+                            "    which_op = schedule.index.node_to_op[which]\n"
+                            "    m_pred_job = schedule.index.node_to_job[where]\n"
+                            "    m_pred_op = schedule.index.node_to_op[where]\n"
+                            "    setup_pred = setup_time_between(\n"
+                            "        schedule.index.instance, machine_id,\n"
+                            "        m_pred_job, m_pred_op,\n"
+                            "        which_job, which_op,\n"
+                            "        schedule.index\n"
+                            "    )\n"
+                            "    return setup_pred + weight_perturbation(schedule, which, gamma)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "move_evaluation_uses_invalid_setup_time_between_signature",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+        self.assertIn("seven positional arguments", generic_slot_repair_guidance(slot))
+
     def test_selected_confirmed_slot_accepts_sdst_move_selection_slot(self) -> None:
         context = _generic_slot_context(slot_id="awls_sdst_move_selection")
 

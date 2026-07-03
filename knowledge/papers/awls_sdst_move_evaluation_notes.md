@@ -90,5 +90,14 @@ Use these directions as hypotheses, not as a manual patch:
   `schedule.end_time[schedule.index.end_node]` as a makespan proxy; inside
   AWLS move-evaluation slots, use `schedule.makespan` or exact
   `trial.makespan` instead.
+- A later hard-HUdata six-instance worker run proposed `setup_aware_path_proxy`,
+  replacing the legacy NK proxy with a setup-aware forward/backward path
+  estimate.  It failed before quality evaluation on all six instances with
+  `TypeError: setup_time_between() takes from 4 to 5 positional arguments but 7
+  were given` because the proposal passed raw `*_job, *_op, *_job, *_op`
+  integers instead of operation-key tuples.  Do not retry this path-proxy
+  implementation unless every setup lookup uses the canonical
+  `setup_time_between(instance, machine_id, previous_op_tuple, current_op_tuple,
+  schedule.index)` contract.
 - Do not change parser/evaluator/IO semantics.
 - Do not change N7 same-machine scoring until a separate slot is confirmed.

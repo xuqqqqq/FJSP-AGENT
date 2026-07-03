@@ -765,6 +765,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "move_evaluation_retries_proxy_ratio_exact_gate",
         "move_evaluation_retries_critical_proximity_setup_penalty",
         "move_evaluation_uses_end_node_end_time_as_makespan",
+        "move_evaluation_uses_invalid_setup_time_between_signature",
         "move_selection_generates_candidates",
         "move_selection_mutates_candidate_lists",
         "move_selection_mutates_schedule_directly",
@@ -1082,6 +1083,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "move_evaluation_retries_proxy_ratio_exact_gate",
         "move_evaluation_retries_critical_proximity_setup_penalty",
         "move_evaluation_uses_end_node_end_time_as_makespan",
+        "move_evaluation_uses_invalid_setup_time_between_signature",
         "move_selection_generates_candidates",
         "move_selection_mutates_candidate_lists",
         "move_selection_mutates_schedule_directly",
@@ -1344,6 +1346,15 @@ def awls_sdst_move_evaluation_warnings(content: str) -> list[str]:
     )
     if critical_proximity_setup:
         warnings.append("move_evaluation_retries_critical_proximity_setup_penalty")
+    invalid_setup_signature = (
+        re.search(r"\bsetup_time_between\(\s*(?:schedule|sched)\.index\s*,", content)
+        or re.search(
+            r"\bsetup_time_between\(\s*[^,\n]+,\s*[^,\n]+,\s*[a-z_]\w*_job\s*,\s*[a-z_]\w*_op\s*,\s*[a-z_]\w*_job\s*,\s*[a-z_]\w*_op\s*,",
+            content,
+        )
+    )
+    if invalid_setup_signature:
+        warnings.append("move_evaluation_uses_invalid_setup_time_between_signature")
     return warnings
 
 
@@ -2047,6 +2058,8 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "`schedule.end_time[schedule.index.end_node]`.\n"
             "- If setup lookup is used, import and call `setup_time_between(instance, machine_id, previous_op, "
             "current_op, op_index)` with operation-key tuples and never with `current_op=None`.\n"
+            "- Do not pass raw `*_job, *_op, *_job, *_op` integers or seven positional arguments to "
+            "`setup_time_between`; build tuples such as `(which_job, which_op)` first.\n"
             "- `OperationIndex` has no `start_node` attribute.  Use the module constant `START_NODE` for the "
             "source sentinel and `schedule.index.end_node` for the sink sentinel."
         )
