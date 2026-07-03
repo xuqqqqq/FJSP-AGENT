@@ -740,6 +740,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "portfolio_retries_best_lane_rerun",
         "portfolio_retries_subrun_seed_splitting",
         "portfolio_retries_setup_ratio_best_lane_exploitation",
+        "portfolio_retries_dispatch_warmstart_noop",
         "portfolio_missing_lane_summaries_initialization",
         "same_machine_retries_pure_exact_trial",
         "same_machine_retries_legacy_ratio_exact_gate",
@@ -1061,6 +1062,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "portfolio_retries_best_lane_rerun",
         "portfolio_retries_subrun_seed_splitting",
         "portfolio_retries_setup_ratio_best_lane_exploitation",
+        "portfolio_retries_dispatch_warmstart_noop",
         "portfolio_missing_lane_summaries_initialization",
         "same_machine_retries_pure_exact_trial",
         "same_machine_retries_legacy_ratio_exact_gate",
@@ -1706,6 +1708,14 @@ def awls_sdst_portfolio_search_control_warnings(content: str) -> list[str]:
     )
     if setup_ratio_best_lane:
         warnings.append("portfolio_retries_setup_ratio_best_lane_exploitation")
+    dispatch_warmstart = (
+        re.search(r"\bwarm_start\b", content)
+        and "_dispatch_schedule" in content
+        and re.search(r"\binitial_state\s*=\s*warm_start\b", content)
+        and not re.search(r"\b(?:lane_budgets\.sort|early_stop|remaining_time|phase2|rerun|deepening)\b", content)
+    )
+    if dispatch_warmstart:
+        warnings.append("portfolio_retries_dispatch_warmstart_noop")
     return list(dict.fromkeys(warnings))
 
 
@@ -2124,6 +2134,9 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "short multi-scramble lane splitting tied oddla20 at 1010.\n"
             "- Do not retry setup-ratio adaptive reruns of the current best lane that only increase gamma, "
             "critical_block_exhaustive_pct, or restarts; that remained best-lane exploitation and tied 1010.\n"
+            "- Do not retry portfolio-slot dispatch warm-starts that call `_dispatch_schedule(...)` and pass "
+            "`initial_state=warm_start` into each lane while leaving budgets/order unchanged; on hard HUdata-six "
+            "12s this legal candidate tied the incumbent at 1302.50 and was rolled back.\n"
             "- If editing this slot, change a real search-control mechanism such as bounded lane ordering, "
             "per-lane budget allocation, early-stop policy, or auditable tie-breaking among equal makespans.\n"
             "- Keep the objective as makespan and preserve lane_summaries with seed/init/restarts/time/makespan diagnostics.\n"

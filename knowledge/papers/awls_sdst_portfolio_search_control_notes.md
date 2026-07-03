@@ -87,6 +87,16 @@ are diagnostics only.
   Future portfolio edits must preserve all three slot outputs
   (`best`, `best_lane`, and initialized `lane_summaries`) before changing
   search-control logic.
+- A later hard HUdata-six 12s confirmed-slot run over
+  `0:mixed:1:4,4:greedy:1:4,8:random:1:4` produced a legal
+  `sdst_aware_dispatch_warmstart` candidate.  It called `_dispatch_schedule`
+  for `mwkr/lpt/spt/edd`, chose a `warm_start`, and passed
+  `initial_state=warm_start` to every portfolio lane while leaving lane
+  budgets and ordering unchanged.  Core evaluation tied the incumbent exactly
+  at `1302.50` average makespan, so it was rolled back.  Do not retry
+  portfolio-slot dispatch warm-starts as the main novelty; if construction is
+  the target, use the initialization slot with topology/repair guards, or pair
+  portfolio edits with a real budget/order/early-stop mechanism.
 
 ## Worker Directions
 
@@ -125,6 +135,9 @@ Use these as hypotheses, not as manual patches:
 - Do not retry probe-then-rerun-current-best with only setup-ratio adaptive
   `gamma`, `critical_block_exhaustive_pct`, and doubled restarts; it tied
   `1010` and remains too close to prior best-lane exploitation.
+- Do not retry `_dispatch_schedule` warm-start injection inside the portfolio
+  slot without changing lane budget/order/early-stop behavior; it tied the hard
+  HUdata-six 12s incumbent at `1302.50`.
 
 ## Guardrails
 
