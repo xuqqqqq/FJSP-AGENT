@@ -94,6 +94,12 @@ There is no `schedule.setup_time(...)` helper and no
   trial worsened makespan.  This light non-critical worsening gate did not
   improve over pure exact trial; do not retry it unchanged as the main same
   machine novelty.
+- After `global_sdst_cooldown_boost` was accepted in the weight-update slot, a
+  same-machine worker tried `exact_clone_apply_same_machine_scoring` on the
+  stable `1010` short line, but it failed before quality evaluation because it
+  imported nonexistent `AwlsTrial` from `harness_agent.standard_fjsp`.  The real
+  exact-trial API in this solver is `trial = schedule.clone()`,
+  `trial.apply_move(move)`, and `trial.makespan`; do not use `AwlsTrial`.
 - If manually adding setup-aware forward/backward local propagation is too
   fragile, prefer exact local scoring:
 

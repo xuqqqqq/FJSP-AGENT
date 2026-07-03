@@ -3854,6 +3854,44 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_same_machine_slot_warns_on_nonexistent_awls_trial_api(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_same_machine_evaluation")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "awls_trial_exact_same_machine",
+                        "type": "local_search_operator",
+                        "novelty": "Uses exact trial makespan without local propagation.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_same_machine_evaluation",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import AwlsTrial\n"
+                            "    trial = AwlsTrial(schedule)\n"
+                            "    trial.apply_move(move)\n"
+                            "    return float(trial.makespan)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "same_machine_uses_nonexistent_awls_trial",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_same_machine_slot_warns_on_end_node_end_time_as_makespan(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_same_machine_evaluation")

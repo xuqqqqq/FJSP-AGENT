@@ -712,6 +712,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "same_machine_retries_noncritical_worsening_exact_gate",
         "same_machine_uses_nonexistent_move_node",
         "same_machine_uses_end_node_end_time_as_makespan",
+        "same_machine_uses_nonexistent_awls_trial",
         "initialization_retries_append_only_setup_completion",
         "initialization_retries_low_setup_tiebreak",
         "initialization_regret_label_without_second_best",
@@ -991,6 +992,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "same_machine_retries_noncritical_worsening_exact_gate",
         "same_machine_uses_nonexistent_move_node",
         "same_machine_uses_end_node_end_time_as_makespan",
+        "same_machine_uses_nonexistent_awls_trial",
         "initialization_retries_append_only_setup_completion",
         "initialization_retries_low_setup_tiebreak",
         "initialization_regret_label_without_second_best",
@@ -1082,6 +1084,8 @@ def slot_specific_generic_warnings(
         warnings.append("same_machine_setup_propagation_without_exact_trial")
     if re.search(r"\bmove\.node\b", content):
         warnings.append("same_machine_uses_nonexistent_move_node")
+    if re.search(r"\bawlstrial\b", content):
+        warnings.append("same_machine_uses_nonexistent_awls_trial")
     if re.search(r"\bend_time\s*\[\s*(?:schedule\.)?index\.end_node\s*\]", content):
         warnings.append("same_machine_uses_end_node_end_time_as_makespan")
     if re.search(r"\bschedule\.end_time\s*\[\s*schedule\.index\.end_node\s*\]", content):
@@ -1737,6 +1741,8 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "schedule.makespan)` gated by `move.which` and backward_path_length; it legally tied oddla20 at 1010.\n"
             "- Move has fields `method`, `which`, and `where`; do not use nonexistent `move.node`.  Use "
             "`move.which` for the moved operation.\n"
+            "- There is no `AwlsTrial` class in `harness_agent.standard_fjsp`; exact same-machine trials must use "
+            "`trial = schedule.clone()`, `trial.apply_move(move)`, and `trial.makespan`.\n"
             "- Use `schedule.makespan` / `trial.makespan`; do not use "
             "`schedule.end_time[schedule.index.end_node]` as a makespan proxy.\n"
             "- If using exact trial again, add a materially different bounded gating rule, critical-tail pressure, "
