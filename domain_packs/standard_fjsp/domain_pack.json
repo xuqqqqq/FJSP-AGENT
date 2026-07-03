@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "family_id": "standard_fjsp",
+  "aliases": [
+    "FJSP",
+    "fjsp",
+    "fjsp_sdst"
+  ],
+  "capability": {
+    "display_name": "Standard Flexible Job-Shop Scheduling",
+    "description": "Standard FJSP instances with operation precedence, alternative machines per operation, non-overlap machine capacity, and makespan as the default objective.",
+    "supported_variants": [
+      "standard_fjsp",
+      "fjsp_with_best_known_gap",
+      "fjsp_dispatch_rule_baseline",
+      "fjsp_awls_local_search",
+      "fjsp_sdst"
+    ],
+    "canonical_objectives": [
+      {
+        "name": "makespan",
+        "direction": "minimize",
+        "priority": 1
+      },
+      {
+        "name": "gap_pct",
+        "direction": "minimize",
+        "priority": 2,
+        "optional": true
+      },
+      {
+        "name": "runtime_seconds",
+        "direction": "minimize",
+        "priority": 3,
+        "optional": true
+      }
+    ],
+    "io_contract_notes": [
+      "Instances use the common text format: job_count machine_count max_candidate_count followed by jobs.",
+      "Solutions must use standard_fjsp_schedule_v1 JSON with one record per operation.",
+      "Evaluator owns all legality checks: precedence, machine eligibility, duration, and machine overlap.",
+      "FJSP-SDST instances require the dedicated setup-matrix IO contract; setup time is evaluated between consecutive operations on the same machine."
+    ],
+    "evaluator_invariants": [
+      "Do not modify examples/standard_fjsp_evaluator.py when evolving solver code.",
+      "Do not modify harness_agent/standard_fjsp.py parser or validator without a new user-confirmed IO contract.",
+      "Candidate solvers may self-check, but promotion depends only on Core evaluator output.",
+      "Do not use the AWLS standard-FJSP backend for FJSP-SDST unless setup-aware decoding and neighborhood evaluation are selected."
+    ],
+    "solver_entrypoints": [
+      "examples/standard_fjsp_portfolio_solver.py",
+      "examples/standard_fjsp_local_search_solver.py",
+      "examples/standard_fjsp_awls_solver.py"
+    ],
+    "specialization_hooks": [
+      "strategy_profile_generation",
+      "slot_manifest_guided_edits",
+      "awls_zi_formula_or_slot",
+      "neighborhood_operator_slots",
+      "best_known_gap_feedback",
+      "setup_aware_dispatch_or_insertion",
+      "sdst_io_contract"
+    ],
+    "knowledge_tags": [
+      "fjsp",
+      "dispatch_rules",
+      "critical_path",
+      "critical_block_neighborhood",
+      "machine_reassignment",
+      "tabu_search",
+      "awls",
+      "sdst",
+      "sequence_dependent_setup"
+    ]
+  },
+  "knowledge": {
+    "base_cards": [
+      "knowledge/benchmarks/standard_fjsp_format.md",
+      "knowledge/benchmarks/fjsplib.md",
+      "knowledge/principles/harness_agent_design.md",
+      "knowledge/papers/fjsp_scene_survey_2025_10_17.md"
+    ],
+    "tagged_cards": {
+      "adaptive_weight": [
+        "knowledge/imported_huawei_fjsp_knowledge/lessons/profile_driven_local_search_20260615.md",
+        "knowledge/papers/awls_sdst_zi_feature_notes.md",
+        "knowledge/papers/awls_sdst_weight_update_notes.md"
+      ],
+      "awls": [
+        "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
+        "knowledge/imported_huawei_fjsp_knowledge/lessons/profile_driven_local_search_20260615.md"
+      ],
+      "candidate_generation": [
+        "knowledge/papers/awls_sdst_literature_direction_notes.md",
+        "knowledge/papers/awls_sdst_neighborhood_selection_notes.md"
+      ],
+      "change_machine": [
+        "knowledge/papers/awls_sdst_move_evaluation_notes.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/operation_machine_reassignment.md"
+      ],
+      "critical_block": [
+        "knowledge/imported_huawei_fjsp_knowledge/operators/critical_path_machine_block_neighborhood.md",
+        "knowledge/papers/awls_sdst_literature_direction_notes.md",
+        "knowledge/papers/awls_sdst_neighborhood_selection_notes.md"
+      ],
+      "critical_path": [
+        "knowledge/imported_huawei_fjsp_knowledge/operators/critical_path_machine_block_neighborhood.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/xiejin_hgtsa_n8_k_insertion_tabu_spec.md"
+      ],
+      "initialization": [
+        "knowledge/papers/awls_sdst_literature_direction_notes.md",
+        "knowledge/papers/awls_sdst_initialization_notes.md"
+      ],
+      "machine_reassignment": [
+        "knowledge/imported_huawei_fjsp_knowledge/operators/operation_machine_reassignment.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/hgtsa_fjsp_n8_k_insertion_blueprint.md",
+        "knowledge/papers/awls_sdst_literature_direction_notes.md"
+      ],
+      "move_scoring": [
+        "knowledge/imported_huawei_fjsp_knowledge/operators/xiejin_hgtsa_n8_k_insertion_tabu_spec.md",
+        "knowledge/papers/awls_sdst_move_evaluation_notes.md",
+        "knowledge/papers/awls_sdst_move_selection_notes.md"
+      ],
+      "move_selection": [
+        "knowledge/papers/awls_sdst_literature_direction_notes.md",
+        "knowledge/papers/awls_sdst_move_selection_notes.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md"
+      ],
+      "n7_neighborhood": [
+        "knowledge/papers/awls_sdst_literature_direction_notes.md",
+        "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
+        "knowledge/papers/awls_sdst_same_machine_notes.md"
+      ],
+      "neighborhood": [
+        "knowledge/imported_huawei_fjsp_knowledge/operators/hgtsa_fjsp_n8_k_insertion_blueprint.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/xiejin_hgtsa_n8_k_insertion_tabu_spec.md",
+        "knowledge/papers/awls_sdst_literature_direction_notes.md"
+      ],
+      "nk_neighborhood": [
+        "knowledge/papers/awls_sdst_literature_direction_notes.md",
+        "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
+        "knowledge/papers/awls_sdst_move_evaluation_notes.md"
+      ],
+      "portfolio": [
+        "knowledge/papers/awls_sdst_portfolio_search_control_notes.md",
+        "knowledge/papers/awls_sdst_neighborhood_selection_notes.md"
+      ],
+      "same_machine": [
+        "knowledge/papers/awls_sdst_same_machine_notes.md"
+      ],
+      "sdst": [
+        "knowledge/papers/awls_sdst_hudata20_baseline_notes.md",
+        "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
+        "knowledge/papers/awls_sdst_initialization_notes.md",
+        "knowledge/papers/awls_sdst_same_machine_notes.md",
+        "knowledge/papers/awls_sdst_move_evaluation_notes.md",
+        "knowledge/papers/awls_sdst_portfolio_search_control_notes.md",
+        "knowledge/papers/awls_sdst_zi_feature_notes.md",
+        "knowledge/papers/awls_sdst_weight_update_notes.md",
+        "knowledge/papers/awls_sdst_search_transition_notes.md",
+        "knowledge/papers/awls_sdst_tabu_memory_notes.md",
+        "knowledge/papers/awls_sdst_literature_direction_notes.md"
+      ],
+      "search_control": [
+        "knowledge/papers/awls_sdst_literature_direction_notes.md",
+        "knowledge/papers/awls_sdst_portfolio_search_control_notes.md",
+        "knowledge/papers/awls_sdst_search_transition_notes.md",
+        "knowledge/papers/awls_sdst_tabu_memory_notes.md",
+        "knowledge/papers/awls_sdst_move_selection_notes.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md"
+      ],
+      "search_transition": [
+        "knowledge/papers/awls_sdst_search_transition_notes.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md"
+      ],
+      "setup_time": [
+        "knowledge/papers/awls_sdst_initialization_notes.md",
+        "knowledge/papers/awls_sdst_same_machine_notes.md",
+        "knowledge/papers/awls_sdst_zi_feature_notes.md"
+      ],
+      "tabu_memory": [
+        "knowledge/papers/awls_sdst_tabu_memory_notes.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md"
+      ],
+      "tabu_search": [
+        "knowledge/papers/awls_sdst_search_transition_notes.md",
+        "knowledge/papers/awls_sdst_tabu_memory_notes.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md"
+      ],
+      "weight_update": [
+        "knowledge/papers/awls_sdst_weight_update_notes.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md"
+      ],
+      "zi": [
+        "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
+        "knowledge/papers/awls_sdst_zi_feature_notes.md",
+        "knowledge/papers/awls_sdst_weight_update_notes.md"
+      ],
+      "zi_features": [
+        "knowledge/papers/awls_sdst_zi_feature_notes.md",
+        "knowledge/papers/awls_sdst_neighborhood_selection_notes.md"
+      ]
+    }
+  },
+  "edit_strategies": [
+    "slot_based_edit"
+  ]
+}

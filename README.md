@@ -301,11 +301,17 @@ modify files inside isolated candidate worktrees.  A round is promoted only if
 the fixed evaluator reports a strictly better objective key than the incumbent;
 otherwise the candidate is rolled back.
 
-### Problem-family cards and code-slot manifests
+### Domain Packs And Optional Edit Strategies
 
-The platform path now separates problem-family capability, code-slot contracts,
-and solver evolution.  A problem-family card records the stable IO/evaluator
-rules for a family such as standard FJSP.  A slot manifest records editable code
+The platform backend is intended to stay domain-neutral.  It reads task
+contracts, detects IO/instance signals, retrieves domain assets, builds context
+packets, runs workers, and lets the fixed evaluator decide promotion.  Domain
+knowledge lives outside the backend under `domain_packs/`.
+
+The current `standard_fjsp` domain pack declares the FJSP capability card and
+the knowledge-card retrieval index used for standard FJSP and FJSP-SDST work.
+Code slots are only one optional edit strategy declared by a domain pack; they
+are not required by the core framework.  A slot manifest records editable code
 regions, their purpose, inputs, outputs, invariants, validation commands, and
 whether the user has confirmed that slot for LLM edits.
 
@@ -333,10 +339,11 @@ python -m harness_agent.cli run-standard-worker-loop `
   --portfolio-size 4
 ```
 
-`context_packet.json` includes the selected slot manifest and automatically
-adds local FJSP knowledge cards from `knowledge/` based on the problem family
-and confirmed slot tags.  Explicit `--knowledge-card` paths are still accepted
-and are merged with these automatically selected cards.
+`context_packet.json` includes the selected slot manifest when one is supplied
+and automatically adds knowledge cards declared by the active domain pack based
+on the problem family and confirmed edit-strategy tags.  Explicit
+`--knowledge-card` paths are still accepted and are merged with these
+automatically selected cards.
 
 ## Project Intake
 
