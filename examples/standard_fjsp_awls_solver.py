@@ -1303,6 +1303,7 @@ def add_move_tabu(tabu: SequenceTabuList, schedule: AwlsSchedule, move: Move, it
         sequence.append(move.which)
         if successor != -1:
             sequence.append(successor)
+
     def _get_setup(m: int, op1: int, op2: int) -> int:
         if op1 == -1 or op2 == -1:
             return 0
@@ -1339,13 +1340,17 @@ def add_move_tabu(tabu: SequenceTabuList, schedule: AwlsSchedule, move: Move, it
             - _get_setup(machine_id, move.which, old_succ)
         )
         delta = delta_target + delta_leave
+
     is_critical = schedule.is_critical_operation(move.which)
-    scale = 2.0 if is_critical else 1.0
-    delta_norm = delta / proc if proc > 0 else 0.0
-    base_tenure = schedule.rng.randint(tenure_min, tenure_max)
-    tenure_range = tenure_max - tenure_min
-    bias = int(scale * delta_norm * tenure_range)
-    tenure = max(tenure_min, min(tenure_max, base_tenure + bias))
+    if is_critical:
+        delta_norm = delta / (proc + 1)
+        factor = max(-1.0, min(1.0, delta_norm * 2.0))
+        biased_tenure = int(tenure_min + (tenure_max - tenure_min) * (factor + 1) / 2)
+        jitter = schedule.rng.randint(-2, 2)
+        tenure = max(tenure_min, min(tenure_max, biased_tenure + jitter))
+    else:
+        tenure = schedule.rng.randint(tenure_min, tenure_max)
+
     tabu.add(machine_id, sequence, iteration + tenure)
     # SLOT awls_sdst_tabu_memory END
 

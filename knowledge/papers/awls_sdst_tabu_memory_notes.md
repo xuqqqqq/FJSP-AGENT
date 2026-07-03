@@ -100,6 +100,19 @@ must stay inside the existing `SequenceTabuList` mechanism.
   and 7 worsened.  Largest gains were `oddla02 -36` and `oddla14 -27`; largest
   regressions were `oddla13 +32` and `oddla16 +32`.  Treat this as a weak,
   uneven search-control signal, not a stable global SDST breakthrough.
+- A follow-up hard-HUdata worker run on
+  `oddla09/oddla11/oddla12/oddla13/oddla14/oddla15` generated
+  `critical_sdst_capped_tenure_jitter`.  It preserves the existing local tabu
+  sequence and changes only tenure: critical moves map normalized setup delta
+  into the bounded `[tenure_min, tenure_max]` range with small seeded jitter,
+  while non-critical moves retain baseline random tenure.  The Core worker-loop
+  repeat gate promoted it on the 6-instance 12s probe (`1303.33 -> 1297.17`).
+  Full HUdata20 seed-0 30s candidate-worktree reruns were legal and averaged
+  `1013.25` then `1013.10`, compared with the previous saved mainline
+  `1014.50` and a fresh mainline rerun `1016.05`.  Effects remain uneven
+  (`oddla13/15/16/19` improved while `oddla02/05/11` regressed), so treat this
+  as another weak positive tabu-memory signal rather than a stable UB-reaching
+  method.
 - Fixed best-reset transition rules worsened `oddla20` to `1033` and `1023`;
   do not emulate restart/backtrack behavior inside tabu memory.
 - Portfolio seed remapping, multi-scramble restarts, and best-lane reruns tied
