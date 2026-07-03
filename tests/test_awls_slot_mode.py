@@ -3107,6 +3107,50 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_search_transition_slot_warns_on_stats_only_plateau_tracking_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_search_transition")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "plateau_step_tracking",
+                        "type": "search_transition_rule",
+                        "novelty": "Different from failed best resets by only recording plateau statistics.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_search_transition",
+                        "content": (
+                            "        if current.makespan < best.makespan:\n"
+                            "            best = current.clone()\n"
+                            "        if stats is not None:\n"
+                            "            if current.makespan >= best.makespan:\n"
+                            "                stats.setdefault('plateau_steps', 0)\n"
+                            "                stats['plateau_steps'] += 1\n"
+                            "            else:\n"
+                            "                stats.setdefault('best_updates', 0)\n"
+                            "                stats['best_updates'] += 1\n"
+                            "                stats['plateau_steps'] = 0\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "search_transition_retries_stats_only_plateau_tracking",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_search_transition_repair_guidance_names_best_invariant(self) -> None:
         slot = _generic_slot_context(slot_id="awls_sdst_search_transition")["slot_manifest"]["slots"][0]
 

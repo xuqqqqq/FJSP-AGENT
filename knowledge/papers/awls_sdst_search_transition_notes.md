@@ -58,6 +58,14 @@ Core evaluator makespan as the only promotion authority.
   best.makespan`.  Although setup time fell from `1940` to `1700`, the
   makespan degradation was severe.  Do not retry relative-makespan degradation
   best resets such as 1%, 2%, or 5% gap thresholds.
+- A later hard-HUdata six-instance worker run proposed
+  `plateau_step_tracking`: it kept the normal `best = current.clone()` update
+  on improvement and only wrote `plateau_steps` / `best_updates` into optional
+  `stats`.  The code was legal and guarded `stats is not None`, but it left
+  the search path identical and tied the hard-HUdata 12s probe at average
+  makespan `1297.17`.  Do not spend Core rounds on stats-only transition
+  edits; a search-transition proposal must materially affect `current` or
+  `best` control flow while preserving the best-makespan invariant.
 - Portfolio best-lane reruns, seed remapping, multi-scramble restarts, and
   setup-ratio best-lane exploitation all tied `1010`; do not reproduce those
   as an in-loop transition without a materially different state rule.
@@ -84,3 +92,6 @@ Core evaluator makespan as the only promotion authority.
 - Do not promote a worse makespan into `best`.
 - `stats` is optional in `tabu_search`; guard all stats writes with
   `if stats is not None:`.
+- Do not retry pure `plateau_steps`/`stats` tracking that does not influence
+  `current` or `best`; it tied the hard HUdata-six probe and cannot improve
+  makespan by itself.

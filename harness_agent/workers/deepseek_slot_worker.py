@@ -790,6 +790,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "search_transition_stats_without_none_guard",
         "search_transition_uses_io_or_unseeded_random",
         "search_transition_retries_relative_degradation_best_reset",
+        "search_transition_retries_stats_only_plateau_tracking",
         "tabu_memory_missing_or_multiple_tabu_add",
         "tabu_memory_calls_forbidden_runtime_api",
         "tabu_memory_mutates_schedule_or_tabu_directly",
@@ -1106,6 +1107,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "search_transition_stats_without_none_guard",
         "search_transition_uses_io_or_unseeded_random",
         "search_transition_retries_relative_degradation_best_reset",
+        "search_transition_retries_stats_only_plateau_tracking",
         "tabu_memory_missing_or_multiple_tabu_add",
         "tabu_memory_calls_forbidden_runtime_api",
         "tabu_memory_mutates_schedule_or_tabu_directly",
@@ -1838,6 +1840,14 @@ def awls_sdst_search_transition_warnings(content: str) -> list[str]:
     uses_stats = re.search(r"\bstats\s*(?:\.|\[)", content)
     if uses_stats and "stats is not none" not in content:
         warnings.append("search_transition_stats_without_none_guard")
+    stats_only_plateau_tracking = (
+        "plateau_steps" in content
+        and "stats" in content
+        and not re.search(r"\bcurrent\s*=\s*(?:best|current)\.clone\s*\(", content)
+        and not re.search(r"\bbest\s*=\s*best\.clone\s*\(", content)
+    )
+    if stats_only_plateau_tracking:
+        warnings.append("search_transition_retries_stats_only_plateau_tracking")
     return list(dict.fromkeys(warnings))
 
 
@@ -2121,6 +2131,8 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- Do not call find_move, apply_move, add_move_tabu, tabu_search, solve_awls, solve_awls_single, or evaluator/validator APIs.\n"
             "- Do not mutate schedule topology fields, start/end times, on_machine, or makespan directly; assign whole clones only.\n"
             "- `stats` is optional; guard every stats read or write with `if stats is not None:`.\n"
+            "- Do not retry pure `plateau_steps`/`stats` tracking that leaves the search path identical; it tied the hard "
+            "HUdata-six 12s probe at 1297.17 and cannot improve makespan by itself.\n"
             "- Plateau, backtrack, or restart logic must be bounded and deterministic from in-scope values, using only current.rng if randomness is needed."
         )
     if slot_id == "awls_sdst_tabu_memory":
