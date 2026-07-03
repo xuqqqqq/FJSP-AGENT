@@ -70,5 +70,25 @@ Use these directions as hypotheses, not as a manual patch:
   attribute state and outside-gate hard penalties as the main novelty; the
   gate can suppress useful change-machine moves even when it avoids the prior
   full-exact failure.
+- After the accepted `sequence_length_biased_tenure` tabu-memory baseline,
+  Core `oddla20` seed-0 under the 28s contract is `makespan=1002`, not the
+  older `1010` line.  A later move-evaluation worker tried
+  `setup_adjusted_nk_proxy`, adding destination setup arcs directly to the
+  legacy change-machine proxy.  It failed before quality evaluation because it
+  used `schedule.index.start_node`; `OperationIndex` has no `start_node`
+  attribute.  Use module constant `START_NODE` for the source sentinel and
+  `schedule.index.end_node` for the sink sentinel.  Do not retry this
+  destination-setup proxy unchanged until the API is repaired and the
+  hypothesis differs from simple setup insertion penalties.
+- After the `START_NODE` guard was added, a legal follow-up worker candidate
+  `critical_proximity_scaled_setup_penalty` used
+  `critical_factor = min(1, base_proxy / makespan)` and scored
+  `base_proxy + critical_factor * setup_sum`.  Core evaluation under the same
+  `oddla20` seed-0 28s contract worsened the accepted `1002` incumbent to
+  `1010`, with setup time rising from `1740` to `1910`.  Do not retry this
+  critical-proximity setup-sum multiplier unchanged.  It also used
+  `schedule.end_time[schedule.index.end_node]` as a makespan proxy; inside
+  AWLS move-evaluation slots, use `schedule.makespan` or exact
+  `trial.makespan` instead.
 - Do not change parser/evaluator/IO semantics.
 - Do not change N7 same-machine scoring until a separate slot is confirmed.

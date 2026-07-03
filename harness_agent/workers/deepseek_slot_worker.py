@@ -688,6 +688,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         return False
     must_repair = {
         "same_machine_setup_propagation_without_exact_trial",
+        "slot_uses_nonexistent_operation_index_start_node",
         "slot_uses_nonexistent_operation_index_durations",
         "slot_uses_nonexistent_setup_time_api",
         "neighborhood_adds_random_no_move_fallback",
@@ -727,6 +728,8 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "initialization_defines_wrong_entrypoint",
         "initialization_uses_nonexistent_instance_api",
         "move_evaluation_retries_proxy_ratio_exact_gate",
+        "move_evaluation_retries_critical_proximity_setup_penalty",
+        "move_evaluation_uses_end_node_end_time_as_makespan",
         "move_selection_generates_candidates",
         "move_selection_mutates_candidate_lists",
         "move_selection_mutates_schedule_directly",
@@ -972,6 +975,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "empty_slot_proposal_without_concrete_blocker",
         "empty_slot_proposal_reverts_to_baseline",
         "same_machine_setup_propagation_without_exact_trial",
+        "slot_uses_nonexistent_operation_index_start_node",
         "slot_uses_nonexistent_operation_index_durations",
         "slot_uses_nonexistent_setup_time_api",
         "neighborhood_adds_random_no_move_fallback",
@@ -1011,6 +1015,8 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "initialization_defines_wrong_entrypoint",
         "initialization_uses_nonexistent_instance_api",
         "move_evaluation_retries_proxy_ratio_exact_gate",
+        "move_evaluation_retries_critical_proximity_setup_penalty",
+        "move_evaluation_uses_end_node_end_time_as_makespan",
         "move_selection_generates_candidates",
         "move_selection_mutates_candidate_lists",
         "move_selection_mutates_schedule_directly",
@@ -1066,6 +1072,8 @@ def slot_specific_generic_warnings(
     warnings: list[str] = []
     if python_slot_content_syntax_error(content):
         warnings.append("slot_content_python_syntax_error")
+    if re.search(r"\b(?:schedule\.)?index\.start_node\b", content):
+        warnings.append("slot_uses_nonexistent_operation_index_start_node")
     if re.search(r"schedule\.index\.durations\b|\bindex\.durations\b", content):
         warnings.append("slot_uses_nonexistent_operation_index_durations")
     if re.search(r"\b(?:schedule(?:\.index)?|index)\.setup_time\b", content):
@@ -1156,6 +1164,10 @@ def solver_command_zi_policy(context: dict[str, Any] | None) -> str:
 def awls_sdst_move_evaluation_warnings(content: str) -> list[str]:
     warnings: list[str] = []
     uses_exact_trial = ".apply_move(" in content and "trial.makespan" in content
+    if re.search(r"\bend_time\s*\[\s*(?:schedule\.)?index\.end_node\s*\]", content):
+        warnings.append("move_evaluation_uses_end_node_end_time_as_makespan")
+    if re.search(r"\bschedule\.end_time\s*\[\s*schedule\.index\.end_node\s*\]", content):
+        warnings.append("move_evaluation_uses_end_node_end_time_as_makespan")
     uses_proxy_ratio_gate = re.search(r"\bbest_proxy\b[\s\S]{0,160}\b1\.0?5\b", content) or re.search(
         r"\b1\.0?5\b[\s\S]{0,160}\bbest_proxy\b", content
     )
@@ -1171,6 +1183,14 @@ def awls_sdst_move_evaluation_warnings(content: str) -> list[str]:
         and uses_hard_outside_gate_penalty
     ):
         warnings.append("move_evaluation_retries_proxy_ratio_exact_gate")
+    critical_proximity_setup = (
+        "critical_factor" in content
+        and "setup_sum" in content
+        and "base_value" in content
+        and re.search(r"\bmin\s*\(\s*1\.0\s*,\s*base_value\s*/", content)
+    )
+    if critical_proximity_setup:
+        warnings.append("move_evaluation_retries_critical_proximity_setup_penalty")
     return warnings
 
 
@@ -1804,13 +1824,19 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- Do not retry proxy-ratio gated exact scoring that stores `_best_proxy` on "
             "`change_machine_evaluate_parts`, exact-scores only candidates within about 5% of that proxy, "
             "and assigns 1e9-style hard penalties outside the gate; it worsened oddla20 from 1010 to 1023.\n"
+            "- Do not retry `critical_factor = min(1, base_proxy / makespan)` multiplied by `setup_sum`; "
+            "the legal version worsened the current 1002 incumbent to 1010.\n"
             "- Preserve the legacy AWLS proxy for makespan/tail pressure unless the replacement has a materially "
             "different bounded mechanism, such as move-local critical-tail pressure, ordered candidate context, "
             "or a gate that does not suppress outside-gate candidates with huge constants.\n"
             "- If exact scoring is used, clone first, apply `Move(method, which, where)`, catch ValueError/KeyError, "
             "and use `trial.makespan`; do not read `end_time[index.end_node]` as the makespan.\n"
+            "- If a current makespan is needed inside this slot, use `schedule.makespan`, not "
+            "`schedule.end_time[schedule.index.end_node]`.\n"
             "- If setup lookup is used, import and call `setup_time_between(instance, machine_id, previous_op, "
-            "current_op, op_index)` with operation-key tuples and never with `current_op=None`."
+            "current_op, op_index)` with operation-key tuples and never with `current_op=None`.\n"
+            "- `OperationIndex` has no `start_node` attribute.  Use the module constant `START_NODE` for the "
+            "source sentinel and `schedule.index.end_node` for the sink sentinel."
         )
     if slot_id == "awls_sdst_portfolio_search_control":
         return (

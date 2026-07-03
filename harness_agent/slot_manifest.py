@@ -267,6 +267,7 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
                 "Move(method, which, where) is available if exact scoring clones are needed",
                 "setup_time_between from harness_agent.standard_fjsp if setup-aware arc deltas are needed",
                 "Operation keys are (schedule.index.node_to_job[node], schedule.index.node_to_op[node]); pass schedule.index as the op_index mapping",
+                "START_NODE is the AWLS source sentinel constant; schedule.index.end_node is the sink sentinel",
             ],
             outputs=[
                 "A numeric change-machine move score where smaller is preferred by find_move",
@@ -277,6 +278,8 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
                 "Keep change_machine_evaluate_parts signature unchanged.",
                 "Move method values are string constants, not integers.",
                 "AwlsSchedule has no setup_time(...) method and OperationIndex has no setup_time(...) method.",
+                "OperationIndex has no start_node attribute; use START_NODE for the source sentinel.",
+                "Use schedule.makespan for current makespan; schedule.end_time[schedule.index.end_node] is not a reliable makespan proxy.",
                 "If setup_time_between is used, call setup_time_between(schedule.index.instance, machine_id, previous_op, current_op, schedule.index).",
                 "Never call setup_time_between with current_op=None; missing predecessor/successor edges contribute zero setup.",
                 "Use trial.makespan after trial.apply_move(Move(method, which, where)) if exact scoring is attempted.",

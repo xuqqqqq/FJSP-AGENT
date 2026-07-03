@@ -210,6 +210,123 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("_best_proxy", guidance)
         self.assertIn("1010 to 1023", guidance)
 
+    def test_move_evaluation_slot_warns_on_nonexistent_start_node_api(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_evaluation")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "setup_adjusted_nk_proxy",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed linear setup penalties by using destination context.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_evaluation",
+                        "content": (
+                            "    def setup_or_zero(prev_node, next_node):\n"
+                            "        if prev_node == schedule.index.start_node or next_node == schedule.index.end_node:\n"
+                            "            return 0\n"
+                            "        return 1\n"
+                            "    return float(setup_or_zero(which, where))\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "slot_uses_nonexistent_operation_index_start_node",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+        self.assertIn("START_NODE", generic_slot_repair_guidance(slot))
+
+    def test_move_evaluation_slot_warns_on_end_node_makespan_proxy(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_evaluation")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "scaled_setup_proxy",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed constant setup penalties by using current pressure.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_evaluation",
+                        "content": (
+                            "    base_value = which_time + zi\n"
+                            "    makespan = schedule.end_time[schedule.index.end_node]\n"
+                            "    return base_value / max(makespan, 1)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "move_evaluation_uses_end_node_end_time_as_makespan",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+        self.assertIn("schedule.makespan", generic_slot_repair_guidance(slot))
+
+    def test_move_evaluation_slot_warns_on_critical_proximity_setup_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_evaluation")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "critical_proximity_scaled_setup_penalty",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed constant setup penalties by scaling setup_sum.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_evaluation",
+                        "content": (
+                            "    base_value = which_time + zi\n"
+                            "    setup_sum = 0.0\n"
+                            "    critical_factor = min(1.0, base_value / max(schedule.makespan, 1.0))\n"
+                            "    return base_value + critical_factor * setup_sum\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "move_evaluation_retries_critical_proximity_setup_penalty",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+        self.assertIn("1002 incumbent to 1010", generic_slot_repair_guidance(slot))
+
     def test_selected_confirmed_slot_accepts_sdst_move_selection_slot(self) -> None:
         context = _generic_slot_context(slot_id="awls_sdst_move_selection")
 
