@@ -151,6 +151,7 @@ class DomainPackTests(unittest.TestCase):
         card_paths = {str(path.relative_to(ROOT)).replace("\\", "/") for path in cards if path.is_relative_to(ROOT)}
 
         self.assertIn("knowledge/benchmarks/standard_fjsp_format.md", card_paths)
+        self.assertIn("knowledge/principles/fjsp_variant_domain_pack_rag.md", card_paths)
         self.assertIn("knowledge/papers/awls_sdst_hudata20_baseline_notes.md", card_paths)
         self.assertIn("knowledge/papers/awls_sdst_weight_update_notes.md", card_paths)
 
@@ -195,6 +196,7 @@ class DomainPackTests(unittest.TestCase):
         self.assertEqual("standard_fjsp", packet["problem_family_capability"]["family_id"])
         auto_cards = {Path(path).name for path in packet["auto_knowledge_cards"]}
         self.assertIn("standard_fjsp_format.md", auto_cards)
+        self.assertIn("fjsp_variant_domain_pack_rag.md", auto_cards)
         self.assertIn("awls_sdst_hudata20_baseline_notes.md", auto_cards)
 
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "FJSP Variant Packs"
+  short_description: "Design FJSP variant domain packs"
+  default_prompt: "Use $fjsp-variant-domain-pack to add or review an FJSP variant through domain packs, RAG cards, slots, and evaluator contracts."

@@ -185,6 +185,7 @@ class SlotManifestPlatformTests(unittest.TestCase):
         self.assertTrue(packet["auto_knowledge_cards"])
         knowledge_paths = {Path(item["path"]).name for item in packet["knowledge_cards"]}
         self.assertIn("standard_fjsp_format.md", knowledge_paths)
+        self.assertIn("fjsp_variant_domain_pack_rag.md", knowledge_paths)
         self.assertIn("fjsp_scene_survey_2025_10_17.md", knowledge_paths)
         self.assertIn("xiejin_hgtsa_n8_k_insertion_tabu_spec.md", knowledge_paths)
         self.assertIn("Review slot_manifest", " ".join(packet["worker_instruction"]["required_order"]))

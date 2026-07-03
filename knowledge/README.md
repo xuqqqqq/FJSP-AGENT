@@ -22,6 +22,34 @@ design should point to a paper, benchmark page, repository, or local experiment.
 | `benchmarks/standard_fjsp_format.md` | Public text-format contract for standard FJSP instances. |
 | `principles/harness_agent_design.md` | Core design principles derived from the above sources. |
 
+## Retrieval Order
+
+For standard FJSP benchmark work, retrieve:
+
+1. `benchmarks/fjsp_benchmark_scope.md`
+2. `papers/fjsp_agent_current_capability_20260704.md`
+3. family/operator cards selected by tags such as `critical_block`,
+   `machine_reassignment`, `tabu_search`, or `portfolio`
+
+For FJSP-SDST / HUdata work, retrieve:
+
+1. `papers/fjsp_agent_current_capability_20260704.md`
+2. `papers/awls_sdst_hudata20_baseline_notes.md`
+3. only the selected slot's notes, such as
+   `awls_sdst_initialization_notes.md` or `awls_sdst_move_evaluation_notes.md`
+
+LB/UB cards are comparison references.  They should guide benchmark selection
+and reporting, not solver scoring.
+
+For new FJSP variants or industrial constraints, retrieve:
+
+1. `principles/fjsp_variant_domain_pack_rag.md`
+2. `papers/fjsp_scene_survey_2025_10_17.md`
+3. the active IO/evaluator contract and only the selected slot notes
+
+Do not put variant algorithms in backend orchestration code.  Put them in
+domain packs, knowledge cards, skills, slot manifests, or worker context.
+
 ## Imported Local Knowledge
 
 `imported_huawei_fjsp_knowledge/` contains the Markdown cards previously built

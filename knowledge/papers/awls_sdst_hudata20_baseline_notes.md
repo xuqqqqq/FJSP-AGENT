@@ -342,6 +342,26 @@ now clear enough for worker prompts: easy-ish cases are `oddla01`,
 `oddla18`, `oddla19`, and `oddla20`; the main quality gap remains the
 20-job/5-machine group `oddla11`--`oddla15`.
 
+## 2026-07-04 LB/UB Report Recheck
+
+Evidence:
+`outputs/eval_current_agent_hudata20_30s_20260704/summary.json`
+
+This rerun uses the same current solver line and now reports both LB and UB/BKS
+diagnostics through the unified benchmark bounds loader.
+
+- Valid runs: `20/20`.
+- Average makespan: `1012.80`.
+- Average gap to UB/BKS: `6.81%`.
+- Average gap to LB: `22.62%`.
+- Median gap to UB/BKS: `7.10%`.
+- Max UB gap: `14.67%`.
+- Within 2% of UB/BKS: `3/20`.
+- Reached UB/BKS: `0/20`.
+
+Hard-shape gate remains `oddla11`--`oddla15`; do not claim SDST improvement
+from `oddla20` alone.
+
 ## Recommended Evaluation Ladder
 
 Use small smoke runs first, then a targeted hard-shape probe:
