@@ -28,3 +28,8 @@ metrics, and constraints.
 The knowledge base guides strategy generation and context construction.  It
 must not override the task contract or evaluator.
 
+## Principle 6: Instance Diagnostics Guide Strategy Only
+
+Parsed instance profiles, setup-time ratios, and best-known/LB/UB references
+help workers choose an appropriate slot strategy.  They are not objective
+functions; promotion remains evaluator-backed makespan improvement.

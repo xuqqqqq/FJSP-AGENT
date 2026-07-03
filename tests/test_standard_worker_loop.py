@@ -73,6 +73,9 @@ class StandardWorkerLoopTests(unittest.TestCase):
             context_packet = json.loads((output_dir / "context_packet.json").read_text(encoding="utf-8"))
             self.assertTrue(context_packet["project_intake"]["exists"])
             self.assertEqual("confirmed", context_packet["slot_manifest"]["status"])
+            self.assertEqual("available", context_packet["instance_diagnostics"]["status"])
+            self.assertEqual(1, context_packet["instance_diagnostics"]["summary"]["profiled_count"])
+            self.assertEqual("standard_fjsp", context_packet["instance_diagnostics"]["instances"][0]["variant"])
             self.assertIn(
                 "Review slot_manifest",
                 " ".join(context_packet["worker_instruction"]["required_order"]),

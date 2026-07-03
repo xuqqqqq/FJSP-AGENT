@@ -344,7 +344,7 @@ Return JSON only:
       "type": "local_search_operator",
       "novelty": "how this differs from prior failed or baseline behavior",
       "expected_effect": "which evaluator metric should improve and why",
-      "evidence_used": ["slot_manifest", "knowledge_cards", "loop_feedback"],
+      "evidence_used": ["slot_manifest", "instance_diagnostics", "knowledge_cards", "loop_feedback"],
       "target_files": ["{target_file}"],
       "ablation_plan": "how Core can isolate this slot change"
     }}
@@ -615,6 +615,7 @@ def compact_context(context: dict[str, Any]) -> dict[str, Any]:
         "instances": contract.get("instances", [])[:3],
         "commands": contract.get("commands", {}),
         "evaluator_protocol": context.get("evaluator_protocol") or {},
+        "instance_diagnostics": context.get("instance_diagnostics") or {},
         "slot_manifest": {
             "status": slot_manifest.get("status") if isinstance(slot_manifest, dict) else None,
             "confirmation_required": slot_manifest.get("confirmation_required") if isinstance(slot_manifest, dict) else None,

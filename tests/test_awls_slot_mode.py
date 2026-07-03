@@ -145,6 +145,14 @@ class AwlsSlotModeTests(unittest.TestCase):
         context["evaluator_protocol"] = {
             "solver_command_template": "python examples/standard_fjsp_awls_solver.py --zi-policy critical"
         }
+        context["instance_diagnostics"] = {
+            "status": "available",
+            "summary": {
+                "sdst_instance_count": 1,
+                "best_known_semantics": "diagnostic_only_score_remains_negative_makespan",
+            },
+            "direction_hints": ["Setup is material; combine setup deltas with criticality."],
+        }
 
         compacted = compact_context(context)
 
@@ -152,6 +160,8 @@ class AwlsSlotModeTests(unittest.TestCase):
             "python examples/standard_fjsp_awls_solver.py --zi-policy critical",
             compacted["evaluator_protocol"]["solver_command_template"],
         )
+        self.assertEqual("available", compacted["instance_diagnostics"]["status"])
+        self.assertIn("Setup is material", " ".join(compacted["instance_diagnostics"]["direction_hints"]))
 
     def test_cli_deepseek_worker_uses_slot_worker_when_slot_manifest_is_present(self) -> None:
         worker = make_worker(

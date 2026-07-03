@@ -149,6 +149,57 @@ class ContextPacketTests(unittest.TestCase):
                 " ".join(packet["worker_instruction"]["required_order"]),
             )
 
+    def test_context_packet_embeds_sdst_instance_diagnostics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            instance = tmp_path / "oddla20.txt"
+            instance.write_text((ROOT / "examples" / "fjsp_sdst_hudata_tiny.txt").read_text(encoding="utf-8"), encoding="utf-8")
+            best_known = tmp_path / "lbub.csv"
+            best_known.write_text("instance,best\nla20,997\n", encoding="utf-8")
+            contract = tmp_path / "contract.json"
+            contract.write_text(
+                json.dumps(
+                    {
+                        "task_id": "sdst_diagnostics_context",
+                        "problem_family": "standard_fjsp",
+                        "description": "diagnostics smoke",
+                        "instances": [{"id": "oddla20", "path": str(instance)}],
+                        "objectives": [{"name": "makespan", "direction": "minimize"}],
+                        "commands": {
+                            "solver": "python solver.py",
+                            "evaluator": "python evaluator.py",
+                            "quick_test": "python -m compileall .",
+                        },
+                        "budget": {"rounds": 1, "seeds": [0]},
+                        "paths": {"allowed_paths": ["examples"], "forbidden_paths": [".git"]},
+                        "resources": {"best_known_csv": str(best_known)},
+                        "review": {"status": "confirmed"},
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=contract,
+                    output_path=tmp_path / "context_packet.json",
+                    hypothesis="Use SDST diagnostics.",
+                )
+            )
+            packet = json.loads(output.read_text(encoding="utf-8"))
+
+        diagnostics = packet["instance_diagnostics"]
+        self.assertEqual("available", diagnostics["status"])
+        self.assertEqual(1, diagnostics["summary"]["sdst_instance_count"])
+        self.assertEqual("diagnostic_only_score_remains_negative_makespan", diagnostics["summary"]["best_known_semantics"])
+        self.assertIn("job_pair", diagnostics["summary"]["setup_time_kinds"])
+        self.assertEqual(997.0, diagnostics["instances"][0]["best_known_makespan"])
+        self.assertEqual("fjsp_sdst", diagnostics["instances"][0]["variant"])
+        self.assertGreater(diagnostics["instances"][0]["setup_time_max"], 0)
+        self.assertIn("Review instance_diagnostics", " ".join(packet["worker_instruction"]["required_order"]))
+
     def test_context_packet_embeds_compact_contract_review_schema(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
