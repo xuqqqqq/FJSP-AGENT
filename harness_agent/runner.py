@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -9,6 +11,9 @@ from pathlib import Path
 from .evaluator import EvaluationResult, objective_key
 from .ledger import ExperimentLedger, ExperimentRecord
 from .models import TaskContract, resolve_project_path
+
+
+CREATE_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
 
 @dataclass(frozen=True)
@@ -59,12 +64,9 @@ class HarnessRunner:
     def _run_quick_test(self) -> None:
         if not self.contract.commands.quick_test:
             return
-        subprocess.run(
+        run_shell_command(
             self.contract.commands.quick_test,
             cwd=self.project_root,
-            shell=True,
-            text=True,
-            capture_output=True,
             timeout=self.contract.budget.timeout_seconds,
             check=True,
         )
@@ -131,12 +133,9 @@ class HarnessRunner:
 
         try:
             solver_cmd = self.contract.commands.solver.format(**placeholders)
-            solver_result = subprocess.run(
+            solver_result = run_shell_command(
                 solver_cmd,
                 cwd=self.project_root,
-                shell=True,
-                text=True,
-                capture_output=True,
                 timeout=self.contract.budget.timeout_seconds,
                 check=False,
             )
@@ -146,12 +145,9 @@ class HarnessRunner:
                 raise RuntimeError(f"solver command failed with exit code {solver_result.returncode}")
 
             evaluator_cmd = self.contract.commands.evaluator.format(**placeholders)
-            evaluator_result = subprocess.run(
+            evaluator_result = run_shell_command(
                 evaluator_cmd,
                 cwd=self.project_root,
-                shell=True,
-                text=True,
-                capture_output=True,
                 timeout=self.contract.budget.timeout_seconds,
                 check=False,
             )
@@ -318,6 +314,76 @@ class HarnessRunner:
                 f"`{json.dumps(record.objective_key, ensure_ascii=False)}` | {error} |"
             )
         (self.output_dir / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def run_shell_command(
+    command: str,
+    *,
+    cwd: Path,
+    timeout: int,
+    check: bool,
+) -> subprocess.CompletedProcess[str]:
+    """Run a shell command and kill the whole process tree on timeout."""
+
+    popen_kwargs: dict[str, object] = {
+        "cwd": cwd,
+        "shell": True,
+        "text": True,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+    }
+    if os.name == "nt":
+        popen_kwargs["creationflags"] = CREATE_NEW_PROCESS_GROUP
+    else:
+        popen_kwargs["start_new_session"] = True
+
+    proc = subprocess.Popen(command, **popen_kwargs)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        _kill_process_tree(proc)
+        stdout, stderr = proc.communicate()
+        raise subprocess.TimeoutExpired(
+            cmd=exc.cmd,
+            timeout=exc.timeout,
+            output=stdout,
+            stderr=stderr,
+        ) from exc
+
+    result = subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
+    if check and result.returncode != 0:
+        raise subprocess.CalledProcessError(result.returncode, command, output=stdout, stderr=stderr)
+    return result
+
+
+def _kill_process_tree(proc: subprocess.Popen[str]) -> None:
+    if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            return
+        except Exception:  # noqa: BLE001 - fall through to direct kill.
+            pass
+    else:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            return
+        except ProcessLookupError:
+            return
+        except Exception:  # noqa: BLE001 - fall through to direct kill.
+            pass
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        return
 
 
 def pareto_frontier(candidates: list[dict[str, object]]) -> list[dict[str, object]]:
