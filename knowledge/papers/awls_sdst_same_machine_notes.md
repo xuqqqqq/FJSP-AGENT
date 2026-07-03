@@ -131,6 +131,16 @@ There is no `schedule.setup_time(...)` helper and no
   pressure without exact-trial or a materially new makespan/critical-tail
   mechanism, so no candidate code was applied.  Do not retry epsilon setup-sum
   tie-breakers as the main same-machine novelty.
+- A later hard HUdata-six 12s same-machine worker attempted
+  `exact_clone_apply_same_machine`.  It was syntactically legal but badly
+  worsened Core quality: baseline average makespan `1308.33`, candidate average
+  makespan `1511.83`.  The proposed code did not use the real exact-trial API;
+  it used `copy.deepcopy(schedule)`, invented manual sequence attributes such as
+  `machine_order`, `machine_sequence`, and `operations_on_machine`, and returned
+  `trial.makespan` without `trial.apply_move(move)`.  Do not retry fake
+  deepcopy/manual sequence rewrites.  Exact same-machine trials must use
+  `trial = schedule.clone()`, `trial.apply_move(move)`, and `trial.makespan`,
+  preferably behind a bounded gate.
 - If manually adding setup-aware forward/backward local propagation is too
   fragile, prefer exact local scoring:
 
@@ -158,3 +168,6 @@ candidate; reuse only as part of a materially different hybrid rule.
   non-critical worsening exact gate.  Do not retry exact-trial estimator-error
   correction as the main novelty.  Future same-machine attempts need a
   materially different critical-tail, locality, or acceptance-pressure signal.
+- Do not use `copy.deepcopy(schedule)` or invented `machine_order`,
+  `machine_sequence`, or `operations_on_machine` APIs; they are not valid solver
+  contracts and have already produced a severe hard-HUdata regression.

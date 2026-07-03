@@ -5248,6 +5248,55 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_same_machine_slot_warns_on_fake_deepcopy_sequence_api(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_same_machine_evaluation")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "exact_clone_apply_same_machine",
+                        "type": "local_search_operator",
+                        "novelty": "Tries exact same-machine scoring by manually editing copied machine sequences.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_same_machine_evaluation",
+                        "content": (
+                            "    import copy\n"
+                            "    trial = copy.deepcopy(schedule)\n"
+                            "    order = list(trial.machine_order[move.where])\n"
+                            "    sequence = trial.machine_sequence[move.where]\n"
+                            "    operation_ids = list(trial.operations_on_machine(move.where))\n"
+                            "    sequence[:] = [op for op in sequence if op != move.which]\n"
+                            "    sequence.insert(min(len(order), len(operation_ids)), move.which)\n"
+                            "    return float(trial.makespan)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "same_machine_uses_fake_deepcopy_or_machine_sequence_api",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+        guidance = generic_slot_repair_guidance(slot)
+        self.assertIn("schedule.clone()", guidance)
+        self.assertIn("trial.apply_move(move)", guidance)
+        self.assertIn("trial.makespan", guidance)
+        self.assertIn("machine_order", guidance)
+        self.assertIn("machine_sequence", guidance)
+        self.assertIn("operations_on_machine", guidance)
+
     def test_same_machine_slot_warns_on_end_node_end_time_as_makespan(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_same_machine_evaluation")

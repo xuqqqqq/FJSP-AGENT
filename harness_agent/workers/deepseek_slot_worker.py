@@ -751,6 +751,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "same_machine_uses_nonexistent_move_node",
         "same_machine_uses_end_node_end_time_as_makespan",
         "same_machine_uses_nonexistent_awls_trial",
+        "same_machine_uses_fake_deepcopy_or_machine_sequence_api",
         "initialization_retries_append_only_setup_completion",
         "initialization_retries_low_setup_tiebreak",
         "initialization_regret_label_without_second_best",
@@ -1074,6 +1075,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "same_machine_uses_nonexistent_move_node",
         "same_machine_uses_end_node_end_time_as_makespan",
         "same_machine_uses_nonexistent_awls_trial",
+        "same_machine_uses_fake_deepcopy_or_machine_sequence_api",
         "initialization_retries_append_only_setup_completion",
         "initialization_retries_low_setup_tiebreak",
         "initialization_regret_label_without_second_best",
@@ -1231,6 +1233,8 @@ def slot_specific_generic_warnings(
         warnings.append("same_machine_uses_nonexistent_move_node")
     if re.search(r"\bawlstrial\b", content):
         warnings.append("same_machine_uses_nonexistent_awls_trial")
+    if same_machine_uses_fake_deepcopy_or_machine_sequence_api(content):
+        warnings.append("same_machine_uses_fake_deepcopy_or_machine_sequence_api")
     if re.search(r"\bend_time\s*\[\s*(?:schedule\.)?index\.end_node\s*\]", content):
         warnings.append("same_machine_uses_end_node_end_time_as_makespan")
     if re.search(r"\bschedule\.end_time\s*\[\s*schedule\.index\.end_node\s*\]", content):
@@ -1279,6 +1283,29 @@ def slot_specific_generic_warnings(
     if estimator_error_correction:
         warnings.append("same_machine_retries_exact_estimator_error_correction")
     return warnings
+
+
+def same_machine_uses_fake_deepcopy_or_machine_sequence_api(content: str) -> bool:
+    fake_schedule_api = bool(
+        re.search(r"\bcopy\s*\.\s*deepcopy\s*\(\s*schedule\s*\)", content)
+        or re.search(r"\b(?:machine_order|machine_sequence|operations_on_machine)\b", content)
+    )
+    if fake_schedule_api:
+        return True
+
+    attempts_exact_scoring = bool(
+        re.search(r"\bexact\b", content)
+        or re.search(r"\btrial\b", content)
+        or re.search(r"\bapply_move\s*\(", content)
+    )
+    if not attempts_exact_scoring:
+        return False
+    has_required_exact_trial = bool(
+        re.search(r"\bschedule\s*\.\s*clone\s*\(\s*\)", content)
+        and re.search(r"\btrial\s*\.\s*apply_move\s*\(\s*move\s*\)", content)
+        and re.search(r"\btrial\s*\.\s*makespan\b", content)
+    )
+    return not has_required_exact_trial
 
 
 def same_machine_uses_unbounded_exact_trial(content: str, *, uses_exact_trial: bool) -> bool:
@@ -2097,6 +2124,9 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "`move.which` for the moved operation.\n"
             "- There is no `AwlsTrial` class in `harness_agent.standard_fjsp`; exact same-machine trials must use "
             "`trial = schedule.clone()`, `trial.apply_move(move)`, and `trial.makespan`.\n"
+            "- Do not use `copy.deepcopy(schedule)` or invented sequence attributes such as `machine_order`, "
+            "`machine_sequence`, or `operations_on_machine`; exact scoring must use `schedule.clone()`, "
+            "`trial.apply_move(move)`, and `trial.makespan`.\n"
             "- Use `schedule.makespan` / `trial.makespan`; do not use "
             "`schedule.end_time[schedule.index.end_node]` as a makespan proxy.\n"
             "- If using exact trial again, add a materially different bounded gating rule, critical-tail pressure, "
