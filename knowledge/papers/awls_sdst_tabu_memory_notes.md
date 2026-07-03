@@ -113,6 +113,18 @@ must stay inside the existing `SequenceTabuList` mechanism.
   (`oddla13/15/16/19` improved while `oddla02/05/11` regressed), so treat this
   as another weak positive tabu-memory signal rather than a stable UB-reaching
   method.
+- A continuation hard-HUdata six-instance 12s worker run proposed
+  `load_adaptive_tabu_sequence_and_tenure`.  It tried to compute source-machine
+  load with `schedule.machine_head[machine_id]` and total operations with
+  `schedule.jobs`.  The proposal failed before quality evaluation on all six
+  instances with `AttributeError: 'AwlsSchedule' object has no attribute
+  'machine_head'`; `AwlsSchedule` also has no `jobs` attribute.  Do not retry
+  load-adaptive tabu rules that scan nonexistent `machine_head`/`jobs`
+  structure.  If load or sequence context is needed inside this slot, derive it
+  from `candidate_tabu_sequence_parts(...)`, `candidate_tabu_sequence(...)`,
+  `schedule.machine_predecessor`, `schedule.machine_successor`,
+  `schedule.on_machine`, and `schedule.index.instance` fields that actually
+  exist.
 - Fixed best-reset transition rules worsened `oddla20` to `1033` and `1023`;
   do not emulate restart/backtrack behavior inside tabu memory.
 - Portfolio seed remapping, multi-scramble restarts, and best-lane reruns tied
@@ -143,4 +155,7 @@ must stay inside the existing `SequenceTabuList` mechanism.
   solver module-level `operation_key(schedule, node)` directly.
 - Do not use `move.duration`; `Move` only exposes `method`, `which`, and
   `where`.
+- Do not use `schedule.machine_head` or `schedule.jobs`; these fields do not
+  exist on `AwlsSchedule`.  Reuse `candidate_tabu_sequence_parts(...)`,
+  `candidate_tabu_sequence(...)`, and predecessor/successor lists instead.
 - Use `schedule.is_critical_operation(node)`, not `schedule.is_critical(node)`.

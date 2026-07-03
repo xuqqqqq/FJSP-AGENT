@@ -3646,6 +3646,55 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_tabu_memory_slot_warns_on_nonexistent_machine_head_or_jobs(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_tabu_memory")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "load_adaptive_tabu_sequence_and_tenure",
+                        "type": "tabu_memory_rule",
+                        "novelty": "Scales tenure by source-machine load.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_tabu_memory",
+                        "content": (
+                            "    machine_id = schedule.on_machine[move.which]\n"
+                            "    machine_load = 0\n"
+                            "    node = schedule.machine_head[machine_id]\n"
+                            "    while node != -1:\n"
+                            "        machine_load += 1\n"
+                            "        node = schedule.machine_successor[node]\n"
+                            "    total_ops = 0\n"
+                            "    for job in schedule.jobs:\n"
+                            "        total_ops += len(job.ops)\n"
+                            "    avg_load = total_ops / schedule.index.instance.machine_count\n"
+                            "    tenure = tenure_min + int(avg_load > 0 and machine_load > avg_load)\n"
+                            "    tabu.add(machine_id, [move.which], iteration + tenure)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "tabu_memory_uses_nonexistent_machine_head_or_jobs",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+        guidance = generic_slot_repair_guidance(slot)
+        self.assertIn("machine_head", guidance)
+        self.assertIn("candidate_tabu_sequence", guidance)
+
     def test_tabu_memory_slot_warns_on_setup_without_import(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_tabu_memory")
