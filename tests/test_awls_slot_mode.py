@@ -493,6 +493,53 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertTrue(generic_slot_needs_repair(normalized))
         self.assertIn("seven positional arguments", generic_slot_repair_guidance(slot))
 
+    def test_move_evaluation_slot_warns_on_one_sided_insertion_setup_penalty_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_evaluation")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "insertion_setup_time_penalty",
+                        "type": "local_search_operator",
+                        "novelty": "Different from path proxies by adding only positive insertion setup delta.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_evaluation",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    old_setup = setup_time_between(instance, machine_id, op_key_where, op_key_succ, index)\n"
+                            "    new_setup = (\n"
+                            "        setup_time_between(instance, machine_id, op_key_where, op_key_which, index)\n"
+                            "        + setup_time_between(instance, machine_id, op_key_which, op_key_succ, index)\n"
+                            "    )\n"
+                            "    delta = new_setup - old_setup\n"
+                            "    penalty = max(delta, 0)\n"
+                            "    value = which_time + penalty + end_time[where] + zi\n"
+                            "    return value\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "move_evaluation_retries_one_sided_insertion_setup_penalty",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+        guidance = generic_slot_repair_guidance(slot)
+        self.assertIn("penalty = max(delta, 0)", guidance)
+        self.assertIn("1304.17 to 1308.00", guidance)
+
     def test_selected_confirmed_slot_accepts_sdst_move_selection_slot(self) -> None:
         context = _generic_slot_context(slot_id="awls_sdst_move_selection")
 

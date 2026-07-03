@@ -764,6 +764,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "initialization_uses_nonexistent_instance_api",
         "move_evaluation_retries_proxy_ratio_exact_gate",
         "move_evaluation_retries_critical_proximity_setup_penalty",
+        "move_evaluation_retries_one_sided_insertion_setup_penalty",
         "move_evaluation_uses_end_node_end_time_as_makespan",
         "move_evaluation_uses_invalid_setup_time_between_signature",
         "move_selection_generates_candidates",
@@ -1082,6 +1083,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "initialization_uses_nonexistent_instance_api",
         "move_evaluation_retries_proxy_ratio_exact_gate",
         "move_evaluation_retries_critical_proximity_setup_penalty",
+        "move_evaluation_retries_one_sided_insertion_setup_penalty",
         "move_evaluation_uses_end_node_end_time_as_makespan",
         "move_evaluation_uses_invalid_setup_time_between_signature",
         "move_selection_generates_candidates",
@@ -1346,6 +1348,16 @@ def awls_sdst_move_evaluation_warnings(content: str) -> list[str]:
     )
     if critical_proximity_setup:
         warnings.append("move_evaluation_retries_critical_proximity_setup_penalty")
+    one_sided_insertion_setup_penalty = (
+        "setup_time_between" in content
+        and "old_setup" in content
+        and "new_setup" in content
+        and re.search(r"\bdelta\s*=\s*new_setup\s*-\s*old_setup\b", content)
+        and re.search(r"\bpenalty\s*=\s*max\s*\(\s*(?:setup_)?delta\s*,\s*0(?:\.0)?\s*\)", content)
+        and re.search(r"\bwhich_time\s*\+\s*penalty\b", content)
+    )
+    if one_sided_insertion_setup_penalty:
+        warnings.append("move_evaluation_retries_one_sided_insertion_setup_penalty")
     invalid_setup_signature = (
         re.search(r"\bsetup_time_between\(\s*(?:schedule|sched)\.index\s*,", content)
         or re.search(
@@ -2049,6 +2061,9 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "and assigns 1e9-style hard penalties outside the gate; it worsened oddla20 from 1010 to 1023.\n"
             "- Do not retry `critical_factor = min(1, base_proxy / makespan)` multiplied by `setup_sum`; "
             "the legal version worsened the current 1002 incumbent to 1010.\n"
+            "- Do not retry one-sided positive insertion setup penalties such as `penalty = max(delta, 0)` "
+            "added directly to `which_time`; it improved oddla09 but worsened the hard HUdata-six 12s "
+            "aggregate from 1304.17 to 1308.00.\n"
             "- Preserve the legacy AWLS proxy for makespan/tail pressure unless the replacement has a materially "
             "different bounded mechanism, such as move-local critical-tail pressure, ordered candidate context, "
             "or a gate that does not suppress outside-gate candidates with huge constants.\n"

@@ -99,5 +99,14 @@ Use these directions as hypotheses, not as a manual patch:
   implementation unless every setup lookup uses the canonical
   `setup_time_between(instance, machine_id, previous_op_tuple, current_op_tuple,
   schedule.index)` contract.
+- A repaired follow-up worker candidate `insertion_setup_time_penalty` used the
+  correct setup API and added a one-sided positive net insertion penalty
+  (`penalty = max(new_setup - old_setup, 0)`) directly to the change-machine NK
+  score.  It was legal on the hard HUdata-six 12s probe and improved `oddla09`
+  from `1081` to `1059`, with setup time `980 -> 870`, but the aggregate
+  worsened from `1304.17` to `1308.00` and average setup time increased from
+  `1341.67` to `1383.33`.  Do not retry one-sided positive insertion setup
+  penalties as the main novelty; they can help one instance while worsening
+  the tight 20-job/5-machine hard group.
 - Do not change parser/evaluator/IO semantics.
 - Do not change N7 same-machine scoring until a separate slot is confirmed.
