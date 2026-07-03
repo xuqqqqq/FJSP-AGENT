@@ -84,6 +84,12 @@ move keys and keep Core evaluator promotion as the only quality authority.
   `trial.machine_predecessor.get(...)`.  These AWLS schedule fields are lists,
   not dictionaries; use indexed access such as `trial.on_machine[node]` and
   treat predecessor/successor sentinels as `-1`, not `None`.
+- A repaired `machine_local_setup_tie_break` still failed before quality
+  evaluation because it set `machine_id = move_key[2]` and then indexed
+  `trial.machine_sequences[machine_id]`.  The move key is
+  `(method, which_node, where_node)`; `where_node` is a graph node, not a
+  machine id.  After applying `Move(*move_key)` to a clone, derive machine id
+  from list state such as `trial.on_machine[move.which]`.
 
 ## Guardrails
 
@@ -99,6 +105,7 @@ move keys and keep Core evaluator promotion as the only quality authority.
   `idx.node_to_operation_key`; use `operation_key(schedule, node)`.
 - Do not call `.get(...)` on `on_machine`, `machine_predecessor`,
   `machine_successor`, `job_predecessor`, or `job_successor`; they are lists.
+- Do not treat `move_key[2]` as a machine id; it is `where_node`.
 - Do not retry exact top-k selection whose main novelty is a global setup-sum
   tie-break after exact makespan; the legal version tied `oddla20` at `1010`.
 - Do not read files, LB/UB tables, evaluator outputs, environment variables, or

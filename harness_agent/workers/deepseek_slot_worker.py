@@ -737,6 +737,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "move_selection_uses_nonexistent_operations_api",
         "move_selection_uses_dict_get_on_schedule_lists",
         "move_selection_misinterprets_move_key_shape",
+        "move_selection_uses_where_node_as_machine_id",
         "move_selection_trial_apply_without_clone",
         "weight_update_calls_forbidden_runtime_api",
         "weight_update_mutates_schedule_structure",
@@ -1018,6 +1019,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "move_selection_uses_nonexistent_operations_api",
         "move_selection_uses_dict_get_on_schedule_lists",
         "move_selection_misinterprets_move_key_shape",
+        "move_selection_uses_where_node_as_machine_id",
         "move_selection_trial_apply_without_clone",
         "weight_update_calls_forbidden_runtime_api",
         "weight_update_mutates_schedule_structure",
@@ -1501,6 +1503,8 @@ def awls_sdst_move_selection_warnings(content: str) -> list[str]:
     )
     if misreads_move_key_as_op_key or re.search(r"move_type\s*==\s*['\"]change_machine['\"]", content):
         warnings.append("move_selection_misinterprets_move_key_shape")
+    if re.search(r"\b(?:machine_id|target_machine|target_m)\s*=\s*move_key\s*\[\s*2\s*\]", content):
+        warnings.append("move_selection_uses_where_node_as_machine_id")
     return list(dict.fromkeys(warnings))
 
 
@@ -1794,6 +1798,8 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- AWLS move keys are `(method, which_node, where_node)` with method constants FRONT, BACK, "
             "CHANGE_MACHINE_FRONT, and CHANGE_MACHINE_BACK; do not treat them as operation-key tuples or "
             "use string literals like `change_machine`.\n"
+            "- The third move-key field is `where_node`, not a machine id.  After `trial.apply_move(Move(*move_key))`, "
+            "derive the affected machine from `trial.on_machine[move.which]` or another real node, not from `move_key[2]`.\n"
             "- AwlsSchedule has no `operations` record list.  Use machine_sequences, on_machine, "
             "machine_predecessor/successor, end_time, backward_path_length, and makespan.\n"
             "- `on_machine`, `machine_predecessor`, `machine_successor`, `job_predecessor`, and "

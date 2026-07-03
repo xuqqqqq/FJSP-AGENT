@@ -1920,6 +1920,44 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_move_selection_slot_warns_on_where_node_as_machine_id(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "affected_machine_setup_scan",
+                        "type": "local_search_operator",
+                        "novelty": "Different from global setup sums by scanning one affected machine.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_selection",
+                        "content": (
+                            "    def setup_for(move_key):\n"
+                            "        machine_id = move_key[2]\n"
+                            "        return len(schedule.machine_sequences[machine_id])\n"
+                            "    return Move(*min(best_moves or all_moves, key=setup_for))\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "move_selection_uses_where_node_as_machine_id",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_move_selection_slot_warns_on_dict_get_for_schedule_lists(self) -> None:
         worker = DeepSeekSlotWorker()
         context = _generic_slot_context(slot_id="awls_sdst_move_selection")
@@ -1969,6 +2007,8 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("trial = schedule.clone()", guidance)
         self.assertIn("makespan", guidance)
         self.assertIn("which_node", guidance)
+        self.assertIn("where_node", guidance)
+        self.assertIn("not a machine id", guidance)
         self.assertIn("no `operations`", guidance)
         self.assertIn("are lists, not dicts", guidance)
         self.assertIn("operation_key(schedule, node)", guidance)
