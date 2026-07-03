@@ -217,6 +217,18 @@ Use these as hypotheses, not as a manual patch:
   setup-regret-tail dispatch as the main initialization novelty; future
   initialization attempts still need topology-guarded insertion, repair,
   assignment-then-sequencing, or a distinct bottleneck/local-search mechanism.
+- A follow-up topology-required hard-HUdata six-instance 12s worker proposed
+  `sdst_load_balanced_greedy_init`: setup-aware earliest completion with
+  weighted/random selection biased toward lower machine load.  The platform
+  rejected it before evaluator execution with
+  `initialization_retries_append_only_setup_completion`,
+  `initialization_retries_low_setup_tiebreak`, and
+  `initialization_missing_required_topology_or_repair`, because it still
+  appended each ready operation to the selected machine and did not implement a
+  real `AwlsSchedule(...).topological_sort()`, `validate_standard_schedule`,
+  non-append insertion, or post-construction repair phase.  Do not retry
+  load-balanced setup-aware greedy append initialization as a materially new
+  topology/repair idea.
 - Do not compare move/init mode constants with integers.
 - Do not call `setup_time_between` with `current_op=None`.
 - Import `setup_time_between` locally inside the slot before using it.
