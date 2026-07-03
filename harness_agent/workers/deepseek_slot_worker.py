@@ -1947,7 +1947,7 @@ def awls_sdst_tabu_memory_warnings(content: str) -> list[str]:
         warnings.append("tabu_memory_imports_nonexistent_operation_key")
     if re.search(r"\bmove\.duration\b", content):
         warnings.append("tabu_memory_uses_nonexistent_move_duration")
-    if re.search(r"\bschedule\.(?:machine_head|jobs)\b", content):
+    if re.search(r"\bschedule\.(?:machine_head|first_machine|jobs)\b", content):
         warnings.append("tabu_memory_uses_nonexistent_machine_head_or_jobs")
     if "setup_time_between" in content and "from harness_agent.standard_fjsp import setup_time_between" not in content:
         warnings.append("tabu_memory_uses_setup_without_import")
@@ -2230,7 +2230,7 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "`examples.standard_fjsp_awls_solver`.  Import only `setup_time_between` if setup lookup is needed.\n"
             "- `Move` has no `duration` field; use `schedule.index.duration(move.which, schedule.on_machine[move.which])` "
             "for the moved operation processing time.\n"
-            "- `AwlsSchedule` has no `machine_head` or `jobs` attributes; use `candidate_tabu_sequence_parts(...)`, "
+            "- `AwlsSchedule` has no `machine_head`, `first_machine`, or `jobs` attributes; use `candidate_tabu_sequence_parts(...)`, "
             "`candidate_tabu_sequence(...)`, and the existing predecessor/successor lists instead of scanning invented heads.\n"
             "- Do not mutate schedule topology fields, start/end times, on_machine, or makespan.\n"
             "- Do not retry shortening FRONT/BACK tabu sequences to only `[move.which, move.where]` or "

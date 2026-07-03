@@ -125,6 +125,14 @@ must stay inside the existing `SequenceTabuList` mechanism.
   `schedule.machine_predecessor`, `schedule.machine_successor`,
   `schedule.on_machine`, and `schedule.index.instance` fields that actually
   exist.
+- The follow-up continuation run proposed `bottleneck_aware_critical_tenure`.
+  It avoided `machine_head`/`jobs`, but still tried to compute bottleneck load
+  through `schedule.first_machine`.  Core again failed on all six hard-HUdata
+  instances before quality evaluation with `AttributeError: 'AwlsSchedule'
+  object has no attribute 'first_machine'`.  The real schedule field is
+  `first_machine_operation`, and read-only load scans can also use
+  `schedule.machine_sequences`; inside this slot, prefer avoiding full load
+  scans unless the hypothesis truly needs them.
 - Fixed best-reset transition rules worsened `oddla20` to `1033` and `1023`;
   do not emulate restart/backtrack behavior inside tabu memory.
 - Portfolio seed remapping, multi-scramble restarts, and best-lane reruns tied
@@ -155,7 +163,9 @@ must stay inside the existing `SequenceTabuList` mechanism.
   solver module-level `operation_key(schedule, node)` directly.
 - Do not use `move.duration`; `Move` only exposes `method`, `which`, and
   `where`.
-- Do not use `schedule.machine_head` or `schedule.jobs`; these fields do not
-  exist on `AwlsSchedule`.  Reuse `candidate_tabu_sequence_parts(...)`,
-  `candidate_tabu_sequence(...)`, and predecessor/successor lists instead.
+- Do not use `schedule.machine_head`, `schedule.first_machine`, or
+  `schedule.jobs`; these fields do not exist on `AwlsSchedule`.  Reuse
+  `candidate_tabu_sequence_parts(...)`, `candidate_tabu_sequence(...)`,
+  predecessor/successor lists, or read-only `schedule.machine_sequences`
+  instead.
 - Use `schedule.is_critical_operation(node)`, not `schedule.is_critical(node)`.
