@@ -91,6 +91,15 @@ must stay inside the existing `SequenceTabuList` mechanism.
   `Move` has only `method`, `which`, and `where`.  Use
   `schedule.index.duration(move.which, schedule.on_machine[move.which])` for
   moved-operation processing time.
+- The guarded retry `setup_delta_criticality_tenure` was promoted by Core on
+  the hard subset `oddla12/oddla14/oddla15`: average makespan improved from
+  `1332.67` to `1327.00`, with uneven effects (`oddla12` worsened while
+  `oddla14` and `oddla15` improved).  A full HUdata20 seed-0 30s run was legal
+  on all 20 instances and moved average makespan only from `1014.85` to
+  `1014.50` (`avg_gap_pct` `6.9276` to `6.8607`): 11 instances improved, 2 tied,
+  and 7 worsened.  Largest gains were `oddla02 -36` and `oddla14 -27`; largest
+  regressions were `oddla13 +32` and `oddla16 +32`.  Treat this as a weak,
+  uneven search-control signal, not a stable global SDST breakthrough.
 - Fixed best-reset transition rules worsened `oddla20` to `1033` and `1023`;
   do not emulate restart/backtrack behavior inside tabu memory.
 - Portfolio seed remapping, multi-scramble restarts, and best-lane reruns tied

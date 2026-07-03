@@ -1277,6 +1277,8 @@ def candidate_tabu_sequence_parts(schedule: AwlsSchedule, method: str, which: in
 
 def add_move_tabu(tabu: SequenceTabuList, schedule: AwlsSchedule, move: Move, iteration: int, tenure_min: int, tenure_max: int) -> None:
     # SLOT awls_sdst_tabu_memory START
+    from harness_agent.standard_fjsp import setup_time_between
+
     machine_id = schedule.on_machine[move.which]
     if move.method == FRONT:
         sequence = []
@@ -1301,11 +1303,49 @@ def add_move_tabu(tabu: SequenceTabuList, schedule: AwlsSchedule, move: Move, it
         sequence.append(move.which)
         if successor != -1:
             sequence.append(successor)
-    # Bias tenure based on sequence length: longer blocks get longer tabu.
-    seq_len_scale = min(1.0, len(sequence) / 20.0)
+    def _get_setup(m: int, op1: int, op2: int) -> int:
+        if op1 == -1 or op2 == -1:
+            return 0
+        return setup_time_between(schedule.index.instance, m, operation_key(schedule, op1), operation_key(schedule, op2))
+
+    proc = schedule.index.duration(move.which, machine_id)
+    old_pred = schedule.machine_predecessor[move.which]
+    old_succ = schedule.machine_successor[move.which]
+    if move.method in (FRONT, BACK):
+        if move.method == FRONT:
+            new_pred = schedule.machine_predecessor[move.where]
+            new_succ = move.where
+        else:
+            new_pred = move.where
+            new_succ = schedule.machine_successor[move.where]
+        delta = (
+            _get_setup(machine_id, new_pred, move.which)
+            + _get_setup(machine_id, move.which, new_succ)
+            - _get_setup(machine_id, old_pred, move.which)
+            - _get_setup(machine_id, move.which, old_succ)
+        )
+    else:
+        target_m = schedule.on_machine[move.where]
+        if move.method == CHANGE_MACHINE_FRONT:
+            new_pred = schedule.machine_predecessor[move.where]
+            new_succ = move.where
+        else:
+            new_pred = move.where
+            new_succ = schedule.machine_successor[move.where]
+        delta_target = _get_setup(target_m, new_pred, move.which) + _get_setup(target_m, move.which, new_succ)
+        delta_leave = (
+            _get_setup(machine_id, old_pred, old_succ)
+            - _get_setup(machine_id, old_pred, move.which)
+            - _get_setup(machine_id, move.which, old_succ)
+        )
+        delta = delta_target + delta_leave
+    is_critical = schedule.is_critical_operation(move.which)
+    scale = 2.0 if is_critical else 1.0
+    delta_norm = delta / proc if proc > 0 else 0.0
     base_tenure = schedule.rng.randint(tenure_min, tenure_max)
-    bias = int(seq_len_scale * (tenure_max - tenure_min))
-    tenure = min(tenure_max, base_tenure + bias)
+    tenure_range = tenure_max - tenure_min
+    bias = int(scale * delta_norm * tenure_range)
+    tenure = max(tenure_min, min(tenure_max, base_tenure + bias))
     tabu.add(machine_id, sequence, iteration + tenure)
     # SLOT awls_sdst_tabu_memory END
 
