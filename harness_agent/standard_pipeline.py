@@ -69,6 +69,7 @@ class StandardPipelineRequest:
     worker_max_steps: int = 4
     worker_max_runtime_seconds: int = 120
     worker_apply_changes: bool = False
+    worker_promotion_repeats: int = 1
     worker_experiment_id: str = "standard_pipeline_worker_loop"
     worker_hypothesis: str = (
         "Improve the standard FJSP solver under the fixed evaluator. "
@@ -200,6 +201,7 @@ def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
                 max_steps=max(1, request.worker_max_steps),
                 max_runtime_seconds=max(1, request.worker_max_runtime_seconds),
                 apply_worker_changes=bool(request.worker_apply_changes),
+                promotion_repeats=max(1, request.worker_promotion_repeats),
                 experiment_id=request.worker_experiment_id,
                 hypothesis=request.worker_hypothesis,
             )

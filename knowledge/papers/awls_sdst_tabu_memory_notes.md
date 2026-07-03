@@ -67,6 +67,14 @@ must stay inside the existing `SequenceTabuList` mechanism.
   `tenure_max`.  Core improved makespan from `1007` to `1002` with the same
   `critical + beta400/gamma40/theta5 + pct75` AWLS controls.  Treat this as
   the current accepted tabu-memory pressure rule.
+- A later main-tree repeat probe after `sequence_length_biased_tenure` showed
+  that UB `997` is reachable but not stable under the same `oddla20` seed-0
+  28s wall-clock contract: five evaluator-valid repeats produced makespans
+  `997, 1002, 1002, 1002, 1002` with setup times `1720, 1740, 1740, 1740,
+  1740`.  Use this as evidence that a one-shot UB hit is a useful search
+  signal, not sufficient promotion proof for noisy AWLS/SDST changes.  Future
+  worker loops should prefer repeat promotion checks or multi-seed evidence
+  before claiming stable UB attainment.
 - A follow-up continuation candidate `target_machine_tabu_for_change_moves`
   moved change-machine tabu records from the source machine to the target
   insertion machine and used midpoint deterministic tenure for change moves.
@@ -81,6 +89,9 @@ must stay inside the existing `SequenceTabuList` mechanism.
 - Over-pruning move generation has badly worsened quality.  Tabu memory should
   not block all moves by adding broad global sequences or mutating the tabu
   table outside `tabu.add`.
+- Do not describe `sequence_length_biased_tenure` as a stable `997` solution.
+  The stable short-contract line observed in repeated runs is still `1002`,
+  even though one repeat reached the UB.
 
 ## Guardrails
 

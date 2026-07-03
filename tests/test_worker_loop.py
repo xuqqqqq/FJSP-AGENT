@@ -40,6 +40,31 @@ class ImproveOnceWorker:
         )
 
 
+class UnstableImproveWorker:
+    """Test worker whose first run improves but repeated runs regress."""
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="unstable-improve",
+            supports_code_generation=True,
+            supports_repair=False,
+            supports_structured_output=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        solver_path = Path(spec.worktree_path) / "examples" / "dummy_solver.py"
+        text = solver_path.read_text(encoding="utf-8")
+        replacement = (
+            "8 if args.output.parent.name.startswith(\"round_000__\") else 20"
+        )
+        solver_path.write_text(text.replace("10 + args.seed", replacement), encoding="utf-8")
+        return WorkerResult(
+            status="ok",
+            changed_files=["examples/dummy_solver.py"],
+            summary="Improve only the first run so repeat promotion should reject the noisy candidate.",
+        )
+
+
 class ProposalAuditWorker:
     """Test worker that writes a structured proposal artifact without changing files."""
 
@@ -266,6 +291,39 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertIn("examples/dummy_solver.py", round_000_patch)
             self.assertIn("8 + args.seed", round_000_patch)
 
+    def test_repeat_promotion_check_rejects_noisy_single_run_improvement(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract_path = _write_single_seed_contract(tmp_path)
+            contract = TaskContract.load(contract_path)
+            context_path = _write_test_context(tmp_path)
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=UnstableImproveWorker(),
+                experiment_id="test_unstable_improve",
+                iterations=1,
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+                promotion_repeats=2,
+            )
+
+            self.assertEqual((990.0, -0.01), result.baseline_key)
+            self.assertEqual((990.0, -0.01), result.final_key)
+            self.assertEqual(["rolled_back"], [item.decision for item in result.rounds])
+            self.assertEqual((992.0, -0.01), result.rounds[0].candidate_key)
+            self.assertEqual("failed", result.rounds[0].promotion_check["status"])
+            self.assertFalse(result.rounds[0].promotion_check["promoted"])
+            self.assertEqual([990.0, -0.01], result.rounds[0].promotion_check["incumbent_repeat_key"])
+            self.assertEqual([986.0, -0.01], result.rounds[0].promotion_check["candidate_repeat_key"])
+
+            loop_result = json.loads((tmp_path / "loop" / "loop_result.json").read_text(encoding="utf-8"))
+            self.assertEqual("failed", loop_result["rounds"][0]["promotion_check"]["status"])
+
     def test_render_worktree_patch_ignores_line_ending_noise(self) -> None:
         patch = render_worktree_patch(
             root=ROOT,
@@ -411,6 +469,20 @@ def _write_test_context(tmp_path: Path) -> Path:
             hypothesis="Worker-loop regression test context.",
         )
     )
+
+
+def _write_single_seed_contract(tmp_path: Path) -> Path:
+    contract = json.loads((ROOT / "configs" / "task_contract.example.json").read_text(encoding="utf-8"))
+    contract["task_id"] = "single_seed_dummy_contract"
+    contract["budget"] = {
+        **contract["budget"],
+        "rounds": 1,
+        "seeds": [0],
+        "max_workers": 1,
+    }
+    output_path = tmp_path / "single_seed_contract.json"
+    output_path.write_text(json.dumps(contract, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return output_path
 
 
 if __name__ == "__main__":

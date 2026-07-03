@@ -202,6 +202,12 @@ def build_parser() -> argparse.ArgumentParser:
     loop.add_argument("--max-steps", type=int, default=8)
     loop.add_argument("--max-runtime-seconds", type=int, default=300)
     loop.add_argument("--apply-worker", action="store_true", help="apply accepted worker edits before each Core evaluation")
+    loop.add_argument(
+        "--promotion-repeats",
+        type=int,
+        default=1,
+        help="repeat incumbent and candidate Core evaluation before promotion; use >1 for noisy wall-clock solvers",
+    )
     loop.add_argument("--allow-draft", action="store_true", help="allow exploratory loops on unconfirmed draft contracts")
     loop.add_argument("--deepseek-model", default="deepseek-v4-pro")
     loop.add_argument("--opencode-model", help="optional OpenCode model override, for example provider/model")
@@ -527,6 +533,12 @@ def build_parser() -> argparse.ArgumentParser:
     standard_worker.add_argument("--max-steps", type=int, default=4)
     standard_worker.add_argument("--max-runtime-seconds", type=int, default=120)
     standard_worker.add_argument("--apply-worker", action="store_true")
+    standard_worker.add_argument(
+        "--promotion-repeats",
+        type=int,
+        default=1,
+        help="repeat incumbent and candidate Core evaluation before promotion; useful for noisy AWLS/SDST runs",
+    )
     standard_worker.add_argument("--experiment-id", default="standard_worker_loop")
     standard_worker.add_argument("--hypothesis", default="")
     standard_worker.add_argument("--deepseek-model", default="deepseek-v4-pro")
@@ -588,6 +600,12 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--worker-max-steps", type=int, default=4)
     pipeline.add_argument("--worker-max-runtime-seconds", type=int, default=120)
     pipeline.add_argument("--worker-apply", action="store_true")
+    pipeline.add_argument(
+        "--worker-promotion-repeats",
+        type=int,
+        default=1,
+        help="repeat incumbent and candidate Core evaluation before worker promotion",
+    )
     pipeline.add_argument("--worker-experiment-id", default="standard_pipeline_worker_loop")
     pipeline.add_argument("--worker-hypothesis", default="")
     pipeline.add_argument("--deepseek-model", default="deepseek-v4-pro")
@@ -871,6 +889,7 @@ def run_worker_loop_cmd(args: argparse.Namespace) -> int:
         max_steps=max(1, args.max_steps),
         max_runtime_seconds=max(1, args.max_runtime_seconds),
         apply_worker_changes=bool(args.apply_worker),
+        promotion_repeats=max(1, args.promotion_repeats),
     )
     payload = {
         "status": "ok",
@@ -879,6 +898,7 @@ def run_worker_loop_cmd(args: argparse.Namespace) -> int:
         "final_worktree": str(result.final_worktree),
         "rounds": len(result.rounds),
         "promoted_rounds": sum(1 for item in result.rounds if item.decision == "promoted"),
+        "promotion_repeats": max(1, args.promotion_repeats),
         "loop_report": str((args.output_dir / "loop_report.md").resolve()),
         "loop_result": str((args.output_dir / "loop_result.json").resolve()),
     }
@@ -1347,6 +1367,7 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
             max_steps=args.max_steps,
             max_runtime_seconds=args.max_runtime_seconds,
             apply_worker_changes=bool(args.apply_worker),
+            promotion_repeats=max(1, args.promotion_repeats),
             experiment_id=args.experiment_id,
             hypothesis=args.hypothesis
             or "Improve the standard FJSP solver under the fixed evaluator. State the rule-level idea before editing code.",
@@ -1426,6 +1447,7 @@ def run_standard_pipeline_cmd(args: argparse.Namespace) -> int:
         worker_max_steps=args.worker_max_steps,
         worker_max_runtime_seconds=args.worker_max_runtime_seconds,
         worker_apply_changes=bool(args.worker_apply),
+        worker_promotion_repeats=max(1, args.worker_promotion_repeats),
         worker_experiment_id=args.worker_experiment_id,
         worker_hypothesis=args.worker_hypothesis
         or "Improve the standard FJSP solver under the fixed evaluator. State the rule-level idea before editing code.",

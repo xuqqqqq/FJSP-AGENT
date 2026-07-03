@@ -97,3 +97,9 @@ tenure splitting, and formulas that only multiply by `is_critical`.
   predict promotion.
 - A proposal that changes only seeds, lane order, cooldown rate, critical
   multiplier, or tenure split needs especially strong novelty evidence.
+- Treat a single wall-clock AWLS hit as noisy unless it survives repeat
+  promotion checks.  On `oddla20` seed 0 with the current 28s
+  `critical + beta400/gamma40/theta5 + pct75 + sequence_length_biased_tenure`
+  line, five same-contract repeats produced `997, 1002, 1002, 1002, 1002`;
+  therefore `997` is reachable but not stable enough to claim UB attainment by
+  itself.

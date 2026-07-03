@@ -3,12 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from .context_packet import write_refreshed_context_packet
 from .graph_runner import GraphHarnessRunner
+from .ledger import ExperimentRecord
 from .models import ObjectiveSpec, TaskContract
 from .runner import RunSummary
 from .worker import CodingWorker, WorkerResult
@@ -27,6 +28,7 @@ class LoopRoundRecord:
     duplicate_proposal: bool
     proposal_diagnostics: dict[str, Any]
     candidate_summary: dict[str, Any]
+    promotion_check: dict[str, Any]
     cycle_dir: str
     context_packet_path: str
     delta_path: str
@@ -55,6 +57,7 @@ def run_worker_loop(
     max_steps: int,
     max_runtime_seconds: int,
     apply_worker_changes: bool,
+    promotion_repeats: int = 1,
 ) -> WorkerLoopResult:
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -147,6 +150,12 @@ def run_worker_loop(
                         "failed": 0,
                         "error": str(exc),
                     },
+                    promotion_check={
+                        "status": "skipped",
+                        "reason": "worker_exception",
+                        "promoted": False,
+                        "required_repeats": max(1, promotion_repeats),
+                    },
                     cycle_dir=str(cycle_dir),
                     context_packet_path=str(round_context_packet_path),
                     delta_path=str(delta_path),
@@ -161,9 +170,18 @@ def run_worker_loop(
         seen_proposal_fingerprints.add(proposal_fingerprint)
         proposal_diagnostics = worker_proposal_diagnostics(cycle.worker_result)
         candidate_key = summary_objective_key(cycle.summary, contract.objectives)
-        promoted = candidate_key > incumbent_key
+        promotion_check = evaluate_promotion_check(
+            contract=contract,
+            incumbent_worktree=incumbent_worktree,
+            candidate_worktree=cycle.worktree_path,
+            output_dir=cycle_dir / "promotion_check",
+            incumbent_key=incumbent_key,
+            candidate_key=candidate_key,
+            promotion_repeats=promotion_repeats,
+        )
+        promoted = bool(promotion_check.get("promoted"))
         if promoted:
-            incumbent_key = candidate_key
+            incumbent_key = tuple(float(item) for item in promotion_check.get("accepted_key", candidate_key))
             incumbent_worktree = cycle.worktree_path
         round_records.append(
             LoopRoundRecord(
@@ -177,6 +195,7 @@ def run_worker_loop(
                 duplicate_proposal=duplicate_proposal,
                 proposal_diagnostics=proposal_diagnostics,
                 candidate_summary=summary_payload(cycle.summary),
+                promotion_check=promotion_check,
                 cycle_dir=str(cycle_dir),
                 context_packet_path=str(round_context_packet_path),
                 delta_path=str(cycle.delta_path),
@@ -223,6 +242,107 @@ def summary_objective_key(summary: RunSummary, objectives: list[ObjectiveSpec]) 
                 continue
         key.append(value if objective.direction == "maximize" else -value)
     return tuple(key)
+
+
+def evaluate_promotion_check(
+    *,
+    contract: TaskContract,
+    incumbent_worktree: Path,
+    candidate_worktree: Path,
+    output_dir: Path,
+    incumbent_key: tuple[float, ...],
+    candidate_key: tuple[float, ...],
+    promotion_repeats: int,
+) -> dict[str, Any]:
+    """Return the evaluator-backed promotion decision for a worker candidate.
+
+    The default path keeps the historic loop semantics: one evaluator-backed
+    strict improvement promotes.  When promotion_repeats is greater than one,
+    the candidate must also beat the current incumbent on an equal repeated
+    probe, using the mean objective key across all repeated records.
+    """
+
+    repeats = max(1, int(promotion_repeats))
+    initially_better = candidate_key > incumbent_key
+    if not initially_better:
+        return {
+            "status": "skipped",
+            "reason": "candidate_not_strictly_better",
+            "required_repeats": repeats,
+            "incumbent_key": list(incumbent_key),
+            "candidate_key": list(candidate_key),
+            "promoted": False,
+            "accepted_key": list(incumbent_key),
+        }
+    if repeats <= 1:
+        return {
+            "status": "single_run",
+            "reason": "strict_objective_improvement",
+            "required_repeats": repeats,
+            "incumbent_key": list(incumbent_key),
+            "candidate_key": list(candidate_key),
+            "promoted": True,
+            "accepted_key": list(candidate_key),
+        }
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    repeat_contract = replace(
+        contract,
+        task_id=f"{contract.task_id}_promotion_check",
+        commands=replace(contract.commands, quick_test=None),
+        budget=replace(contract.budget, rounds=repeats),
+    )
+    incumbent_summary, incumbent_records = _run_harness_with_records(
+        contract=repeat_contract,
+        project_root=incumbent_worktree,
+        output_dir=output_dir / "incumbent",
+    )
+    candidate_summary, candidate_records = _run_harness_with_records(
+        contract=repeat_contract,
+        project_root=candidate_worktree,
+        output_dir=output_dir / "candidate",
+    )
+    expected_runs = repeats * len(contract.instances) * len(contract.budget.seeds)
+    incumbent_repeat_key = repeated_records_objective_key(
+        incumbent_records,
+        contract.objectives,
+        expected_runs=expected_runs,
+    )
+    candidate_repeat_key = repeated_records_objective_key(
+        candidate_records,
+        contract.objectives,
+        expected_runs=expected_runs,
+    )
+    promoted = candidate_repeat_key > incumbent_repeat_key
+    return {
+        "status": "passed" if promoted else "failed",
+        "reason": "repeat_objective_improvement" if promoted else "repeat_objective_not_strictly_better",
+        "required_repeats": repeats,
+        "expected_runs": expected_runs,
+        "incumbent_key": list(incumbent_key),
+        "candidate_key": list(candidate_key),
+        "incumbent_repeat_key": list(incumbent_repeat_key),
+        "candidate_repeat_key": list(candidate_repeat_key),
+        "incumbent_summary": summary_payload(incumbent_summary),
+        "candidate_summary": summary_payload(candidate_summary),
+        "promoted": promoted,
+        "accepted_key": list(candidate_repeat_key if promoted else incumbent_key),
+    }
+
+
+def repeated_records_objective_key(
+    records: list[ExperimentRecord],
+    objectives: list[ObjectiveSpec],
+    *,
+    expected_runs: int,
+) -> tuple[float, ...]:
+    valid_records = [record for record in records if record.valid]
+    if len(records) != expected_runs or len(valid_records) != expected_runs:
+        return tuple(float("-inf") for _ in objectives)
+    return tuple(
+        sum(record.objective_key[index] for record in valid_records) / len(valid_records)
+        for index in range(len(objectives))
+    )
 
 
 def summary_payload(summary: RunSummary) -> dict[str, Any]:
@@ -272,6 +392,7 @@ def loop_feedback_payload(
             "Use only Core evaluator metrics as promotion evidence.",
             "Preserve successful ideas from promoted rounds unless a better alternative is justified.",
             "Do not repeat rolled-back edits unchanged; explain what is materially different if revisiting them.",
+            "If promotion_check failed, treat the candidate as a noisy or unstable improvement and change the rule-level idea.",
             "Use proposal_diagnostics to inspect whether prior proposals used project_intake, touched solver or validator files, or missed quick-test guidance.",
             "Prefer small, reversible solver changes whose effect can be attributed in the next evaluator run.",
         ],
@@ -290,6 +411,7 @@ def round_record_payload(item: LoopRoundRecord) -> dict[str, Any]:
         "duplicate_proposal": item.duplicate_proposal,
         "proposal_diagnostics": item.proposal_diagnostics,
         "candidate_summary": item.candidate_summary,
+        "promotion_check": item.promotion_check,
         "cycle_dir": item.cycle_dir,
         "context_packet_path": item.context_packet_path,
         "delta_path": item.delta_path,
@@ -421,14 +543,15 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult) -> None:
         "",
         "## Rounds",
         "",
-        "| Round | Decision | Worker | Duplicate Proposal | Proposal Audit | Candidate Key | Incumbent Key After | Context Packet | Worktree Delta | Changed Files |",
-        "| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Round | Decision | Worker | Duplicate Proposal | Promotion Check | Proposal Audit | Candidate Key | Incumbent Key After | Context Packet | Worktree Delta | Changed Files |",
+        "| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for item in result.rounds:
         proposal_audit = compact_proposal_audit(item.proposal_diagnostics)
         lines.append(
             f"| {item.round_index} | {item.decision} | {item.worker_status} | "
             f"{'yes' if item.duplicate_proposal else 'no'} | "
+            f"`{json.dumps(compact_promotion_check(item.promotion_check), ensure_ascii=False)}` | "
             f"`{json.dumps(proposal_audit, ensure_ascii=False)}` | "
             f"`{json.dumps(item.candidate_key, ensure_ascii=False)}` | "
             f"`{json.dumps(item.incumbent_key_after, ensure_ascii=False)}` | "
@@ -440,6 +563,7 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult) -> None:
         [
             "",
             "A round is promoted only when its Core evaluator-backed objective key is strictly better than the incumbent key.",
+            "When a repeat promotion check is configured, the candidate must also beat the incumbent on the repeated Core evaluator probe.",
             "Rolled-back rounds leave the incumbent worktree unchanged.",
             "Proposal audit fields are reflection inputs for later rounds; they are not promotion gates.",
         ]
@@ -481,6 +605,17 @@ def compact_proposal_audit(diagnostics: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def compact_promotion_check(check: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": check.get("status"),
+        "reason": check.get("reason"),
+        "required_repeats": check.get("required_repeats"),
+        "promoted": check.get("promoted"),
+        "candidate_repeat_key": check.get("candidate_repeat_key"),
+        "incumbent_repeat_key": check.get("incumbent_repeat_key"),
+    }
+
+
 def compact_rule_operator_hypotheses(value: Any, *, limit: int) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
@@ -508,6 +643,21 @@ def _run_harness(*, contract: TaskContract, project_root: Path, output_dir: Path
     runner = GraphHarnessRunner(contract=contract, project_root=project_root, output_dir=output_dir)
     try:
         return runner.run()
+    finally:
+        runner.close()
+
+
+def _run_harness_with_records(
+    *,
+    contract: TaskContract,
+    project_root: Path,
+    output_dir: Path,
+) -> tuple[RunSummary, list[ExperimentRecord]]:
+    runner = GraphHarnessRunner(contract=contract, project_root=project_root, output_dir=output_dir)
+    try:
+        summary = runner.run()
+        records = runner.ledger.list_records()
+        return summary, records
     finally:
         runner.close()
 

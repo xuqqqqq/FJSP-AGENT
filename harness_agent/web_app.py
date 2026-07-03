@@ -452,6 +452,12 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
             maximum=1800,
         ),
     }
+    config["promotion_repeats"] = coerce_int(
+        payload.get("promotion_repeats"),
+        2 if evolution_mode == "slot" else 1,
+        minimum=1,
+        maximum=5,
+    )
     config["instance_profile"] = instance_profile
     config["effective_awls_time_limit_sec"] = effective_awls_time_limit_for_web(config, instance_path)
     config["estimated_awls_zi_eval_sec_per_round"] = estimate_awls_zi_round_seconds(config)
@@ -744,6 +750,7 @@ def run_job(job_id: str) -> None:
                         max_steps=config["worker_max_steps"],
                         max_runtime_seconds=config["worker_max_runtime_seconds"],
                         apply_worker_changes=config["apply_worker_changes"],
+                        promotion_repeats=config["promotion_repeats"],
                         experiment_id="web_deepseek_slot_loop" if is_slot_mode else "web_deepseek_code_loop",
                         hypothesis=slot_mode_hypothesis(str(config["selected_slot_id"]))
                         if is_slot_mode
