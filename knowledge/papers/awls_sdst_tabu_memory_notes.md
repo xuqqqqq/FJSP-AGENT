@@ -81,6 +81,16 @@ must stay inside the existing `SequenceTabuList` mechanism.
   It was legal but regressed the 28s `oddla20` Core line from `1002` to
   `1010`, so do not retry target-machine change-move tabu with midpoint tenure
   unchanged.
+- A later hard-HUdata `oddla12/oddla14/oddla15` worker run proposed
+  `critical_setup_pressure_tenure`, blending `schedule.is_critical_operation`
+  with adjacent setup ratios while preserving the baseline tabu sequence.  It
+  failed before quality evaluation on all three instances because it imported
+  `operation_key` from `harness_agent.standard_fjsp`; `operation_key` is a
+  module-level helper in `examples.standard_fjsp_awls_solver`, not a
+  `standard_fjsp` export.  The same code also used nonexistent `move.duration`;
+  `Move` has only `method`, `which`, and `where`.  Use
+  `schedule.index.duration(move.which, schedule.on_machine[move.which])` for
+  moved-operation processing time.
 - Fixed best-reset transition rules worsened `oddla20` to `1033` and `1023`;
   do not emulate restart/backtrack behavior inside tabu memory.
 - Portfolio seed remapping, multi-scramble restarts, and best-lane reruns tied
@@ -107,4 +117,8 @@ must stay inside the existing `SequenceTabuList` mechanism.
 - If using setup lookup, include `from harness_agent.standard_fjsp import
   setup_time_between` inside the slot.  The solver does not expose
   `setup_time_between` as a global name here.
+- Do not import `operation_key` from `harness_agent.standard_fjsp`; call the
+  solver module-level `operation_key(schedule, node)` directly.
+- Do not use `move.duration`; `Move` only exposes `method`, `which`, and
+  `where`.
 - Use `schedule.is_critical_operation(node)`, not `schedule.is_critical(node)`.

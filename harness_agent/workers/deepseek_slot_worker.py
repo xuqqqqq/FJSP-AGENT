@@ -789,6 +789,8 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "tabu_memory_calls_forbidden_runtime_api",
         "tabu_memory_mutates_schedule_or_tabu_directly",
         "tabu_memory_uses_nonexistent_api",
+        "tabu_memory_imports_nonexistent_operation_key",
+        "tabu_memory_uses_nonexistent_move_duration",
         "tabu_memory_uses_setup_without_import",
         "tabu_memory_uses_io_or_unseeded_random",
         "tabu_memory_retries_short_front_back_sequence",
@@ -1098,6 +1100,8 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "tabu_memory_calls_forbidden_runtime_api",
         "tabu_memory_mutates_schedule_or_tabu_directly",
         "tabu_memory_uses_nonexistent_api",
+        "tabu_memory_imports_nonexistent_operation_key",
+        "tabu_memory_uses_nonexistent_move_duration",
         "tabu_memory_uses_setup_without_import",
         "tabu_memory_uses_io_or_unseeded_random",
         "tabu_memory_retries_short_front_back_sequence",
@@ -1791,6 +1795,10 @@ def awls_sdst_tabu_memory_warnings(content: str) -> list[str]:
         or re.search(r"\bschedule\.is_critical\s*\(", content)
     ):
         warnings.append("tabu_memory_uses_nonexistent_api")
+    if re.search(r"from\s+harness_agent\.standard_fjsp\s+import[^\n]*\boperation_key\b", content):
+        warnings.append("tabu_memory_imports_nonexistent_operation_key")
+    if re.search(r"\bmove\.duration\b", content):
+        warnings.append("tabu_memory_uses_nonexistent_move_duration")
     if "setup_time_between" in content and "from harness_agent.standard_fjsp import setup_time_between" not in content:
         warnings.append("tabu_memory_uses_setup_without_import")
     short_front_back_sequence = (
@@ -2046,6 +2054,10 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- Do not call apply_move, clone, find_move, tabu_search, solve_awls, solve_awls_single, or evaluator/validator APIs.\n"
             "- Use `schedule.index.instance.has_sequence_dependent_setup` as a property and module-level "
             "`operation_key(schedule, node)`; there is no `schedule.index.operation_key` helper.\n"
+            "- Do not import `operation_key` from `harness_agent.standard_fjsp`; it is already defined in "
+            "`examples.standard_fjsp_awls_solver`.  Import only `setup_time_between` if setup lookup is needed.\n"
+            "- `Move` has no `duration` field; use `schedule.index.duration(move.which, schedule.on_machine[move.which])` "
+            "for the moved operation processing time.\n"
             "- Do not mutate schedule topology fields, start/end times, on_machine, or makespan.\n"
             "- Do not retry shortening FRONT/BACK tabu sequences to only `[move.which, move.where]` or "
             "`[move.where, move.which]` with short local tenures; it worsened oddla20 from 1010 to 1039.\n"

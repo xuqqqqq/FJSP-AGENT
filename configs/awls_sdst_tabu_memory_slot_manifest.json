@@ -496,7 +496,8 @@
         "schedule: current AwlsSchedule before current.apply_move(move), with machine links, on_machine, rng, and criticality helpers",
         "move: Move that is about to be applied",
         "iteration, tenure_min, tenure_max from tabu_search",
-        "candidate_tabu_sequence_parts, operation_key, and setup_time_between may be used for bounded SDST memory signals"
+        "candidate_tabu_sequence_parts and module-level operation_key(schedule, node) from this solver may be used for bounded SDST memory signals",
+        "setup_time_between may be imported from harness_agent.standard_fjsp when setup lookup is needed"
       ],
       "outputs": [
         "Call tabu.add(machine_id, sequence, expires_at) exactly once with a bounded local machine sequence",
@@ -510,8 +511,10 @@
         "Do not call apply_move, find_move, tabu_search, solve_awls, solve_awls_single, evaluator, or validate_standard_schedule inside this slot.",
         "Do not read LB/UB, evaluator reports, instance files, environment variables, network, or filesystem state.",
         "If setup_time_between is used, import it locally inside this slot with from harness_agent.standard_fjsp import setup_time_between.",
+        "Do not import operation_key from harness_agent.standard_fjsp; operation_key(schedule, node) is already a module-level helper in examples.standard_fjsp_awls_solver.",
         "If setup_time_between is used, convert nodes with operation_key and call setup_time_between(schedule.index.instance, machine_id, previous_op, current_op, schedule.index).",
         "If criticality is used, call schedule.is_critical_operation(node); AwlsSchedule has no schedule.is_critical(node) method.",
+        "Move has fields method, which, and where only; use schedule.index.duration(move.which, schedule.on_machine[move.which]) for processing time.",
         "Do not make setup_time the objective; setup may only shape a bounded tabu tenure or local tabu sequence."
       ],
       "allowed_edits": [
