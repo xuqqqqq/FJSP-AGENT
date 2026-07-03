@@ -2796,6 +2796,54 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_weight_update_slot_warns_on_sdst_stall_weight_cooldown_boost_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_weight_update")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "sdst_stall_weight_cooldown_boost",
+                        "type": "adaptive_weight_rule",
+                        "novelty": "Different from failed setup formulas by using only the SDST flag on stalls.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_weight_update",
+                        "content": (
+                            "    has_sdst = schedule.index.instance.has_sequence_dependent_setup\n"
+                            "    if current_makespan >= previous_makespan:\n"
+                            "        increment = 1\n"
+                            "        if has_sdst:\n"
+                            "            increment += 1\n"
+                            "        schedule.op_weight[moved_node] += increment\n"
+                            "        cooldown_step = theta\n"
+                            "        if has_sdst:\n"
+                            "            cooldown_step += 1\n"
+                            "        schedule.op_cooldown[moved_node] = max(schedule.op_cooldown[moved_node] - cooldown_step, 0)\n"
+                            "    if current_makespan < best_makespan_before:\n"
+                            "        for node in schedule.index.real_nodes:\n"
+                            "            schedule.op_cooldown[node] = 10**9\n"
+                            "            schedule.op_weight[node] = 0\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "weight_update_retries_sdst_stall_weight_cooldown_boost",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_weight_update_repair_guidance_names_weight_only_contract(self) -> None:
         slot = _generic_slot_context(slot_id="awls_sdst_weight_update")["slot_manifest"]["slots"][0]
 

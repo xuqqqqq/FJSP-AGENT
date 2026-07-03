@@ -782,6 +782,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "weight_update_calls_forbidden_runtime_api",
         "weight_update_mutates_schedule_structure",
         "weight_update_retries_sdst_improvement_weight_decay",
+        "weight_update_retries_sdst_stall_weight_cooldown_boost",
         "weight_update_uses_random_or_io",
         "search_transition_calls_forbidden_runtime_api",
         "search_transition_mutates_schedule_structure",
@@ -1097,6 +1098,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "weight_update_calls_forbidden_runtime_api",
         "weight_update_mutates_schedule_structure",
         "weight_update_retries_sdst_improvement_weight_decay",
+        "weight_update_retries_sdst_stall_weight_cooldown_boost",
         "weight_update_uses_random_or_io",
         "search_transition_calls_forbidden_runtime_api",
         "search_transition_mutates_schedule_structure",
@@ -1765,6 +1767,14 @@ def awls_sdst_weight_update_warnings(content: str) -> list[str]:
         content,
     ):
         warnings.append("weight_update_retries_sdst_improvement_weight_decay")
+    sdst_stall_weight_cooldown_boost = (
+        "has_sdst" in content
+        and re.search(r"\bcurrent_makespan\s*>=\s*previous_makespan\b", content)
+        and re.search(r"\bincrement\s*\+=\s*1\b", content)
+        and re.search(r"\bcooldown_step\s*\+=\s*1\b", content)
+    )
+    if sdst_stall_weight_cooldown_boost:
+        warnings.append("weight_update_retries_sdst_stall_weight_cooldown_boost")
     return list(dict.fromkeys(warnings))
 
 
@@ -2086,6 +2096,9 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- Do not retry SDST improvement-step moved-node weight decay such as "
             "`schedule.op_weight[moved_node] = max(0, schedule.op_weight[moved_node] - 1)`; it worsened oddla20 "
             "from 1007 to 1008 under the 28s incumbent contract.\n"
+            "- Do not retry binary-SDST stall pressure that adds both moved-node `increment += 1` and extra "
+            "`cooldown_step += 1` on `current_makespan >= previous_makespan`; it worsened the hard HUdata-six "
+            "12s probe from 1297.17 to 1307.50.\n"
             "- Preserve the new-best reset behavior after current_makespan < best_makespan_before unless a bounded "
             "alternative is explicitly justified by the hypothesis."
         )

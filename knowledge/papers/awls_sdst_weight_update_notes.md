@@ -89,6 +89,17 @@ setup = setup_time_between(schedule.index.instance, machine_id, prev_op, cur_op,
   from `1007` to `1008`.  The platform now treats this exact improvement-step
   moved-node weight decay as a must-repair repeat pattern
   (`weight_update_retries_sdst_improvement_weight_decay`).
+- A later hard-HUdata six-instance worker run proposed
+  `sdst_stall_weight_cooldown_boost`: on SDST stalls it used only the binary
+  SDST flag to add one extra moved-node weight increment and one extra moved-
+  node cooldown decrement.  The code was legal and stayed inside
+  `op_weight`/`op_cooldown`, but Core evaluation worsened the hard-HUdata 12s
+  probe from average makespan `1297.17` to `1307.50`, with average gap rising
+  from `11.98%` to `12.82%`.  This is not a materially new direction over the
+  accepted global cooldown boost; it over-intensifies the just-moved operation
+  during stalls.  The platform now treats this binary-SDST stall weight plus
+  cooldown boost as a must-repair repeat pattern
+  (`weight_update_retries_sdst_stall_weight_cooldown_boost`).
 
 ## Guardrails
 
@@ -109,3 +120,7 @@ setup = setup_time_between(schedule.index.instance, machine_id, prev_op, cur_op,
 - Do not retry improvement-step moved-node weight decay; it reduces pressure on
   operations that just helped the makespan and worsened the current 28s `la20`
   line.
+- Do not retry binary-SDST stall pressure that simultaneously adds an extra
+  moved-node weight increment and an extra moved-node cooldown decrement on
+  `current_makespan >= previous_makespan`; it worsened the hard HUdata-six
+  probe.
