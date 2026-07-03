@@ -90,6 +90,17 @@ move keys and keep Core evaluator promotion as the only quality authority.
   `(method, which_node, where_node)`; `where_node` is a graph node, not a
   machine id.  After applying `Move(*move_key)` to a clone, derive machine id
   from list state such as `trial.on_machine[move.which]`.
+- After the accepted `critical_sdst_capped_tenure_jitter` tabu-memory rule, a
+  move-selection worker proposed `deterministic_same_machine_preference`: keep
+  exact top-k if present, then sort `best_moves` deterministically with
+  same-machine methods before change-machine methods, remove the baseline
+  random choice/3% random escape, and exact-check a sorted first-three fallback
+  only when `best_moves` is empty.  It was legal but worsened the hard
+  HUdata-six 12s probe from `1297.17` to `1304.83`.  `oddla09` improved
+  (`1081 -> 1062`) but the aggregate regressed, suggesting deterministic
+  same-machine-first exploitation reduces useful diversification.  Do not
+  retry same-machine-first deterministic sorting or removing the random escape
+  as the main novelty unchanged.
 
 ## Guardrails
 
@@ -108,5 +119,7 @@ move keys and keep Core evaluator promotion as the only quality authority.
 - Do not treat `move_key[2]` as a machine id; it is `where_node`.
 - Do not retry exact top-k selection whose main novelty is a global setup-sum
   tie-break after exact makespan; the legal version tied `oddla20` at `1010`.
+- Do not retry deterministic same-machine-first sorting that removes random
+  tie-breaking/escape without a stronger exact or acceptance-pressure signal.
 - Do not read files, LB/UB tables, evaluator outputs, environment variables, or
   network resources.

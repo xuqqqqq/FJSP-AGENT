@@ -183,6 +183,18 @@ from the published UB (`997`; current fast/short baselines are `1202` or
   subsampling or small fixed same/change target caps as the main novelty; if
   bounding is needed, order candidates by a concrete setup/load/slack score and
   keep the incumbent N7/NK traversal intact.
+- After the accepted `critical_sdst_capped_tenure_jitter` tabu-memory rule, a
+  hard-HUdata six-instance worker run proposed
+  `near_critical_change_machine_augmentation`: keep the incumbent
+  critical-block traversal, then add change-machine moves for up to five
+  non-critical operations whose `end_time + backward_path_length` is within
+  1% of `makespan`.  It was legal but worsened the 12s Core probe from
+  `1297.17` to `1311.83` and raised average setup time from `1320.0` to
+  `1375.0`.  This is a smaller version of the previously failed
+  near-critical/NK expansion family; do not retry near-critical
+  change-machine augmentation as the main novelty unless it uses a materially
+  different ordering or acceptance signal rather than just a tighter threshold
+  and cap.
 
 This points toward the move-candidate selection layer: the search may not be
 trying the right critical or near-critical N7/NK moves often enough.
@@ -253,6 +265,9 @@ Use these as hypotheses, not as manual patches:
   `0.99*makespan` filters, +/-10 or +/-3 same-machine windows, and tight
   tardiness `>-5` critical-block insertion have all tied or worsened
   `oddla20` under the `critical + beta400/gamma40/theta5 + pct75` baseline.
+- Do not retry near-critical change-machine augmentation that only tightens the
+  threshold/cap while preserving the same unranked candidate family; the
+  1%-gap, five-node version worsened the hard HUdata-six probe.
 - Do not retune aggressive zi by only increasing `gamma` and lowering `theta`
   without another change; `gamma=60, theta=3` was worse than default.
 - Do not assume increasing total runtime alone improves this setting; the
