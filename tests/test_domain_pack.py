@@ -9,7 +9,7 @@ from harness_agent.context_packet import ContextPacketRequest, write_context_pac
 from harness_agent.domain_pack import get_domain_pack, load_domain_pack, load_domain_packs
 from harness_agent.knowledge_registry import auto_knowledge_cards
 from harness_agent.problem_families import get_problem_family
-from harness_agent.slot_manifest import write_selected_slot_manifest
+from harness_agent.slot_manifest import default_slot_manifest, write_default_slot_manifest, write_selected_slot_manifest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +26,11 @@ class DomainPackTests(unittest.TestCase):
         self.assertTrue(str(pack.source_path).endswith("domain_packs\\standard_fjsp\\domain_pack.json") or str(pack.source_path).endswith("domain_packs/standard_fjsp/domain_pack.json"))
         self.assertIn("fjsp_sdst", pack.aliases)
         self.assertIn("sdst", pack.capability.knowledge_tags)
+        strategy = pack.edit_strategy("slot_based_edit")
+        self.assertIsNotNone(strategy)
+        assert strategy is not None
+        self.assertEqual("slot_based_edit", strategy.name)
+        self.assertTrue(strategy.asset_path("slot_manifest"))
 
         capability = get_problem_family("fjsp_sdst")
         self.assertEqual("standard_fjsp", capability.family_id)
@@ -38,6 +43,8 @@ class DomainPackTests(unittest.TestCase):
             pack_dir.mkdir(parents=True)
             card = tmp_path / "toy_card.md"
             card.write_text("# toy\n", encoding="utf-8")
+            slot_manifest = tmp_path / "toy_slots.json"
+            slot_manifest.write_text('{"schema_version": 1, "problem_family": "toy", "slots": []}', encoding="utf-8")
             manifest = pack_dir / "domain_pack.json"
             manifest.write_text(
                 json.dumps(
@@ -58,6 +65,13 @@ class DomainPackTests(unittest.TestCase):
                             "base_cards": [str(card)],
                             "tagged_cards": {"toy_tag": [str(card)]},
                         },
+                        "edit_strategies": [
+                            {
+                                "name": "slot_based_edit",
+                                "description": "toy slots",
+                                "assets": {"slot_manifest": str(slot_manifest)},
+                            }
+                        ],
                     },
                     ensure_ascii=False,
                     indent=2,
@@ -73,6 +87,27 @@ class DomainPackTests(unittest.TestCase):
         self.assertIn("toy_alias", packs)
         self.assertEqual([card.resolve()], pack.base_cards)
         self.assertEqual([card.resolve()], pack.tagged_cards["toy_tag"])
+        strategy = pack.edit_strategy("slot_based_edit")
+        self.assertIsNotNone(strategy)
+        assert strategy is not None
+        self.assertEqual(slot_manifest.resolve(), strategy.asset_path("slot_manifest"))
+
+    def test_slot_manifest_is_loaded_from_domain_pack_asset(self) -> None:
+        manifest = default_slot_manifest(problem_family="standard_fjsp", confirmed=False)
+        payload = manifest.to_payload()
+
+        self.assertEqual("standard_fjsp", payload["problem_family"])
+        self.assertEqual("draft_requires_user_confirmation", payload["status"])
+        self.assertTrue(payload["confirmation_required"])
+        self.assertTrue(str(payload["source_path"]).replace("\\", "/").endswith("domain_packs/standard_fjsp/slot_manifest.json"))
+        self.assertIn("awls_sdst_neighborhood_selection", {slot["slot_id"] for slot in payload["slots"]})
+
+    def test_unknown_problem_family_does_not_get_standard_fjsp_slot_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "slots.json"
+
+            with self.assertRaisesRegex(ValueError, "no slot manifest edit strategy"):
+                write_default_slot_manifest(problem_family="unknown_variant", output=output)
 
     def test_auto_knowledge_cards_uses_domain_pack_tags_and_selected_slot_tags(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -41,6 +41,27 @@ class DomainCapability:
 
 
 @dataclass(frozen=True)
+class DomainEditStrategy:
+    """Optional editing strategy declared by a domain pack."""
+
+    name: str
+    description: str = ""
+    assets: dict[str, Path] = field(default_factory=dict)
+    options: dict[str, Any] = field(default_factory=dict)
+
+    def asset_path(self, key: str) -> Path | None:
+        return self.assets.get(str(key))
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "assets": {key: str(path) for key, path in self.assets.items()},
+            "options": dict(self.options),
+        }
+
+
+@dataclass(frozen=True)
 class DomainPack:
     """External domain assets for one optimization problem family."""
 
@@ -49,12 +70,19 @@ class DomainPack:
     capability: DomainCapability
     base_cards: list[Path] = field(default_factory=list)
     tagged_cards: dict[str, list[Path]] = field(default_factory=dict)
-    edit_strategies: list[str] = field(default_factory=list)
+    edit_strategies: list[DomainEditStrategy] = field(default_factory=list)
     source_path: Path | None = None
 
     @property
     def keys(self) -> set[str]:
         return {_normalize_key(self.family_id), *(_normalize_key(alias) for alias in self.aliases)}
+
+    def edit_strategy(self, name: str) -> DomainEditStrategy | None:
+        normalized = _normalize_key(name)
+        for strategy in self.edit_strategies:
+            if _normalize_key(strategy.name) == normalized:
+                return strategy
+        return None
 
 
 def load_domain_pack(path: Path, *, project_root: Path = PROJECT_ROOT) -> DomainPack:
@@ -95,7 +123,11 @@ def load_domain_pack(path: Path, *, project_root: Path = PROJECT_ROOT) -> Domain
         capability=capability,
         base_cards=base_cards,
         tagged_cards=tagged_cards,
-        edit_strategies=[str(value) for value in payload.get("edit_strategies") or []],
+        edit_strategies=[
+            _load_edit_strategy(value, project_root=project_root)
+            for value in payload.get("edit_strategies") or []
+            if _loadable_edit_strategy(value)
+        ],
         source_path=path,
     )
 
@@ -115,9 +147,19 @@ def load_domain_packs(
     return packs
 
 
-def get_domain_pack(family_id: str, *, packs: dict[str, DomainPack] | None = None) -> DomainPack | None:
+def get_domain_pack(
+    family_id: str,
+    *,
+    packs: dict[str, DomainPack] | None = None,
+    fallback_to_standard: bool = True,
+) -> DomainPack | None:
     loaded = packs if packs is not None else load_domain_packs()
-    return loaded.get(_normalize_key(family_id)) or loaded.get("standard_fjsp")
+    pack = loaded.get(_normalize_key(family_id))
+    if pack is not None:
+        return pack
+    if fallback_to_standard:
+        return loaded.get("standard_fjsp")
+    return None
 
 
 def _resolve_pack_path(value: Any, *, project_root: Path) -> Path:
@@ -125,6 +167,33 @@ def _resolve_pack_path(value: Any, *, project_root: Path) -> Path:
     if path.is_absolute():
         return path
     return (project_root / path).resolve()
+
+
+def _loadable_edit_strategy(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, dict):
+        return bool(str(value.get("name") or "").strip())
+    return False
+
+
+def _load_edit_strategy(value: Any, *, project_root: Path) -> DomainEditStrategy:
+    if isinstance(value, str):
+        return DomainEditStrategy(name=value)
+    payload = value if isinstance(value, dict) else {}
+    raw_assets = payload.get("assets") or {}
+    assets = {
+        str(key): _resolve_pack_path(asset_path, project_root=project_root)
+        for key, asset_path in raw_assets.items()
+        if str(key).strip() and str(asset_path).strip()
+    }
+    options = payload.get("options") if isinstance(payload.get("options"), dict) else {}
+    return DomainEditStrategy(
+        name=str(payload.get("name") or ""),
+        description=str(payload.get("description") or ""),
+        assets=assets,
+        options=dict(options),
+    )
 
 
 def _normalize_key(value: str) -> str:

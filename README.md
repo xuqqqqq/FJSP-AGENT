@@ -308,10 +308,10 @@ contracts, detects IO/instance signals, retrieves domain assets, builds context
 packets, runs workers, and lets the fixed evaluator decide promotion.  Domain
 knowledge lives outside the backend under `domain_packs/`.
 
-The current `standard_fjsp` domain pack declares the FJSP capability card and
-the knowledge-card retrieval index used for standard FJSP and FJSP-SDST work.
-Code slots are only one optional edit strategy declared by a domain pack; they
-are not required by the core framework.  A slot manifest records editable code
+The current `standard_fjsp` domain pack declares the FJSP capability card, the
+knowledge-card retrieval index, and an optional `slot_based_edit` strategy used
+for standard FJSP and FJSP-SDST work.  Code slots are not required by the core
+framework; they are domain-pack assets.  A slot manifest records editable code
 regions, their purpose, inputs, outputs, invariants, validation commands, and
 whether the user has confirmed that slot for LLM edits.
 
@@ -344,6 +344,11 @@ and automatically adds knowledge cards declared by the active domain pack based
 on the problem family and confirmed edit-strategy tags.  Explicit
 `--knowledge-card` paths are still accepted and are merged with these
 automatically selected cards.
+
+For a new FJSP variant, add or extend a domain pack instead of hardcoding solver
+or neighborhood knowledge in `harness_agent/`.  The backend should only load
+the declared assets, build the bounded context packet, dispatch workers, and
+trust the fixed evaluator for promotion.
 
 ## Project Intake
 

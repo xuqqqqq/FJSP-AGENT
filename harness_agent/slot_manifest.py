@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from .domain_pack import get_domain_pack
 
 
 @dataclass(frozen=True)
@@ -24,9 +26,30 @@ class CodeSlotSpec:
     validation_commands: list[str] = field(default_factory=list)
     knowledge_tags: list[str] = field(default_factory=list)
     user_confirmed: bool = False
+    extra: dict[str, Any] = field(default_factory=dict)
 
     def to_payload(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = {
+            "slot_id": self.slot_id,
+            "title": self.title,
+            "target_file": self.target_file,
+            "marker_start": self.marker_start,
+            "marker_end": self.marker_end,
+            "slot_kind": self.slot_kind,
+            "language": self.language,
+            "purpose": self.purpose,
+            "inputs": list(self.inputs),
+            "outputs": list(self.outputs),
+            "invariants": list(self.invariants),
+            "allowed_edits": list(self.allowed_edits),
+            "forbidden_edits": list(self.forbidden_edits),
+            "validation_commands": list(self.validation_commands),
+            "knowledge_tags": list(self.knowledge_tags),
+            "user_confirmed": bool(self.user_confirmed),
+        }
+        payload.update(self.extra)
+        payload["user_confirmed"] = bool(self.user_confirmed)
+        return payload
 
 
 @dataclass(frozen=True)
@@ -37,751 +60,55 @@ class SlotManifest:
     slots: list[CodeSlotSpec]
     confirmation_required: bool = True
     notes: list[str] = field(default_factory=list)
+    extra: dict[str, Any] = field(default_factory=dict)
 
     def to_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "schema_version": self.schema_version,
             "problem_family": self.problem_family,
             "status": self.status,
             "confirmation_required": self.confirmation_required,
-            "notes": self.notes,
+            "notes": list(self.notes),
             "slots": [slot.to_payload() for slot in self.slots],
         }
-
-
-def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManifest:
-    slots = [
-        CodeSlotSpec(
-            slot_id="awls_zi_policy",
-            title="AWLS 自适应 zi 权重策略",
-            target_file="examples/awls_evolved_slots.py",
-            marker_start="# EVOLVE_START",
-            marker_end="# EVOLVE_END",
-            slot_kind="function_body",
-            language="python",
-            purpose="控制 AWLS 邻域动作打分中的 zi 数值扰动策略。",
-            inputs=[
-                "values['base']：固定 AWLS 外壳传入的基础 zi 分数",
-                "values['weight']：操作级自适应权重",
-                "values['cooldown']：操作冷却/时间信号",
-                "values['rr'], values['gamma'], values['cooling']",
-                "values['is_critical'], values['forward'], values['backward']",
-                "values['duration'], values['machine_load'], values['position']",
-                "SDST-aware values may include values['setup_prev'], values['setup_next'], values['setup_adjacent'], and setup ratio/critical-neighbor flags",
-            ],
-            outputs=["返回有限的非负 float；外层 wrapper 会裁剪不安全数值。"],
-            invariants=[
-                "函数名必须保持 evolved_zi(values)。",
-                "禁止 import、subprocess、文件 IO、随机数、网络访问或读取评测器。",
-                "不得改变 solver 的输入/输出 schema。",
-            ],
-            allowed_edits=[
-                "只改写 EVOLVE 标记内部的 evolved_zi 函数体。",
-                "允许使用算术、本地变量、values.get(...)、if/else 和白名单数值函数。",
-            ],
-            forbidden_edits=[
-                "禁止修改 parser、evaluator 或 benchmark 文件。",
-                "禁止修改解 JSON schema。",
-                "禁止修改 AWLS 图结构/状态数据结构。",
-            ],
-            validation_commands=[
-                "python -m compileall examples/awls_evolved_slots.py examples/standard_fjsp_awls_solver.py",
-                "python examples/standard_fjsp_awls_solver.py --input examples/fjsp.brandimarte.Mk01.m6j10c3.txt --output outputs/slot_smoke.json --zi-policy slot --time-limit-sec 1",
-            ],
-            knowledge_tags=["awls", "zi", "adaptive_weight", "move_scoring", "zi_features"],
-            user_confirmed=confirmed,
-        ),
-        CodeSlotSpec(
-            slot_id="local_search_neighborhood_actions",
-            title="局部搜索邻域动作生成",
-            target_file="examples/standard_fjsp_local_search_solver.py",
-            marker_start="# SLOT neighborhood_actions START",
-            marker_end="# SLOT neighborhood_actions END",
-            slot_kind="marked_block",
-            language="python",
-            purpose="为已解码的标准 FJSP 排程生成可验证的候选改进动作。",
-            inputs=[
-                "instance：固定 StandardFjspInstance",
-                "state：当前机器分配和机器序列",
-                "decoded：当前排程、makespan、前驱后继和拓扑顺序",
-                "rng：带 seed 的随机源",
-                "neighbor_limit：候选动作数量上限",
-            ],
-            outputs=["返回有界的 Move 对象列表，必须兼容 apply_move/decode_state。"],
-            invariants=[
-                "不得改变 Move 字段或 SearchState/DecodedState schema。",
-                "所有动作必须仍可被 decode_state 和 validate_standard_schedule 检查。",
-                "不得修改 evaluator、parser 或 IO 契约。",
-            ],
-            allowed_edits=[
-                "允许在标记槽内新增或调整 move generator。",
-                "允许使用上下文中已有的关键路径/关键块、机器负载、空闲间隙和候选机器信号。",
-            ],
-            forbidden_edits=[
-                "禁止改变 benchmark/evaluator 语义。",
-                "禁止改变命令行参数或解输出 schema。",
-                "禁止创建无界候选列表或非确定性外部副作用。",
-            ],
-            validation_commands=[
-                "python -m compileall examples/standard_fjsp_local_search_solver.py",
-                "python examples/standard_fjsp_local_search_solver.py --input examples/fjsp.brandimarte.Mk01.m6j10c3.txt --output outputs/neighborhood_slot_smoke.json --time-limit-sec 1",
-            ],
-            knowledge_tags=["critical_path", "critical_block", "neighborhood", "machine_reassignment"],
-            user_confirmed=confirmed,
-        ),
-        CodeSlotSpec(
-            slot_id="awls_sdst_initialization",
-            title="AWLS-SDST setup-aware greedy initialization",
-            target_file="examples/standard_fjsp_awls_solver.py",
-            marker_start="# SLOT awls_sdst_initialization START",
-            marker_end="# SLOT awls_sdst_initialization END",
-            slot_kind="marked_block",
-            language="python",
-            purpose="Build better initial AWLS machine sequences for SDST instances while preserving the fixed parser/evaluator contract.",
-            inputs=[
-                "index: OperationIndex with instance, candidates, node_to_job/node_to_op, and job_to_nodes",
-                "rng: random.Random used for deterministic seeded tie-breaking",
-                "random_factor and idle_bonus diversification parameters",
-                "index.instance.has_sequence_dependent_setup and setup_time_between when setup-aware scoring is needed",
-                "setup_time_between must be imported from harness_agent.standard_fjsp inside the slot if used",
-                "Operation keys are (index.node_to_job[node], index.node_to_op[node]); pass index as the op_index mapping",
-                "For regret construction, candidate machine costs should expose best_machine_cost and second_best_machine_cost for a ready operation",
-            ],
-            outputs=[
-                "sequences: list[list[int]] assigning every operation node exactly once to a machine sequence",
-                "on_machine: list[int] mapping every real node to its selected machine",
-                "Result must be accepted by AwlsSchedule and validate_standard_schedule after timing propagation",
-            ],
-            invariants=[
-                "Keep greedy_gt_init signature unchanged.",
-                "Schedule each operation exactly once and respect job operation order in candidate release.",
-                "If attempting non-append insertion, preserve a valid permutation per machine and keep on_machine consistent for every real node.",
-                "If non-append insertion commits into an existing machine sequence, guard against disjunctive-graph cycles before returning an AwlsSchedule.",
-                "Keep standard FJSP behavior close to the current greedy initializer when no SDST data exists.",
-                "Keep all replacement lines indented inside greedy_gt_init; the slot is a function body.",
-                "If setup_time_between is used, call setup_time_between(index.instance, machine_id, previous_op, current_op, index).",
-                "If using regret, compute it from at least two candidate machine costs as second_best_machine_cost - best_machine_cost; do not use a regret label for a single-machine/tie-break score.",
-                "Do not modify random_init, build_initial_schedule, parser, evaluator, solution schema, CLI arguments, or benchmark semantics.",
-            ],
-            allowed_edits=[
-                "Only rewrite code between awls_sdst_initialization markers.",
-                "May add local helper functions or lambdas inside the slot.",
-                "May use setup-aware completion, setup load, projected load, and seeded tie-breaking.",
-                "May use true second-best-machine regret combined with setup-aware completion, dynamic readiness, and remaining job tail pressure.",
-                "May use bounded non-append insertion into a candidate machine sequence if the local ready-state bookkeeping remains deterministic and every operation is scheduled once.",
-                "May test candidate sequences with AwlsSchedule/topological feasibility locally before accepting a non-append insertion.",
-                "May use bottleneck-machine, critical-tail, or remaining-work estimates as bounded construction pressure.",
-                "May import setup_time_between locally inside the slot.",
-            ],
-            forbidden_edits=[
-                "Do not create helper files for setup parsing or initialization.",
-                "Do not import setup_time_between from examples.standard_fjsp_awls_solver; use harness_agent.standard_fjsp.",
-                "Do not call setup_time_between with separate job/op integer arguments.",
-                "Do not retry plain append-only setup-aware earliest-completion, low-setup tie-breaking, fixed small RCL, or tail-aware append scoring unchanged.",
-                "Do not claim regret initialization unless the code computes a second-best candidate-machine cost and subtracts the best candidate-machine cost.",
-                "Do not retry append-only second-best-regret roulette/weighted-random dispatch unless it adds real tail, bottleneck, repair, or topology mechanisms.",
-                "Do not retry append-only remaining-work/earliest-completion tail-ratio dispatch with regret tie-breaks.",
-                "Do not retry static single-bottleneck priority that ignores setup, tail pressure, and dynamic readiness.",
-                "Do not directly commit sequences[machine].insert(...) and then rebuild global job_ready for already scheduled operations without a cycle/topology guard.",
-                "Do not emit unindented top-level code in this function-body slot.",
-                "Do not change AWLS timing propagation, N7/NK move scoring, zi policy, parser, evaluator, or benchmark semantics.",
-            ],
-            validation_commands=[
-                "python -m compileall examples/standard_fjsp_awls_solver.py harness_agent/standard_fjsp.py",
-                "python -m unittest tests.test_standard_fjsp_awls_alignment tests.test_awls_slot_mode -v",
-            ],
-            knowledge_tags=["awls", "sdst", "setup_time", "initialization", "dispatching", "quality"],
-            user_confirmed=confirmed,
-        ),
-        CodeSlotSpec(
-            slot_id="awls_sdst_same_machine_evaluation",
-            title="AWLS-SDST setup-aware same-machine N7 scoring",
-            target_file="examples/standard_fjsp_awls_solver.py",
-            marker_start="# SLOT awls_sdst_same_machine_evaluation START",
-            marker_end="# SLOT awls_sdst_same_machine_evaluation END",
-            slot_kind="marked_block",
-            language="python",
-            purpose="Rank AWLS same-machine critical-block moves with setup-aware cost information while leaving candidate generation and validation fixed.",
-            inputs=[
-                "schedule: AwlsSchedule with setup-aware forward/end/backward path lengths",
-                "move: Move whose method is FRONT or BACK on the same machine",
-                "gamma: adaptive-weight perturbation scale",
-                "local_sequence_after_same_machine_move(schedule, move)",
-                "setup_time_between from harness_agent.standard_fjsp if setup-aware local estimates are needed",
-                "Operation keys are (schedule.index.node_to_job[node], schedule.index.node_to_op[node]); pass schedule.index as the op_index mapping",
-            ],
-            outputs=[
-                "A numeric same-machine move score where smaller is preferred by find_move",
-                "No mutation of schedule or global state",
-            ],
-            invariants=[
-                "Keep same_machine_evaluate_stable signature unchanged.",
-                "Move method values are string constants FRONT and BACK.",
-                "Move fields are method, which, and where; use move.which for the moved operation, not move.node.",
-                "AwlsSchedule has no setup_time(...) method and OperationIndex has no setup_time(...) method.",
-                "Use schedule.makespan or trial.makespan for makespan; do not read schedule.end_time[schedule.index.end_node].",
-                "If setup_time_between is used, call setup_time_between(schedule.index.instance, machine_id, previous_op, current_op, schedule.index).",
-                "Never pass node ids directly to setup_time_between; convert nodes to operation keys first.",
-                "Do not change change_machine_evaluate_parts, same_machine_evaluate_cpp_fast, zi policy, parser, evaluator, or benchmark semantics.",
-            ],
-            allowed_edits=[
-                "Only rewrite code between awls_sdst_same_machine_evaluation markers.",
-                "May add local helper functions or setup-aware propagation inside the local scoring block.",
-                "May clone and apply a move for exact local makespan if errors are handled locally.",
-                "May import setup_time_between locally inside this slot.",
-            ],
-            forbidden_edits=[
-                "Do not create helper files for setup parsing or move evaluation.",
-                "Do not call schedule.setup_time(...) or schedule.index.setup_time(...); these APIs do not exist.",
-                "Do not call move.node; Move exposes move.which and move.where.",
-                "Do not use schedule.end_time[schedule.index.end_node] as makespan; use schedule.makespan.",
-                "Do not change AWLS timing propagation, change-machine scoring, zi policy, parser, evaluator, or benchmark semantics.",
-            ],
-            validation_commands=[
-                "python -m compileall examples/standard_fjsp_awls_solver.py harness_agent/standard_fjsp.py",
-                "python -m unittest tests.test_standard_fjsp_awls_alignment tests.test_awls_slot_mode -v",
-            ],
-            knowledge_tags=["awls", "sdst", "setup_time", "same_machine", "n7_neighborhood", "quality"],
-            user_confirmed=confirmed,
-        ),
-        CodeSlotSpec(
-            slot_id="awls_sdst_move_evaluation",
-            title="AWLS-SDST setup-aware change-machine NK scoring",
-            target_file="examples/standard_fjsp_awls_solver.py",
-            marker_start="# SLOT awls_sdst_move_evaluation START",
-            marker_end="# SLOT awls_sdst_move_evaluation END",
-            slot_kind="marked_block",
-            language="python",
-            purpose=(
-                "Rank AWLS change-machine NK moves with setup-aware cost information "
-                "while leaving candidate generation, move application, and validation fixed."
-            ),
-            inputs=[
-                "schedule: AwlsSchedule with setup-aware forward/end/backward path lengths",
-                "method: string constant CHANGE_MACHINE_FRONT or CHANGE_MACHINE_BACK",
-                "which: operation node being reassigned to another machine",
-                "where: destination-machine anchor node used by the current insertion method",
-                "intersection_first/intersection_last from change_machine_intersection/window",
-                "gamma: adaptive-weight perturbation scale",
-                "weight_perturbation(schedule, which, gamma)",
-                "Move(method, which, where) is available if exact scoring clones are needed",
-                "setup_time_between from harness_agent.standard_fjsp if setup-aware arc deltas are needed",
-                "Operation keys are (schedule.index.node_to_job[node], schedule.index.node_to_op[node]); pass schedule.index as the op_index mapping",
-                "START_NODE is the AWLS source sentinel constant; schedule.index.end_node is the sink sentinel",
-            ],
-            outputs=[
-                "A numeric change-machine move score where smaller is preferred by find_move",
-                "For zi_policy cpp/cpp-exact, preserve cpp_int_score(...) wrapping of the final score",
-                "No mutation of schedule, tabu state, machine sequences, or evaluator state",
-            ],
-            invariants=[
-                "Keep change_machine_evaluate_parts signature unchanged.",
-                "Move method values are string constants, not integers.",
-                "AwlsSchedule has no setup_time(...) method and OperationIndex has no setup_time(...) method.",
-                "OperationIndex has no start_node attribute; use START_NODE for the source sentinel.",
-                "Use schedule.makespan for current makespan; schedule.end_time[schedule.index.end_node] is not a reliable makespan proxy.",
-                "If setup_time_between is used, call setup_time_between(schedule.index.instance, machine_id, previous_op, current_op, schedule.index).",
-                "Never call setup_time_between with current_op=None; missing predecessor/successor edges contribute zero setup.",
-                "Use trial.makespan after trial.apply_move(Move(method, which, where)) if exact scoring is attempted.",
-                "Do not change same-machine scoring, neighborhood selection, zi policy, parser, evaluator, solution schema, or benchmark semantics.",
-            ],
-            allowed_edits=[
-                "Only rewrite code between awls_sdst_move_evaluation markers.",
-                "May preserve the legacy AWLS proxy for standard FJSP and add SDST-only setup-aware penalties or exact scoring.",
-                "May add local helper functions inside the slot.",
-                "May import setup_time_between locally inside this slot.",
-                "May clone schedule and apply a single Move for exact SDST scoring if errors are caught locally.",
-            ],
-            forbidden_edits=[
-                "Do not create helper files for setup parsing or move evaluation.",
-                "Do not call schedule.setup_time(...) or schedule.index.setup_time(...); these APIs do not exist.",
-                "Do not compare method constants with integer values.",
-                "Do not use LB/UB or setup_time alone as the objective; fixed evaluator score remains makespan.",
-                "Do not modify AWLS timing propagation, same-machine scoring, neighborhood selection, zi policy, parser, evaluator, or benchmark semantics.",
-            ],
-            validation_commands=[
-                "python -m compileall examples/standard_fjsp_awls_solver.py harness_agent/standard_fjsp.py",
-                "python -m unittest tests.test_standard_fjsp_awls_alignment tests.test_awls_slot_mode -v",
-            ],
-            knowledge_tags=[
-                "awls",
-                "sdst",
-                "setup_time",
-                "move_scoring",
-                "nk_neighborhood",
-                "change_machine",
-                "quality",
-            ],
-            user_confirmed=confirmed,
-        ),
-        CodeSlotSpec(
-            slot_id="awls_sdst_zi_features",
-            title="AWLS-SDST setup-aware zi feature extraction",
-            target_file="examples/standard_fjsp_awls_solver.py",
-            marker_start="# SLOT awls_sdst_zi_features START",
-            marker_end="# SLOT awls_sdst_zi_features END",
-            slot_kind="marked_block",
-            language="python",
-            purpose=(
-                "Expose bounded setup-aware numeric features to AWLS zi formula/slot policies "
-                "without changing the fixed evaluator, parser, or default AWLS semantics. "
-                "When this exact slot is selected, the standard worker loop supplies a conservative formula consumer."
-            ),
-            inputs=[
-                "schedule: AwlsSchedule with machine links, criticality, forward/backward times, and OperationIndex",
-                "node: real operation node currently being scored by weight_perturbation",
-                "values: dict[str, float] already containing base, weight, cooldown, rr, gamma, cooling, is_critical, forward, backward, duration, machine_load, and position",
-                "operation_key(schedule, node) converts AWLS node ids to (job_id, op_id) tuples",
-                "setup_time_between from harness_agent.standard_fjsp if setup-aware features are used",
-                "schedule.index.instance.has_sequence_dependent_setup tells whether SDST setup data exists",
-            ],
-            outputs=[
-                "Mutate values only by adding finite numeric feature entries",
-                "Expected setup feature keys: setup_prev, setup_next, setup_adjacent, setup_prev_ratio, setup_next_ratio, setup_adjacent_ratio, setup_is_sdst, setup_predecessor_critical, setup_successor_critical",
-                "Return flow must continue to build_zi_feature_values and then formula/slot evaluation",
-                "In standard worker-loop slot mode, Core evaluation consumes these values through a default formula unless the request explicitly sets another zi policy.",
-            ],
-            invariants=[
-                "Keep build_zi_feature_values and weight_perturbation signatures unchanged.",
-                "Do not change cpp, aggressive, critical, sqrt, or none zi-policy behavior; this slot only enriches formula/slot values.",
-                "If setup_time_between is used, call setup_time_between(schedule.index.instance, machine_id, previous_op, current_op, schedule.index).",
-                "Never pass node ids directly to setup_time_between; convert nodes with operation_key.",
-                "Never call setup_time_between with current_op=None; missing predecessor/successor contributes zero setup.",
-                "Do not read LB/UB, evaluator output, instance files, environment variables, network, or filesystem state.",
-                "Do not mutate schedule, machine sequences, tabu state, parser, evaluator, solution schema, or benchmark semantics.",
-            ],
-            allowed_edits=[
-                "Only rewrite code between awls_sdst_zi_features markers.",
-                "May add local bounded setup feature calculations and numeric ratios inside the slot.",
-                "May use schedule.index.instance.has_sequence_dependent_setup to keep standard FJSP values at zero.",
-                "May catch local lookup errors and fall back to zero setup features.",
-            ],
-            forbidden_edits=[
-                "Do not create helper files or parallel setup parsers.",
-                "Do not change formula validation outside the documented setup feature names unless a separate platform change is made.",
-                "Do not make makespan, LB/UB, or setup_time alone the objective.",
-                "Do not call trial.apply_move or run local search inside this feature slot.",
-                "Do not add randomness, subprocesses, multiprocessing, network calls, or file IO.",
-            ],
-            validation_commands=[
-                "python -m compileall examples/standard_fjsp_awls_solver.py harness_agent/standard_fjsp.py",
-                "python -m unittest tests.test_standard_fjsp_awls_alignment tests.test_awls_slot_mode tests.test_slot_manifest_platform -v",
-            ],
-            knowledge_tags=["awls", "sdst", "zi", "zi_features", "setup_time", "quality"],
-            user_confirmed=confirmed,
-        ),
-        CodeSlotSpec(
-            slot_id="awls_sdst_weight_update",
-            title="AWLS-SDST adaptive operation weight update",
-            target_file="examples/standard_fjsp_awls_solver.py",
-            marker_start="# SLOT awls_sdst_weight_update START",
-            marker_end="# SLOT awls_sdst_weight_update END",
-            slot_kind="marked_block",
-            language="python",
-            purpose=(
-                "Update AWLS operation weights and cooldowns after each accepted move so SDST search pressure "
-                "can adapt without changing move generation, schedule legality, parser, or evaluator semantics."
-            ),
-            inputs=[
-                "schedule: AwlsSchedule after the current move, with op_weight, op_cooldown, real_nodes, criticality, and setup-aware timing",
-                "moved_node: real operation moved in the current iteration",
-                "best_makespan_before, previous_makespan, current_makespan: integer makespan signals from tabu_search",
-                "beta, gamma, theta: AWLS adaptive-weight control parameters",
-                "zi_policy: current AWLS zi policy string such as critical, aggressive, formula, slot, sqrt, or none",
-                "operation_key(schedule, node) and setup_time_between may be used for bounded SDST adjacent-setup signals",
-            ],
-            outputs=[
-                "Mutate only schedule.op_weight and schedule.op_cooldown entries for existing real operation nodes",
-                "Keep values finite non-negative integers/floats suitable for weight_perturbation",
-                "Return None exactly as update_operation_weights expects",
-            ],
-            invariants=[
-                "Keep update_operation_weights signature unchanged.",
-                "Do not mutate schedule machine sequences, predecessor/successor links, on_machine, times, makespan, tabu state, parser, evaluator, or output schema.",
-                "Preserve the best-improvement reset semantics: when current_makespan < best_makespan_before, cooldowns should become very large and weights reset or otherwise stop stale perturbation pressure.",
-                "Do not read LB/UB, evaluator reports, instance files, environment variables, network, or filesystem state.",
-                "If setup_time_between is used, convert nodes with operation_key and call setup_time_between(schedule.index.instance, machine_id, previous_op, current_op, schedule.index).",
-                "Do not optimize setup_time instead of makespan; setup may only shape bounded weight/cooldown pressure.",
-            ],
-            allowed_edits=[
-                "Only rewrite code between awls_sdst_weight_update markers.",
-                "May change how moved_node, critical operations, cooldowns, and weights are incremented or reset.",
-                "May add bounded SDST-aware local setup pressure for moved_node or adjacent real operations.",
-                "May use schedule.index.instance.has_sequence_dependent_setup to keep standard FJSP behavior close to baseline.",
-                "May use local helper variables or small local loops over schedule.index.real_nodes.",
-            ],
-            forbidden_edits=[
-                "Do not call schedule.apply_move, trial.apply_move, find_move, tabu_search, solve_awls, or any evaluator inside this slot.",
-                "Do not append, insert, delete, sort, or otherwise mutate machine_sequences or job/machine links.",
-                "Do not scan schedule topology to penalize globally high-setup nodes; use moved_node, criticality, makespan progress, and existing weight/cooldown state unless using the documented local operation_key/setup_time_between pattern.",
-                "Do not create helper files, subprocesses, multiprocessing, network access, file IO, or random unseeded behavior.",
-                "Do not modify zi formula validation, move scoring, neighborhood selection, initialization, portfolio control, parser, evaluator, CLI arguments, or benchmark semantics.",
-                "Do not retry pure critical multiplier changes that only increase critical moved-node weight; those tied or worsened earlier zi experiments.",
-                "Do not return only a natural-language proposal; this slot requires one concrete replace_slot_block edit or a concrete slot-contract blocker.",
-            ],
-            validation_commands=[
-                "python -m compileall examples/standard_fjsp_awls_solver.py harness_agent/standard_fjsp.py",
-                "python -m unittest tests.test_standard_fjsp_awls_alignment tests.test_awls_slot_mode tests.test_slot_manifest_platform -v",
-            ],
-            knowledge_tags=[
-                "awls",
-                "sdst",
-                "zi",
-                "adaptive_weight",
-                "weight_update",
-                "setup_time",
-                "quality",
-            ],
-            user_confirmed=confirmed,
-        ),
-        CodeSlotSpec(
-            slot_id="awls_sdst_search_transition",
-            title="AWLS-SDST tabu search state transition",
-            target_file="examples/standard_fjsp_awls_solver.py",
-            marker_start="# SLOT awls_sdst_search_transition START",
-            marker_end="# SLOT awls_sdst_search_transition END",
-            slot_kind="marked_block",
-            language="python",
-            purpose=(
-                "Control the bounded AWLS tabu-search state transition after a legal move has been applied, "
-                "so SDST plateau behavior can evolve without changing move generation, legality, parser, or evaluator semantics."
-            ),
-            inputs=[
-                "current: AwlsSchedule after add_move_tabu, current.apply_move(move), and update_operation_weights",
-                "best: best AwlsSchedule found in this tabu_search call so far",
-                "move: accepted Move for this iteration",
-                "iteration, previous_makespan, best_before, beta, gamma, theta, zi_policy, optional stats from tabu_search scope",
-                "current.makespan and best.makespan as the primary quality signals",
-                "schedule clone/apply legality has already happened before this slot; current is legal if apply_move succeeded",
-            ],
-            outputs=[
-                "May update best by cloning current when current.makespan improves best.makespan",
-                "May update current by assigning a clone of best or current for bounded restart/intensification behavior",
-                "May update local stats counters for auditable search-transition diagnostics only when stats is not None",
-                "Must leave a valid AwlsSchedule in current and best for the next iteration and final return",
-            ],
-            invariants=[
-                "Keep tabu_search signature unchanged.",
-                "Do not mutate machine_sequences, predecessor/successor links, on_machine, start/end times, or makespan directly; only use existing AwlsSchedule.clone() assignments.",
-                "Do not call find_move, tabu_search, solve_awls, solve_awls_single, evaluator, parser, or validate_standard_schedule inside this slot.",
-                "Do not change add_move_tabu ordering, update_operation_weights ordering, or final best.op_weight/best.op_cooldown memory transfer outside this slot.",
-                "Makespan remains the primary objective; setup time, LB/UB, or evaluator reports must not drive acceptance.",
-                "Any plateau, restart, or backtrack rule must be deterministic from in-scope values and schedule.rng only; do not use global random state.",
-                "Do not break the invariant that best.makespan is the lowest makespan accepted as best in this tabu_search call.",
-                "stats may be None in direct tabu_search calls; guard every stats read/write with stats is not None.",
-            ],
-            allowed_edits=[
-                "Only rewrite code between awls_sdst_search_transition markers.",
-                "May preserve or change the condition that refreshes best from current.",
-                "May add bounded stagnation/plateau logic using iteration, current.makespan, previous_makespan, best_before, and stats counters.",
-                "May clone best back into current under a deterministic SDST-only diversification or intensification rule.",
-                "May increment stats keys such as best_updates, plateau_steps, or best_restarts for diagnostics after checking stats is not None.",
-                "May use schedule.rng through current.rng for bounded seeded randomization when justified by the hypothesis.",
-            ],
-            forbidden_edits=[
-                "Do not generate moves, mutate tabu internals directly, or append to candidate lists.",
-                "Do not call current.apply_move, schedule.apply_move, trial.apply_move, or add_move_tabu in this slot.",
-                "Do not mutate current or best structural fields directly; assign whole AwlsSchedule clones only.",
-                "Do not read or write files, environment variables, subprocesses, multiprocessing, network, LB/UB tables, or evaluator output.",
-                "Do not optimize setup_time instead of makespan or promote a worse makespan as best.",
-                "Do not introduce unbounded loops or nested local search inside the transition slot.",
-            ],
-            validation_commands=[
-                "python -m compileall examples/standard_fjsp_awls_solver.py harness_agent/standard_fjsp.py",
-                "python -m unittest tests.test_standard_fjsp_awls_alignment tests.test_awls_slot_mode tests.test_slot_manifest_platform -v",
-            ],
-            knowledge_tags=[
-                "awls",
-                "sdst",
-                "search_control",
-                "tabu_search",
-                "search_transition",
-                "quality",
-            ],
-            user_confirmed=confirmed,
-        ),
-        CodeSlotSpec(
-            slot_id="awls_sdst_tabu_memory",
-            title="AWLS-SDST tabu memory update",
-            target_file="examples/standard_fjsp_awls_solver.py",
-            marker_start="# SLOT awls_sdst_tabu_memory START",
-            marker_end="# SLOT awls_sdst_tabu_memory END",
-            slot_kind="marked_block",
-            language="python",
-            purpose=(
-                "Control the local sequence and bounded tenure inserted into the AWLS tabu list after an accepted move, "
-                "without changing move generation, schedule legality, parser, evaluator, or benchmark semantics."
-            ),
-            inputs=[
-                "tabu: SequenceTabuList receiving one tabu.add(machine_id, sequence, expires_at) update",
-                "schedule: current AwlsSchedule before current.apply_move(move), with machine links, on_machine, rng, and criticality helpers",
-                "move: Move that is about to be applied",
-                "iteration, tenure_min, tenure_max from tabu_search",
-                "candidate_tabu_sequence_parts and module-level operation_key(schedule, node) from this solver may be used for bounded SDST memory signals",
-                "setup_time_between may be imported from harness_agent.standard_fjsp when setup lookup is needed",
-            ],
-            outputs=[
-                "Call tabu.add(machine_id, sequence, expires_at) exactly once with a bounded local machine sequence",
-                "Use a finite integer expires_at >= iteration",
-                "Return None exactly as add_move_tabu expects",
-            ],
-            invariants=[
-                "Keep add_move_tabu signature unchanged.",
-                "Do not mutate schedule, current/best search state, parser, evaluator, solution schema, CLI, or benchmark semantics.",
-                "Do not mutate tabu.items directly; use exactly one tabu.add call.",
-                "Do not call apply_move, find_move, tabu_search, solve_awls, solve_awls_single, evaluator, or validate_standard_schedule inside this slot.",
-                "Do not read LB/UB, evaluator reports, instance files, environment variables, network, or filesystem state.",
-                "If setup_time_between is used, import it locally inside this slot with from harness_agent.standard_fjsp import setup_time_between.",
-                "Do not import operation_key from harness_agent.standard_fjsp; operation_key(schedule, node) is already a module-level helper in examples.standard_fjsp_awls_solver.",
-                "If setup_time_between is used, convert nodes with operation_key and call setup_time_between(schedule.index.instance, machine_id, previous_op, current_op, schedule.index).",
-                "If criticality is used, call schedule.is_critical_operation(node); AwlsSchedule has no schedule.is_critical(node) method.",
-                "Move has fields method, which, and where only; use schedule.index.duration(move.which, schedule.on_machine[move.which]) for processing time.",
-                "Do not make setup_time the objective; setup may only shape a bounded tabu tenure or local tabu sequence.",
-            ],
-            allowed_edits=[
-                "Only rewrite code between awls_sdst_tabu_memory markers.",
-                "May change how the local tabu sequence is chosen for FRONT, BACK, CHANGE_MACHINE_FRONT, or CHANGE_MACHINE_BACK moves.",
-                "May change expires_at using tenure_min, tenure_max, iteration, move type, schedule.rng, criticality, or bounded SDST setup pressure.",
-                "May use schedule.index.instance.has_sequence_dependent_setup to keep standard FJSP close to baseline.",
-                "May use local helper variables or small local loops over adjacent machine nodes touched by the move.",
-            ],
-            forbidden_edits=[
-                "Do not generate candidate moves or call consider_same/consider_change.",
-                "Do not call current.apply_move, schedule.apply_move, trial.apply_move, or clone schedules in this slot.",
-                "Do not append, insert, delete, sort, or otherwise mutate machine_sequences or job/machine links.",
-                "Do not call tabu.add more than once and do not write tabu.items directly.",
-                "Do not add unbounded loops, subprocesses, multiprocessing, network access, file IO, environment access, or global random calls.",
-                "Do not change move scoring, initialization, portfolio control, weight update, transition logic, parser, evaluator, CLI arguments, or benchmark semantics.",
-            ],
-            validation_commands=[
-                "python -m compileall examples/standard_fjsp_awls_solver.py harness_agent/standard_fjsp.py",
-                "python -m unittest tests.test_standard_fjsp_awls_alignment tests.test_awls_slot_mode tests.test_slot_manifest_platform -v",
-            ],
-            knowledge_tags=[
-                "awls",
-                "sdst",
-                "search_control",
-                "tabu_search",
-                "tabu_memory",
-                "setup_time",
-                "quality",
-            ],
-            user_confirmed=confirmed,
-        ),
-        CodeSlotSpec(
-            slot_id="awls_sdst_portfolio_search_control",
-            title="AWLS-SDST portfolio lane search control",
-            target_file="examples/standard_fjsp_awls_solver.py",
-            marker_start="# SLOT awls_sdst_portfolio_search_control START",
-            marker_end="# SLOT awls_sdst_portfolio_search_control END",
-            slot_kind="marked_block",
-            language="python",
-            purpose=(
-                "Control how explicit AWLS portfolio lanes are budgeted, ordered, "
-                "and selected for SDST instances without changing schedule semantics."
-            ),
-            inputs=[
-                "portfolio_lanes: list[PortfolioLane] parsed from CLI/benchmark as seed:init:restarts[:seconds]",
-                "time_limit_sec: global AWLS wall-clock cap for this solver call",
-                "seed: outer benchmark seed used to offset lane seeds with PORTFOLIO_OUTER_SEED_STRIDE",
-                "index: fixed OperationIndex built from parse_standard_fjsp output",
-                "solve_awls_single(...) and format_awls_stats(...) from this module",
-                "All AWLS controls already passed to solve_awls: cycles_per_restart, iterations, beta/gamma/theta, exact_select_top_k, same_machine_eval, critical_block_exhaustive_pct, zi_policy, zi_formula, initial_state, time_check_interval",
-            ],
-            outputs=[
-                "best: AwlsSchedule clone selected from legal lane runs by lowest makespan",
-                "best_lane: PortfolioLane describing the selected effective lane",
-                "lane_summaries: list[str] initialized inside the slot and preserving per-lane diagnostics for the strategy label",
-                "No change to returned ScheduleRecord schema or benchmark score semantics",
-            ],
-            invariants=[
-                "Keep solve_awls signature unchanged.",
-                "Only execute when portfolio_lanes is non-empty; non-portfolio AWLS path must remain unchanged.",
-                "Keep score objective as makespan; do not use LB/UB or setup_time as the objective.",
-                "Every lane must still call solve_awls_single or an equivalent existing AWLS path that returns AwlsSchedule.",
-                "Preserve deterministic effective_lane_seed = lane.seed + seed * PORTFOLIO_OUTER_SEED_STRIDE unless the replacement explicitly documents an equivalent deterministic mapping.",
-                "Do not mutate parser, evaluator, solution JSON schema, CLI argument names, or benchmark semantics.",
-                "Keep lane_summaries initialized and informative enough to audit selected seed/init/restarts/time/makespan.",
-            ],
-            allowed_edits=[
-                "Only rewrite code between awls_sdst_portfolio_search_control markers.",
-                "May change lane ordering, per-lane budget allocation, early-stop policy, or tie-breaking among equal makespans.",
-                "May add local bounded diagnostics or helper lists inside the slot.",
-                "May adapt search-control decisions for instance.has_sequence_dependent_setup while preserving standard FJSP legality.",
-            ],
-            forbidden_edits=[
-                "Do not parse instance files, setup matrices, LB/UB tables, or evaluator output in this slot.",
-                "Do not change parse_portfolio_lanes format or allocate_lane_budgets unless a separate slot is confirmed.",
-                "Do not change solve_awls_single, AWLS move scoring, zi formula validation, parser, evaluator, or output schema.",
-                "Do not skip validation by returning records directly from the slot.",
-                "Do not retry seed-mapping-only perturbations without a real lane budget, order, early-stop, or tie-breaking change.",
-                "Do not add unbounded loops, multiprocessing, subprocesses, network access, file IO, or randomness outside existing seeded AWLS calls.",
-            ],
-            validation_commands=[
-                "python -m compileall examples/standard_fjsp_awls_solver.py harness_agent/standard_fjsp.py",
-                "python -m unittest tests.test_benchmark_suite tests.test_awls_slot_mode tests.test_slot_manifest_platform -v",
-            ],
-            knowledge_tags=["awls", "sdst", "portfolio", "search_control", "quality"],
-            user_confirmed=confirmed,
-        ),
-        CodeSlotSpec(
-            slot_id="awls_sdst_neighborhood_selection",
-            title="AWLS-SDST critical-block neighborhood candidate selection",
-            target_file="examples/standard_fjsp_awls_solver.py",
-            marker_start="# SLOT awls_sdst_neighborhood_selection START",
-            marker_end="# SLOT awls_sdst_neighborhood_selection END",
-            slot_kind="marked_block",
-            language="python",
-            purpose="Generate a bounded legal set of same-machine and change-machine AWLS moves from critical blocks and critical operations.",
-            inputs=[
-                "schedule: AwlsSchedule with machine_sequences, on_machine, end_time, backward_path_length, and makespan",
-                "best_makespan, tabu, iteration, gamma, exact_select_top_k, critical_block_exhaustive_pct from find_move",
-                "Local closures consider_same(...) and consider_change(...)",
-                "critical_blocks(...), change_machine_window(...), and schedule.index.candidates",
-                "Processing time lookup uses schedule.index.duration(node, machine_id); OperationIndex has no durations attribute.",
-            ],
-            outputs=[
-                "Populate all_moves, ranked_moves, best_moves, and best_value only through consider_same and consider_change",
-                "Leave final move selection, exact top-k recheck, fallback, and Move construction to unchanged code after the marker",
-                "No direct mutation of schedule, tabu, machine sequences, or evaluator state",
-            ],
-            invariants=[
-                "Keep find_move signature unchanged.",
-                "Do not return from inside this slot except through existing all_moves flow after the marker.",
-                "Do not directly append to move containers; call consider_same or consider_change.",
-                "Move method values are string constants FRONT, BACK, CHANGE_MACHINE_FRONT, and CHANGE_MACHINE_BACK.",
-                "Only pass real operation nodes; never pass START_NODE or schedule.index.end_node.",
-                "Do not access nonexistent OperationIndex fields such as schedule.index.durations.",
-                "Do not modify parser, evaluator, solution schema, CLI arguments, or benchmark semantics.",
-            ],
-            allowed_edits=[
-                "Only rewrite code between awls_sdst_neighborhood_selection markers.",
-                "May change the order and subset of critical blocks explored.",
-                "May add near-critical operation filters using end_time + backward_path_length close to makespan.",
-                "May add bounded same-machine or alternate-machine insertion candidates through existing closures.",
-                "May bias exploration for SDST instances by setup-heavy arcs while preserving closure-based legality.",
-            ],
-            forbidden_edits=[
-                "Do not create helper files for setup parsing or neighborhood selection.",
-                "Do not call trial.apply_move directly in this slot.",
-                "Do not change the objective from makespan or use LB/UB as a score.",
-                "Do not touch harness_agent.standard_fjsp or examples/standard_fjsp_evaluator.py.",
-            ],
-            validation_commands=[
-                "python -m compileall examples/standard_fjsp_awls_solver.py harness_agent/standard_fjsp.py",
-                "python -m unittest tests.test_standard_fjsp_awls_alignment tests.test_awls_slot_mode -v",
-            ],
-            knowledge_tags=["awls", "sdst", "critical_block", "n7_neighborhood", "nk_neighborhood", "candidate_generation", "quality"],
-            user_confirmed=confirmed,
-        ),
-        CodeSlotSpec(
-            slot_id="awls_sdst_move_selection",
-            title="AWLS-SDST final move selection and exact recheck",
-            target_file="examples/standard_fjsp_awls_solver.py",
-            marker_start="# SLOT awls_sdst_move_selection START",
-            marker_end="# SLOT awls_sdst_move_selection END",
-            slot_kind="marked_block",
-            language="python",
-            purpose=(
-                "Select the final AWLS Move after same-machine/change-machine candidates "
-                "have been generated, including exact top-k rechecks and bounded tie-breaking."
-            ),
-            inputs=[
-                "schedule: AwlsSchedule with current machine/job arcs, makespan, rng, and setup-aware timing",
-                "all_moves: list of candidate move keys collected only through consider_same/consider_change",
-                "ranked_moves: optional list[(approx_value, move_key)] when exact_select_top_k > 0",
-                "best_moves and best_value: approximate best candidate set from remember_candidate",
-                "exact_select_top_k, best_makespan, Move, and schedule.rng from find_move scope",
-                "Each move_key is (method, which_node, where_node), where method is FRONT, BACK, CHANGE_MACHINE_FRONT, or CHANGE_MACHINE_BACK.",
-                "Schedule state is exposed through machine_sequences, on_machine, machine_predecessor/successor, start_time/end_time, backward_path_length, and makespan; AwlsSchedule has no operations record list.",
-                "Convert a real node to an operation key with module-level operation_key(schedule, node); OperationIndex has no node_to_operation_key field.",
-                "setup_time_between from harness_agent.standard_fjsp if SDST tie-breaking needs setup lookup",
-            ],
-            outputs=[
-                "Return Move or None exactly as find_move expects",
-                "No direct mutation of schedule, tabu, machine sequences, parser, evaluator, or output schema",
-                "Any exact check must use schedule.clone(), trial.apply_move(Move(...)), and trial.makespan",
-            ],
-            invariants=[
-                "Keep find_move signature unchanged.",
-                "If all_moves is empty, return None.",
-                "Use makespan as the primary exact objective; setup_time may only be a bounded tie-breaker.",
-                "Do not bypass already-applied tabu filtering from remember_candidate.",
-                "Do not change candidate generation; this slot runs after candidate collection.",
-                "Do not access nonexistent schedule.setup_time, schedule.index.setup_time, schedule.index.durations, schedule.operations, or schedule.index.node_to_operation_key APIs.",
-                "If setup_time_between is used, call setup_time_between(schedule.index.instance, machine_id, previous_op, current_op, schedule.index).",
-                "Do not modify parser, evaluator, solution schema, CLI arguments, or benchmark semantics.",
-            ],
-            allowed_edits=[
-                "Only rewrite code between awls_sdst_move_selection markers.",
-                "May change exact top-k candidate ordering, deterministic tie-breaking, and bounded seeded diversification.",
-                "May adjust how best_moves/all_moves are sampled when approximate scores tie.",
-                "May add SDST-only local helper functions inside the slot.",
-                "May clone schedule and apply candidate moves for bounded exact rechecks with local exception handling.",
-                "May import setup_time_between locally inside the slot for setup-aware tie-breakers.",
-            ],
-            forbidden_edits=[
-                "Do not append new moves or call consider_same/consider_change in this slot.",
-                "Do not mutate schedule directly or call trial.apply_move without cloning first.",
-                "Do not use LB/UB, evaluator reports, files, subprocesses, multiprocessing, network, or environment variables.",
-                "Do not optimize setup_time instead of makespan.",
-                "Do not treat move_key as an operation-key tuple or use string literals such as 'change_machine'; use the AWLS method constants.",
-                "Do not call setup_time_between with schedule/index only or raw nodes; convert nodes with operation_key(schedule, node) and pass instance, machine_id, previous_op, current_op, schedule.index.",
-                "Do not add random noise to ranked values or unconditional random all_moves escapes; that move-selection pattern worsened oddla20.",
-                "Do not add unbounded loops over repeated local search; keep rechecks bounded by existing candidate lists.",
-            ],
-            validation_commands=[
-                "python -m compileall examples/standard_fjsp_awls_solver.py harness_agent/standard_fjsp.py",
-                "python -m unittest tests.test_standard_fjsp_awls_alignment tests.test_awls_slot_mode tests.test_slot_manifest_platform -v",
-            ],
-            knowledge_tags=[
-                "awls",
-                "sdst",
-                "move_selection",
-                "search_control",
-                "move_scoring",
-                "setup_time",
-                "quality",
-            ],
-            user_confirmed=confirmed,
-        ),
-    ]
-    return SlotManifest(
-        schema_version=1,
-        problem_family="standard_fjsp",
-        status="confirmed" if confirmed else "draft_requires_user_confirmation",
-        confirmation_required=not confirmed,
-        notes=[
-            "代码槽是带明确输入、输出和不变量的功能编辑区域。",
-            "LLM 获准修改代码槽之前，必须先经过用户确认。",
-            "除非确认新的 IO 契约，否则 evaluator/parser/metric 语义保持固定。",
-        ],
-        slots=slots,
-    )
+        payload.update(self.extra)
+        payload["schema_version"] = self.schema_version
+        payload["problem_family"] = self.problem_family
+        payload["status"] = self.status
+        payload["confirmation_required"] = self.confirmation_required
+        payload["notes"] = list(self.notes)
+        payload["slots"] = [slot.to_payload() for slot in self.slots]
+        return payload
 
 
 def load_slot_manifest(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
-def selected_standard_fjsp_slot_manifest(*, selected_slot_ids: list[str]) -> SlotManifest:
+def default_slot_manifest(*, problem_family: str, confirmed: bool = False) -> SlotManifest:
+    manifest = _load_domain_slot_manifest(problem_family)
+    slots = [_replace_slot_confirmation(slot, confirmed) for slot in manifest.slots]
+    return SlotManifest(
+        schema_version=manifest.schema_version,
+        problem_family=manifest.problem_family,
+        status="confirmed" if confirmed else "draft_requires_user_confirmation",
+        confirmation_required=not confirmed,
+        notes=manifest.notes,
+        slots=slots,
+        extra=manifest.extra,
+    )
+
+
+def selected_slot_manifest(*, problem_family: str, selected_slot_ids: list[str]) -> SlotManifest:
     selected = {str(slot_id) for slot_id in selected_slot_ids if str(slot_id).strip()}
     if not selected:
         raise ValueError("at least one selected slot_id is required")
-    manifest = default_standard_fjsp_slot_manifest(confirmed=False)
+    manifest = default_slot_manifest(problem_family=problem_family, confirmed=False)
     known = {slot.slot_id for slot in manifest.slots}
     unknown = sorted(selected - known)
     if unknown:
-        raise ValueError(f"unknown standard_fjsp slot_id(s): {', '.join(unknown)}")
-    slots = [
-        CodeSlotSpec(
-            **{
-                **slot.to_payload(),
-                "user_confirmed": slot.slot_id in selected,
-            }
-        )
-        for slot in manifest.slots
-    ]
+        raise ValueError(f"unknown {manifest.problem_family} slot_id(s): {', '.join(unknown)}")
+    slots = [_replace_slot_confirmation(slot, slot.slot_id in selected) for slot in manifest.slots]
     return SlotManifest(
         schema_version=manifest.schema_version,
         problem_family=manifest.problem_family,
@@ -792,24 +119,158 @@ def selected_standard_fjsp_slot_manifest(*, selected_slot_ids: list[str]) -> Slo
             "Only selected slots have user_confirmed=true; unselected slots remain locked.",
         ],
         slots=slots,
+        extra=manifest.extra,
     )
 
 
+def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManifest:
+    return default_slot_manifest(problem_family="standard_fjsp", confirmed=confirmed)
+
+
+def selected_standard_fjsp_slot_manifest(*, selected_slot_ids: list[str]) -> SlotManifest:
+    return selected_slot_manifest(problem_family="standard_fjsp", selected_slot_ids=selected_slot_ids)
+
+
 def write_default_slot_manifest(*, problem_family: str, output: Path, confirmed: bool = False) -> Path:
-    normalized_family = str(problem_family).strip().lower()
-    if normalized_family not in {"fjsp", "standard_fjsp"}:
-        raise ValueError(f"no default slot manifest is available for problem family: {problem_family}")
     output.parent.mkdir(parents=True, exist_ok=True)
-    payload = default_standard_fjsp_slot_manifest(confirmed=confirmed).to_payload()
+    payload = default_slot_manifest(problem_family=problem_family, confirmed=confirmed).to_payload()
     output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return output
 
 
 def write_selected_slot_manifest(*, problem_family: str, output: Path, selected_slot_ids: list[str]) -> Path:
-    normalized_family = str(problem_family).strip().lower()
-    if normalized_family not in {"fjsp", "standard_fjsp"}:
-        raise ValueError(f"no default slot manifest is available for problem family: {problem_family}")
     output.parent.mkdir(parents=True, exist_ok=True)
-    payload = selected_standard_fjsp_slot_manifest(selected_slot_ids=selected_slot_ids).to_payload()
+    payload = selected_slot_manifest(problem_family=problem_family, selected_slot_ids=selected_slot_ids).to_payload()
     output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return output
+
+
+def _load_domain_slot_manifest(problem_family: str) -> SlotManifest:
+    path = _domain_slot_manifest_path(problem_family)
+    if path is None:
+        raise ValueError(f"no slot manifest edit strategy is available for problem family: {problem_family}")
+    if not path.exists():
+        raise ValueError(f"slot manifest asset does not exist for problem family {problem_family}: {path}")
+    payload = load_slot_manifest(path)
+    return _slot_manifest_from_payload(payload, source_path=path)
+
+
+def _domain_slot_manifest_path(problem_family: str) -> Path | None:
+    pack = get_domain_pack(problem_family, fallback_to_standard=False)
+    if pack is None:
+        return None
+    strategy = pack.edit_strategy("slot_based_edit")
+    path = strategy.asset_path("slot_manifest") if strategy is not None else None
+    if path is not None:
+        return path
+    if pack.source_path is not None:
+        convention_path = pack.source_path.parent / "slot_manifest.json"
+        if convention_path.exists():
+            return convention_path
+    return None
+
+
+def _slot_manifest_from_payload(payload: dict[str, Any], *, source_path: Path | None = None) -> SlotManifest:
+    if not isinstance(payload, dict):
+        raise ValueError("slot manifest payload must be a JSON object")
+    raw_slots = payload.get("slots")
+    if not isinstance(raw_slots, list):
+        raise ValueError("slot manifest must contain a slots list")
+    problem_family = str(payload.get("problem_family") or "")
+    if not problem_family:
+        raise ValueError("slot manifest must declare problem_family")
+    extra = {
+        key: value
+        for key, value in payload.items()
+        if key
+        not in {
+            "schema_version",
+            "problem_family",
+            "status",
+            "confirmation_required",
+            "notes",
+            "slots",
+        }
+    }
+    if source_path is not None:
+        extra.setdefault("source_path", str(source_path))
+    return SlotManifest(
+        schema_version=int(payload.get("schema_version") or 1),
+        problem_family=problem_family,
+        status=str(payload.get("status") or "draft_requires_user_confirmation"),
+        confirmation_required=bool(payload.get("confirmation_required", True)),
+        notes=_string_list(payload.get("notes")),
+        slots=[_slot_from_payload(slot) for slot in raw_slots if isinstance(slot, dict)],
+        extra=extra,
+    )
+
+
+def _slot_from_payload(payload: dict[str, Any]) -> CodeSlotSpec:
+    known_fields = {
+        "slot_id",
+        "title",
+        "target_file",
+        "marker_start",
+        "marker_end",
+        "slot_kind",
+        "language",
+        "purpose",
+        "inputs",
+        "outputs",
+        "invariants",
+        "allowed_edits",
+        "forbidden_edits",
+        "validation_commands",
+        "knowledge_tags",
+        "user_confirmed",
+    }
+    slot_id = str(payload.get("slot_id") or "").strip()
+    if not slot_id:
+        raise ValueError("slot manifest contains a slot without slot_id")
+    return CodeSlotSpec(
+        slot_id=slot_id,
+        title=str(payload.get("title") or slot_id),
+        target_file=str(payload.get("target_file") or ""),
+        marker_start=str(payload.get("marker_start") or ""),
+        marker_end=str(payload.get("marker_end") or ""),
+        slot_kind=str(payload.get("slot_kind") or "marked_block"),
+        language=str(payload.get("language") or "python"),
+        purpose=str(payload.get("purpose") or ""),
+        inputs=_string_list(payload.get("inputs")),
+        outputs=_string_list(payload.get("outputs")),
+        invariants=_string_list(payload.get("invariants")),
+        allowed_edits=_string_list(payload.get("allowed_edits")),
+        forbidden_edits=_string_list(payload.get("forbidden_edits")),
+        validation_commands=_string_list(payload.get("validation_commands")),
+        knowledge_tags=_string_list(payload.get("knowledge_tags")),
+        user_confirmed=bool(payload.get("user_confirmed", False)),
+        extra={key: value for key, value in payload.items() if key not in known_fields},
+    )
+
+
+def _replace_slot_confirmation(slot: CodeSlotSpec, user_confirmed: bool) -> CodeSlotSpec:
+    return CodeSlotSpec(
+        slot_id=slot.slot_id,
+        title=slot.title,
+        target_file=slot.target_file,
+        marker_start=slot.marker_start,
+        marker_end=slot.marker_end,
+        slot_kind=slot.slot_kind,
+        language=slot.language,
+        purpose=slot.purpose,
+        inputs=list(slot.inputs),
+        outputs=list(slot.outputs),
+        invariants=list(slot.invariants),
+        allowed_edits=list(slot.allowed_edits),
+        forbidden_edits=list(slot.forbidden_edits),
+        validation_commands=list(slot.validation_commands),
+        knowledge_tags=list(slot.knowledge_tags),
+        user_confirmed=bool(user_confirmed),
+        extra=dict(slot.extra),
+    )
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]
