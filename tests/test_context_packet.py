@@ -200,6 +200,89 @@ class ContextPacketTests(unittest.TestCase):
         self.assertGreater(diagnostics["instances"][0]["setup_time_max"], 0)
         self.assertIn("Review instance_diagnostics", " ".join(packet["worker_instruction"]["required_order"]))
 
+    def test_context_packet_summarizes_multiple_sdst_shapes_without_prefix_bias(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            instance_dir = tmp_path / "instances"
+            instance_dir.mkdir()
+            first = ROOT / "examples" / "fjsp_sdst_hudata_tiny.txt"
+            second = tmp_path / "oddla13.txt"
+            setup_tail_rows = [
+                " ".join(str((machine_id + row + col) % 6) for col in range(20))
+                for machine_id in range(5)
+                for row in range(20)
+            ]
+            second.write_text(
+                "\n".join(
+                    [
+                        "20 5 1",
+                        *("5 1 1 5 1 2 5 1 3 5 1 4 5 1 5 5" for _ in range(20)),
+                        *setup_tail_rows,
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            instances = []
+            best_known_rows = ["instance,best"]
+            for index in range(20):
+                source = first if index < 12 else second
+                name = f"oddla{index + 1:02d}.txt"
+                path = instance_dir / name
+                path.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+                instances.append({"id": path.stem, "path": str(path)})
+                best_known_rows.append(f"la{index + 1:02d},{700 + index}")
+            best_known = tmp_path / "lbub.csv"
+            best_known.write_text("\n".join(best_known_rows) + "\n", encoding="utf-8")
+            contract = tmp_path / "contract.json"
+            contract.write_text(
+                json.dumps(
+                    {
+                        "task_id": "sdst_multi_shape_context",
+                        "problem_family": "standard_fjsp",
+                        "description": "diagnostics multi-shape smoke",
+                        "instances": instances,
+                        "objectives": [{"name": "makespan", "direction": "minimize"}],
+                        "commands": {
+                            "solver": "python solver.py",
+                            "evaluator": "python evaluator.py",
+                            "quick_test": "python -m compileall .",
+                        },
+                        "budget": {"rounds": 1, "seeds": [0]},
+                        "paths": {"allowed_paths": ["examples"], "forbidden_paths": [".git"]},
+                        "resources": {"best_known_csv": str(best_known)},
+                        "review": {"status": "confirmed"},
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=contract,
+                    output_path=tmp_path / "context_packet.json",
+                    hypothesis="Use SDST diagnostics across shapes.",
+                )
+            )
+            packet = json.loads(output.read_text(encoding="utf-8"))
+
+        diagnostics = packet["instance_diagnostics"]
+        self.assertTrue(diagnostics["truncated"])
+        self.assertEqual(20, diagnostics["summary"]["instance_count"])
+        self.assertEqual(2, diagnostics["summary"]["shape_group_count"])
+        shape_keys = {group["shape_key"] for group in diagnostics["shape_groups"]}
+        self.assertIn("j2_m2_ops3_c1_job_pair", shape_keys)
+        self.assertIn("j20_m5_ops100_c1_job_pair", shape_keys)
+        sampled_ids = {item["id"] for item in diagnostics["instances"]}
+        self.assertIn("oddla20", sampled_ids)
+        self.assertIn(
+            "avoid overfitting a single oddla/seed probe",
+            " ".join(diagnostics["direction_hints"]),
+        )
+        self.assertIn("20-job/5-machine", " ".join(diagnostics["direction_hints"]))
+
     def test_context_packet_embeds_compact_contract_review_schema(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

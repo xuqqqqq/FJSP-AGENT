@@ -163,6 +163,67 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertEqual("available", compacted["instance_diagnostics"]["status"])
         self.assertIn("Setup is material", " ".join(compacted["instance_diagnostics"]["direction_hints"]))
 
+    def test_compact_context_preserves_sdst_shape_groups_and_representatives(self) -> None:
+        context = _generic_slot_context(slot_id="awls_sdst_same_machine_evaluation")
+        context["instance_diagnostics"] = {
+            "status": "available",
+            "summary": {
+                "instance_count": 20,
+                "sdst_instance_count": 20,
+                "shape_group_count": 4,
+                "best_known_semantics": "diagnostic_only_score_remains_negative_makespan",
+            },
+            "direction_hints": [
+                "Multiple instance shapes are present; inspect shape_groups and avoid overfitting a single oddla/seed probe.",
+                "A large 20-job/5-machine SDST shape is present; include bottleneck-machine sequencing evidence.",
+            ],
+            "shape_groups": [
+                {
+                    "shape_key": "j20_m5_ops100_c2_job_pair",
+                    "count": 5,
+                    "instance_ids": ["oddla11", "oddla12", "oddla13", "oddla14", "oddla15"],
+                    "setup_to_processing_avg_ratio_max": 0.62,
+                    "best_known_min": 1070.0,
+                    "best_known_max": 1258.0,
+                },
+                {
+                    "shape_key": "j10_m10_ops100_c2_job_pair",
+                    "count": 5,
+                    "instance_ids": ["oddla16", "oddla17", "oddla18", "oddla19", "oddla20"],
+                    "setup_to_processing_avg_ratio_max": 0.58,
+                    "best_known_min": 851.0,
+                    "best_known_max": 1007.0,
+                },
+            ],
+            "instances": [
+                {
+                    "id": "oddla12",
+                    "name": "oddla12",
+                    "variant": "fjsp_sdst",
+                    "job_count": 20,
+                    "machine_count": 5,
+                    "operation_count": 100,
+                    "max_candidate_count": 2,
+                    "scale": 10000,
+                    "setup_time_kind": "job_pair",
+                    "setup_to_processing_avg_ratio": 0.62,
+                    "best_known_makespan": 1070.0,
+                    "path": "C:/large/path/that/is/not/needed/in_prompt/oddla12.txt",
+                    "setup_entry_count": 2000,
+                }
+            ],
+            "truncated": True,
+        }
+
+        compacted = compact_context(context)
+        diagnostics = compacted["instance_diagnostics"]
+
+        self.assertEqual(4, diagnostics["summary"]["shape_group_count"])
+        self.assertEqual("j20_m5_ops100_c2_job_pair", diagnostics["shape_groups"][0]["shape_key"])
+        self.assertEqual("oddla12", diagnostics["instances"][0]["id"])
+        self.assertNotIn("path", diagnostics["instances"][0])
+        self.assertIn("avoid overfitting", " ".join(diagnostics["direction_hints"]))
+
     def test_cli_deepseek_worker_uses_slot_worker_when_slot_manifest_is_present(self) -> None:
         worker = make_worker(
             "deepseek",
@@ -730,6 +791,41 @@ class AwlsSlotModeTests(unittest.TestCase):
         compact = compact_context(context)
 
         self.assertTrue(compact["knowledge_cards"][0]["path"].endswith("awls_sdst_neighborhood_selection_notes.md"))
+
+    def test_compact_context_keeps_hudata20_baseline_card_for_sdst_slots(self) -> None:
+        context = _generic_slot_context(slot_id="awls_sdst_same_machine_evaluation")
+        context["knowledge_cards"] = [
+            {"path": "knowledge/benchmarks/standard_fjsp_format.md", "snippet": "generic"},
+            {
+                "path": "knowledge/papers/awls_sdst_same_machine_notes.md",
+                "snippet": "awls_sdst_same_machine_evaluation exact trial failure memory",
+            },
+            {
+                "path": "knowledge/papers/awls_sdst_literature_direction_notes.md",
+                "snippet": "critical block and setup-time directions",
+            },
+            {
+                "path": "knowledge/papers/awls_sdst_hudata20_baseline_notes.md",
+                "snippet": "oddla11-15 are hard; do not overfit oddla20",
+            },
+            {
+                "path": "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
+                "snippet": "awls_sdst_neighborhood_selection notes",
+            },
+            {
+                "path": "knowledge/papers/awls_sdst_initialization_notes.md",
+                "snippet": "awls_sdst_initialization notes",
+            },
+            {
+                "path": "knowledge/papers/awls_sdst_move_evaluation_notes.md",
+                "snippet": "awls_sdst_move_evaluation notes",
+            },
+        ]
+
+        compact = compact_context(context)
+
+        selected_paths = [card["path"] for card in compact["knowledge_cards"]]
+        self.assertIn("knowledge/papers/awls_sdst_hudata20_baseline_notes.md", selected_paths[:6])
 
     def test_selected_slot_failure_memory_extracts_negative_evidence(self) -> None:
         context = _generic_slot_context(slot_id="awls_sdst_initialization")

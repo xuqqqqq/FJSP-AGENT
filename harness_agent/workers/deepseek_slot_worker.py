@@ -615,7 +615,7 @@ def compact_context(context: dict[str, Any]) -> dict[str, Any]:
         "instances": contract.get("instances", [])[:3],
         "commands": contract.get("commands", {}),
         "evaluator_protocol": context.get("evaluator_protocol") or {},
-        "instance_diagnostics": context.get("instance_diagnostics") or {},
+        "instance_diagnostics": compact_instance_diagnostics(context.get("instance_diagnostics") or {}),
         "slot_manifest": {
             "status": slot_manifest.get("status") if isinstance(slot_manifest, dict) else None,
             "confirmation_required": slot_manifest.get("confirmation_required") if isinstance(slot_manifest, dict) else None,
@@ -629,6 +629,36 @@ def compact_context(context: dict[str, Any]) -> dict[str, Any]:
         "previous_evidence": context.get("previous_evidence", [])[:4],
         "loop_feedback": context.get("loop_feedback", {}),
         "hypothesis": context.get("hypothesis", ""),
+    }
+
+
+def compact_instance_diagnostics(diagnostics: Any) -> dict[str, Any]:
+    if not isinstance(diagnostics, dict):
+        return {}
+    return {
+        "status": diagnostics.get("status"),
+        "summary": diagnostics.get("summary") or {},
+        "direction_hints": list(diagnostics.get("direction_hints") or [])[:8],
+        "shape_groups": list(diagnostics.get("shape_groups") or [])[:8],
+        "instances": [
+            {
+                "id": item.get("id"),
+                "name": item.get("name"),
+                "variant": item.get("variant"),
+                "job_count": item.get("job_count"),
+                "machine_count": item.get("machine_count"),
+                "operation_count": item.get("operation_count"),
+                "max_candidate_count": item.get("max_candidate_count"),
+                "scale": item.get("scale"),
+                "setup_time_kind": item.get("setup_time_kind"),
+                "setup_to_processing_avg_ratio": item.get("setup_to_processing_avg_ratio"),
+                "best_known_makespan": item.get("best_known_makespan"),
+            }
+            for item in list(diagnostics.get("instances") or [])[:12]
+            if isinstance(item, dict)
+        ],
+        "truncated": diagnostics.get("truncated"),
+        "best_known_csv": diagnostics.get("best_known_csv"),
     }
 
 
@@ -2239,6 +2269,13 @@ def prioritize_knowledge_cards_for_slot(
     ranked = sorted(enumerate(typed_cards), key=lambda item: (card_score(item[1]), -item[0]), reverse=True)
     selected: list[dict[str, Any]] = []
     seen_paths: set[str] = set()
+    for card in typed_cards:
+        path = str(card.get("path") or "")
+        if "awls_sdst_hudata20_baseline_notes" not in path.lower():
+            continue
+        selected.append(card)
+        seen_paths.add(path)
+        break
     for _index, card in ranked:
         if card_score(card) <= 0:
             continue

@@ -20,6 +20,7 @@ TAGGED_CARDS = {
         "knowledge/imported_huawei_fjsp_knowledge/lessons/profile_driven_local_search_20260615.md",
     ],
     "sdst": [
+        "knowledge/papers/awls_sdst_hudata20_baseline_notes.md",
         "knowledge/papers/awls_sdst_neighborhood_selection_notes.md",
         "knowledge/papers/awls_sdst_initialization_notes.md",
         "knowledge/papers/awls_sdst_same_machine_notes.md",

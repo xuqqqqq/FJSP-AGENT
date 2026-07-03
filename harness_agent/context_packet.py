@@ -284,6 +284,7 @@ def _instance_diagnostics_payload(contract: TaskContract, *, project_root: Path 
         "instance_count": len(contract.instances),
         "profiled_count": len(profiled),
         "sdst_instance_count": len(sdst_instances),
+        "shape_group_count": len(_instance_shape_groups(profiled)),
         "setup_time_kinds": sorted({str(item.get("setup_time_kind")) for item in profiled if item.get("setup_time_kind")}),
         "max_operation_count": max((int(item.get("operation_count", 0) or 0) for item in profiled), default=0),
         "max_scale": max((int(item.get("scale", 0) or 0) for item in profiled), default=0),
@@ -302,7 +303,8 @@ def _instance_diagnostics_payload(contract: TaskContract, *, project_root: Path 
         "summary": summary,
         "direction_hints": _instance_direction_hints(summary, profiled),
         "best_known_csv": str(best_known_csv) if best_known_csv else None,
-        "instances": detailed[:12],
+        "shape_groups": _instance_shape_group_summaries(profiled),
+        "instances": _representative_instance_diagnostics(detailed, limit=12),
         "truncated": len(detailed) > 12,
     }
 
@@ -396,11 +398,127 @@ def _setup_matrix_stats(setup_times: Any) -> dict[str, Any]:
     }
 
 
+def _instance_shape_groups(profiled: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for item in profiled:
+        groups.setdefault(_instance_shape_key(item), []).append(item)
+    return groups
+
+
+def _instance_shape_key(item: dict[str, Any]) -> str:
+    return (
+        f"j{int(item.get('job_count', 0) or 0)}_"
+        f"m{int(item.get('machine_count', 0) or 0)}_"
+        f"ops{int(item.get('operation_count', 0) or 0)}_"
+        f"c{int(item.get('max_candidate_count', 0) or 0)}_"
+        f"{item.get('setup_time_kind') or 'none'}"
+    )
+
+
+def _instance_shape_group_summaries(profiled: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for key, items in _instance_shape_groups(profiled).items():
+        first = items[0]
+        best_known_values = [
+            float(item["best_known_makespan"])
+            for item in items
+            if isinstance(item.get("best_known_makespan"), (int, float))
+        ]
+        setup_ratios = [float(item.get("setup_to_processing_avg_ratio", 0.0) or 0.0) for item in items]
+        summaries.append(
+            {
+                "shape_key": key,
+                "count": len(items),
+                "instance_ids": [str(item.get("id") or item.get("name") or "") for item in items],
+                "job_count": int(first.get("job_count", 0) or 0),
+                "machine_count": int(first.get("machine_count", 0) or 0),
+                "operation_count": int(first.get("operation_count", 0) or 0),
+                "max_candidate_count": int(first.get("max_candidate_count", 0) or 0),
+                "scale": int(first.get("scale", 0) or 0),
+                "setup_time_kind": first.get("setup_time_kind"),
+                "avg_candidate_count": _rounded_average(
+                    float(item.get("avg_candidate_count", 0.0) or 0.0) for item in items
+                ),
+                "setup_to_processing_avg_ratio_avg": _rounded_average(setup_ratios),
+                "setup_to_processing_avg_ratio_max": max(setup_ratios, default=0.0),
+                "best_known_min": min(best_known_values) if best_known_values else None,
+                "best_known_max": max(best_known_values) if best_known_values else None,
+            }
+        )
+    return sorted(
+        summaries,
+        key=lambda item: (
+            -int(item.get("scale", 0) or 0),
+            -int(item.get("count", 0) or 0),
+            str(item.get("shape_key") or ""),
+        ),
+    )
+
+
+def _representative_instance_diagnostics(detailed: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    """Keep a compact but representative instance sample for worker prompts.
+
+    Earlier packets kept only the first N instances.  On HUdata this hides the
+    later shape groups where the AWLS-SDST baseline is weakest, so sampling must
+    preserve group coverage and scale/setup extremes before filling by order.
+    """
+
+    if len(detailed) <= limit:
+        return detailed
+
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def item_key(item: dict[str, Any]) -> str:
+        return str(item.get("path") or item.get("id") or item.get("name") or len(seen))
+
+    def add(item: dict[str, Any]) -> None:
+        if len(selected) >= limit:
+            return
+        key = item_key(item)
+        if key in seen:
+            return
+        selected.append(item)
+        seen.add(key)
+
+    unparsed = [item for item in detailed if not item.get("parsed")]
+    for item in unparsed[:2]:
+        add(item)
+
+    parsed = [item for item in detailed if item.get("parsed")]
+    for group_items in _instance_shape_groups(parsed).values():
+        ordered = sorted(group_items, key=lambda item: str(item.get("id") or item.get("name") or item.get("path") or ""))
+        if not ordered:
+            continue
+        candidate_indices = {0, len(ordered) // 2, len(ordered) - 1}
+        for index in sorted(candidate_indices):
+            add(ordered[index])
+
+    for item in sorted(
+        parsed,
+        key=lambda item: (
+            float(item.get("setup_to_processing_avg_ratio", 0.0) or 0.0),
+            int(item.get("scale", 0) or 0),
+            float(item.get("best_known_makespan", 0.0) or 0.0),
+        ),
+        reverse=True,
+    ):
+        add(item)
+
+    for item in detailed:
+        add(item)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
 def _instance_direction_hints(summary: dict[str, Any], profiled: list[dict[str, Any]]) -> list[str]:
     if not profiled:
         return ["Instance parsing failed or no instances were supplied; do not infer scale or SDST setup strength from filenames."]
 
     hints = ["Use actual parsed instance content, not filename shape, when choosing budget-sensitive slot strategies."]
+    if int(summary.get("shape_group_count", 0) or 0) > 1:
+        hints.append("Multiple instance shapes are present; inspect shape_groups and avoid overfitting a single oddla/seed probe.")
     if int(summary.get("sdst_instance_count", 0) or 0) > 0:
         hints.append("SDST setup is present; keep setup_time_between usage inside confirmed slots and preserve parser/evaluator semantics.")
         setup_ratio = float(summary.get("max_setup_to_processing_avg_ratio", 0.0) or 0.0)
@@ -416,6 +534,17 @@ def _instance_direction_hints(summary: dict[str, Any], profiled: list[dict[str, 
         hints.append("Machine alternatives are sparse; sequence/neighborhood ordering likely has more leverage than reassignment-only rules.")
     elif avg_candidates >= 3.0:
         hints.append("Many machine alternatives exist; machine assignment, insertion, and change-machine NK slots may have useful leverage.")
+
+    has_large_five_machine_group = any(
+        int(item.get("job_count", 0) or 0) >= 20
+        and int(item.get("machine_count", 0) or 0) <= 5
+        and int(item.get("operation_count", 0) or 0) >= 100
+        for item in profiled
+    )
+    if has_large_five_machine_group:
+        hints.append(
+            "A large 20-job/5-machine SDST shape is present; include bottleneck-machine sequencing and load balance evidence, not only la20-style 10x10 behavior."
+        )
 
     if int(summary.get("best_known_available_count", 0) or 0) > 0:
         hints.append("Best-known/LB/UB values are gap diagnostics only; promotion remains strict Core makespan improvement.")
