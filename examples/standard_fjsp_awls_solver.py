@@ -1301,7 +1301,12 @@ def add_move_tabu(tabu: SequenceTabuList, schedule: AwlsSchedule, move: Move, it
         sequence.append(move.which)
         if successor != -1:
             sequence.append(successor)
-    tabu.add(machine_id, sequence, iteration + schedule.rng.randint(tenure_min, tenure_max))
+    # Bias tenure based on sequence length: longer blocks get longer tabu.
+    seq_len_scale = min(1.0, len(sequence) / 20.0)
+    base_tenure = schedule.rng.randint(tenure_min, tenure_max)
+    bias = int(seq_len_scale * (tenure_max - tenure_min))
+    tenure = min(tenure_max, base_tenure + bias)
+    tabu.add(machine_id, sequence, iteration + tenure)
     # SLOT awls_sdst_tabu_memory END
 
 

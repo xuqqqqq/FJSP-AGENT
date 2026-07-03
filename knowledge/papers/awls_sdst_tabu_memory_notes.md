@@ -60,6 +60,13 @@ must stay inside the existing `SequenceTabuList` mechanism.
   of critical operations in that expanded sequence.  It reduced setup time from
   `1940` to `1720`, again without improving makespan.  Do not retry expanded
   tabu sequence plus criticality-fraction tenure unchanged.
+- A later confirmed-slot worker candidate `sequence_length_biased_tenure` was
+  promoted by Core on `oddla20` under the 28s incumbent contract after
+  `global_sdst_cooldown_boost`: it preserved the baseline tabu sequence but
+  added a bounded tenure bias proportional to `len(sequence) / 20`, capped by
+  `tenure_max`.  Core improved makespan from `1007` to `1002` with the same
+  `critical + beta400/gamma40/theta5 + pct75` AWLS controls.  Treat this as
+  the current accepted tabu-memory pressure rule.
 - Fixed best-reset transition rules worsened `oddla20` to `1033` and `1023`;
   do not emulate restart/backtrack behavior inside tabu memory.
 - Portfolio seed remapping, multi-scramble restarts, and best-lane reruns tied
