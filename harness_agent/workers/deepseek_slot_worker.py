@@ -758,6 +758,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "tabu_memory_uses_io_or_unseeded_random",
         "tabu_memory_retries_short_front_back_sequence",
         "tabu_memory_retries_expanded_critical_fraction_sequence",
+        "tabu_memory_retries_target_machine_change_tabu",
         "all_slot_changes_rejected",
         "slot_change_rejected_wrong_slot_id",
         "slot_content_python_syntax_error",
@@ -1041,6 +1042,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "tabu_memory_uses_io_or_unseeded_random",
         "tabu_memory_retries_short_front_back_sequence",
         "tabu_memory_retries_expanded_critical_fraction_sequence",
+        "tabu_memory_retries_target_machine_change_tabu",
         "all_slot_changes_rejected",
         "slot_change_rejected_wrong_slot_id",
         "slot_content_python_syntax_error",
@@ -1676,6 +1678,14 @@ def awls_sdst_tabu_memory_warnings(content: str) -> list[str]:
     )
     if expanded_critical_fraction:
         warnings.append("tabu_memory_retries_expanded_critical_fraction_sequence")
+    target_machine_change_tabu = (
+        "target_machine" in content
+        and re.search(r"\bmachine_id\s*=\s*target_machine\b", content)
+        and re.search(r"\bmove\.method\s+in\s*\(\s*change_machine_front\s*,\s*change_machine_back\s*\)", content)
+        and re.search(r"\btenure\s*=\s*\(\s*tenure_min\s*\+\s*tenure_max\s*\)\s*//\s*2", content)
+    )
+    if target_machine_change_tabu:
+        warnings.append("tabu_memory_retries_target_machine_change_tabu")
     if re.search(r"\btabu\s*\.\s*items\b", content):
         warnings.append("tabu_memory_mutates_schedule_or_tabu_directly")
     mutable_schedule_fields = (
@@ -1890,6 +1900,8 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- Do not mutate schedule topology fields, start/end times, on_machine, or makespan.\n"
             "- Do not retry shortening FRONT/BACK tabu sequences to only `[move.which, move.where]` or "
             "`[move.where, move.which]` with short local tenures; it worsened oddla20 from 1010 to 1039.\n"
+            "- Do not retry target-machine change-move tabu with midpoint deterministic tenure; it regressed the "
+            "accepted sequence-length tenure baseline from 1002 to 1010.\n"
             "- Use only schedule.rng for seeded random tenure, and keep expires_at finite and >= iteration."
         )
     return "- Keep the replacement inside the selected slot contract and make the novelty materially different from failure memory."

@@ -67,6 +67,12 @@ must stay inside the existing `SequenceTabuList` mechanism.
   `tenure_max`.  Core improved makespan from `1007` to `1002` with the same
   `critical + beta400/gamma40/theta5 + pct75` AWLS controls.  Treat this as
   the current accepted tabu-memory pressure rule.
+- A follow-up continuation candidate `target_machine_tabu_for_change_moves`
+  moved change-machine tabu records from the source machine to the target
+  insertion machine and used midpoint deterministic tenure for change moves.
+  It was legal but regressed the 28s `oddla20` Core line from `1002` to
+  `1010`, so do not retry target-machine change-move tabu with midpoint tenure
+  unchanged.
 - Fixed best-reset transition rules worsened `oddla20` to `1033` and `1023`;
   do not emulate restart/backtrack behavior inside tabu memory.
 - Portfolio seed remapping, multi-scramble restarts, and best-lane reruns tied

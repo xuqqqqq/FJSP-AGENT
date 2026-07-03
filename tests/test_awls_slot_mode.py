@@ -2952,6 +2952,54 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_tabu_memory_slot_warns_on_target_machine_change_tabu_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_tabu_memory")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "target_machine_tabu_for_change_moves",
+                        "type": "tabu_memory_rule",
+                        "novelty": "Different from sequence-length tenure by placing change-move tabu on the target machine.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_tabu_memory",
+                        "content": (
+                            "    machine_id = schedule.on_machine[move.which]\n"
+                            "    if move.method == FRONT:\n"
+                            "        machine_id, sequence = candidate_tabu_sequence_parts(schedule, move.method, move.which, move.where)\n"
+                            "    elif move.method == BACK:\n"
+                            "        machine_id, sequence = candidate_tabu_sequence_parts(schedule, move.method, move.which, move.where)\n"
+                            "    else:\n"
+                            "        target_machine = schedule.on_machine[move.where]\n"
+                            "        sequence = [move.where, move.which]\n"
+                            "        machine_id = target_machine\n"
+                            "    if move.method in (CHANGE_MACHINE_FRONT, CHANGE_MACHINE_BACK):\n"
+                            "        tenure = (tenure_min + tenure_max) // 2\n"
+                            "    else:\n"
+                            "        tenure = schedule.rng.randint(tenure_min, tenure_max)\n"
+                            "    tabu.add(machine_id, sequence, iteration + tenure)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "tabu_memory_retries_target_machine_change_tabu",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_tabu_memory_repair_guidance_names_single_tabu_add_contract(self) -> None:
         slot = _generic_slot_context(slot_id="awls_sdst_tabu_memory")["slot_manifest"]["slots"][0]
 
@@ -2962,6 +3010,7 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("apply_move", guidance)
         self.assertIn("operation_key(schedule, node)", guidance)
         self.assertIn("[move.which, move.where]", guidance)
+        self.assertIn("target-machine", guidance)
 
     def test_generic_slot_audit_repairs_all_rejected_wrong_slot_changes(self) -> None:
         worker = DeepSeekSlotWorker()
