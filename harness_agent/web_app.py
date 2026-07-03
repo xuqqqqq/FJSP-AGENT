@@ -22,6 +22,7 @@ from .slot_contract import ResolvedCodeSlot
 from .slot_manifest import default_standard_fjsp_slot_manifest, write_selected_slot_manifest
 from .standard_fjsp import parse_standard_fjsp
 from .standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop
+from .standard_worker_loop import SDST_ZI_FEATURES_CONSUMER_FORMULA
 from .workers.deepseek_slot_worker import DeepSeekSlotWorker
 from .workers.deepseek_worker import DeepSeekWorker
 
@@ -237,6 +238,13 @@ def slot_mode_hypothesis(slot_id: str) -> str:
             "Read the requirement and IO documents first. Propose a natural-language AWLS zi policy idea, "
             "then modify only the EVOLVE-marked zi code slot. Preserve evaluator correctness; do not claim "
             "success without measured improvement."
+        )
+    if slot_id == "awls_sdst_zi_features":
+        return (
+            "Read the requirement, IO documents, slot manifest, and SDST/AWLS knowledge first. Propose the "
+            "rule-level setup-aware zi-feature idea, then modify only the awls_sdst_zi_features marker block. "
+            "This slot is consumed by the AWLS formula zi policy during Core evaluation, so preserve finite "
+            "numeric feature keys and do not change parser, evaluator, or benchmark semantics."
         )
     return (
         f"Read the requirement, IO documents, slot manifest, and SDST/AWLS knowledge first. Propose the rule-level "
@@ -689,6 +697,7 @@ def run_job(job_id: str) -> None:
                 )
             is_slot_mode = config["evolution_mode"] == "slot"
             is_zi_slot_mode = is_slot_mode and str(config["selected_slot_id"]) == "awls_zi_policy"
+            is_zi_features_slot_mode = is_slot_mode and str(config["selected_slot_id"]) == "awls_sdst_zi_features"
             worker_loop_root = output_dir / "standard_worker_loop" / "worker_loop"
             progress_stop = threading.Event()
             progress_thread = threading.Thread(
@@ -745,7 +754,8 @@ def run_job(job_id: str) -> None:
                         awls_beta=config["awls_beta"],
                         awls_gamma=config["awls_gamma"],
                         awls_theta=config["awls_theta"],
-                        awls_zi_policy="slot" if is_zi_slot_mode else "cpp",
+                        awls_zi_policy="slot" if is_zi_slot_mode else ("formula" if is_zi_features_slot_mode else "cpp"),
+                        awls_zi_formula=SDST_ZI_FEATURES_CONSUMER_FORMULA if is_zi_features_slot_mode else "",
                         awls_portfolio_lanes=config["awls_portfolio_lanes"],
                         max_steps=config["worker_max_steps"],
                         max_runtime_seconds=config["worker_max_runtime_seconds"],

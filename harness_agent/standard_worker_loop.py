@@ -8,7 +8,11 @@ from typing import Any
 from .context_packet import ContextPacketRequest, write_context_packet
 from .loop_runner import WorkerLoopResult, compact_promotion_check, compact_proposal_audit, run_worker_loop, summary_payload
 from .models import TaskContract
+from .slot_manifest import load_slot_manifest
 from .worker import CodingWorker
+
+
+SDST_ZI_FEATURES_CONSUMER_FORMULA = "base * (1 + 0.10 * setup_adjacent_ratio * is_critical)"
 
 
 @dataclass(frozen=True)
@@ -179,6 +183,7 @@ def build_standard_worker_contract_payload(request: StandardWorkerLoopRequest) -
 
 
 def standard_solver_command(request: StandardWorkerLoopRequest) -> str:
+    awls_zi_policy, awls_zi_formula = effective_awls_zi_settings(request)
     if request.solver == "portfolio":
         return (
             "python examples/standard_fjsp_portfolio_solver.py "
@@ -213,15 +218,43 @@ def standard_solver_command(request: StandardWorkerLoopRequest) -> str:
         )
         command += f" --critical-block-exhaustive-pct {max(0, min(100, request.awls_critical_block_exhaustive_pct))}"
         command += f" --same-machine-eval {request.awls_same_machine_eval}"
-        if request.awls_zi_policy != "cpp":
-            command += f" --zi-policy {request.awls_zi_policy}"
-            if request.awls_zi_policy == "formula" and request.awls_zi_formula:
-                escaped_formula = request.awls_zi_formula.replace('"', '\\"')
+        if awls_zi_policy != "cpp":
+            command += f" --zi-policy {awls_zi_policy}"
+            if awls_zi_policy == "formula" and awls_zi_formula:
+                escaped_formula = awls_zi_formula.replace('"', '\\"')
                 command += f' --zi-formula "{escaped_formula}"'
         if request.awls_portfolio_lanes:
             command += f' --portfolio-lanes "{request.awls_portfolio_lanes}"'
         return command
     raise ValueError(f"unknown standard worker solver: {request.solver}")
+
+
+def effective_awls_zi_settings(request: StandardWorkerLoopRequest) -> tuple[str, str]:
+    """Return zi settings that make the selected AWLS slot executable.
+
+    The SDST zi-feature slot only enriches the formula/slot feature map.  If a
+    worker edits it while the solver remains on cpp/critical zi, Core evaluation
+    cannot observe that edit.  Use a conservative formula consumer by default
+    only when this exact slot is user-confirmed.
+    """
+
+    if confirmed_slot_ids(request.slot_manifest) == {"awls_sdst_zi_features"} and request.awls_zi_policy == "cpp":
+        return "formula", request.awls_zi_formula or SDST_ZI_FEATURES_CONSUMER_FORMULA
+    return request.awls_zi_policy, request.awls_zi_formula
+
+
+def confirmed_slot_ids(slot_manifest: Path | None) -> set[str]:
+    if slot_manifest is None:
+        return set()
+    try:
+        payload = load_slot_manifest(slot_manifest)
+    except (OSError, json.JSONDecodeError):
+        return set()
+    return {
+        str(slot.get("slot_id"))
+        for slot in payload.get("slots") or []
+        if isinstance(slot, dict) and slot.get("user_confirmed")
+    }
 
 
 def standard_worker_manifest(

@@ -1900,6 +1900,8 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
     if slot_id == "awls_sdst_zi_features":
         return (
             "- This slot only adds numeric entries to `values` consumed by `zi_policy=formula` or `zi_policy=slot`.\n"
+            "- In standard worker-loop slot mode, this selected slot is evaluated with a conservative formula consumer "
+            "unless the request explicitly sets a different zi policy, so feature edits are observable by Core.\n"
             "- If the active solver command uses `--zi-policy critical`, `cpp`, `cpp-exact`, `aggressive`, `sqrt`, or "
             "`none`, feature-only changes are inert and must be rejected or paired with a policy/command that consumes them.\n"
             "- Do not spend a round only adding feature keys under a non-consuming zi policy; switch the evaluation to "

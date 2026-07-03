@@ -93,6 +93,13 @@ solution schema, or benchmark score semantics.
   is named `zi_features_slot_inert_under_current_zi_policy`; repair should
   switch the evaluation to `formula`/`slot` or select a slot consumed by the
   current policy, not merely add unused feature keys.
+- The standard worker loop now avoids this inert path when the user confirms
+  exactly the `awls_sdst_zi_features` slot: if the request did not explicitly
+  choose a zi policy, the generated AWLS solver command uses
+  `zi_policy=formula` with the conservative consumer
+  `base * (1 + 0.10 * setup_adjacent_ratio * is_critical)`.  This is only a
+  runtime consumer so Core can observe feature-slot edits; it is not promotion
+  evidence and it must still beat the fixed evaluator to be accepted.
 
 ## Worker Directions
 
@@ -109,9 +116,11 @@ Use these as hypotheses, not as manual patches:
   than only changing a coefficient.
 - Do not spend another round only changing setup ratio normalization unless a
   formula or downstream zi policy actually uses the new feature differently.
-- Under the current `critical` zi policy, feature extraction changes alone are
-  usually inert; prefer `awls_sdst_weight_update`, `awls_sdst_search_transition`,
-  or a paired `awls_zi_policy`/formula run if the goal is immediate makespan
+- Under a non-consuming zi policy such as `critical` or `cpp`, feature
+  extraction changes alone are inert.  In standard worker-loop slot mode this
+  should now be handled by the automatic formula consumer above; outside that
+  path, prefer `awls_sdst_weight_update`, `awls_sdst_search_transition`, or a
+  paired `awls_zi_policy`/formula run if the goal is immediate makespan
   movement.
 - Prefer the next formula to change the gate structure, for example combining
   setup features with `backward`, `forward`, or neighbor-critical flags, rather

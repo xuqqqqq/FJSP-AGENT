@@ -5,7 +5,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from harness_agent.cli import make_worker
-from harness_agent.standard_worker_loop import StandardWorkerLoopRequest, standard_solver_command
+from harness_agent.slot_manifest import write_selected_slot_manifest
+from harness_agent.standard_worker_loop import SDST_ZI_FEATURES_CONSUMER_FORMULA, StandardWorkerLoopRequest, standard_solver_command
 from harness_agent.worker import NullWorker
 from harness_agent.workers.deepseek_worker import apply_code_edit_proposal
 from harness_agent.workers.deepseek_slot_worker import (
@@ -91,6 +92,53 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("--critical-block-exhaustive-pct 75", command)
         self.assertIn("--same-machine-eval stable", command)
         self.assertIn("--beta 400", command)
+
+    def test_standard_solver_command_consumes_confirmed_sdst_zi_features_slot(self) -> None:
+        with TemporaryDirectory() as tmp:
+            slot_manifest = Path(tmp) / "slot_manifest.json"
+            write_selected_slot_manifest(
+                problem_family="standard_fjsp",
+                output=slot_manifest,
+                selected_slot_ids=["awls_sdst_zi_features"],
+            )
+            request = StandardWorkerLoopRequest(
+                docs=[],
+                instance_dir=Path("."),
+                pattern="*.txt",
+                output_dir=Path("."),
+                project_root=Path("."),
+                worker=NullWorker(),
+                solver="awls",
+                slot_manifest=slot_manifest,
+            )
+
+            command = standard_solver_command(request)
+
+        self.assertIn("--zi-policy formula", command)
+        self.assertIn(SDST_ZI_FEATURES_CONSUMER_FORMULA, command)
+
+    def test_standard_solver_command_keeps_other_sdst_slots_on_cpp_by_default(self) -> None:
+        with TemporaryDirectory() as tmp:
+            slot_manifest = Path(tmp) / "slot_manifest.json"
+            write_selected_slot_manifest(
+                problem_family="standard_fjsp",
+                output=slot_manifest,
+                selected_slot_ids=["awls_sdst_neighborhood_selection"],
+            )
+            request = StandardWorkerLoopRequest(
+                docs=[],
+                instance_dir=Path("."),
+                pattern="*.txt",
+                output_dir=Path("."),
+                project_root=Path("."),
+                worker=NullWorker(),
+                solver="awls",
+                slot_manifest=slot_manifest,
+            )
+
+            command = standard_solver_command(request)
+
+        self.assertNotIn("--zi-policy", command)
 
     def test_compact_context_preserves_evaluator_protocol_for_slot_prompt(self) -> None:
         context = _generic_slot_context(slot_id="awls_sdst_zi_features")

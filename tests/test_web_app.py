@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from harness_agent.slot_manifest import write_selected_slot_manifest
+from harness_agent.standard_worker_loop import SDST_ZI_FEATURES_CONSUMER_FORMULA
 from harness_agent.web_app import (
     _JOBS,
     create_job,
@@ -177,6 +178,53 @@ class WebAppTests(unittest.TestCase):
         self.assertTrue(confirmed["awls_sdst_neighborhood_selection"])
         self.assertFalse(confirmed["awls_zi_policy"])
         self.assertIn("awls_sdst_neighborhood_selection", request.hypothesis)
+
+    def test_run_job_routes_sdst_zi_features_slot_with_formula_consumer(self) -> None:
+        demo = make_demo_examples()
+        payload = {
+            "title": "sdst zi feature slot route",
+            "requirement": demo["requirement"],
+            "io": demo["io"],
+            "instance": demo["instance"],
+            "evolution_mode": "slot",
+            "selected_slot_id": "awls_sdst_zi_features",
+            "slot_user_confirmed": True,
+            "max_rounds": 1,
+            "seeds": "0",
+        }
+        captured = {}
+
+        def fake_worker_loop(request):
+            captured["request"] = request
+            return {
+                "status": "ok",
+                "baseline_key": [-1010.0],
+                "final_key": [-1010.0],
+                "baseline_summary": {"valid": 1},
+                "rounds": [],
+                "round_count": 0,
+                "promoted_rounds": 0,
+                "improved": False,
+                "artifacts": {"manifest": str(Path(request.output_dir) / "manifest.json")},
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("harness_agent.web_app.is_deepseek_configured", return_value=True), patch(
+                "harness_agent.web_app.run_standard_worker_loop",
+                side_effect=fake_worker_loop,
+            ):
+                job = create_job(payload, output_root=Path(tmp))
+                run_job(job["id"])
+
+            request = captured["request"]
+            manifest = json.loads(Path(request.slot_manifest).read_text(encoding="utf-8"))
+
+        self.assertEqual("formula", request.awls_zi_policy)
+        self.assertEqual(SDST_ZI_FEATURES_CONSUMER_FORMULA, request.awls_zi_formula)
+        self.assertIn("formula zi policy", request.hypothesis)
+        confirmed = {slot["slot_id"]: slot["user_confirmed"] for slot in manifest["slots"]}
+        self.assertTrue(confirmed["awls_sdst_zi_features"])
+        self.assertFalse(confirmed["awls_zi_policy"])
 
     def test_create_job_times_budget_from_actual_instance_content(self) -> None:
         demo = make_demo_examples()

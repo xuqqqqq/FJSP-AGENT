@@ -324,7 +324,8 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
             language="python",
             purpose=(
                 "Expose bounded setup-aware numeric features to AWLS zi formula/slot policies "
-                "without changing the fixed evaluator, parser, or default AWLS policies."
+                "without changing the fixed evaluator, parser, or default AWLS semantics. "
+                "When this exact slot is selected, the standard worker loop supplies a conservative formula consumer."
             ),
             inputs=[
                 "schedule: AwlsSchedule with machine links, criticality, forward/backward times, and OperationIndex",
@@ -338,6 +339,7 @@ def default_standard_fjsp_slot_manifest(*, confirmed: bool = False) -> SlotManif
                 "Mutate values only by adding finite numeric feature entries",
                 "Expected setup feature keys: setup_prev, setup_next, setup_adjacent, setup_prev_ratio, setup_next_ratio, setup_adjacent_ratio, setup_is_sdst, setup_predecessor_critical, setup_successor_critical",
                 "Return flow must continue to build_zi_feature_values and then formula/slot evaluation",
+                "In standard worker-loop slot mode, Core evaluation consumes these values through a default formula unless the request explicitly sets another zi policy.",
             ],
             invariants=[
                 "Keep build_zi_feature_values and weight_perturbation signatures unchanged.",
