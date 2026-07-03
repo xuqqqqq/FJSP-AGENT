@@ -124,6 +124,13 @@ There is no `schedule.setup_time(...)` helper and no
   must be bounded by a prior stable estimate, critical-tail/locality gate,
   explicit small budget, or move-selection top-k stage before evaluator time is
   spent.
+- A later hard HUdata-six 12s same-machine worker attempted
+  `setup_tie_breaker_same_machine`, adding a tiny `1e-6 * sum_setups` block
+  setup tie-breaker while keeping the legacy score dominant.  The platform
+  rejected it before evaluation because it repeated setup-only same-machine
+  pressure without exact-trial or a materially new makespan/critical-tail
+  mechanism, so no candidate code was applied.  Do not retry epsilon setup-sum
+  tie-breakers as the main same-machine novelty.
 - If manually adding setup-aware forward/backward local propagation is too
   fragile, prefer exact local scoring:
 

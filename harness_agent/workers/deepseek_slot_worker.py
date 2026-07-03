@@ -756,6 +756,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "initialization_retries_max_regret_append_dispatch",
         "initialization_retries_regret_roulette_append_dispatch",
         "initialization_retries_tail_ratio_regret_append_dispatch",
+        "initialization_retries_setup_regret_tail_append_dispatch",
         "initialization_missing_required_topology_or_repair",
         "initialization_non_append_without_acyclic_guard",
         "initialization_rebuilds_ready_after_committed_insert",
@@ -781,6 +782,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "move_selection_misinterprets_move_key_shape",
         "move_selection_uses_where_node_as_machine_id",
         "move_selection_trial_apply_without_clone",
+        "zi_features_retries_neighbor_critical_weighted_setup_adjacent",
         "weight_update_calls_forbidden_runtime_api",
         "weight_update_mutates_schedule_structure",
         "weight_update_retries_sdst_improvement_weight_decay",
@@ -1075,6 +1077,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "initialization_retries_max_regret_append_dispatch",
         "initialization_retries_regret_roulette_append_dispatch",
         "initialization_retries_tail_ratio_regret_append_dispatch",
+        "initialization_retries_setup_regret_tail_append_dispatch",
         "initialization_missing_required_topology_or_repair",
         "initialization_non_append_without_acyclic_guard",
         "initialization_rebuilds_ready_after_committed_insert",
@@ -1100,6 +1103,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "move_selection_misinterprets_move_key_shape",
         "move_selection_uses_where_node_as_machine_id",
         "move_selection_trial_apply_without_clone",
+        "zi_features_retries_neighbor_critical_weighted_setup_adjacent",
         "weight_update_calls_forbidden_runtime_api",
         "weight_update_mutates_schedule_structure",
         "weight_update_retries_sdst_improvement_weight_decay",
@@ -1210,7 +1214,7 @@ def slot_specific_generic_warnings(
     if slot_id == "awls_sdst_tabu_memory":
         return warnings + awls_sdst_tabu_memory_warnings(content)
     if slot_id == "awls_sdst_zi_features":
-        return warnings + awls_sdst_zi_features_warnings(context=context)
+        return warnings + awls_sdst_zi_features_warnings(content, context=context)
     if slot_id != "awls_sdst_same_machine_evaluation":
         return warnings
     uses_setup_propagation = "setup_time_between" in content and ("new_r" in content or "new_q" in content)
@@ -1298,11 +1302,22 @@ def same_machine_uses_unbounded_exact_trial(content: str, *, uses_exact_trial: b
     return True
 
 
-def awls_sdst_zi_features_warnings(*, context: dict[str, Any] | None = None) -> list[str]:
+def awls_sdst_zi_features_warnings(content: str = "", *, context: dict[str, Any] | None = None) -> list[str]:
+    warnings: list[str] = []
     zi_policy = solver_command_zi_policy(context)
     if zi_policy and zi_policy not in {"formula", "slot"}:
-        return ["zi_features_slot_inert_under_current_zi_policy"]
-    return []
+        warnings.append("zi_features_slot_inert_under_current_zi_policy")
+    neighbor_critical_weighted_setup = (
+        "pred_critical" in content
+        and "succ_critical" in content
+        and "w_pred" in content
+        and "w_succ" in content
+        and re.search(r"\bsetup_adjacent\s*=\s*w_pred\s*\*\s*setup_prev\s*\+\s*w_succ\s*\*\s*setup_next", content)
+        and re.search(r"\bcap\s*=\s*2\.0\b", content)
+    )
+    if neighbor_critical_weighted_setup:
+        warnings.append("zi_features_retries_neighbor_critical_weighted_setup_adjacent")
+    return warnings
 
 
 def solver_command_zi_policy(context: dict[str, Any] | None) -> str:
@@ -1458,6 +1473,24 @@ def awls_sdst_initialization_warnings(content: str, *, context: dict[str, Any] |
     )
     if tail_ratio_regret_append_dispatch:
         warnings.append("initialization_retries_tail_ratio_regret_append_dispatch")
+    setup_regret_tail_append_dispatch = (
+        append_only
+        and uses_setup
+        and has_second_best_regret
+        and re.search(r"\b(?:tail|remaining_after_current|tail_sums|min_duration)\b", content)
+        and re.search(r"\b(?:job_options|ready_jobs)\b", content)
+        and re.search(
+            r"\b(?:job_options|ready_ops)\s*\.sort\s*\(\s*key\s*=\s*lambda\s+\w+\s*:\s*"
+            r"\(\s*\w+\s*\[\s*0\s*\]\s*,\s*\w+\s*\[\s*1\s*\]\s*\)\s*,\s*reverse\s*=\s*true",
+            content,
+        )
+        and not re.search(
+            r"(?:bottleneck|critical|repair|local[_\s-]*search|awlsschedule|topological_sort|validate_standard_schedule|\.insert\s*\()",
+            content,
+        )
+    )
+    if setup_regret_tail_append_dispatch:
+        warnings.append("initialization_retries_setup_regret_tail_append_dispatch")
     if re.search(r"^\s*def\s+awls_sdst_initialization\s*\(", content, re.MULTILINE):
         warnings.append("initialization_defines_wrong_entrypoint")
     nonexistent_instance_api = bool(
@@ -2009,6 +2042,9 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "setup time from 1940 to 1910.\n"
             "- Do not retry append-only remaining-work/earliest-completion tail-ratio dispatch with regret "
             "tie-breaks; it worsened oddla20 from 1010 to 1138 despite being legal.\n"
+            "- Do not retry append-only `setup_regret_tail_init` variants that select by "
+            "`(second_best - best, tail)` and still append to the best machine; the legal hard HUdata-six "
+            "12s probe tied the incumbent at 1297.17 and was not promoted.\n"
             "- When the round hypothesis requires topology, repair, non-append insertion, or assignment-then-sequencing, "
             "the replacement code must contain a real structure for that mechanism, such as `AwlsSchedule(...).topological_sort()`, "
             "a guarded sequence insert/swap, or a separate sequencing/repair phase; a renamed append-only priority formula is rejected.\n"
@@ -2149,6 +2185,9 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "`none`, feature-only changes are inert and must be rejected or paired with a policy/command that consumes them.\n"
             "- Do not spend a round only adding feature keys under a non-consuming zi policy; switch the evaluation to "
             "`formula`/`slot` or select a slot that the current policy actually uses, such as weight update or search transition.\n"
+            "- Do not retry neighbor-critical weighted setup-adjacent features with `w_pred/w_succ` and `cap = 2.0`; "
+            "the initial hard-six probe looked better, but repeat promotion failed because incumbent repeat "
+            "1307.17 beat candidate repeat 1308.33.\n"
             "- Keep feature values finite and bounded, mutate only `values`, and never call local search or evaluator APIs."
         )
     if slot_id == "awls_sdst_search_transition":

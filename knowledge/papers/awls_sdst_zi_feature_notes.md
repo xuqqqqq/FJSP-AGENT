@@ -100,6 +100,16 @@ solution schema, or benchmark score semantics.
   `base * (1 + 0.10 * setup_adjacent_ratio * is_critical)`.  This is only a
   runtime consumer so Core can observe feature-slot edits; it is not promotion
   evidence and it must still beat the fixed evaluator to be accepted.
+- A later hard HUdata-six 12s worker proposed
+  `neighbor_criticality_weighted_setup_adjacent`, replacing
+  `setup_adjacent_ratio` with `(w_pred * setup_prev + w_succ * setup_next) /
+  duration`, where critical neighbors use weight `1.0`, non-critical neighbors
+  use `0.2`, and the ratio is capped at `2.0`.  The first pass looked better
+  under the formula consumer (`1312.83 -> 1308.33` average makespan), but
+  repeat promotion rejected it: incumbent repeat was `1307.17`, candidate
+  repeat was `1308.33`.  Do not retry this neighbor-critical weighted
+  setup-adjacent feature unchanged; it is not a stable improvement under Core
+  repeat validation.
 
 ## Worker Directions
 
@@ -134,6 +144,9 @@ Use these as hypotheses, not as manual patches:
   mechanism such as same-machine N7 scoring, initialization with true insertion,
   or a formula that changes cooldown/weight pressure rather than simply
   scaling `base` by setup ratios.
+- Do not retry neighbor-critical `w_pred/w_succ` weighting with `cap = 2.0`
+  unchanged; repeat validation showed it was weaker than the repeated
+  incumbent despite an initially favorable run.
 
 ## Guardrails
 

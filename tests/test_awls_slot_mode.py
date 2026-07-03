@@ -717,6 +717,54 @@ class AwlsSlotModeTests(unittest.TestCase):
                 )
                 self.assertFalse(generic_slot_needs_repair(normalized))
 
+    def test_zi_feature_slot_warns_on_neighbor_critical_weighted_setup_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_zi_features")
+        context["evaluator_protocol"] = {
+            "solver_command_template": "python examples/standard_fjsp_awls_solver.py --zi-policy formula --input {instance}"
+        }
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "neighbor_criticality_weighted_setup_adjacent",
+                        "type": "feature_extraction",
+                        "novelty": "Avoids failed uniform setup formulas by weighting adjacent setup by neighbor criticality.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_zi_features",
+                        "content": (
+                            "    pred_critical = predecessor != -1 and schedule.is_critical_operation(predecessor)\n"
+                            "    succ_critical = successor != -1 and schedule.is_critical_operation(successor)\n"
+                            "    w_pred = 1.0 if pred_critical else 0.2\n"
+                            "    w_succ = 1.0 if succ_critical else 0.2\n"
+                            "    setup_adjacent = w_pred * setup_prev + w_succ * setup_next\n"
+                            "    ratio = setup_adjacent / duration\n"
+                            "    cap = 2.0\n"
+                            "    values['setup_adjacent_ratio'] = min(ratio, cap)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "zi_features_retries_neighbor_critical_weighted_setup_adjacent",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+        guidance = generic_slot_repair_guidance(slot)
+        self.assertIn("neighbor-critical weighted setup-adjacent", guidance)
+        self.assertIn("1307.17 beat candidate repeat 1308.33", guidance)
+
     def test_selected_confirmed_slot_accepts_sdst_weight_update_slot(self) -> None:
         context = _generic_slot_context(slot_id="awls_sdst_weight_update")
 
@@ -1321,6 +1369,62 @@ class AwlsSlotModeTests(unittest.TestCase):
             normalized["proposal_audit"]["warnings"],
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_initialization_slot_warns_on_setup_regret_tail_append_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_initialization")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "setup_regret_tail_init",
+                        "type": "initialization_dispatch_rule",
+                        "novelty": "Uses true setup-aware second-best regret plus remaining job tail.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_initialization",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    remaining_after_current = []\n"
+                            "    min_duration = [0] * index.node_count\n"
+                            "    ready_jobs = []\n"
+                            "    job_options = []\n"
+                            "    candidate_costs = []\n"
+                            "    for machine_id, duration in index.candidates[node].items():\n"
+                            "        setup = setup_time_between(index.instance, machine_id, prev_op, cur_op, index)\n"
+                            "        completion = max(job_ready[job_id], machine_ready[machine_id] + setup) + duration\n"
+                            "        score = completion + tail\n"
+                            "        candidate_costs.append((score, machine_id))\n"
+                            "    candidate_costs.sort()\n"
+                            "    best_score, best_machine = candidate_costs[0]\n"
+                            "    second_best_score = candidate_costs[1][0] if len(candidate_costs) > 1 else best_score\n"
+                            "    regret = second_best_score - best_score\n"
+                            "    job_options.append((regret, tail, job_id, node, best_machine, best_score))\n"
+                            "    job_options.sort(key=lambda x: (x[0], x[1]), reverse=True)\n"
+                            "    _, _, job_id, node, machine_id, completion = job_options[0]\n"
+                            "    sequences[machine_id].append(node)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "initialization_retries_setup_regret_tail_append_dispatch",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+        guidance = generic_slot_repair_guidance(slot)
+        self.assertIn("setup_regret_tail_init", guidance)
+        self.assertIn("hard HUdata-six", guidance)
 
     def test_initialization_slot_requires_topology_when_round_hypothesis_demands_it(self) -> None:
         worker = DeepSeekSlotWorker()

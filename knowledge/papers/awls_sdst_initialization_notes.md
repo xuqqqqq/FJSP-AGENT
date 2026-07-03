@@ -207,6 +207,16 @@ Use these as hypotheses, not as a manual patch:
   or equivalent feasibility check, and the repair still lacked acceptable
   `second_best - best` regret evidence in code.  Do not rely on textual
   "cycle guard" claims or same-job-only ordering as a topology proof.
+- A later hard HUdata-six 12s worker produced a legal
+  `setup_regret_tail_init` initializer: for each ready operation it computed
+  setup-aware candidate-machine completion, added remaining minimum job tail,
+  computed true `second_best_score - best_score`, then selected by
+  `(regret, tail)` while still appending the operation to the chosen machine.
+  Core evaluation tied the incumbent aggregate exactly at `1297.17` average
+  makespan, so it was rolled back.  Do not retry append-only
+  setup-regret-tail dispatch as the main initialization novelty; future
+  initialization attempts still need topology-guarded insertion, repair,
+  assignment-then-sequencing, or a distinct bottleneck/local-search mechanism.
 - Do not compare move/init mode constants with integers.
 - Do not call `setup_time_between` with `current_op=None`.
 - Import `setup_time_between` locally inside the slot before using it.
