@@ -383,6 +383,7 @@ def build_parser() -> argparse.ArgumentParser:
     awls_benchmark.add_argument("--pattern", default="*.txt")
     awls_benchmark.add_argument("--output-dir", required=True, type=Path)
     awls_benchmark.add_argument("--best-known-csv", type=Path)
+    awls_benchmark.add_argument("--bounds-csv", type=Path, help="Optional CSV with instance LB and UB/BKS columns.")
     awls_benchmark.add_argument("--max-instances", type=int)
     awls_benchmark.add_argument(
         "--instance-name",
@@ -1560,6 +1561,7 @@ def run_awls_benchmark_cmd(args: argparse.Namespace) -> int:
             pattern=args.pattern,
             output_dir=args.output_dir,
             best_known_csv=args.best_known_csv,
+            bounds_csv=args.bounds_csv,
             max_instances=args.max_instances,
             include_families=parse_csv_list(args.include_families),
             instance_names=parse_instance_names(args.instance_name, args.instance_list),

@@ -13,7 +13,9 @@ from harness_agent.awls_benchmark import (
     scaled_time_limit_sec,
     selected_instances,
 )
+from harness_agent.benchmark_bounds import benchmark_family_label, find_bounds, load_bounds_table
 from harness_agent.benchmark_suite import BenchmarkSuiteRequest, run_benchmark_suite
+from harness_agent.standard_fjsp import ScheduleRecord, parse_standard_fjsp, validate_standard_schedule
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +48,11 @@ class BenchmarkSuiteTests(unittest.TestCase):
     def test_awls_benchmark_writes_valid_tiny_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output_dir = Path(tmp) / "awls"
+            bounds_csv = Path(tmp) / "bounds.csv"
+            bounds_csv.write_text(
+                "Instance,Lower bound (LB),Best-known upper bound (UB/BKS)\nstandard_fjsp_tiny,6,7\n",
+                encoding="utf-8",
+            )
 
             manifest = run_awls_benchmark(
                 AwlsBenchmarkRequest(
@@ -53,6 +60,7 @@ class BenchmarkSuiteTests(unittest.TestCase):
                     pattern="standard_fjsp_tiny.fjs",
                     output_dir=output_dir,
                     best_known_csv=ROOT / "configs" / "standard_fjsp_tiny_best.csv",
+                    bounds_csv=bounds_csv,
                     seeds=[0],
                     restarts=1,
                     cycles_per_restart=1,
@@ -72,6 +80,10 @@ class BenchmarkSuiteTests(unittest.TestCase):
             self.assertEqual(1, manifest["aggregate"]["valid_instance_count"])
             self.assertEqual(0, manifest["aggregate"]["invalid_run_count"])
             self.assertIsNotNone(manifest["aggregate"]["avg_gap_pct"])
+            self.assertEqual(1, manifest["aggregate"]["gap_to_lb_count"])
+            self.assertEqual(1, manifest["aggregate"]["gap_to_ub_count"])
+            self.assertEqual(6.0, manifest["instances"][0]["lower_bound_makespan"])
+            self.assertEqual(7.0, manifest["instances"][0]["upper_bound_makespan"])
             self.assertTrue((output_dir / "summary.json").exists())
             self.assertTrue((output_dir / "report.md").exists())
             first_runtime = manifest["runs"][0]["runtime_sec"]
@@ -95,6 +107,40 @@ class BenchmarkSuiteTests(unittest.TestCase):
             )
             self.assertTrue(resumed["runs"][0]["resumed"])
             self.assertEqual(first_runtime, resumed["runs"][0]["runtime_sec"])
+
+    def test_bounds_table_accepts_hudata_and_family_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bounds_csv = Path(tmp) / "hudata_bounds.csv"
+            bounds_csv.write_text(
+                "Instance,Lower bound (LB),Best-known upper bound (UB/BKS),Note\nla20,857,997,new UB\n",
+                encoding="utf-8",
+            )
+
+            bounds = load_bounds_table(bounds_csv)
+            entry = find_bounds(bounds, "oddla20.txt")
+
+            self.assertIsNotNone(entry)
+            self.assertEqual(857.0, entry.lower_bound)
+            self.assertEqual(997.0, entry.upper_bound)
+            self.assertEqual("HUdata", benchmark_family_label("oddla20.txt"))
+            self.assertEqual("BA", benchmark_family_label("fjsp.barnes.mt10x.m11j10c2.txt"))
+            self.assertEqual("BR", benchmark_family_label("fjsp.brandimarte.Mk01.m6j10c3.txt"))
+            self.assertEqual("DP", benchmark_family_label("fjsp.dauzere.18a.m10j20c10.txt"))
+            self.assertEqual("HU", benchmark_family_label("fjsp.hurink.edata-la20.m10j10c2.txt"))
+
+    def test_standard_parser_allows_zero_duration_operations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            instance_path = Path(tmp) / "zero_duration.fjs"
+            instance_path.write_text("1 1 1\n1 1 0 0\n", encoding="utf-8")
+
+            instance = parse_standard_fjsp(instance_path)
+            errors, metrics = validate_standard_schedule(
+                instance,
+                [ScheduleRecord(job_id=0, op_id=0, machine_id=0, start=0, end=0)],
+            )
+
+            self.assertEqual([], errors)
+            self.assertEqual(0.0, metrics["makespan"])
 
     def test_awls_portfolio_runs_each_outer_seed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

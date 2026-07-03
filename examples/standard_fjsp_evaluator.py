@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from harness_agent.benchmark_bounds import find_bounds, load_bounds_table
 from harness_agent.standard_fjsp import load_solution, parse_standard_fjsp, validate_standard_schedule
 
 
@@ -73,6 +74,9 @@ def read_csv_text(path: Path) -> str:
 
 
 def load_best_known(path: Path | None, instance_name: str) -> float | None:
+    bounds_entry = find_bounds(load_bounds_table(path), instance_name)
+    if bounds_entry is not None and bounds_entry.upper_bound is not None:
+        return bounds_entry.upper_bound
     if path is None or not path.exists():
         return None
     csv_text = read_csv_text(path)

@@ -105,8 +105,8 @@ def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
                 machine_id = numbers[idx]
                 duration = numbers[idx + 1]
                 idx += 2
-                if duration <= 0:
-                    raise ValueError(f"{path} has non-positive duration {duration}")
+                if duration < 0:
+                    raise ValueError(f"{path} has negative duration {duration}")
                 machine_ids.append(machine_id)
                 candidates.append((machine_id, duration))
             raw_ops.append(candidates)
@@ -293,8 +293,8 @@ def validate_standard_schedule(
             errors.append(f"unknown operation: job={record.job_id}, op={record.op_id}")
         if record.start < 0:
             errors.append(f"negative start: job={record.job_id}, op={record.op_id}, start={record.start}")
-        if record.end <= record.start:
-            errors.append(f"non-positive interval: job={record.job_id}, op={record.op_id}")
+        if record.end < record.start:
+            errors.append(f"negative interval: job={record.job_id}, op={record.op_id}")
         duration = candidate_duration.get((record.job_id, record.op_id, record.machine_id))
         if duration is None:
             errors.append(

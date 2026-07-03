@@ -13,6 +13,7 @@ from typing import Any
 from examples.standard_fjsp_awls_solver import parse_portfolio_lanes, solve_awls
 from examples.standard_fjsp_evaluator import load_best_known
 
+from .benchmark_bounds import BenchmarkBounds, benchmark_family_label, find_bounds, load_bounds_table
 from .standard_fjsp import parse_standard_fjsp, validate_standard_schedule, write_solution
 
 
@@ -30,6 +31,7 @@ class AwlsBenchmarkRequest:
     pattern: str
     output_dir: Path
     best_known_csv: Path | None = None
+    bounds_csv: Path | None = None
     max_instances: int | None = None
     include_families: list[str] | None = None
     instance_names: list[str] | None = None
@@ -70,6 +72,7 @@ def run_awls_benchmark(request: AwlsBenchmarkRequest) -> dict[str, Any]:
     instances = selected_instances(request)
     if not instances:
         raise ValueError(f"no instances matched {request.instance_dir / request.pattern}")
+    bounds = load_bounds_table(request.bounds_csv or request.best_known_csv)
 
     seeds = request.seeds or [0]
     jobs: list[tuple[Path, int]] = [(path, seed) for path in instances for seed in seeds]
@@ -78,12 +81,15 @@ def run_awls_benchmark(request: AwlsBenchmarkRequest) -> dict[str, Any]:
     run_results: list[dict[str, Any]] = []
     if max_workers == 1:
         for instance_path, seed in jobs:
-            run_results.append(run_one_awls_job(request, instance_path, seed, run_dir, solution_dir))
+            run_results.append(run_one_awls_job(request, instance_path, seed, run_dir, solution_dir, bounds))
             write_awls_manifest(output_dir, request, instances, run_results, status="running")
     else:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
-                executor.submit(run_one_awls_job, request, instance_path, seed, run_dir, solution_dir): (instance_path, seed)
+                executor.submit(run_one_awls_job, request, instance_path, seed, run_dir, solution_dir, bounds): (
+                    instance_path,
+                    seed,
+                )
                 for instance_path, seed in jobs
             }
             for future in as_completed(futures):
@@ -221,13 +227,21 @@ def run_one_awls_job(
     seed: int,
     run_dir: Path,
     solution_dir: Path,
+    bounds_table: dict[str, BenchmarkBounds],
 ) -> dict[str, Any]:
     started = time.perf_counter()
     safe_stem = safe_instance_stem(instance_path)
     solution_path = solution_dir / f"{safe_stem}_seed{seed}.json"
     metrics_path = run_dir / f"{safe_stem}_seed{seed}_metrics.json"
     if request.resume:
-        resumed = load_resumed_result(instance_path, seed, metrics_path, solution_path)
+        resumed = load_resumed_result(
+            instance_path,
+            seed,
+            metrics_path,
+            solution_path,
+            bounds_table=bounds_table,
+            best_known_csv=request.best_known_csv,
+        )
         if resumed is not None:
             return resumed
 
@@ -258,10 +272,12 @@ def run_one_awls_job(
         errors, metrics = validate_standard_schedule(instance, schedule)
         if not errors:
             write_solution(solution_path, instance, schedule, strategy)
-        best_known = load_best_known(request.best_known_csv, instance.name)
-        if best_known and best_known > 0:
-            metrics["best_known_makespan"] = float(best_known)
-            metrics["gap_pct"] = (metrics["makespan"] - best_known) / best_known * 100.0
+        lower_bound, upper_bound, bounds_source, bounds_note = resolve_instance_bounds(
+            bounds_table,
+            request.best_known_csv,
+            instance.name,
+        )
+        attach_bounds_to_metrics(metrics, lower_bound=lower_bound, upper_bound=upper_bound)
         runtime_sec = round(time.perf_counter() - started, 3)
         payload = {
             "valid": not errors,
@@ -276,14 +292,21 @@ def run_one_awls_job(
         metrics_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return {
             "instance": instance_path.name,
+            "family_label": benchmark_family_label(instance_path.name),
             "seed": seed,
             "status": "ok" if not errors else "invalid",
             "valid": not errors,
             "error_count": len(errors),
             "errors": errors[:20],
             "makespan": metrics.get("makespan"),
+            "lower_bound_makespan": metrics.get("lower_bound_makespan"),
+            "upper_bound_makespan": metrics.get("upper_bound_makespan"),
             "best_known_makespan": metrics.get("best_known_makespan"),
             "gap_pct": metrics.get("gap_pct"),
+            "gap_to_lb_pct": metrics.get("gap_to_lb_pct"),
+            "gap_to_ub_pct": metrics.get("gap_to_ub_pct"),
+            "bounds_source": bounds_source,
+            "bounds_note": bounds_note,
             "runtime_sec": runtime_sec,
             "time_limit_sec": time_limit_sec,
             "resumed": False,
@@ -292,6 +315,11 @@ def run_one_awls_job(
             "strategy": strategy,
         }
     except Exception as exc:  # noqa: BLE001 - benchmark reports preserve per-instance failures.
+        lower_bound, upper_bound, bounds_source, bounds_note = resolve_instance_bounds(
+            bounds_table,
+            request.best_known_csv,
+            instance_path.name,
+        )
         payload = {
             "valid": False,
             "error_count": 1,
@@ -305,14 +333,21 @@ def run_one_awls_job(
         metrics_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return {
             "instance": instance_path.name,
+            "family_label": benchmark_family_label(instance_path.name),
             "seed": seed,
             "status": "failed",
             "valid": False,
             "error_count": 1,
             "errors": [str(exc)],
             "makespan": None,
+            "lower_bound_makespan": lower_bound,
+            "upper_bound_makespan": upper_bound,
             "best_known_makespan": None,
             "gap_pct": None,
+            "gap_to_lb_pct": None,
+            "gap_to_ub_pct": None,
+            "bounds_source": bounds_source,
+            "bounds_note": bounds_note,
             "runtime_sec": payload["runtime_sec"],
             "time_limit_sec": payload["time_limit_sec"],
             "resumed": False,
@@ -322,7 +357,15 @@ def run_one_awls_job(
         }
 
 
-def load_resumed_result(instance_path: Path, seed: int, metrics_path: Path, solution_path: Path) -> dict[str, Any] | None:
+def load_resumed_result(
+    instance_path: Path,
+    seed: int,
+    metrics_path: Path,
+    solution_path: Path,
+    *,
+    bounds_table: dict[str, BenchmarkBounds] | None = None,
+    best_known_csv: Path | None = None,
+) -> dict[str, Any] | None:
     if not metrics_path.exists():
         return None
     try:
@@ -348,16 +391,33 @@ def load_resumed_result(instance_path: Path, seed: int, metrics_path: Path, solu
     time_limit_sec = payload.get("time_limit_sec")
     if not isinstance(time_limit_sec, (int, float)):
         time_limit_sec = None
+    lower_bound, upper_bound, bounds_source, bounds_note = resolve_instance_bounds(
+        bounds_table or {},
+        best_known_csv,
+        instance_path.name,
+    )
+    if lower_bound is None:
+        lower_bound = metrics.get("lower_bound_makespan")
+    if upper_bound is None:
+        upper_bound = metrics.get("upper_bound_makespan") or metrics.get("best_known_makespan")
+    attach_bounds_to_metrics(metrics, lower_bound=lower_bound, upper_bound=upper_bound)
     return {
         "instance": instance_path.name,
+        "family_label": benchmark_family_label(instance_path.name),
         "seed": seed,
         "status": "ok" if valid else "invalid",
         "valid": valid,
         "error_count": int(payload.get("error_count", 0) or 0),
         "errors": list(payload.get("errors") or [])[:20],
         "makespan": metrics.get("makespan"),
+        "lower_bound_makespan": metrics.get("lower_bound_makespan"),
+        "upper_bound_makespan": metrics.get("upper_bound_makespan"),
         "best_known_makespan": metrics.get("best_known_makespan"),
         "gap_pct": metrics.get("gap_pct"),
+        "gap_to_lb_pct": metrics.get("gap_to_lb_pct"),
+        "gap_to_ub_pct": metrics.get("gap_to_ub_pct") or metrics.get("gap_pct"),
+        "bounds_source": bounds_source,
+        "bounds_note": bounds_note,
         "runtime_sec": runtime_sec,
         "time_limit_sec": time_limit_sec,
         "resumed": True,
@@ -389,6 +449,36 @@ def effective_time_limit_sec(request: AwlsBenchmarkRequest, instance_path: Path)
     if policy == "mae2019-hour":
         return 3600.0
     raise ValueError(f"unknown AWLS benchmark time policy: {request.time_policy}")
+
+
+def resolve_instance_bounds(
+    bounds_table: dict[str, BenchmarkBounds],
+    best_known_csv: Path | None,
+    instance_name: str,
+) -> tuple[float | None, float | None, str | None, str | None]:
+    entry = find_bounds(bounds_table, instance_name)
+    if entry is not None:
+        return entry.lower_bound, entry.upper_bound, entry.source, entry.note
+    best_known = load_best_known(best_known_csv, instance_name)
+    if best_known is not None:
+        return None, float(best_known), str(best_known_csv) if best_known_csv is not None else None, None
+    return None, None, None, None
+
+
+def attach_bounds_to_metrics(metrics: dict[str, Any], *, lower_bound: Any, upper_bound: Any) -> None:
+    makespan = metrics.get("makespan")
+    if upper_bound is not None:
+        metrics["upper_bound_makespan"] = float(upper_bound)
+        metrics["best_known_makespan"] = float(upper_bound)
+    if lower_bound is not None:
+        metrics["lower_bound_makespan"] = float(lower_bound)
+    if not isinstance(makespan, (int, float)):
+        return
+    if isinstance(upper_bound, (int, float)) and upper_bound > 0:
+        metrics["gap_to_ub_pct"] = (float(makespan) - float(upper_bound)) / float(upper_bound) * 100.0
+        metrics["gap_pct"] = metrics["gap_to_ub_pct"]
+    if isinstance(lower_bound, (int, float)) and lower_bound > 0:
+        metrics["gap_to_lb_pct"] = (float(makespan) - float(lower_bound)) / float(lower_bound) * 100.0
 
 
 def scaled_time_limit_sec(instance_path: Path) -> float:
@@ -456,8 +546,15 @@ def aggregate_awls_results(instance_results: list[dict[str, Any]], run_results: 
     valid_runs = [item for item in run_results if item.get("valid")]
     valid_instances = [item for item in instance_results if item.get("valid")]
     gap_values = [float(item["gap_pct"]) for item in valid_instances if isinstance(item.get("gap_pct"), (int, float))]
+    gap_to_lb_values = [
+        float(item["gap_to_lb_pct"]) for item in valid_instances if isinstance(item.get("gap_to_lb_pct"), (int, float))
+    ]
+    gap_to_ub_values = [
+        float(item["gap_to_ub_pct"]) for item in valid_instances if isinstance(item.get("gap_to_ub_pct"), (int, float))
+    ]
     makespans = [float(item["makespan"]) for item in valid_instances if isinstance(item.get("makespan"), (int, float))]
     seeds = sorted({int(item.get("seed", 0)) for item in run_results})
+    family_aggregate = aggregate_by_family(instance_results)
     return {
         "instance_count": len(instance_results),
         "seed_count": len(seeds),
@@ -469,13 +566,42 @@ def aggregate_awls_results(instance_results: list[dict[str, Any]], run_results: 
         "invalid_instance_count": len(instance_results) - len(valid_instances),
         "avg_makespan": sum(makespans) / len(makespans) if makespans else None,
         "avg_gap_pct": sum(gap_values) / len(gap_values) if gap_values else None,
+        "avg_gap_to_lb_pct": sum(gap_to_lb_values) / len(gap_to_lb_values) if gap_to_lb_values else None,
+        "avg_gap_to_ub_pct": sum(gap_to_ub_values) / len(gap_to_ub_values) if gap_to_ub_values else None,
         "median_gap_pct": statistics.median(gap_values) if gap_values else None,
         "max_gap_pct": max(gap_values) if gap_values else None,
         "best_reached_count": sum(1 for value in gap_values if value <= 0.0),
         "within_1pct_count": sum(1 for value in gap_values if value <= 1.0),
         "within_2pct_count": sum(1 for value in gap_values if value <= 2.0),
         "gap_count": len(gap_values),
+        "gap_to_lb_count": len(gap_to_lb_values),
+        "gap_to_ub_count": len(gap_to_ub_values),
+        "family_aggregate": family_aggregate,
     }
+
+
+def aggregate_by_family(instance_results: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in instance_results:
+        grouped.setdefault(str(item.get("family_label") or benchmark_family_label(str(item.get("instance", "")))), []).append(item)
+
+    aggregate: dict[str, dict[str, Any]] = {}
+    for family, items in sorted(grouped.items()):
+        valid_items = [item for item in items if item.get("valid")]
+        makespans = [float(item["makespan"]) for item in valid_items if isinstance(item.get("makespan"), (int, float))]
+        gap_to_lb = [float(item["gap_to_lb_pct"]) for item in valid_items if isinstance(item.get("gap_to_lb_pct"), (int, float))]
+        gap_to_ub = [float(item["gap_to_ub_pct"]) for item in valid_items if isinstance(item.get("gap_to_ub_pct"), (int, float))]
+        aggregate[family] = {
+            "instance_count": len(items),
+            "valid_instance_count": len(valid_items),
+            "invalid_instance_count": len(items) - len(valid_items),
+            "avg_makespan": sum(makespans) / len(makespans) if makespans else None,
+            "avg_gap_to_lb_pct": sum(gap_to_lb) / len(gap_to_lb) if gap_to_lb else None,
+            "avg_gap_to_ub_pct": sum(gap_to_ub) / len(gap_to_ub) if gap_to_ub else None,
+            "gap_to_lb_count": len(gap_to_lb),
+            "gap_to_ub_count": len(gap_to_ub),
+        }
+    return aggregate
 
 
 def render_awls_benchmark_report(manifest: dict[str, Any]) -> str:
@@ -490,23 +616,43 @@ def render_awls_benchmark_report(manifest: dict[str, Any]) -> str:
         f"- Valid runs: `{aggregate.get('valid_run_count')}`",
         f"- Invalid runs: `{aggregate.get('invalid_run_count')}`",
         f"- Average gap pct: `{aggregate.get('avg_gap_pct')}`",
+        f"- Average gap to LB pct: `{aggregate.get('avg_gap_to_lb_pct')}`",
+        f"- Average gap to UB pct: `{aggregate.get('avg_gap_to_ub_pct')}`",
         f"- Median gap pct: `{aggregate.get('median_gap_pct')}`",
         f"- Max gap pct: `{aggregate.get('max_gap_pct')}`",
         f"- Best reached: `{aggregate.get('best_reached_count')}/{aggregate.get('gap_count')}`",
         f"- Within 1 pct: `{aggregate.get('within_1pct_count')}/{aggregate.get('gap_count')}`",
         f"- Within 2 pct: `{aggregate.get('within_2pct_count')}/{aggregate.get('gap_count')}`",
         "",
-        "## Instance Results",
+        "## Family Aggregate",
         "",
-        "| Instance | Valid | Makespan | Best Known | Gap % | Seed | Runtime s | Solution |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| Family | Instances | Valid | Avg Makespan | Avg Gap to LB % | Avg Gap to UB % | LB Count | UB Count |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
+    for family, item in sorted((aggregate.get("family_aggregate") or {}).items()):
+        lines.append(
+            f"| {family} | {item.get('instance_count')} | {item.get('valid_instance_count')} | "
+            f"{format_cell(item.get('avg_makespan'))} | {format_cell(item.get('avg_gap_to_lb_pct'))} | "
+            f"{format_cell(item.get('avg_gap_to_ub_pct'))} | {item.get('gap_to_lb_count')} | "
+            f"{item.get('gap_to_ub_count')} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Instance Results",
+            "",
+            "| Family | Instance | Valid | Makespan | LB | UB/BKS | Gap to LB % | Gap to UB % | Seed | Runtime s | Solution |",
+            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        ]
+    )
     for item in manifest.get("instances", []):
         solution = item.get("solution")
         solution_cell = f"[json]({solution})" if solution else "N/A"
         lines.append(
-            f"| {item.get('instance')} | `{item.get('valid')}` | {format_cell(item.get('makespan'))} | "
-            f"{format_cell(item.get('best_known_makespan'))} | {format_cell(item.get('gap_pct'))} | "
+            f"| {item.get('family_label')} | {item.get('instance')} | `{item.get('valid')}` | "
+            f"{format_cell(item.get('makespan'))} | {format_cell(item.get('lower_bound_makespan'))} | "
+            f"{format_cell(item.get('upper_bound_makespan') or item.get('best_known_makespan'))} | "
+            f"{format_cell(item.get('gap_to_lb_pct'))} | {format_cell(item.get('gap_to_ub_pct') or item.get('gap_pct'))} | "
             f"{item.get('seed')} | {format_cell(item.get('runtime_sec'))} | {solution_cell} |"
         )
     lines.extend(
@@ -522,7 +668,7 @@ def render_awls_benchmark_report(manifest: dict[str, Any]) -> str:
 
 def request_to_json(request: AwlsBenchmarkRequest) -> dict[str, Any]:
     payload = dict(request.__dict__)
-    for key in ("instance_dir", "output_dir", "best_known_csv"):
+    for key in ("instance_dir", "output_dir", "best_known_csv", "bounds_csv"):
         value = payload.get(key)
         payload[key] = str(value) if value is not None else None
     return payload
