@@ -768,6 +768,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "move_evaluation_retries_proxy_ratio_exact_gate",
         "move_evaluation_retries_critical_proximity_setup_penalty",
         "move_evaluation_retries_one_sided_insertion_setup_penalty",
+        "move_evaluation_retries_machine_makespan_cap",
         "move_evaluation_uses_end_node_end_time_as_makespan",
         "move_evaluation_uses_invalid_setup_time_between_signature",
         "move_selection_generates_candidates",
@@ -1092,6 +1093,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "move_evaluation_retries_proxy_ratio_exact_gate",
         "move_evaluation_retries_critical_proximity_setup_penalty",
         "move_evaluation_retries_one_sided_insertion_setup_penalty",
+        "move_evaluation_retries_machine_makespan_cap",
         "move_evaluation_uses_end_node_end_time_as_makespan",
         "move_evaluation_uses_invalid_setup_time_between_signature",
         "move_selection_generates_candidates",
@@ -1404,6 +1406,18 @@ def awls_sdst_move_evaluation_warnings(content: str) -> list[str]:
     )
     if one_sided_insertion_setup_penalty:
         warnings.append("move_evaluation_retries_one_sided_insertion_setup_penalty")
+    machine_makespan_cap = (
+        "machine_delta" in content
+        and "machine_value" in content
+        and re.search(r"\bmachine_value\s*=\s*schedule\.makespan\s*\+\s*machine_delta\b", content)
+        and re.search(
+            r"\bmax\s*\(\s*(?:job_value|base_value|legacy(?:_value)?|proxy(?:_value)?)\s*,\s*machine_value\s*\)"
+            r"|\bmax\s*\(\s*machine_value\s*,\s*(?:job_value|base_value|legacy(?:_value)?|proxy(?:_value)?)\s*\)",
+            content,
+        )
+    )
+    if machine_makespan_cap:
+        warnings.append("move_evaluation_retries_machine_makespan_cap")
     invalid_setup_signature = (
         re.search(r"\bsetup_time_between\(\s*(?:schedule|sched)\.index\s*,", content)
         or re.search(
@@ -2144,6 +2158,9 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- Do not retry one-sided positive insertion setup penalties such as `penalty = max(delta, 0)` "
             "added directly to `which_time`; it improved oddla09 but worsened the hard HUdata-six 12s "
             "aggregate from 1304.17 to 1308.00.\n"
+            "- Do not retry machine-makespan cap scoring that computes `machine_value = schedule.makespan + "
+            "machine_delta` and then returns `max(job_value, machine_value) + zi`; it was legal but worsened "
+            "the hard HUdata-six 12s aggregate from 1297.17 to 1325.50.\n"
             "- Preserve the legacy AWLS proxy for makespan/tail pressure unless the replacement has a materially "
             "different bounded mechanism, such as move-local critical-tail pressure, ordered candidate context, "
             "or a gate that does not suppress outside-gate candidates with huge constants.\n"

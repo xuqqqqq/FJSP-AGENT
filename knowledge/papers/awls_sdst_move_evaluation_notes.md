@@ -108,5 +108,13 @@ Use these directions as hypotheses, not as a manual patch:
   `1341.67` to `1383.33`.  Do not retry one-sided positive insertion setup
   penalties as the main novelty; they can help one instance while worsening
   the tight 20-job/5-machine hard group.
+- A continuation hard-HUdata six-instance 12s worker run proposed
+  `machine_makespan_cap_change_machine_v2`.  It computed a local insertion
+  delta, then scored change-machine moves as
+  `max(job_value, schedule.makespan + machine_delta) + zi`.  The candidate was
+  legal but worsened the Core hard-six aggregate from `1297.17` to `1325.50`
+  and raised average gap to `14.39%`.  Do not retry machine-makespan cap
+  scoring as the main novelty; the cap over-penalizes change-machine moves that
+  may be useful under the legacy job/tail proxy.
 - Do not change parser/evaluator/IO semantics.
 - Do not change N7 same-machine scoring until a separate slot is confirmed.

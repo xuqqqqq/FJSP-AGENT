@@ -540,6 +540,51 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("penalty = max(delta, 0)", guidance)
         self.assertIn("1304.17 to 1308.00", guidance)
 
+    def test_move_evaluation_slot_warns_on_machine_makespan_cap_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_evaluation")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "machine_makespan_cap_change_machine_v2",
+                        "type": "local_search_operator",
+                        "novelty": "Uses a machine cap instead of simple setup penalties.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_evaluation",
+                        "content": (
+                            "    from harness_agent.standard_fjsp import setup_time_between\n"
+                            "    def _machine_delta(method, which, where):\n"
+                            "        return which_time + 1.0\n"
+                            "    job_value = which_time + end_time[where] + zi\n"
+                            "    machine_delta = _machine_delta(method, which, where)\n"
+                            "    machine_value = schedule.makespan + machine_delta\n"
+                            "    value = max(job_value, machine_value) + zi\n"
+                            "    return value\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "move_evaluation_retries_machine_makespan_cap",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+        guidance = generic_slot_repair_guidance(slot)
+        self.assertIn("machine_value = schedule.makespan + machine_delta", guidance)
+        self.assertIn("1297.17 to 1325.50", guidance)
+
     def test_selected_confirmed_slot_accepts_sdst_move_selection_slot(self) -> None:
         context = _generic_slot_context(slot_id="awls_sdst_move_selection")
 
