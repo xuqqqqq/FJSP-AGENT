@@ -163,6 +163,7 @@ class SlotManifestPlatformTests(unittest.TestCase):
         self.assertEqual(packet["slot_manifest"]["status"], "confirmed")
         self.assertGreaterEqual(len(packet["slot_manifest"]["slots"]), 2)
         awls_slot = next(item for item in packet["slot_manifest"]["slots"] if item["slot_id"] == "awls_zi_policy")
+        self.assertEqual("standard_fjsp", awls_slot["problem_family"])
         self.assertEqual("# EVOLVE_START", awls_slot["marker_start"])
         self.assertEqual("# EVOLVE_END", awls_slot["marker_end"])
         neighborhood_slot = next(

@@ -207,7 +207,8 @@
       "name": "slot_based_edit",
       "description": "Optional user-confirmed marked-code-slot editing. The core framework only loads this manifest and enforces the selected slot contract; slot definitions live in this domain pack.",
       "assets": {
-        "slot_manifest": "domain_packs/standard_fjsp/slot_manifest.json"
+        "slot_manifest": "domain_packs/standard_fjsp/slot_manifest.json",
+        "slot_repair_guidance": "domain_packs/standard_fjsp/slot_repair_guidance.json"
       }
     }
   ]

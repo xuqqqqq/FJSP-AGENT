@@ -667,6 +667,7 @@ def _slot_manifest_payload(path: Path, *, project_root: Path | None = None) -> d
             {
             "slot_id": str(item.get("slot_id", "")),
             "title": str(item.get("title", "")),
+            "problem_family": str(manifest.get("problem_family") or ""),
             "target_file": target_file,
             "marker_start": str(item.get("marker_start", "")),
             "marker_end": str(item.get("marker_end", "")),

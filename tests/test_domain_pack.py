@@ -7,9 +7,11 @@ from pathlib import Path
 
 from harness_agent.context_packet import ContextPacketRequest, write_context_packet
 from harness_agent.domain_pack import get_domain_pack, load_domain_pack, load_domain_packs
+from harness_agent.edit_strategy_assets import load_edit_strategy_json_asset
 from harness_agent.knowledge_registry import auto_knowledge_cards
 from harness_agent.problem_families import get_problem_family
 from harness_agent.slot_manifest import default_slot_manifest, write_default_slot_manifest, write_selected_slot_manifest
+from harness_agent.workers.deepseek_slot_worker import generic_slot_repair_guidance
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +33,7 @@ class DomainPackTests(unittest.TestCase):
         assert strategy is not None
         self.assertEqual("slot_based_edit", strategy.name)
         self.assertTrue(strategy.asset_path("slot_manifest"))
+        self.assertTrue(strategy.asset_path("slot_repair_guidance"))
 
         capability = get_problem_family("fjsp_sdst")
         self.assertEqual("standard_fjsp", capability.family_id)
@@ -101,6 +104,26 @@ class DomainPackTests(unittest.TestCase):
         self.assertTrue(payload["confirmation_required"])
         self.assertTrue(str(payload["source_path"]).replace("\\", "/").endswith("domain_packs/standard_fjsp/slot_manifest.json"))
         self.assertIn("awls_sdst_neighborhood_selection", {slot["slot_id"] for slot in payload["slots"]})
+
+    def test_slot_repair_guidance_is_loaded_from_domain_pack_asset(self) -> None:
+        payload = load_edit_strategy_json_asset(
+            problem_family="standard_fjsp",
+            strategy_name="slot_based_edit",
+            asset_key="slot_repair_guidance",
+        )
+
+        self.assertEqual("standard_fjsp", payload["problem_family"])
+        guidance = payload["slot_guidance"]["awls_sdst_move_evaluation"]
+        self.assertIn("_best_proxy", guidance)
+        self.assertIn("1010 to 1023", guidance)
+
+        rendered = generic_slot_repair_guidance(
+            {
+                "problem_family": "standard_fjsp",
+                "slot_id": "awls_sdst_move_evaluation",
+            }
+        )
+        self.assertEqual(guidance, rendered)
 
     def test_unknown_problem_family_does_not_get_standard_fjsp_slot_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
