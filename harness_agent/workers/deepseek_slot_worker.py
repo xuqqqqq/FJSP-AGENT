@@ -730,6 +730,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_failed_tight_tardiness_filter",
         "neighborhood_retries_latest_block_topk_overpruning",
         "neighborhood_retries_global_move_count_cap",
+        "neighborhood_retries_near_critical_change_machine_augmentation",
         "neighborhood_retries_unordered_candidate_machine_cap",
         "neighborhood_retries_random_diversity_sampling",
         "neighborhood_retries_random_change_only_lane",
@@ -768,6 +769,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "move_selection_mutates_schedule_directly",
         "move_selection_retries_small_best_moves_exact_recheck",
         "move_selection_retries_global_setup_sum_tiebreak",
+        "move_selection_retries_same_machine_first_deterministic_sort",
         "move_selection_retries_random_noise_escape",
         "move_selection_uses_invalid_setup_time_between_signature",
         "move_selection_uses_nonexistent_node_to_operation_key",
@@ -1042,6 +1044,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_failed_tight_tardiness_filter",
         "neighborhood_retries_latest_block_topk_overpruning",
         "neighborhood_retries_global_move_count_cap",
+        "neighborhood_retries_near_critical_change_machine_augmentation",
         "neighborhood_retries_unordered_candidate_machine_cap",
         "neighborhood_retries_random_diversity_sampling",
         "neighborhood_retries_random_change_only_lane",
@@ -1080,6 +1083,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "move_selection_mutates_schedule_directly",
         "move_selection_retries_small_best_moves_exact_recheck",
         "move_selection_retries_global_setup_sum_tiebreak",
+        "move_selection_retries_same_machine_first_deterministic_sort",
         "move_selection_retries_random_noise_escape",
         "move_selection_uses_invalid_setup_time_between_signature",
         "move_selection_uses_nonexistent_node_to_operation_key",
@@ -1520,6 +1524,15 @@ def awls_sdst_neighborhood_selection_warnings(content: str) -> list[str]:
     )
     if global_move_cap and "assignment" not in content and "change_machine_window" in content:
         warnings.append("neighborhood_retries_global_move_count_cap")
+    near_critical_change_machine_augmentation = (
+        has_near_critical_cue
+        and "change_machine_window" in content
+        and re.search(r"\b(?:max_near|near_limit|near_node_limit)\s*=\s*[1-5]\b", content)
+        and re.search(r"tail\s*>=\s*schedule\.makespan\s*-\s*near_critical_gap", content)
+        and re.search(r"\bnear_critical_gap\s*=\s*max\(\s*1\s*,\s*int\(schedule\.makespan\s*\*\s*0\.01\)\s*\)", content)
+    )
+    if near_critical_change_machine_augmentation:
+        warnings.append("neighborhood_retries_near_critical_change_machine_augmentation")
     candidate_machine_cap = (
         re.search(
             r"\b(?:max_candidate_machines|max_change_machines|max_candidate_machine_count|machine_limit)\s*=\s*[1-5]\b",
@@ -1667,6 +1680,14 @@ def awls_sdst_move_selection_warnings(content: str) -> list[str]:
     )
     if global_setup_sum_tiebreak:
         warnings.append("move_selection_retries_global_setup_sum_tiebreak")
+    same_machine_first_deterministic_sort = (
+        re.search(r"\border\s*=\s*\{[^}]*front[^}]*back[^}]*change_machine_front[^}]*change_machine_back", content)
+        and re.search(r"\bsorted\s*\(\s*best_moves\b", content)
+        and "schedule.rng.choice(best_moves" not in content
+        and re.search(r"\breturn\s+move\(\*best_sorted\s*\[\s*0\s*\]\)", content)
+    )
+    if same_machine_first_deterministic_sort:
+        warnings.append("move_selection_retries_same_machine_first_deterministic_sort")
     random_noise_escape = (
         re.search(r"\branked_with_noise\b|\.uniform\(\s*-0\.001\s*,\s*0\.001\s*\)", content)
         or (

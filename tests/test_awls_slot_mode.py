@@ -1881,6 +1881,53 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_neighborhood_slot_warns_on_near_critical_change_machine_augmentation_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "near_critical_change_machine_augmentation",
+                        "type": "local_search_operator",
+                        "novelty": "Keeps the incumbent path and adds a capped near-critical machine change pass.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_neighborhood_selection",
+                        "content": (
+                            "    near_critical_gap = max(1, int(schedule.makespan * 0.01))\n"
+                            "    near_nodes = []\n"
+                            "    for node in schedule.index.real_nodes:\n"
+                            "        tail = schedule.end_time[node] + schedule.backward_path_length[node]\n"
+                            "        if tail >= schedule.makespan - near_critical_gap:\n"
+                            "            near_nodes.append(node)\n"
+                            "    max_near = 5\n"
+                            "    near_nodes = near_nodes[:max_near]\n"
+                            "    for node in near_nodes:\n"
+                            "        for candidate_machine in schedule.index.candidates[node]:\n"
+                            "            sequence, rk_start, lk_end = change_machine_window(schedule, node, candidate_machine)\n"
+                            "            if sequence:\n"
+                            "                consider_change(CHANGE_MACHINE_BACK, node, sequence[0], -1, -1)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "neighborhood_retries_near_critical_change_machine_augmentation",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_neighborhood_slot_repair_guidance_names_material_alternatives(self) -> None:
         slot = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")["slot_manifest"]["slots"][0]
 
@@ -2169,6 +2216,50 @@ class AwlsSlotModeTests(unittest.TestCase):
 
         self.assertIn(
             "move_selection_retries_global_setup_sum_tiebreak",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_move_selection_slot_warns_on_same_machine_first_deterministic_sort_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "deterministic_same_machine_preference",
+                        "type": "local_search_operator",
+                        "novelty": "Different from setup tie-breakers by sorting equal moves deterministically.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_selection",
+                        "content": (
+                            "    if not all_moves:\n"
+                            "        return None\n"
+                            "    def _move_sort_key(move_key):\n"
+                            "        method, node, dest = move_key\n"
+                            "        order = {\"FRONT\": 0, \"BACK\": 1, \"CHANGE_MACHINE_FRONT\": 2, \"CHANGE_MACHINE_BACK\": 3}\n"
+                            "        return (order.get(method, 4), node, dest)\n"
+                            "    if best_moves:\n"
+                            "        best_sorted = sorted(best_moves, key=_move_sort_key)\n"
+                            "        return Move(*best_sorted[0])\n"
+                            "    return Move(*sorted(all_moves, key=_move_sort_key)[0])\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "move_selection_retries_same_machine_first_deterministic_sort",
             normalized["proposal_audit"]["warnings"],
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
