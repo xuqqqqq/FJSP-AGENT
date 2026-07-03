@@ -292,6 +292,56 @@ This run again shows legal full-set behavior and current noise around
 instances should be treated as the main improvement target before claiming an
 SDST solver-quality gain.
 
+## 2026-07-03 Current-Line 20-Instance Recheck
+
+The current solver line was rerun once more on the full HUdata set with the
+same seed-0, 30s-per-instance fixed-time contract.  No solver code changed for
+this measurement.
+
+Evidence:
+`outputs/hudata20_awls_sdst_current_seed0_30s_20260703_165547/summary.json`
+
+- Valid runs: `20/20`.
+- Average makespan: `1012.80`.
+- Average gap to UB/BKS: `6.81%`.
+- Median gap to UB/BKS: `7.10%`.
+- Max gap: `14.67%`.
+- Within 2% of UB/BKS: `3/20`.
+- Reached UB/BKS: `0/20`.
+
+Per-instance makespan and UB gap:
+
+| Instance | Makespan | UB/BKS | Gap |
+| --- | ---: | ---: | ---: |
+| oddla01 | 729 | 721 | 1.11% |
+| oddla02 | 787 | 737 | 6.78% |
+| oddla03 | 678 | 652 | 3.99% |
+| oddla04 | 701 | 673 | 4.16% |
+| oddla05 | 621 | 602 | 3.16% |
+| oddla06 | 1015 | 945 | 7.41% |
+| oddla07 | 979 | 902 | 8.54% |
+| oddla08 | 1023 | 940 | 8.83% |
+| oddla09 | 1081 | 984 | 9.86% |
+| oddla10 | 1024 | 953 | 7.45% |
+| oddla11 | 1387 | 1232 | 12.58% |
+| oddla12 | 1227 | 1070 | 14.67% |
+| oddla13 | 1325 | 1172 | 13.05% |
+| oddla14 | 1362 | 1234 | 10.37% |
+| oddla15 | 1401 | 1258 | 11.37% |
+| oddla16 | 1055 | 1007 | 4.77% |
+| oddla17 | 871 | 851 | 2.35% |
+| oddla18 | 1003 | 985 | 1.83% |
+| oddla19 | 962 | 951 | 1.16% |
+| oddla20 | 1025 | 997 | 2.81% |
+
+This is the best of the recent current-line full-set rechecks by average gap,
+mainly because `oddla12` improved to `1227` and `oddla14` landed at `1362`.
+It is still a single seed-0 wall-clock run, so treat it as current capability
+evidence rather than a promoted algorithmic improvement.  The full-set gap is
+now clear enough for worker prompts: easy-ish cases are `oddla01`,
+`oddla18`, `oddla19`, and `oddla20`; the main quality gap remains the
+20-job/5-machine group `oddla11`--`oddla15`.
+
 ## Recommended Evaluation Ladder
 
 Use small smoke runs first, then a targeted hard-shape probe:
