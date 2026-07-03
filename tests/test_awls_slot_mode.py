@@ -1928,6 +1928,59 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_neighborhood_slot_warns_on_fixed_window_topk_critical_pruning_retry(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "bounded_window_top_critical_op_candidates",
+                        "type": "local_search_operator",
+                        "novelty": "Focuses the incumbent traversal with a fixed same-machine window and top critical operations.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_neighborhood_selection",
+                        "content": (
+                            "    neighbor_radius = 5\n"
+                            "    left_start = max(0, block_start - neighbor_radius)\n"
+                            "    right_end = min(len(sequence), block_end + 1 + neighbor_radius)\n"
+                            "    for node in block:\n"
+                            "        for target in sequence[left_start:block_start]:\n"
+                            "            consider_same(FRONT, node, target)\n"
+                            "        for target in sequence[block_end + 1:right_end]:\n"
+                            "            consider_same(BACK, node, target)\n"
+                            "    critical_ops = []\n"
+                            "    for node in schedule.index.real_nodes:\n"
+                            "        if schedule.is_critical_operation(node):\n"
+                            "            critical_ops.append((0, node))\n"
+                            "    critical_ops.sort()\n"
+                            "    top_nodes = [node for _, node in critical_ops[:2]]\n"
+                            "    for node in top_nodes:\n"
+                            "        for candidate_machine in schedule.index.candidates[node]:\n"
+                            "            sequence, rk_start, lk_end = change_machine_window(schedule, node, candidate_machine)\n"
+                            "            if sequence:\n"
+                            "                consider_change(CHANGE_MACHINE_BACK, node, sequence[0], -1, -1)\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "neighborhood_retries_fixed_window_topk_critical_pruning",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_neighborhood_slot_repair_guidance_names_material_alternatives(self) -> None:
         slot = _generic_slot_context(slot_id="awls_sdst_neighborhood_selection")["slot_manifest"]["slots"][0]
 

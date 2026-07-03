@@ -195,6 +195,18 @@ from the published UB (`997`; current fast/short baselines are `1202` or
   change-machine augmentation as the main novelty unless it uses a materially
   different ordering or acceptance signal rather than just a tighter threshold
   and cap.
+- After the platform made that near-critical change-machine pattern a
+  must-repair warning, the guarded retry shifted to
+  `bounded_window_top_critical_op_candidates`: same-machine external targets
+  were clipped to a fixed radius of 5 around each critical block, and
+  change-machine moves were limited to the top-2 critical operations by slack.
+  It was legal but worsened the same hard-HUdata six-instance 12s Core probe
+  from `1297.17` to `1365.00`, with average gap rising to `17.66%`.  This is
+  another over-pruning pattern: it removes too many long-range same-machine
+  moves and too many change-machine candidates.  Do not retry fixed-radius
+  same-machine windows plus top-k critical change-machine pruning unless the
+  proposal preserves the incumbent broad traversal or adds a materially
+  stronger exact/acceptance signal.
 
 This points toward the move-candidate selection layer: the search may not be
 trying the right critical or near-critical N7/NK moves often enough.
@@ -268,6 +280,9 @@ Use these as hypotheses, not as manual patches:
 - Do not retry near-critical change-machine augmentation that only tightens the
   threshold/cap while preserving the same unranked candidate family; the
   1%-gap, five-node version worsened the hard HUdata-six probe.
+- Do not retry fixed-radius same-machine target windows combined with top-k
+  critical-operation change-machine pruning; the radius-5/top-2 variant
+  severely worsened the hard HUdata-six probe.
 - Do not retune aggressive zi by only increasing `gamma` and lowering `theta`
   without another change; `gamma=60, theta=3` was worse than default.
 - Do not assume increasing total runtime alone improves this setting; the

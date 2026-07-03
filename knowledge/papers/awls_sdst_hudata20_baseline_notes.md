@@ -102,6 +102,53 @@ Avoid:
 - Retrying append-only setup-aware dispatch or pure exact-trial N7 scoring
   unchanged; both are already failure memory.
 
+## Latest Current-Line Recheck
+
+After accepting the critical-SDST capped-tenure tabu memory and adding
+neighborhood over-pruning guards, the current solver line was rerun on all 20
+HUdata instances with the same seed-0, 30s-per-instance fixed-time contract:
+
+Evidence:
+`outputs/hudata20_awls_sdst_current_seed0_30s_20260703/summary.json`
+
+- Valid runs: `20/20`.
+- Average makespan: `1017.15`.
+- Average gap to UB/BKS: `7.19%`.
+- Median gap to UB/BKS: `7.10%`.
+- Max gap: `15.80%`.
+- Within 2% of UB/BKS: `3/20`.
+- Reached UB/BKS: `0/20`.
+
+Per-instance current-line makespan and UB gap:
+
+| Instance | Makespan | UB/BKS | Gap |
+| --- | ---: | ---: | ---: |
+| oddla01 | 729 | 721 | 1.11% |
+| oddla02 | 787 | 737 | 6.78% |
+| oddla03 | 683 | 652 | 4.75% |
+| oddla04 | 701 | 673 | 4.16% |
+| oddla05 | 621 | 602 | 3.16% |
+| oddla06 | 1015 | 945 | 7.41% |
+| oddla07 | 979 | 902 | 8.54% |
+| oddla08 | 1023 | 940 | 8.83% |
+| oddla09 | 1081 | 984 | 9.86% |
+| oddla10 | 1024 | 953 | 7.45% |
+| oddla11 | 1387 | 1232 | 12.58% |
+| oddla12 | 1236 | 1070 | 15.51% |
+| oddla13 | 1325 | 1172 | 13.05% |
+| oddla14 | 1429 | 1234 | 15.80% |
+| oddla15 | 1401 | 1258 | 11.37% |
+| oddla16 | 1061 | 1007 | 5.36% |
+| oddla17 | 871 | 851 | 2.35% |
+| oddla18 | 1003 | 985 | 1.83% |
+| oddla19 | 962 | 951 | 1.16% |
+| oddla20 | 1025 | 997 | 2.81% |
+
+The accepted critical capped-tenure line previously measured `6.84%` average
+gap on one 30s HUdata20 run, while this recheck measured `7.19%`.  Treat small
+single-run changes as noisy under wall-clock budgets; require repeat promotion
+or a clear targeted hard-shape gain before claiming a solver improvement.
+
 ## Recommended Evaluation Ladder
 
 Use small smoke runs first, then a targeted hard-shape probe:

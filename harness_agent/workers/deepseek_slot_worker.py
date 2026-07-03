@@ -730,6 +730,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_failed_tight_tardiness_filter",
         "neighborhood_retries_latest_block_topk_overpruning",
         "neighborhood_retries_global_move_count_cap",
+        "neighborhood_retries_fixed_window_topk_critical_pruning",
         "neighborhood_retries_near_critical_change_machine_augmentation",
         "neighborhood_retries_unordered_candidate_machine_cap",
         "neighborhood_retries_random_diversity_sampling",
@@ -1044,6 +1045,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "neighborhood_retries_failed_tight_tardiness_filter",
         "neighborhood_retries_latest_block_topk_overpruning",
         "neighborhood_retries_global_move_count_cap",
+        "neighborhood_retries_fixed_window_topk_critical_pruning",
         "neighborhood_retries_near_critical_change_machine_augmentation",
         "neighborhood_retries_unordered_candidate_machine_cap",
         "neighborhood_retries_random_diversity_sampling",
@@ -1518,6 +1520,14 @@ def awls_sdst_neighborhood_selection_warnings(content: str) -> list[str]:
     )
     if topk_latest_blocks:
         warnings.append("neighborhood_retries_latest_block_topk_overpruning")
+    fixed_window_topk_critical_pruning = (
+        re.search(r"\bneighbor_radius\s*=\s*(?:3|4|5|6|8|10)\b", content)
+        and re.search(r"\b(?:left_start|right_end)\s*=", content)
+        and re.search(r"\btop_nodes\s*=\s*\[[^\n]+\[:\s*(?:2|3|4|5)\s*\]", content)
+        and "change_machine_window" in content
+    )
+    if fixed_window_topk_critical_pruning:
+        warnings.append("neighborhood_retries_fixed_window_topk_critical_pruning")
     global_move_cap = (
         re.search(r"\bMAX_MOVES\s*=\s*(?:50|100|200|300)\b", content)
         or re.search(r"\b(?:max_moves|total_move_limit)\s*=\s*(?:50|100|200|300)\b", content)
