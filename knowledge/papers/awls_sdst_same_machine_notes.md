@@ -100,6 +100,16 @@ There is no `schedule.setup_time(...)` helper and no
   imported nonexistent `AwlsTrial` from `harness_agent.standard_fjsp`.  The real
   exact-trial API in this solver is `trial = schedule.clone()`,
   `trial.apply_move(move)`, and `trial.makespan`; do not use `AwlsTrial`.
+- On the hard HUdata subset `oddla12/oddla14/oddla20`, a legal
+  `exact_trial_with_estimation_error_correction` candidate worsened the Core
+  objective.  It used the stable same-machine estimate, then returned
+  `exact + 0.1 * (exact - stable_value)` after `trial.apply_move(move)`.
+  Baseline average makespan was `1208.0` and candidate average makespan was
+  `1248.0`; average gap worsened from `9.43%` to `13.24%`.  `oddla20` worsened
+  from `1014` to `1027`.  Lower or changed setup totals did not imply makespan
+  improvement.  Do not retry exact trial with only estimator-error correction
+  such as `exact + k * (exact - stable/legacy)` or `trial_makespan + k *
+  estimator_error` unchanged.
 - If manually adding setup-aware forward/backward local propagation is too
   fragile, prefer exact local scoring:
 
@@ -124,5 +134,6 @@ candidate; reuse only as part of a materially different hybrid rule.
 - Do not modify parser/evaluator/IO semantics.
 - Do not change NK/change-machine scoring or zi policy in this stage.
 - Do not retry pure exact trial, setup-only exact tie-breaks, or the light
-  non-critical worsening exact gate; future same-machine attempts need a
+  non-critical worsening exact gate.  Do not retry exact-trial estimator-error
+  correction as the main novelty.  Future same-machine attempts need a
   materially different critical-tail, locality, or acceptance-pressure signal.

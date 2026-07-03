@@ -743,6 +743,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "same_machine_retries_legacy_ratio_exact_gate",
         "same_machine_retries_exact_setup_tiebreak",
         "same_machine_retries_noncritical_worsening_exact_gate",
+        "same_machine_retries_exact_estimator_error_correction",
         "same_machine_uses_nonexistent_move_node",
         "same_machine_uses_end_node_end_time_as_makespan",
         "same_machine_uses_nonexistent_awls_trial",
@@ -1051,6 +1052,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "same_machine_retries_legacy_ratio_exact_gate",
         "same_machine_retries_exact_setup_tiebreak",
         "same_machine_retries_noncritical_worsening_exact_gate",
+        "same_machine_retries_exact_estimator_error_correction",
         "same_machine_uses_nonexistent_move_node",
         "same_machine_uses_end_node_end_time_as_makespan",
         "same_machine_uses_nonexistent_awls_trial",
@@ -1231,6 +1233,21 @@ def slot_specific_generic_warnings(
     )
     if noncritical_worsening_exact_gate:
         warnings.append("same_machine_retries_noncritical_worsening_exact_gate")
+    estimator_error_correction = (
+        uses_exact_trial
+        and (
+            "error_correction" in content
+            or "estimation_error" in content
+            or "estimator_error" in content
+            or re.search(r"\b(?:exact|trial_makespan)\s*-\s*(?:stable_value|stable|legacy)\b", content)
+        )
+        and re.search(
+            r"\b(?:exact|trial_makespan)\s*\+\s*(?:[\w_]+\s*\*\s*)?\(\s*(?:exact|trial_makespan)\s*-\s*(?:stable_value|stable|legacy)\s*\)",
+            content,
+        )
+    )
+    if estimator_error_correction:
+        warnings.append("same_machine_retries_exact_estimator_error_correction")
     return warnings
 
 
@@ -1909,6 +1926,9 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "do not retry setup-time-only tie-breaking unchanged.\n"
             "- Do not retry exact trial plus a non-critical worsening penalty of `0.1 * (trial_makespan - "
             "schedule.makespan)` gated by `move.which` and backward_path_length; it legally tied oddla20 at 1010.\n"
+            "- Do not retry exact trial plus estimator-error correction such as `exact + k * (exact - stable_value)` "
+            "or `trial_makespan + k * (trial_makespan - legacy)`; on oddla12/14/20 it worsened average makespan "
+            "from 1208.0 to 1248.0.\n"
             "- Move has fields `method`, `which`, and `where`; do not use nonexistent `move.node`.  Use "
             "`move.which` for the moved operation.\n"
             "- There is no `AwlsTrial` class in `harness_agent.standard_fjsp`; exact same-machine trials must use "
