@@ -110,6 +110,20 @@ There is no `schedule.setup_time(...)` helper and no
   improvement.  Do not retry exact trial with only estimator-error correction
   such as `exact + k * (exact - stable/legacy)` or `trial_makespan + k *
   estimator_error` unchanged.
+- On a representative HUdata probe `oddla02/oddla13/oddla14/oddla16/oddla20`,
+  baseline under the current `critical + beta400/gamma40/theta5 + pct75`
+  controls averaged `1110.6`.  A worker then proposed
+  `same_machine_exact_with_locality_tiebreaker`: for every SDST same-machine
+  candidate it cloned the schedule, applied the move, returned
+  `trial.makespan`, and used `0.0001 * distance` as an equal-makespan locality
+  tie-breaker.  The code was syntactically legal, but the Core candidate
+  benchmark exceeded the outer 30-minute shell limit with three 30s solver
+  subprocesses still running, showing that unbounded exact clone/apply inside
+  every N7 score can burn the evaluation budget.  The platform now treats this
+  as `same_machine_unbounded_exact_trial_scoring`.  Future exact-trial use
+  must be bounded by a prior stable estimate, critical-tail/locality gate,
+  explicit small budget, or move-selection top-k stage before evaluator time is
+  spent.
 - If manually adding setup-aware forward/backward local propagation is too
   fragile, prefer exact local scoring:
 

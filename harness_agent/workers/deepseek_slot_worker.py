@@ -744,6 +744,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "same_machine_retries_exact_setup_tiebreak",
         "same_machine_retries_noncritical_worsening_exact_gate",
         "same_machine_retries_exact_estimator_error_correction",
+        "same_machine_unbounded_exact_trial_scoring",
         "same_machine_uses_nonexistent_move_node",
         "same_machine_uses_end_node_end_time_as_makespan",
         "same_machine_uses_nonexistent_awls_trial",
@@ -1055,6 +1056,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "same_machine_retries_exact_setup_tiebreak",
         "same_machine_retries_noncritical_worsening_exact_gate",
         "same_machine_retries_exact_estimator_error_correction",
+        "same_machine_unbounded_exact_trial_scoring",
         "same_machine_uses_nonexistent_move_node",
         "same_machine_uses_end_node_end_time_as_makespan",
         "same_machine_uses_nonexistent_awls_trial",
@@ -1201,6 +1203,8 @@ def slot_specific_generic_warnings(
     uses_exact_trial = ".clone(" in content and ".apply_move(" in content and "trial.makespan" in content
     if uses_setup_propagation and not uses_exact_trial:
         warnings.append("same_machine_setup_propagation_without_exact_trial")
+    if same_machine_uses_unbounded_exact_trial(content, uses_exact_trial=uses_exact_trial):
+        warnings.append("same_machine_unbounded_exact_trial_scoring")
     if re.search(r"\bmove\.node\b", content):
         warnings.append("same_machine_uses_nonexistent_move_node")
     if re.search(r"\bawlstrial\b", content):
@@ -1253,6 +1257,31 @@ def slot_specific_generic_warnings(
     if estimator_error_correction:
         warnings.append("same_machine_retries_exact_estimator_error_correction")
     return warnings
+
+
+def same_machine_uses_unbounded_exact_trial(content: str, *, uses_exact_trial: bool) -> bool:
+    if not uses_exact_trial:
+        return False
+    clone_at = content.find(".clone(")
+    if clone_at < 0:
+        return False
+    prefix = content[:clone_at]
+    estimate_name = r"(?:legacy|stable_value|stable_score|stable_estimate|approx_value|base_value)"
+    estimate_return_gate = re.search(
+        rf"if\s+[^:\n]*(?:{estimate_name}|schedule\.is_critical_operation|backward_path_length|forward_path_length|end_time)"
+        rf"[^:\n]*:\s*\n\s*return\s+(?:{estimate_name}|float\(\s*{estimate_name}\s*\))",
+        prefix,
+    )
+    if estimate_return_gate:
+        return False
+    explicit_bound_before_clone = re.search(
+        r"(?:max_exact|exact_limit|top_k|candidate_budget|bounded_exact|exact_budget)",
+        prefix,
+        re.IGNORECASE,
+    )
+    if explicit_bound_before_clone:
+        return False
+    return True
 
 
 def awls_sdst_zi_features_warnings(*, context: dict[str, Any] | None = None) -> list[str]:
@@ -1937,6 +1966,9 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- Do not retry exact trial plus estimator-error correction such as `exact + k * (exact - stable_value)` "
             "or `trial_makespan + k * (trial_makespan - legacy)`; on oddla12/14/20 it worsened average makespan "
             "from 1208.0 to 1248.0.\n"
+            "- Do not run exact clone/apply scoring for every same-machine candidate without a prior filter or budget; "
+            "a locality tie-breaker variant exceeded the HUdata probe evaluation budget.  Gate exact trials with the "
+            "stable estimate, critical-tail/locality evidence, or an explicit small candidate budget.\n"
             "- Move has fields `method`, `which`, and `where`; do not use nonexistent `move.node`.  Use "
             "`move.which` for the moved operation.\n"
             "- There is no `AwlsTrial` class in `harness_agent.standard_fjsp`; exact same-machine trials must use "
