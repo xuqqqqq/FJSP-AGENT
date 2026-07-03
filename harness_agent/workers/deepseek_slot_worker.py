@@ -912,6 +912,21 @@ def build_generic_slot_audit(
     novelty_text = "\n".join(
         str(item.get("novelty") or "") for item in hypotheses if isinstance(item, dict)
     ).lower()
+    hypothesis_text = "\n".join(
+        "\n".join(
+            [
+                str(item.get("name") or ""),
+                str(item.get("type") or ""),
+                str(item.get("novelty") or ""),
+                str(item.get("expected_effect") or ""),
+                " ".join(str(value) for value in (item.get("evidence_used") or []))
+                if isinstance(item.get("evidence_used"), list)
+                else "",
+            ]
+        )
+        for item in hypotheses
+        if isinstance(item, dict)
+    ).lower()
     risk_notes = proposal.get("risk_notes") or []
     if isinstance(risk_notes, str):
         risk_notes = [risk_notes]
@@ -921,6 +936,8 @@ def build_generic_slot_audit(
     risk_text = "\n".join(str(item) for item in risk_notes).lower()
     summary_text = str(proposal.get("summary") or "").lower()
     intent_text = str(proposal.get("strategy_intent") or "").lower()
+    context_usage = proposal.get("context_usage") if isinstance(proposal.get("context_usage"), dict) else {}
+    context_usage_text = json.dumps(context_usage, ensure_ascii=False).lower() if context_usage else ""
     warnings: list[str] = []
     rejected_reasons = " ".join(str(item.get("reason") or "") for item in rejected_changes if isinstance(item, dict)).lower()
     if rejected_changes and not normalized_changes:
@@ -942,6 +959,10 @@ def build_generic_slot_audit(
         for cue in ("avoid", "failed", "worsen", "rolled", "different", "material", "instead", "not retry", "失败", "变差")
     ):
         warnings.append("novelty_does_not_reference_failure_memory")
+    if normalized_changes and sdst_instance_diagnostics_available(context) and is_awls_sdst_slot(slot):
+        grounding_text = "\n".join([summary_text, intent_text, hypothesis_text, context_usage_text, risk_text])
+        if not references_instance_diagnostics(grounding_text):
+            warnings.append("sdst_slot_ignores_instance_diagnostics")
     warnings.extend(slot_specific_generic_warnings(slot, normalized_changes, context=context))
     if len(normalized_changes) > 1:
         warnings.append("generic_slot_accepts_only_one_change")
@@ -1054,8 +1075,49 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "slot_change_rejected_wrong_slot_id",
         "slot_content_python_syntax_error",
         "zi_features_slot_inert_under_current_zi_policy",
+        "sdst_slot_ignores_instance_diagnostics",
     }
     return any(str(item) in repair_warnings for item in warnings)
+
+
+def sdst_instance_diagnostics_available(context: dict[str, Any]) -> bool:
+    diagnostics = context.get("instance_diagnostics") if isinstance(context, dict) else {}
+    if not isinstance(diagnostics, dict) or diagnostics.get("status") not in {"available", "partial"}:
+        return False
+    summary = diagnostics.get("summary") if isinstance(diagnostics.get("summary"), dict) else {}
+    return int(summary.get("sdst_instance_count", 0) or 0) > 0
+
+
+def is_awls_sdst_slot(slot: dict[str, Any]) -> bool:
+    return str(slot.get("slot_id") or "").startswith("awls_sdst_")
+
+
+def references_instance_diagnostics(text: str) -> bool:
+    normalized = text.lower()
+    return any(
+        cue in normalized
+        for cue in (
+            "instance_diagnostics",
+            "instance diagnostics",
+            "setup ratio",
+            "setup/processing",
+            "setup_to_processing",
+            "job_pair",
+            "operation_pair",
+            "candidate density",
+            "candidate machine",
+            "avg_candidate",
+            "machine alternative",
+            "scale",
+            "sdst_instance",
+            "sdst instance",
+            "实例画像",
+            "算例画像",
+            "setup占比",
+            "候选机器",
+            "算例规模",
+        )
+    )
 
 
 def slot_specific_generic_warnings(
@@ -1734,8 +1796,16 @@ def awls_sdst_tabu_memory_warnings(content: str) -> list[str]:
 
 def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
     slot_id = str(slot.get("slot_id") or "")
+    diagnostic_guidance = (
+        "- If warning `sdst_slot_ignores_instance_diagnostics` appears, revise the natural-language hypothesis, "
+        "`evidence_used`, and `context_usage.notes` to explicitly use `instance_diagnostics` such as SDST setup kind, "
+        "setup/processing ratio, candidate-machine density, scale, or best-known diagnostics.  Do not use LB/UB as an "
+        "objective; they remain diagnostic only.\n"
+        if slot_id.startswith("awls_sdst_")
+        else ""
+    )
     if slot_id == "awls_sdst_neighborhood_selection":
-        return (
+        return diagnostic_guidance + (
             "- Do not retry the known non-improving neighborhood patterns: near-critical 0.99*makespan filters, "
             "+/-10 or +/-3 same-machine windows, or tight tardiness > -5 insertion filters.\n"
             "- Do not replace the incumbent exhaustive/non-exhaustive critical-block pass with a fixed top-K latest-block "
@@ -1765,7 +1835,7 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- Do not call trial.apply_move, directly mutate schedule, or bypass the existing closures."
         )
     if slot_id == "awls_sdst_initialization":
-        return (
+        return diagnostic_guidance + (
             "- Do not retry append-only setup-aware earliest completion, low-setup tie-breaks, fixed small RCL, "
             "or tail-aware append scoring unchanged; those worsened oddla20.\n"
             "- The next acceptable initialization attempts should use true second-best-machine regret, "
@@ -1799,7 +1869,7 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "never pass raw node ids or index.op_index."
         )
     if slot_id == "awls_sdst_same_machine_evaluation":
-        return (
+        return diagnostic_guidance + (
             "- Setup-aware R/Q propagation approximations have failed unless backed by an exact cloned trial.\n"
             "- Pure exact cloned trial scored as `trial.makespan + 0.001 * legacy` has already tied oddla20; "
             "do not retry it unchanged.\n"
@@ -1819,7 +1889,7 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "or move-locality rule while preserving makespan pressure."
         )
     if slot_id == "awls_sdst_move_evaluation":
-        return (
+        return diagnostic_guidance + (
             "- Do not retry simple linear setup-delta penalties or full exact scoring over every change-machine "
             "candidate; both worsened oddla20.\n"
             "- Do not retry proxy-ratio gated exact scoring that stores `_best_proxy` on "
@@ -1840,7 +1910,7 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "source sentinel and `schedule.index.end_node` for the sink sentinel."
         )
     if slot_id == "awls_sdst_portfolio_search_control":
-        return (
+        return diagnostic_guidance + (
             "- Do not retry seed-mapping-only perturbations such as adding idx * 7919 modulo 10000; that tied "
             "oddla20 at 1010 without improving the incumbent.\n"
             "- Do not retry probe-then-rerun-current-best or best-lane deepening with doubled restarts; broad-scan "
@@ -1856,7 +1926,7 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "appending diagnostics; a prior two-phase candidate crashed with NameError after deleting it."
         )
     if slot_id == "awls_sdst_move_selection":
-        return (
+        return diagnostic_guidance + (
             "- This slot selects among already collected move keys only; do not call consider_same or consider_change.\n"
             "- Do not append, extend, insert into, or otherwise generate all_moves, ranked_moves, or best_moves.\n"
             "- Do not mutate schedule directly and do not call schedule.apply_move; exact checks must use "
@@ -1887,7 +1957,7 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "subset of all_moves; do not add a nested local search loop."
         )
     if slot_id == "awls_sdst_weight_update":
-        return (
+        return diagnostic_guidance + (
             "- This slot may mutate only schedule.op_weight and schedule.op_cooldown for real operation nodes.\n"
             "- Do not call apply_move, find_move, tabu_search, solve_awls, solve_awls_single, or evaluator/validator APIs.\n"
             "- Do not mutate machine_sequences, predecessor/successor links, on_machine, start/end times, or makespan.\n"
@@ -1899,7 +1969,7 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "alternative is explicitly justified by the hypothesis."
         )
     if slot_id == "awls_sdst_zi_features":
-        return (
+        return diagnostic_guidance + (
             "- This slot only adds numeric entries to `values` consumed by `zi_policy=formula` or `zi_policy=slot`.\n"
             "- In standard worker-loop slot mode, this selected slot is evaluated with a conservative formula consumer "
             "unless the request explicitly sets a different zi policy, so feature edits are observable by Core.\n"
@@ -1910,7 +1980,7 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- Keep feature values finite and bounded, mutate only `values`, and never call local search or evaluator APIs."
         )
     if slot_id == "awls_sdst_search_transition":
-        return (
+        return diagnostic_guidance + (
             "- This slot controls only the post-move tabu-search transition after a legal move and weight update.\n"
             "- Preserve `best` as the lowest makespan seen in this tabu_search call; do not assign current to best "
             "unless current.makespan < best.makespan.\n"
@@ -1920,7 +1990,7 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- Plateau, backtrack, or restart logic must be bounded and deterministic from in-scope values, using only current.rng if randomness is needed."
         )
     if slot_id == "awls_sdst_tabu_memory":
-        return (
+        return diagnostic_guidance + (
             "- This slot only computes the local tabu memory update for the accepted move.\n"
             "- Call `tabu.add(machine_id, sequence, expires_at)` exactly once; do not mutate `tabu.items` directly.\n"
             "- Do not call apply_move, clone, find_move, tabu_search, solve_awls, solve_awls_single, or evaluator/validator APIs.\n"

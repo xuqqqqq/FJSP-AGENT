@@ -394,6 +394,88 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertEqual("awls_sdst_move_selection", slot["slot_id"])
         self.assertEqual([], validate_generic_slot_contract(context, "awls_sdst_move_selection"))
 
+    def test_sdst_slot_warns_when_instance_diagnostics_are_ignored(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_selection")
+        context["instance_diagnostics"] = _sdst_instance_diagnostics_context()
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "summary": "Prefer exact move candidates on critical blocks.",
+                "strategy_intent": "Use critical-block exact rechecks to improve makespan.",
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "critical_exact_recheck",
+                        "type": "local_search_operator",
+                        "novelty": "Avoids failed random fallback by only rechecking existing moves.",
+                        "expected_effect": "Reduce makespan by choosing stronger candidate moves.",
+                        "evidence_used": ["slot_manifest", "knowledge_cards"],
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_selection",
+                        "content": "    best_moves[:] = sorted(best_moves, key=lambda item: item[0])\n",
+                    }
+                ],
+                "context_usage": {
+                    "used_project_intake": True,
+                    "referenced_files": ["examples/standard_fjsp_awls_solver.py"],
+                    "notes": "Used slot manifest and neighborhood failure memory.",
+                },
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn("sdst_slot_ignores_instance_diagnostics", normalized["proposal_audit"]["warnings"])
+        self.assertTrue(generic_slot_needs_repair(normalized))
+        guidance = generic_slot_repair_guidance(slot)
+        self.assertIn("instance_diagnostics", guidance)
+        self.assertIn("diagnostic only", guidance)
+
+    def test_sdst_slot_accepts_instance_diagnostics_grounding(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_selection")
+        context["instance_diagnostics"] = _sdst_instance_diagnostics_context()
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "summary": "Use the instance_diagnostics setup ratio to keep sparse-machine SDST move selection conservative.",
+                "strategy_intent": "Because candidate density is low and job_pair setup is large, only re-rank existing best moves.",
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "diagnostic_grounded_exact_recheck",
+                        "type": "local_search_operator",
+                        "novelty": "Avoids failed random fallback by using instance_diagnostics setup/processing evidence.",
+                        "expected_effect": "Improve makespan by preserving candidate breadth on sparse SDST instances.",
+                        "evidence_used": ["slot_manifest", "instance_diagnostics", "knowledge_cards"],
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_selection",
+                        "content": "    best_moves[:] = sorted(best_moves, key=lambda item: item[0])\n",
+                    }
+                ],
+                "context_usage": {
+                    "used_project_intake": True,
+                    "referenced_files": ["examples/standard_fjsp_awls_solver.py"],
+                    "notes": "Used instance_diagnostics: job_pair setup, setup ratio, and sparse candidate machines.",
+                },
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertNotIn("sdst_slot_ignores_instance_diagnostics", normalized["proposal_audit"]["warnings"])
+
     def test_selected_confirmed_slot_accepts_sdst_zi_feature_slot(self) -> None:
         context = _generic_slot_context(slot_id="awls_sdst_zi_features")
 
@@ -4483,6 +4565,25 @@ def _generic_slot_context(*, slot_id: str = "awls_sdst_neighborhood_selection") 
                 }
             ],
         },
+    }
+
+
+def _sdst_instance_diagnostics_context() -> dict[str, object]:
+    return {
+        "status": "available",
+        "summary": {
+            "instance_count": 1,
+            "profiled_count": 1,
+            "sdst_instance_count": 1,
+            "setup_time_kinds": ["job_pair"],
+            "avg_candidate_count": 1.0,
+            "max_setup_to_processing_avg_ratio": 1.25,
+            "best_known_semantics": "diagnostic_only_score_remains_negative_makespan",
+        },
+        "direction_hints": [
+            "Setup is large relative to processing; prioritize setup-aware insertion and critical-block ordering.",
+            "Best-known/LB/UB values are gap diagnostics only.",
+        ],
     }
 
 
