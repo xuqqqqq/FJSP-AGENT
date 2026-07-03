@@ -1489,6 +1489,8 @@ def update_operation_weights(
 ) -> None:
     # SLOT awls_sdst_weight_update START
     critical = {node for node in schedule.index.real_nodes if schedule.is_critical_operation(node)}
+    has_sdst = schedule.index.instance.has_sequence_dependent_setup
+
     if current_makespan >= previous_makespan:
         if schedule.op_cooldown[moved_node] > beta:
             schedule.op_weight[moved_node] = 0
@@ -1506,14 +1508,22 @@ def update_operation_weights(
             cooldown_step = theta
             if zi_policy == "aggressive":
                 cooldown_step = max(theta + 1, theta * 2)
+            if has_sdst:
+                cooldown_step += 1
             schedule.op_cooldown[moved_node] = max(schedule.op_cooldown[moved_node] - cooldown_step, 0)
 
         for node in schedule.index.real_nodes:
             if node not in critical and node != moved_node:
-                schedule.op_cooldown[node] += 2 if zi_policy == "aggressive" else 1
+                inc = 2 if zi_policy == "aggressive" else 1
+                if has_sdst:
+                    inc = max(0, inc - 1)
+                schedule.op_cooldown[node] += inc
     else:
         for node in schedule.index.real_nodes:
-            schedule.op_cooldown[node] += 1
+            inc = 1
+            if has_sdst:
+                inc = max(0, inc - 1)
+            schedule.op_cooldown[node] += inc
 
     if current_makespan < best_makespan_before:
         for node in schedule.index.real_nodes:

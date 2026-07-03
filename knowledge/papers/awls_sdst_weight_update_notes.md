@@ -69,6 +69,19 @@ setup = setup_time_between(schedule.index.instance, machine_id, prev_op, cur_op,
   evaluator execution with no changed files.  Future rounds must return one
   concrete `replace_slot_block` edit, and they should not depend on scanning or
   rewriting schedule topology merely to penalize globally high-setup nodes.
+- A confirmed-slot worker candidate `global_sdst_cooldown_boost` was promoted
+  on the `oddla20` Core worker-loop contract with
+  `restarts=2`, `cycles=1000`, `iterations=10000`, `time_limit_sec=28`,
+  `init=mixed`, `critical + beta400/gamma40/theta5 + pct75`, and no
+  portfolio lanes.  It uses only the SDST boolean flag: the moved node cools
+  one step faster, while other non-critical nodes gain one less cooldown on
+  SDST instances.  Core promotion saw `1039 -> 997`, but manual reruns showed
+  wall-clock sensitivity: the same no-portfolio contract reproduced
+  `1039 -> 1031/1022`, and the same portfolio lanes
+  `0:mixed:1:6,5:greedy:1:6,10:random:1:6,13:mixed:1:6` reproduced
+  `1030 -> 1023`.  The old `20 cycles / 300 iterations / 20s` short line
+  remained `1010 -> 1010`.  Treat this as a useful accepted pressure rule, not
+  as a stable proof that `997` is always reached.
 
 ## Guardrails
 
@@ -83,3 +96,6 @@ setup = setup_time_between(schedule.index.instance, machine_id, prev_op, cur_op,
   solution schema, CLI, or benchmark semantics.
 - Do not return only a natural-language hypothesis.  The worker must emit one
   concrete slot replacement or a concrete contract blocker in `risk_notes`.
+- Do not cite the one-shot `997` result without the rerun caveat; independent
+  verification showed strict improvement on the 28s worker contract but not a
+  stable UB hit on every run.
