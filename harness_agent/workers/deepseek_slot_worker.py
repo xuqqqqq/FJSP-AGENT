@@ -614,6 +614,7 @@ def compact_context(context: dict[str, Any]) -> dict[str, Any]:
         "objectives": contract.get("objectives", []),
         "instances": contract.get("instances", [])[:3],
         "commands": contract.get("commands", {}),
+        "evaluator_protocol": context.get("evaluator_protocol") or {},
         "slot_manifest": {
             "status": slot_manifest.get("status") if isinstance(slot_manifest, dict) else None,
             "confirmation_required": slot_manifest.get("confirmation_required") if isinstance(slot_manifest, dict) else None,
@@ -1041,6 +1042,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "all_slot_changes_rejected",
         "slot_change_rejected_wrong_slot_id",
         "slot_content_python_syntax_error",
+        "zi_features_slot_inert_under_current_zi_policy",
     }
     return any(str(item) in repair_warnings for item in warnings)
 
@@ -1080,6 +1082,8 @@ def slot_specific_generic_warnings(
         return warnings + awls_sdst_search_transition_warnings(content)
     if slot_id == "awls_sdst_tabu_memory":
         return warnings + awls_sdst_tabu_memory_warnings(content)
+    if slot_id == "awls_sdst_zi_features":
+        return warnings + awls_sdst_zi_features_warnings(context=context)
     if slot_id != "awls_sdst_same_machine_evaluation":
         return warnings
     uses_setup_propagation = "setup_time_between" in content and ("new_r" in content or "new_q" in content)
@@ -1123,6 +1127,26 @@ def slot_specific_generic_warnings(
     if noncritical_worsening_exact_gate:
         warnings.append("same_machine_retries_noncritical_worsening_exact_gate")
     return warnings
+
+
+def awls_sdst_zi_features_warnings(*, context: dict[str, Any] | None = None) -> list[str]:
+    zi_policy = solver_command_zi_policy(context)
+    if zi_policy and zi_policy not in {"formula", "slot"}:
+        return ["zi_features_slot_inert_under_current_zi_policy"]
+    return []
+
+
+def solver_command_zi_policy(context: dict[str, Any] | None) -> str:
+    if not isinstance(context, dict):
+        return ""
+    evaluator_protocol = context.get("evaluator_protocol")
+    if not isinstance(evaluator_protocol, dict):
+        return ""
+    command = str(evaluator_protocol.get("solver_command_template") or "").lower()
+    if not command:
+        return ""
+    match = re.search(r"--zi-policy(?:=|\s+)([^\s{}]+)", command)
+    return match.group(1).strip("\"'") if match else ""
 
 
 def awls_sdst_move_evaluation_warnings(content: str) -> list[str]:
@@ -1826,6 +1850,15 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "- Do not use random numbers, file IO, subprocesses, multiprocessing, network access, or environment variables.\n"
             "- Preserve the new-best reset behavior after current_makespan < best_makespan_before unless a bounded "
             "alternative is explicitly justified by the hypothesis."
+        )
+    if slot_id == "awls_sdst_zi_features":
+        return (
+            "- This slot only adds numeric entries to `values` consumed by `zi_policy=formula` or `zi_policy=slot`.\n"
+            "- If the active solver command uses `--zi-policy critical`, `cpp`, `cpp-exact`, `aggressive`, `sqrt`, or "
+            "`none`, feature-only changes are inert and must be rejected or paired with a policy/command that consumes them.\n"
+            "- Do not spend a round only adding feature keys under a non-consuming zi policy; switch the evaluation to "
+            "`formula`/`slot` or select a slot that the current policy actually uses, such as weight update or search transition.\n"
+            "- Keep feature values finite and bounded, mutate only `values`, and never call local search or evaluator APIs."
         )
     if slot_id == "awls_sdst_search_transition":
         return (

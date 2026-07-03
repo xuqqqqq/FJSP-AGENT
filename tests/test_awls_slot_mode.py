@@ -92,6 +92,19 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("--same-machine-eval stable", command)
         self.assertIn("--beta 400", command)
 
+    def test_compact_context_preserves_evaluator_protocol_for_slot_prompt(self) -> None:
+        context = _generic_slot_context(slot_id="awls_sdst_zi_features")
+        context["evaluator_protocol"] = {
+            "solver_command_template": "python examples/standard_fjsp_awls_solver.py --zi-policy critical"
+        }
+
+        compacted = compact_context(context)
+
+        self.assertEqual(
+            "python examples/standard_fjsp_awls_solver.py --zi-policy critical",
+            compacted["evaluator_protocol"]["solver_command_template"],
+        )
+
     def test_cli_deepseek_worker_uses_slot_worker_when_slot_manifest_is_present(self) -> None:
         worker = make_worker(
             "deepseek",
@@ -214,6 +227,83 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertEqual("", error)
         self.assertEqual("awls_sdst_zi_features", slot["slot_id"])
         self.assertEqual([], validate_generic_slot_contract(context, "awls_sdst_zi_features"))
+
+    def test_zi_feature_slot_warns_when_current_policy_does_not_consume_features(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_zi_features")
+        context["evaluator_protocol"] = {
+            "solver_command_template": "python examples/standard_fjsp_awls_solver.py --zi-policy critical --input {instance}"
+        }
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "extra_setup_pressure_features",
+                        "type": "feature_extraction",
+                        "novelty": "Avoids failed formula scaling by adding a distinct downstream feature.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_zi_features",
+                        "content": "    values['setup_tail_pressure'] = values.get('setup_next_ratio', 0.0)\n",
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "zi_features_slot_inert_under_current_zi_policy",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_zi_feature_slot_allows_formula_or_slot_policy_consumers(self) -> None:
+        worker = DeepSeekSlotWorker()
+        for zi_policy in ("formula", "slot"):
+            with self.subTest(zi_policy=zi_policy):
+                context = _generic_slot_context(slot_id="awls_sdst_zi_features")
+                context["evaluator_protocol"] = {
+                    "solver_command_template": (
+                        "python examples/standard_fjsp_awls_solver.py "
+                        f"--zi-policy {zi_policy} --input {{instance}}"
+                    )
+                }
+                slot = context["slot_manifest"]["slots"][0]
+
+                normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+                    {
+                        "rule_operator_hypotheses": [
+                            {
+                                "name": "extra_setup_pressure_features",
+                                "type": "feature_extraction",
+                                "novelty": "Avoids failed formula scaling by adding a distinct downstream feature.",
+                                "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                            }
+                        ],
+                        "changes": [
+                            {
+                                "action": "replace_slot_block",
+                                "slot_id": "awls_sdst_zi_features",
+                                "content": "    values['setup_tail_pressure'] = values.get('setup_next_ratio', 0.0)\n",
+                            }
+                        ],
+                    },
+                    slot,
+                    context=context,
+                )
+
+                self.assertNotIn(
+                    "zi_features_slot_inert_under_current_zi_policy",
+                    normalized["proposal_audit"]["warnings"],
+                )
+                self.assertFalse(generic_slot_needs_repair(normalized))
 
     def test_selected_confirmed_slot_accepts_sdst_weight_update_slot(self) -> None:
         context = _generic_slot_context(slot_id="awls_sdst_weight_update")

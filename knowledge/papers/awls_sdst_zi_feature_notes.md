@@ -87,6 +87,12 @@ solution schema, or benchmark score semantics.
   does not consume formula-only feature additions.  Do not spend another round
   only adding zi feature keys unless the benchmark also uses `zi_policy=formula`
   or `zi_policy=slot`, or a paired slot actually consumes those features.
+- The platform now treats `awls_sdst_zi_features` changes as must-repair when
+  the context solver command explicitly uses a non-consuming zi policy such as
+  `critical`, `cpp`, `cpp-exact`, `aggressive`, `sqrt`, or `none`.  This guard
+  is named `zi_features_slot_inert_under_current_zi_policy`; repair should
+  switch the evaluation to `formula`/`slot` or select a slot consumed by the
+  current policy, not merely add unused feature keys.
 
 ## Worker Directions
 
