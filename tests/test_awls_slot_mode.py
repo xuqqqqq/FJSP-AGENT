@@ -1920,6 +1920,46 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_move_selection_slot_warns_on_dict_get_for_schedule_lists(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "local_setup_list_get",
+                        "type": "local_search_operator",
+                        "novelty": "Different from global setup sums by inspecting only adjacent arcs.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_selection",
+                        "content": (
+                            "    trial = schedule.clone()\n"
+                            "    move = Move(*best_moves[0])\n"
+                            "    trial.apply_move(move)\n"
+                            "    machine_id = trial.on_machine.get(move.which)\n"
+                            "    predecessor = trial.machine_predecessor.get(move.which)\n"
+                            "    return Move(*best_moves[0]) if machine_id is not None and predecessor is not None else None\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "move_selection_uses_dict_get_on_schedule_lists",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_move_selection_repair_guidance_names_select_only_contract(self) -> None:
         slot = _generic_slot_context(slot_id="awls_sdst_move_selection")["slot_manifest"]["slots"][0]
 
@@ -1930,6 +1970,7 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("makespan", guidance)
         self.assertIn("which_node", guidance)
         self.assertIn("no `operations`", guidance)
+        self.assertIn("are lists, not dicts", guidance)
         self.assertIn("operation_key(schedule, node)", guidance)
         self.assertIn("min(3, len(best_moves))", guidance)
         self.assertIn("global setup-sum", guidance)

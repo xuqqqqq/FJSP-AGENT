@@ -735,6 +735,7 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "move_selection_uses_invalid_setup_time_between_signature",
         "move_selection_uses_nonexistent_node_to_operation_key",
         "move_selection_uses_nonexistent_operations_api",
+        "move_selection_uses_dict_get_on_schedule_lists",
         "move_selection_misinterprets_move_key_shape",
         "move_selection_trial_apply_without_clone",
         "weight_update_calls_forbidden_runtime_api",
@@ -1015,6 +1016,7 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "move_selection_uses_invalid_setup_time_between_signature",
         "move_selection_uses_nonexistent_node_to_operation_key",
         "move_selection_uses_nonexistent_operations_api",
+        "move_selection_uses_dict_get_on_schedule_lists",
         "move_selection_misinterprets_move_key_shape",
         "move_selection_trial_apply_without_clone",
         "weight_update_calls_forbidden_runtime_api",
@@ -1491,6 +1493,8 @@ def awls_sdst_move_selection_warnings(content: str) -> list[str]:
         warnings.append("move_selection_uses_nonexistent_node_to_operation_key")
     if re.search(r"\b(?:sched|schedule|trial)\.operations\b", content):
         warnings.append("move_selection_uses_nonexistent_operations_api")
+    if re.search(r"\b(?:schedule|sched|trial)\.(?:on_machine|machine_predecessor|machine_successor|job_predecessor|job_successor)\.get\s*\(", content):
+        warnings.append("move_selection_uses_dict_get_on_schedule_lists")
     misreads_move_key_as_op_key = (
         re.search(r"\b(?:op_key|target_m|target_machine)\b", content)
         and re.search(r"\b(?:move_type|method)\s*,\s*(?:op_key|op)\s*,\s*(?:target_m|target_machine)\s*=\s*move_key", content)
@@ -1792,6 +1796,9 @@ def generic_slot_repair_guidance(slot: dict[str, Any]) -> str:
             "use string literals like `change_machine`.\n"
             "- AwlsSchedule has no `operations` record list.  Use machine_sequences, on_machine, "
             "machine_predecessor/successor, end_time, backward_path_length, and makespan.\n"
+            "- `on_machine`, `machine_predecessor`, `machine_successor`, `job_predecessor`, and "
+            "`job_successor` are lists, not dicts; use indexed access like `trial.on_machine[node]` and "
+            "treat missing predecessor/successor sentinels as `-1`, not `None`.\n"
             "- Convert AWLS node ids to operation keys with module-level `operation_key(schedule, node)`; "
             "OperationIndex has no `node_to_operation_key` field.\n"
             "- Do not retry `min(3, len(best_moves))` exact rechecks over best_moves; both triggered and "

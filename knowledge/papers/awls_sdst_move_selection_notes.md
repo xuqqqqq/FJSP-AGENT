@@ -77,6 +77,13 @@ move keys and keep Core evaluator promotion as the only quality authority.
   `best_moves`.  Core evaluation tied `oddla20` at `1010`.  Do not retry a
   full machine-sequence/global setup-sum tie-break as the main novelty; it is
   now legal but non-improving under the current incumbent controls.
+- After `global_sdst_cooldown_boost` was absorbed, a move-selection worker tried
+  `local_setup_tie_breaker`: exact top-k by `trial.makespan`, adjacent setup arc
+  tie-break, and deterministic `best_moves` fallback.  It failed before quality
+  evaluation because it called `trial.on_machine.get(...)` and
+  `trial.machine_predecessor.get(...)`.  These AWLS schedule fields are lists,
+  not dictionaries; use indexed access such as `trial.on_machine[node]` and
+  treat predecessor/successor sentinels as `-1`, not `None`.
 
 ## Guardrails
 
@@ -90,6 +97,8 @@ move keys and keep Core evaluator promotion as the only quality authority.
   records.
 - Do not use `schedule.index.node_to_operation_key` or
   `idx.node_to_operation_key`; use `operation_key(schedule, node)`.
+- Do not call `.get(...)` on `on_machine`, `machine_predecessor`,
+  `machine_successor`, `job_predecessor`, or `job_successor`; they are lists.
 - Do not retry exact top-k selection whose main novelty is a global setup-sum
   tie-break after exact makespan; the legal version tied `oddla20` at `1010`.
 - Do not read files, LB/UB tables, evaluator outputs, environment variables, or
