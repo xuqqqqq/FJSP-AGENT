@@ -7,7 +7,7 @@ from pathlib import Path
 
 from harness_agent.project_intake import ProjectIntakeRequest, write_project_intake
 from harness_agent.slot_manifest import write_default_slot_manifest
-from harness_agent.standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop
+from harness_agent.standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop, standard_solver_command
 from harness_agent.worker import NullWorker
 
 
@@ -84,6 +84,25 @@ class StandardWorkerLoopTests(unittest.TestCase):
             self.assertTrue((output_dir / "standard_worker_loop_manifest.json").exists())
             self.assertTrue((output_dir / "standard_worker_loop_report.md").exists())
             self.assertTrue((output_dir / "worker_loop" / "loop_result.json").exists())
+
+    def test_agent_generated_baseline_command_points_to_generated_entrypoint(self) -> None:
+        request = StandardWorkerLoopRequest(
+            docs=[ROOT / "README.md"],
+            instance_dir=ROOT / "examples",
+            pattern="standard_fjsp_tiny.fjs",
+            output_dir=Path("unused"),
+            project_root=ROOT,
+            worker=NullWorker(),
+            baseline_source="agent_generated",
+            agent_generated_solver_path="examples/generated_solver_for_test.py",
+        )
+
+        command = standard_solver_command(request)
+
+        self.assertIn("examples/generated_solver_for_test.py", command)
+        self.assertIn("--input {instance}", command)
+        self.assertIn("--output {solution}", command)
+        self.assertIn("--seed {seed}", command)
 
 
 def _write_previous_memory(tmp_path: Path) -> Path:

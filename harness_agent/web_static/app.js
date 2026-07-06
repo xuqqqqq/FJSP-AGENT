@@ -46,6 +46,7 @@ async function loadDemo(options = {}) {
   $("max-rounds").value = demo.config.max_rounds;
   $("seeds").value = demo.config.seeds;
   $("solver").value = demo.config.solver;
+  $("baseline-source").value = demo.config.baseline_source || "current_project";
   $("evolution-mode").value = demo.config.evolution_mode;
   $("profile-mode").value = demo.config.profile_mode;
   $("selected-slot-id").value = "agent_auto";
@@ -152,6 +153,7 @@ function buildPayload() {
     max_rounds: Number($("max-rounds").value || 2),
     seeds: $("seeds").value || DEFAULT_STANDARD_SEEDS,
     solver: $("solver").value,
+    baseline_source: $("baseline-source").value,
     evolution_mode: $("evolution-mode").value,
     selected_slot_id: $("selected-slot-id").value || "agent_auto",
     slot_user_confirmed: $("slot-user-confirmed").checked,
@@ -184,6 +186,7 @@ function updateContractSummary() {
   if (!target) return;
   const runMode = $("run-mode").value;
   const evolutionMode = $("evolution-mode").value;
+  const baselineSource = $("baseline-source").value;
   const profileMode = $("profile-mode").value;
   if (runMode === "awls_zi") {
     target.textContent = "AWLS-ZI 参数/规则搜索";
@@ -193,15 +196,32 @@ function updateContractSummary() {
     const slot = selectedSlot();
     const status = $("slot-user-confirmed").checked ? "已确认" : "待确认";
     const label = $("selected-slot-id").value === "agent_auto" ? "agent 自动选槽" : (slot?.slot_id || "code slot");
-    target.textContent = `${label} · ${status}`;
+    target.textContent = `${label} · ${status} · 基线=${baselineSource === "agent_generated" ? "agent自写" : "当前工程"}`;
     updateSlotConfirmationState();
     return;
   }
   if (evolutionMode === "code") {
-    target.textContent = "候选 worktree 代码";
+    target.textContent = `候选 worktree 代码 · 基线=${baselineSource === "agent_generated" ? "agent自写" : "当前工程"}`;
     return;
   }
   target.textContent = `${profileModeLabel(profileMode)}策略层`;
+}
+
+function syncBaselineControls(changedId) {
+  if (changedId === "solver" && $("solver").value === "agent-generated") {
+    $("baseline-source").value = "agent_generated";
+    $("evolution-mode").value = "code";
+  }
+  if (changedId === "baseline-source" && $("baseline-source").value === "agent_generated") {
+    $("solver").value = "agent-generated";
+    $("evolution-mode").value = "code";
+  }
+  if (changedId === "evolution-mode" && $("evolution-mode").value === "slot" && $("baseline-source").value === "agent_generated") {
+    $("baseline-source").value = "current_project";
+    if ($("solver").value === "agent-generated") {
+      $("solver").value = "awls";
+    }
+  }
 }
 
 function selectedSlot() {
@@ -480,6 +500,7 @@ async function handleChatCommand(message, options = {}) {
   if (["代码槽", "slot", "zi"].some((token) => normalized.includes(token))) {
     $("run-mode").value = "standard_loop";
     $("solver").value = "awls";
+    $("baseline-source").value = "current_project";
     $("evolution-mode").value = "slot";
     $("selected-slot-id").value = "agent_auto";
     $("profile-mode").value = "deepseek";
@@ -487,6 +508,17 @@ async function handleChatCommand(message, options = {}) {
     $("worker-max-steps").value = Math.max(4, Number($("worker-max-steps").value || 4));
     updateContractSummary();
     appendChatMessage("assistant", "已切到代码槽模式，默认由 agent 自动选择槽。请说“确认代码槽”锁住 IO 和评测器。");
+    return;
+  }
+  if (["自由代码", "自写", "agent baseline", "agent自写"].some((token) => normalized.includes(token))) {
+    $("run-mode").value = "standard_loop";
+    $("solver").value = "agent-generated";
+    $("baseline-source").value = "agent_generated";
+    $("evolution-mode").value = "code";
+    $("profile-mode").value = "deepseek";
+    $("slot-user-confirmed").checked = false;
+    updateContractSummary();
+    appendChatMessage("assistant", "已切到 Agent 自写 baseline：先生成初始 solver，再由 Core 评测。");
     return;
   }
   if (["策略", "strategy", "profile"].some((token) => normalized.includes(token))) {
@@ -696,8 +728,11 @@ $("refresh").addEventListener("click", refreshJob);
 $("chat-form").addEventListener("submit", handleChatSubmit);
 $("reset-chat").addEventListener("click", initializeChat);
 $("slot-user-confirmed").addEventListener("change", updateContractSummary);
-for (const id of ["run-mode", "evolution-mode", "profile-mode"]) {
-  $(id).addEventListener("change", updateContractSummary);
+for (const id of ["run-mode", "evolution-mode", "profile-mode", "baseline-source", "solver"]) {
+  $(id).addEventListener("change", () => {
+    syncBaselineControls(id);
+    updateContractSummary();
+  });
 }
 
 initializeChat();

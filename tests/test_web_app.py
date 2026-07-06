@@ -300,6 +300,54 @@ class WebAppTests(unittest.TestCase):
         self.assertTrue(confirmed["awls_sdst_zi_features"])
         self.assertFalse(confirmed["awls_zi_policy"])
 
+    def test_run_job_routes_agent_generated_baseline_to_code_worker(self) -> None:
+        demo = make_demo_examples()
+        payload = {
+            "title": "agent baseline route",
+            "requirement": demo["requirement"],
+            "io": demo["io"],
+            "instance": demo["instance"],
+            "evolution_mode": "code",
+            "baseline_source": "agent_generated",
+            "max_rounds": 1,
+            "seeds": "0",
+            "solver": "portfolio",
+        }
+        captured = {}
+
+        def fake_worker_loop(request):
+            captured["request"] = request
+            return {
+                "status": "ok",
+                "baseline_source": "agent_generated",
+                "baseline_key": [-20.0],
+                "final_key": [-20.0],
+                "baseline_summary": {"valid": 1},
+                "baseline_generation": {"status": "ok", "worker_changed_files": ["examples/agent_generated_fjsp_solver.py"]},
+                "rounds": [],
+                "round_count": 0,
+                "promoted_rounds": 0,
+                "improved": False,
+                "artifacts": {"manifest": str(Path(request.output_dir) / "manifest.json")},
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("harness_agent.web_app.is_deepseek_configured", return_value=True), patch(
+                "harness_agent.web_app.run_standard_worker_loop",
+                side_effect=fake_worker_loop,
+            ):
+                job = create_job(payload, output_root=Path(tmp))
+                run_job(job["id"])
+
+            request = captured["request"]
+            finished = _JOBS[job["id"]]
+
+        self.assertEqual("agent_generated", request.baseline_source)
+        self.assertEqual("examples/agent_generated_fjsp_solver.py", request.agent_generated_solver_path)
+        self.assertEqual("portfolio", request.solver)
+        self.assertIn("baseline_source is agent_generated", request.hypothesis)
+        self.assertEqual("completed", finished["status"])
+
     def test_create_job_times_budget_from_actual_instance_content(self) -> None:
         demo = make_demo_examples()
         fake_dp15 = "20 10 10\n" + "\n".join("15 " + " ".join(["1 1 3"] * 15) for _ in range(20)) + "\n"

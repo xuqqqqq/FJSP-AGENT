@@ -155,6 +155,14 @@
                   <option value="portfolio">组合求解器</option>
                   <option value="local-search">局部搜索</option>
                   <option value="awls">AWLS</option>
+                  <option value="agent-generated">Agent 自写 solver</option>
+                </select>
+              </label>
+              <label class="field compact">
+                <span>基线来源</span>
+                <select id="baseline-source">
+                  <option value="current_project">当前工程 incumbent</option>
+                  <option value="agent_generated">Agent 自写初始 solver</option>
                 </select>
               </label>
               <label class="field compact">

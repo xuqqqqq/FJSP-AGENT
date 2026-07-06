@@ -7,6 +7,7 @@ from typing import Any
 
 from .context_packet import ContextPacketRequest, write_context_packet
 from .loop_runner import WorkerLoopResult, compact_promotion_check, compact_proposal_audit, run_worker_loop, summary_payload
+from .loop_runner import normalize_baseline_source
 from .models import TaskContract
 from .slot_manifest import load_slot_manifest
 from .worker import CodingWorker
@@ -61,6 +62,8 @@ class StandardWorkerLoopRequest:
     max_runtime_seconds: int = 120
     apply_worker_changes: bool = False
     promotion_repeats: int = 1
+    baseline_source: str = "current_project"
+    agent_generated_solver_path: str = "examples/agent_generated_fjsp_solver.py"
     experiment_id: str = "standard_worker_loop"
     hypothesis: str = (
         "Improve the standard FJSP solver under the fixed evaluator. "
@@ -107,6 +110,7 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
         max_runtime_seconds=max(1, request.max_runtime_seconds),
         apply_worker_changes=bool(request.apply_worker_changes),
         promotion_repeats=max(1, request.promotion_repeats),
+        baseline_source=request.baseline_source,
     )
     manifest = standard_worker_manifest(
         request=request,
@@ -177,12 +181,20 @@ def build_standard_worker_contract_payload(request: StandardWorkerLoopRequest) -
         "resources": resources,
         "review": {
             "status": "confirmed",
-            "note": "Generated from standard FJSP harness parameters; fixed evaluator remains authoritative.",
+            "note": (
+                "Generated from standard FJSP harness parameters; fixed evaluator remains authoritative. "
+                f"baseline_source={normalize_baseline_source(request.baseline_source)}."
+            ),
+            "baseline_source": normalize_baseline_source(request.baseline_source),
+            "agent_generated_solver_path": request.agent_generated_solver_path,
         },
     }
 
 
 def standard_solver_command(request: StandardWorkerLoopRequest) -> str:
+    if normalize_baseline_source(request.baseline_source) == "agent_generated":
+        solver_path = str(request.agent_generated_solver_path or "examples/agent_generated_fjsp_solver.py").replace("\\", "/")
+        return f"python {solver_path} --input {{instance}} --output {{solution}} --seed {{seed}}"
     awls_zi_policy, awls_zi_formula = effective_awls_zi_settings(request)
     if request.solver == "portfolio":
         return (
@@ -278,6 +290,8 @@ def standard_worker_manifest(
             "previous_pipeline_memory": str(request.previous_pipeline_memory) if request.previous_pipeline_memory else None,
             "seeds": request.seeds or [0],
             "solver": request.solver,
+            "baseline_source": normalize_baseline_source(request.baseline_source),
+            "agent_generated_solver_path": request.agent_generated_solver_path,
             "iterations": max(0, request.iterations),
             "apply_worker_changes": bool(request.apply_worker_changes),
             "promotion_repeats": max(1, request.promotion_repeats),
@@ -288,6 +302,8 @@ def standard_worker_manifest(
         "contract_path": str(contract_path),
         "context_packet_path": str(context_path),
         "baseline_key": list(loop_result.baseline_key),
+        "baseline_source": loop_result.baseline_source,
+        "baseline_generation": loop_result.baseline_generation,
         "final_key": list(loop_result.final_key),
         "improved": loop_result.final_key > loop_result.baseline_key,
         "round_count": len(loop_result.rounds),
@@ -319,6 +335,7 @@ def render_standard_worker_report(manifest: dict[str, Any]) -> str:
         "# Standard FJSP Worker Loop Report",
         "",
         f"- Status: `{manifest.get('status')}`",
+        f"- Baseline source: `{manifest.get('baseline_source')}`",
         f"- Baseline key: `{json.dumps(manifest.get('baseline_key'), ensure_ascii=False)}`",
         f"- Final key: `{json.dumps(manifest.get('final_key'), ensure_ascii=False)}`",
         f"- Improved: `{manifest.get('improved')}`",
@@ -331,6 +348,15 @@ def render_standard_worker_report(manifest: dict[str, Any]) -> str:
     ]
     for name, path in (manifest.get("artifacts") or {}).items():
         lines.append(f"- {name}: `{path}`")
+    if manifest.get("baseline_generation"):
+        lines.extend(
+            [
+                "",
+                "## Agent-Generated Baseline",
+                "",
+                f"```json\n{json.dumps(manifest.get('baseline_generation'), ensure_ascii=False, indent=2)}\n```",
+            ]
+        )
     lines.extend(
         [
             "",

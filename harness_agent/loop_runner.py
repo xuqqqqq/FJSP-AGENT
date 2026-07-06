@@ -4,6 +4,7 @@ import hashlib
 import json
 import traceback
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,20 @@ from .models import ObjectiveSpec, TaskContract
 from .runner import RunSummary
 from .worker import CodingWorker, WorkerResult
 from .worker_cycle import prepare_candidate_worktree, run_worker_cycle
+
+
+AGENT_GENERATED_BASELINE_HIDDEN_INCUMBENT_FILES = (
+    "examples/standard_fjsp_solver.py",
+    "examples/standard_fjsp_portfolio_solver.py",
+    "examples/standard_fjsp_local_search_solver.py",
+    "examples/standard_fjsp_awls_solver.py",
+    "examples/standard_fjsp_awls_cpp_backend.py",
+    "examples/awls_evolved_slots.py",
+)
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 @dataclass(frozen=True)
@@ -43,6 +58,8 @@ class WorkerLoopResult:
     final_worktree: Path
     rounds: list[LoopRoundRecord]
     baseline_summary: RunSummary
+    baseline_source: str = "current_project"
+    baseline_generation: dict[str, Any] | None = None
 
 
 def run_worker_loop(
@@ -58,17 +75,37 @@ def run_worker_loop(
     max_runtime_seconds: int,
     apply_worker_changes: bool,
     promotion_repeats: int = 1,
+    baseline_source: str = "current_project",
+    baseline_worker: CodingWorker | None = None,
 ) -> WorkerLoopResult:
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    baseline_worktree = output_dir / "baseline_worktree"
-    prepare_candidate_worktree(
-        project_root=project_root.resolve(),
-        contract=contract,
-        worktree_path=baseline_worktree,
-    )
-    baseline_summary = _run_harness(contract=contract, project_root=baseline_worktree, output_dir=output_dir / "baseline_harness")
+    normalized_baseline_source = normalize_baseline_source(baseline_source)
+    baseline_generation: dict[str, Any] | None = None
+    if normalized_baseline_source == "agent_generated":
+        baseline_summary, baseline_worktree, baseline_generation = run_agent_generated_baseline(
+            contract=contract,
+            project_root=project_root,
+            output_dir=output_dir,
+            context_packet_path=context_packet_path,
+            worker=baseline_worker or worker,
+            experiment_id=experiment_id,
+            max_steps=max_steps,
+            max_runtime_seconds=max_runtime_seconds,
+        )
+    else:
+        baseline_worktree = output_dir / "baseline_worktree"
+        prepare_candidate_worktree(
+            project_root=project_root.resolve(),
+            contract=contract,
+            worktree_path=baseline_worktree,
+        )
+        baseline_summary = _run_harness(
+            contract=contract,
+            project_root=baseline_worktree,
+            output_dir=output_dir / "baseline_harness",
+        )
     incumbent_key = summary_objective_key(baseline_summary, contract.objectives)
     incumbent_worktree = baseline_worktree
 
@@ -210,9 +247,208 @@ def run_worker_loop(
         final_worktree=incumbent_worktree,
         rounds=round_records,
         baseline_summary=baseline_summary,
+        baseline_source=normalized_baseline_source,
+        baseline_generation=baseline_generation,
     )
     write_loop_report(output_dir=output_dir, result=result)
     return result
+
+
+def normalize_baseline_source(value: str) -> str:
+    normalized = str(value or "current_project").strip().lower().replace("-", "_")
+    if normalized in {"agent", "agent_generated", "agent_written", "generated"}:
+        return "agent_generated"
+    return "current_project"
+
+
+def run_agent_generated_baseline(
+    *,
+    contract: TaskContract,
+    project_root: Path,
+    output_dir: Path,
+    context_packet_path: Path,
+    worker: CodingWorker,
+    experiment_id: str,
+    max_steps: int,
+    max_runtime_seconds: int,
+) -> tuple[RunSummary, Path, dict[str, Any]]:
+    """Ask the worker to create the initial solver before measuring baseline.
+
+    This mode is intentionally different from incumbent improvement.  Core
+    still supplies parser/evaluator files and knowledge context, but incumbent
+    solver entrypoints are removed from the worker source tree.  The solver
+    entrypoint named by the contract is expected to be created by the coding
+    worker before the first evaluator run.
+    """
+
+    baseline_dir = output_dir / "agent_generated_baseline"
+    source_project, hidden_incumbent_files = prepare_agent_generated_baseline_source_project(
+        project_root=project_root,
+        contract=contract,
+        output_dir=baseline_dir,
+    )
+    baseline_context_path = write_baseline_generation_context_packet(
+        base_context_packet_path=context_packet_path,
+        output_path=baseline_dir / "context_packet.json",
+        hidden_incumbent_files=hidden_incumbent_files,
+    )
+    try:
+        cycle = run_worker_cycle(
+            contract=contract,
+            project_root=source_project,
+            output_dir=baseline_dir,
+            context_packet_path=baseline_context_path,
+            worker=worker,
+            experiment_id=f"{experiment_id}_agent_generated_baseline",
+            max_steps=max_steps,
+            max_runtime_seconds=max_runtime_seconds,
+            apply_worker_changes=True,
+        )
+        generation_payload = {
+            "status": "ok",
+            "source": "agent_generated",
+            "cycle_dir": str(baseline_dir),
+            "context_packet_path": str(baseline_context_path),
+            "source_project": str(source_project),
+            "hidden_incumbent_files": hidden_incumbent_files,
+            "worktree": str(cycle.worktree_path),
+            "worker_status": cycle.worker_result.status,
+            "worker_changed_files": cycle.worker_result.changed_files,
+            "proposal_diagnostics": worker_proposal_diagnostics(cycle.worker_result),
+            "summary": summary_payload(cycle.summary),
+            "agentic_judgment": cycle.agentic_judgment.to_payload(),
+            "agentic_error_analysis": cycle.agentic_error_analysis.to_payload()
+            if cycle.agentic_error_analysis
+            else None,
+        }
+        return cycle.summary, cycle.worktree_path, generation_payload
+    except Exception as exc:  # noqa: BLE001 - invalid generated baselines should become evaluator feedback.
+        fallback_worktree = output_dir / "agent_generated_baseline_failed_worktree"
+        prepare_candidate_worktree(
+            project_root=source_project,
+            contract=contract,
+            worktree_path=fallback_worktree,
+        )
+        exception_path = baseline_dir / "baseline_generation_exception.txt"
+        exception_path.parent.mkdir(parents=True, exist_ok=True)
+        exception_path.write_text(
+            "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+            encoding="utf-8",
+        )
+        summary = RunSummary(
+            total=0,
+            valid=0,
+            failed=0,
+            best_experiment_id=None,
+            best_metrics={},
+            best_candidate_id=None,
+            best_candidate_metrics=None,
+            candidate_summaries=[],
+            pareto_frontier=[],
+            validation_summary={"agent_generated_baseline_exception": str(exc)},
+        )
+        generation_payload = {
+            "status": "worker_exception",
+            "source": "agent_generated",
+            "cycle_dir": str(baseline_dir),
+            "context_packet_path": str(baseline_context_path),
+            "source_project": str(source_project),
+            "hidden_incumbent_files": hidden_incumbent_files,
+            "worktree": str(fallback_worktree),
+            "exception_path": str(exception_path),
+            "reason": str(exc),
+            "summary": summary_payload(summary),
+        }
+        return summary, fallback_worktree, generation_payload
+
+
+def prepare_agent_generated_baseline_source_project(
+    *,
+    project_root: Path,
+    contract: TaskContract,
+    output_dir: Path,
+) -> tuple[Path, list[str]]:
+    source_project = output_dir / "source_project_without_incumbent_solvers"
+    prepare_candidate_worktree(
+        project_root=project_root.resolve(),
+        contract=contract,
+        worktree_path=source_project,
+    )
+    hidden: list[str] = []
+    for relative in AGENT_GENERATED_BASELINE_HIDDEN_INCUMBENT_FILES:
+        target = source_project / relative
+        if target.exists() and target.is_file():
+            target.unlink()
+            hidden.append(relative)
+    note_path = source_project / "examples" / "AGENT_GENERATED_BASELINE.md"
+    note_path.parent.mkdir(parents=True, exist_ok=True)
+    note_path.write_text(
+        "\n".join(
+            [
+                "# Agent-Generated Baseline Source",
+                "",
+                "Incumbent solver entrypoints were removed from this worktree.",
+                "Generate the solver entrypoint named by the task contract from the IO/requirement docs,",
+                "domain-pack metadata, knowledge cards, and fixed parser/evaluator helpers.",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return source_project, hidden
+
+
+def write_baseline_generation_context_packet(
+    *,
+    base_context_packet_path: Path,
+    output_path: Path,
+    hidden_incumbent_files: list[str] | None = None,
+) -> Path:
+    packet = json.loads(base_context_packet_path.read_text(encoding="utf-8-sig"))
+    parent_hash = packet.get("packet_hash") or _hash_text(json.dumps(packet, ensure_ascii=False, sort_keys=True))
+    refreshed = dict(packet)
+    refreshed.pop("packet_hash", None)
+    refreshed["created_at"] = _utc_now_iso()
+    refreshed["parent_packet_hash"] = parent_hash
+    refreshed["refresh_reason"] = "agent_generated_baseline"
+    refreshed["baseline_generation"] = {
+        "source": "agent_generated",
+        "purpose": (
+            "Generate the initial runnable solver from the IO document, requirement document, "
+            "instance diagnostics, domain-pack capability, and knowledge cards before any incumbent comparison."
+        ),
+        "rules": [
+            "Do not copy a complete incumbent solver as the baseline.",
+            "Create or replace the solver entrypoint named in evaluator_protocol.solver_command_template.",
+            "Reuse fixed parser/evaluator helper APIs when the context exposes them.",
+            "Treat LB/UB/BKS as diagnostics only; optimize the declared objective.",
+        ],
+        "hidden_incumbent_files": hidden_incumbent_files or [],
+    }
+    worker_instruction = dict(refreshed.get("worker_instruction") or {})
+    required_order = list(worker_instruction.get("required_order") or [])
+    generation_step = (
+        "This is agent-generated baseline creation: write the initial runnable solver from docs, "
+        "knowledge_cards, and evaluator_protocol before Core measures baseline."
+    )
+    if generation_step not in required_order:
+        required_order.insert(1, generation_step)
+    worker_instruction["required_order"] = required_order
+    worker_instruction["baseline_generation_rule"] = (
+        "The first measured baseline must come from worker-written code, not from an existing incumbent solver."
+    )
+    refreshed["worker_instruction"] = worker_instruction
+    hypothesis = str(refreshed.get("hypothesis") or "")
+    generation_hypothesis = (
+        "First generate a complete runnable solver entrypoint for the command in evaluator_protocol. "
+        "Base the implementation on the requirement document, IO document, instance_diagnostics, "
+        "domain-pack metadata, and knowledge cards.  Do not edit the evaluator or benchmark data."
+    )
+    refreshed["hypothesis"] = f"{generation_hypothesis}\n\n{hypothesis}".strip()
+    refreshed["packet_hash"] = _hash_text(json.dumps(refreshed, ensure_ascii=False, sort_keys=True))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(refreshed, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return output_path
 
 
 def summary_objective_key(summary: RunSummary, objectives: list[ObjectiveSpec]) -> tuple[float, ...]:

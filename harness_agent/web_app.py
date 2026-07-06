@@ -128,6 +128,7 @@ def make_demo_examples() -> dict[str, Any]:
         "config": {
             "title": "Brandimarte Mk01 标准 FJSP 闭环演示",
             "run_mode": "standard_loop",
+            "baseline_source": "current_project",
             "max_rounds": 2,
             "seeds": DEFAULT_STANDARD_SEEDS_TEXT,
             "solver": "portfolio",
@@ -479,11 +480,20 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
     if run_mode not in {"standard_loop", "awls_zi"}:
         run_mode = "standard_loop"
     solver = str(payload.get("solver") or "portfolio")
-    if solver not in {"portfolio", "local-search", "awls"}:
+    if solver not in {"portfolio", "local-search", "awls", "agent-generated"}:
         solver = "portfolio"
     evolution_mode = str(payload.get("evolution_mode") or "strategy")
     if evolution_mode not in {"strategy", "code", "slot"}:
         evolution_mode = "strategy"
+    baseline_source = str(payload.get("baseline_source") or "").strip().lower().replace("-", "_")
+    if solver == "agent-generated":
+        solver = "portfolio"
+        baseline_source = "agent_generated"
+        evolution_mode = "code"
+    if baseline_source not in {"agent_generated", "current_project"}:
+        baseline_source = "agent_generated" if evolution_mode == "code" else "current_project"
+    if baseline_source == "agent_generated" and evolution_mode != "code":
+        raise ValueError("agent-generated baseline currently requires free code layer; slot mode uses current_project incumbent markers")
     if evolution_mode == "slot":
         solver = "awls"
     selected_slot_id, slot_selection = resolve_agent_selected_slot(
@@ -522,6 +532,8 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         "max_rounds": coerce_int(payload.get("max_rounds"), 2, minimum=1, maximum=20),
         "seeds": parse_seeds(payload.get("seeds", "0")),
         "solver": solver,
+        "baseline_source": baseline_source,
+        "agent_generated_solver_path": str(payload.get("agent_generated_solver_path") or "examples/agent_generated_fjsp_solver.py"),
         "evolution_mode": evolution_mode,
         "selected_slot_id": selected_slot_id,
         "slot_selection": slot_selection,
@@ -610,6 +622,19 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
     }
     append_event(job, "任务材料已保存，等待进入循环。")
     append_instance_profile_events(job)
+    if config["baseline_source"] == "agent_generated":
+        append_event(
+            job,
+            (
+                "基线来源：agent_generated。平台会先让 coding worker 根据 IO/需求/知识卡生成初始 solver，"
+                "再由 Core evaluator 测这个生成结果作为 baseline。"
+            ),
+        )
+    else:
+        append_event(
+            job,
+            "基线来源：current_project。平台会用当前仓库已有 solver 作为 incumbent；这不是纯 agent 自写 baseline。",
+        )
     if config["evolution_mode"] == "slot":
         selection = config.get("slot_selection") or {}
         append_event(
@@ -737,7 +762,7 @@ def run_job(job_id: str) -> None:
             job,
             (
                 f"调用运行模式={config['run_mode']}，演进层级={config['evolution_mode']}：rounds={config['max_rounds']}，"
-                f"solver={config['solver']}。"
+                f"solver={config['solver']}，baseline={config.get('baseline_source')}。"
             ),
         )
         write_job_status(job)
@@ -883,13 +908,17 @@ def run_job(job_id: str) -> None:
                         max_runtime_seconds=config["worker_max_runtime_seconds"],
                         apply_worker_changes=config["apply_worker_changes"],
                         promotion_repeats=config["promotion_repeats"],
+                        baseline_source=config["baseline_source"],
+                        agent_generated_solver_path=config["agent_generated_solver_path"],
                         experiment_id="web_deepseek_slot_loop" if is_slot_mode else "web_deepseek_code_loop",
                         hypothesis=slot_mode_hypothesis(str(config["selected_slot_id"]))
                         if is_slot_mode
                         else (
-                            "Read the requirement and IO documents first. Propose the rule-level scheduling idea in natural "
-                            "language, then edit only allowed solver code. Preserve evaluator correctness; do not claim "
-                            "success without measured improvement."
+                            "Read the requirement, IO documents, instance diagnostics, domain-pack metadata, and knowledge cards first. "
+                            "If baseline_source is agent_generated, first create a runnable solver entrypoint at "
+                            f"{config['agent_generated_solver_path']} from those materials rather than relying on an incumbent solver. "
+                            "Propose the rule-level scheduling idea in natural language, then edit only allowed solver code. "
+                            "Preserve evaluator correctness; do not claim success without measured improvement."
                         ),
                     )
                 )

@@ -225,6 +225,57 @@ class BadStandardParserWorker:
         )
 
 
+class AgentBaselineWorker:
+    """Test worker that writes the initial solver used as the measured baseline."""
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="agent-baseline",
+            supports_code_generation=True,
+            supports_repair=False,
+            supports_structured_output=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        solver_path = Path(spec.worktree_path) / "examples" / "agent_generated_solver.py"
+        solver_path.write_text(
+            "\n".join(
+                [
+                    "from __future__ import annotations",
+                    "import argparse",
+                    "import json",
+                    "from pathlib import Path",
+                    "",
+                    "def main() -> int:",
+                    "    parser = argparse.ArgumentParser()",
+                    "    parser.add_argument('--input', required=True, type=Path)",
+                    "    parser.add_argument('--output', required=True, type=Path)",
+                    "    parser.add_argument('--seed', type=int, default=0)",
+                    "    args = parser.parse_args()",
+                    "    instance = json.loads(args.input.read_text(encoding='utf-8'))",
+                    "    solution = {",
+                    "        'instance': instance['name'],",
+                    "        'seed': args.seed,",
+                    "        'schedule': [{'job_id': 'J1', 'operation_id': 'J1-O1', 'machine_id': 'M1', 'start': 0, 'end': 12 + args.seed}],",
+                    "    }",
+                    "    args.output.parent.mkdir(parents=True, exist_ok=True)",
+                    "    args.output.write_text(json.dumps(solution), encoding='utf-8')",
+                    "    return 0",
+                    "",
+                    "if __name__ == '__main__':",
+                    "    raise SystemExit(main())",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return WorkerResult(
+            status="ok",
+            changed_files=["examples/agent_generated_solver.py"],
+            summary="Create the initial solver from the context packet.",
+        )
+
+
 class WorkerLoopTests(unittest.TestCase):
     def test_refreshed_context_records_previous_round_and_duplicate_proposal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -259,6 +310,46 @@ class WorkerLoopTests(unittest.TestCase):
 
             round_001_delta = json.loads((tmp_path / "loop" / "round_001" / "worker_worktree_delta.json").read_text(encoding="utf-8"))
             self.assertEqual(0, round_001_delta["counts"]["total_changed"])
+
+    def test_agent_generated_baseline_is_written_before_first_measurement(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract_path = _write_agent_baseline_contract(tmp_path)
+            contract = TaskContract.load(contract_path)
+            context_path = _write_test_context(tmp_path, contract_path=contract_path)
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=NullWorker(),
+                baseline_worker=AgentBaselineWorker(),
+                baseline_source="agent_generated",
+                experiment_id="test_agent_generated_baseline",
+                iterations=0,
+                max_steps=2,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+            )
+
+            self.assertEqual("agent_generated", result.baseline_source)
+            self.assertEqual((988.0, -0.01), result.baseline_key)
+            self.assertEqual(result.baseline_key, result.final_key)
+            self.assertIsNotNone(result.baseline_generation)
+            self.assertEqual("ok", result.baseline_generation["status"])
+            self.assertIn("examples/agent_generated_solver.py", result.baseline_generation["worker_changed_files"])
+            self.assertIn("examples/standard_fjsp_awls_solver.py", result.baseline_generation["hidden_incumbent_files"])
+            source_project = Path(result.baseline_generation["source_project"])
+            self.assertFalse((source_project / "examples" / "standard_fjsp_awls_solver.py").exists())
+            self.assertFalse((source_project / "examples" / "standard_fjsp_portfolio_solver.py").exists())
+            self.assertTrue((result.final_worktree / "examples" / "agent_generated_solver.py").exists())
+            baseline_context = json.loads(
+                (tmp_path / "loop" / "agent_generated_baseline" / "context_packet.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual("agent_generated_baseline", baseline_context["refresh_reason"])
+            self.assertIn("baseline_generation_rule", baseline_context["worker_instruction"])
+            self.assertIn("examples/standard_fjsp_awls_solver.py", baseline_context["baseline_generation"]["hidden_incumbent_files"])
 
     def test_loop_promotes_only_strict_objective_improvement(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -459,11 +550,11 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertIsNotNone(result.agentic_error_analysis)
 
 
-def _write_test_context(tmp_path: Path) -> Path:
+def _write_test_context(tmp_path: Path, *, contract_path: Path | None = None) -> Path:
     output_path = tmp_path / "context_packet.json"
     return write_context_packet(
         ContextPacketRequest(
-            contract_path=ROOT / "configs" / "task_contract.example.json",
+            contract_path=contract_path or ROOT / "configs" / "task_contract.example.json",
             output_path=output_path,
             docs=[ROOT / "README.md"],
             hypothesis="Worker-loop regression test context.",
@@ -481,6 +572,19 @@ def _write_single_seed_contract(tmp_path: Path) -> Path:
         "max_workers": 1,
     }
     output_path = tmp_path / "single_seed_contract.json"
+    output_path.write_text(json.dumps(contract, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return output_path
+
+
+def _write_agent_baseline_contract(tmp_path: Path) -> Path:
+    contract = json.loads((ROOT / "configs" / "task_contract.example.json").read_text(encoding="utf-8"))
+    contract["task_id"] = "agent_generated_baseline_dummy_contract"
+    contract["commands"] = {
+        **contract["commands"],
+        "solver": "python examples/agent_generated_solver.py --input {instance} --output {solution} --seed {seed}",
+        "quick_test": "python -m py_compile examples/agent_generated_solver.py examples/dummy_evaluator.py",
+    }
+    output_path = tmp_path / "agent_baseline_contract.json"
     output_path.write_text(json.dumps(contract, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return output_path
 
