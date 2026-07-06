@@ -786,6 +786,8 @@ def generic_slot_has_must_repair_warning(proposal: dict[str, Any]) -> bool:
         "move_selection_uses_nonexistent_node_to_operation_key",
         "move_selection_uses_nonexistent_operations_api",
         "move_selection_uses_dict_get_on_schedule_lists",
+        "move_selection_uses_dict_items_on_machine_sequences",
+        "move_selection_calls_schedule_lists_as_functions",
         "move_selection_misinterprets_move_key_shape",
         "move_selection_uses_where_node_as_machine_id",
         "move_selection_trial_apply_without_clone",
@@ -1111,6 +1113,8 @@ def generic_slot_needs_repair(proposal: dict[str, Any]) -> bool:
         "move_selection_uses_nonexistent_node_to_operation_key",
         "move_selection_uses_nonexistent_operations_api",
         "move_selection_uses_dict_get_on_schedule_lists",
+        "move_selection_uses_dict_items_on_machine_sequences",
+        "move_selection_calls_schedule_lists_as_functions",
         "move_selection_misinterprets_move_key_shape",
         "move_selection_uses_where_node_as_machine_id",
         "move_selection_trial_apply_without_clone",
@@ -1836,6 +1840,13 @@ def awls_sdst_move_selection_warnings(content: str) -> list[str]:
         warnings.append("move_selection_uses_nonexistent_operations_api")
     if re.search(r"\b(?:schedule|sched|trial)\.(?:on_machine|machine_predecessor|machine_successor|job_predecessor|job_successor)\.get\s*\(", content):
         warnings.append("move_selection_uses_dict_get_on_schedule_lists")
+    if re.search(r"\b(?:schedule|sched|trial|current)\.machine_sequences\.items\s*\(", content):
+        warnings.append("move_selection_uses_dict_items_on_machine_sequences")
+    if re.search(
+        r"\b(?:schedule|sched|trial|current)\.(?:on_machine|machine_predecessor|machine_successor|job_predecessor|job_successor)\s*\(",
+        content,
+    ):
+        warnings.append("move_selection_calls_schedule_lists_as_functions")
     misreads_move_key_as_op_key = (
         re.search(r"\b(?:op_key|target_m|target_machine)\b", content)
         and re.search(r"\b(?:move_type|method)\s*,\s*(?:op_key|op)\s*,\s*(?:target_m|target_machine)\s*=\s*move_key", content)

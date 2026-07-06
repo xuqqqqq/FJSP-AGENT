@@ -233,6 +233,13 @@ def slot_advice_payload(slot: dict[str, Any]) -> dict[str, Any]:
 
 
 def slot_mode_hypothesis(slot_id: str) -> str:
+    if slot_id in {"auto", "agent_auto", "agent_auto_slot"}:
+        return (
+            "Read the requirement, IO documents, resolved slot catalog, and benchmark feedback first. "
+            "Choose the most relevant confirmed code slot, state the rule-level scheduling idea, then edit "
+            "only that marker-bounded slot. Preserve the slot IO contract, parser, evaluator, solution schema, "
+            "and benchmark semantics."
+        )
     if slot_id == "awls_zi_policy":
         return (
             "Read the requirement and IO documents first. Propose a natural-language AWLS zi policy idea, "
@@ -252,6 +259,81 @@ def slot_mode_hypothesis(slot_id: str) -> str:
         "the slot inputs, outputs, invariants, parser, evaluator, and benchmark semantics; do not claim success "
         "without Core evaluator improvement."
     )
+
+
+AUTO_SLOT_IDS = {"", "auto", "agent_auto", "agent_auto_slot"}
+AWLS_ZI_POLICY_CHOICES = {"auto", "cpp", "critical", "formula", "slot"}
+
+
+def resolve_agent_selected_slot(
+    *,
+    requested_slot_id: str,
+    requirement_text: str,
+    io_text: str,
+    instance_profile: dict[str, Any],
+    solver: str,
+) -> tuple[str, dict[str, Any]]:
+    requested = requested_slot_id.strip()
+    if requested not in AUTO_SLOT_IDS:
+        return requested, {
+            "mode": "manual",
+            "requested_slot_id": requested,
+            "selected_slot_id": requested,
+            "candidate_slot_ids": [requested],
+            "rationale": "用户已指定本轮代码槽；平台只负责锁定该槽的 IO 契约和评测器。",
+        }
+
+    corpus = f"{requirement_text}\n{io_text}\n{instance_profile.get('file_name', '')}".lower()
+    is_sdst = bool(instance_profile.get("has_sequence_dependent_setup")) or any(
+        token in corpus for token in ("sdst", "setup", "sequence-dependent", "换型", "准备时间")
+    )
+    if is_sdst and solver == "awls":
+        if any(token in corpus for token in ("zi", "权重", "score", "评分")):
+            candidates = ["awls_sdst_zi_features", "awls_sdst_move_selection", "awls_sdst_tabu_memory"]
+            reason = "文档包含 zi/权重/评分信号，优先选择 SDST zi 特征槽。"
+        elif any(token in corpus for token in ("init", "初始化", "初始解", "random", "greedy")):
+            candidates = ["awls_sdst_initialization", "awls_sdst_move_selection", "awls_sdst_tabu_memory"]
+            reason = "文档强调初始化或初始解质量，优先选择 SDST 初始化槽。"
+        elif any(token in corpus for token in ("tabu", "禁忌", "memory", "记忆")):
+            candidates = ["awls_sdst_tabu_memory", "awls_sdst_move_selection", "awls_sdst_weight_update"]
+            reason = "文档强调禁忌或记忆机制，优先选择 SDST tabu memory 槽。"
+        elif any(token in corpus for token in ("neighborhood", "邻域", "n7", "nk", "move", "动作", "同机")):
+            candidates = ["awls_sdst_move_selection", "awls_sdst_move_evaluation", "awls_sdst_neighborhood_selection"]
+            reason = "文档强调邻域/动作/N7/NK，优先选择 SDST move selection 槽。"
+        else:
+            candidates = ["awls_sdst_move_selection", "awls_sdst_tabu_memory", "awls_sdst_weight_update"]
+            reason = "检测到 FJSP-SDST 算例，默认先让 agent 改影响搜索选择的 SDST move selection 槽。"
+    elif solver == "local-search":
+        candidates = ["local_search_neighborhood_actions"]
+        reason = "非 AWLS 局部搜索流程默认选择邻域动作生成槽。"
+    else:
+        candidates = ["awls_zi_policy"]
+        reason = "标准 AWLS 流程默认选择 zi 策略槽。"
+    return candidates[0], {
+        "mode": "agent_auto",
+        "requested_slot_id": requested or "auto",
+        "selected_slot_id": candidates[0],
+        "candidate_slot_ids": candidates,
+        "rationale": reason,
+    }
+
+
+def resolve_awls_zi_policy_for_slot(
+    *,
+    requested_policy: str,
+    selected_slot_id: str,
+    instance_profile: dict[str, Any],
+) -> str:
+    policy = requested_policy if requested_policy in AWLS_ZI_POLICY_CHOICES else "auto"
+    if selected_slot_id == "awls_zi_policy":
+        return "slot"
+    if selected_slot_id == "awls_sdst_zi_features":
+        return "formula"
+    if policy != "auto":
+        return policy
+    if bool(instance_profile.get("has_sequence_dependent_setup")) and selected_slot_id.startswith("awls_sdst_"):
+        return "critical"
+    return "cpp"
 
 
 def deepseek_status_payload() -> dict[str, Any]:
@@ -404,7 +486,13 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         evolution_mode = "strategy"
     if evolution_mode == "slot":
         solver = "awls"
-    selected_slot_id = str(payload.get("selected_slot_id") or "awls_zi_policy")
+    selected_slot_id, slot_selection = resolve_agent_selected_slot(
+        requested_slot_id=str(payload.get("selected_slot_id") or "agent_auto"),
+        requirement_text=str(requirement.get("text") or ""),
+        io_text=str(io_doc.get("text") or ""),
+        instance_profile=instance_profile,
+        solver=solver,
+    )
     slot_user_confirmed = bool(payload.get("slot_user_confirmed", False))
     if evolution_mode == "slot" and not slot_user_confirmed:
         raise ValueError("slot mode requires explicit user confirmation of the selected code slot")
@@ -417,6 +505,17 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
     awls_time_policy = str(payload.get("awls_time_policy") or "scaled")
     if awls_time_policy not in {"fixed", "scaled", "mae2019", "mae2019-hour"}:
         awls_time_policy = "scaled"
+    requested_awls_zi_policy = str(payload.get("awls_zi_policy") or "auto")
+    awls_zi_policy = resolve_awls_zi_policy_for_slot(
+        requested_policy=requested_awls_zi_policy,
+        selected_slot_id=selected_slot_id,
+        instance_profile=instance_profile,
+    )
+    default_exhaustive_pct = 75 if (
+        evolution_mode == "slot"
+        and selected_slot_id.startswith("awls_sdst_")
+        and bool(instance_profile.get("has_sequence_dependent_setup"))
+    ) else 0
 
     config = {
         "run_mode": run_mode,
@@ -425,6 +524,7 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         "solver": solver,
         "evolution_mode": evolution_mode,
         "selected_slot_id": selected_slot_id,
+        "slot_selection": slot_selection,
         "slot_user_confirmed": slot_user_confirmed,
         "profile_mode": profile_mode,
         "strategy_candidates": coerce_int(payload.get("strategy_candidates"), 2, minimum=1, maximum=16),
@@ -446,6 +546,14 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         "awls_beta": coerce_int(payload.get("awls_beta"), 500, minimum=1, maximum=100000),
         "awls_gamma": coerce_int(payload.get("awls_gamma"), 40, minimum=1, maximum=100000),
         "awls_theta": coerce_int(payload.get("awls_theta"), 5, minimum=0, maximum=100000),
+        "awls_zi_policy": awls_zi_policy,
+        "requested_awls_zi_policy": requested_awls_zi_policy,
+        "awls_critical_block_exhaustive_pct": coerce_int(
+            payload.get("awls_critical_block_exhaustive_pct"),
+            default_exhaustive_pct,
+            minimum=0,
+            maximum=100,
+        ),
         "awls_portfolio_lanes": str(payload.get("awls_portfolio_lanes") or ""),
         "awls_zi_candidates": coerce_int(payload.get("awls_zi_candidates"), 2, minimum=1, maximum=8),
         "awls_same_machine_eval": awls_same_machine_eval,
@@ -502,6 +610,16 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
     }
     append_event(job, "任务材料已保存，等待进入循环。")
     append_instance_profile_events(job)
+    if config["evolution_mode"] == "slot":
+        selection = config.get("slot_selection") or {}
+        append_event(
+            job,
+            (
+                "代码槽选择："
+                f"mode={selection.get('mode')}，selected={config.get('selected_slot_id')}。"
+                f"{selection.get('rationale', '')}"
+            ),
+        )
     write_job_status(job)
     with _LOCK:
         _JOBS[job_id] = job
@@ -542,6 +660,8 @@ def inspect_instance_profile(instance_path: Path) -> dict[str, Any]:
             "machine_count": parsed.machine_count,
             "operation_count": parsed.operation_count,
             "max_candidate_count": parsed.max_candidate_count,
+            "has_sequence_dependent_setup": parsed.has_sequence_dependent_setup,
+            "setup_time_kind": parsed.setup_time_kind,
             "scale": parsed.job_count * parsed.machine_count * parsed.operation_count,
             "filename_shape": shape,
             "filename_shape_mismatch": mismatch,
@@ -754,8 +874,10 @@ def run_job(job_id: str) -> None:
                         awls_beta=config["awls_beta"],
                         awls_gamma=config["awls_gamma"],
                         awls_theta=config["awls_theta"],
-                        awls_zi_policy="slot" if is_zi_slot_mode else ("formula" if is_zi_features_slot_mode else "cpp"),
+                        awls_zi_policy="slot" if is_zi_slot_mode else ("formula" if is_zi_features_slot_mode else config["awls_zi_policy"]),
                         awls_zi_formula=SDST_ZI_FEATURES_CONSUMER_FORMULA if is_zi_features_slot_mode else "",
+                        awls_critical_block_exhaustive_pct=config["awls_critical_block_exhaustive_pct"],
+                        awls_same_machine_eval=config["awls_same_machine_eval"],
                         awls_portfolio_lanes=config["awls_portfolio_lanes"],
                         max_steps=config["worker_max_steps"],
                         max_runtime_seconds=config["worker_max_runtime_seconds"],

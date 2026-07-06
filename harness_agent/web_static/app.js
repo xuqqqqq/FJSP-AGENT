@@ -48,12 +48,16 @@ async function loadDemo(options = {}) {
   $("solver").value = demo.config.solver;
   $("evolution-mode").value = demo.config.evolution_mode;
   $("profile-mode").value = demo.config.profile_mode;
+  $("selected-slot-id").value = "agent_auto";
+  $("slot-user-confirmed").checked = false;
   $("strategy-candidates").value = demo.config.strategy_candidates;
   $("awls-zi-candidates").value = demo.config.awls_zi_candidates || 2;
   $("portfolio-size").value = demo.config.portfolio_size;
   $("timeout-seconds").value = demo.config.timeout_seconds;
   $("awls-time-policy").value = demo.config.awls_time_policy || "scaled";
   $("awls-time-limit").value = demo.config.awls_time_limit_sec || 30;
+  $("awls-zi-policy").value = demo.config.awls_zi_policy || "auto";
+  $("awls-critical-block-exhaustive-pct").value = demo.config.awls_critical_block_exhaustive_pct ?? 75;
   $("awls-same-machine-eval").value = demo.config.awls_same_machine_eval || "stable";
   $("worker-max-steps").value = demo.config.worker_max_steps;
   $("apply-worker-changes").checked = Boolean(demo.config.apply_worker_changes);
@@ -149,7 +153,7 @@ function buildPayload() {
     seeds: $("seeds").value || DEFAULT_STANDARD_SEEDS,
     solver: $("solver").value,
     evolution_mode: $("evolution-mode").value,
-    selected_slot_id: $("selected-slot-id").value || "awls_zi_policy",
+    selected_slot_id: $("selected-slot-id").value || "agent_auto",
     slot_user_confirmed: $("slot-user-confirmed").checked,
     profile_mode: $("profile-mode").value,
     strategy_candidates: Number($("strategy-candidates").value || 2),
@@ -166,6 +170,8 @@ function buildPayload() {
     awls_beta: Number($("awls-beta").value || 500),
     awls_gamma: Number($("awls-gamma").value || 40),
     awls_theta: Number($("awls-theta").value || 5),
+    awls_zi_policy: $("awls-zi-policy").value,
+    awls_critical_block_exhaustive_pct: Number($("awls-critical-block-exhaustive-pct").value || 75),
     awls_same_machine_eval: $("awls-same-machine-eval").value,
     awls_portfolio_lanes: $("awls-portfolio-lanes").value,
     apply_worker_changes: $("apply-worker-changes").checked,
@@ -186,7 +192,8 @@ function updateContractSummary() {
   if (evolutionMode === "slot") {
     const slot = selectedSlot();
     const status = $("slot-user-confirmed").checked ? "已确认" : "待确认";
-    target.textContent = `${slot?.slot_id || "code slot"} · ${status}`;
+    const label = $("selected-slot-id").value === "agent_auto" ? "agent 自动选槽" : (slot?.slot_id || "code slot");
+    target.textContent = `${label} · ${status}`;
     updateSlotConfirmationState();
     return;
   }
@@ -198,7 +205,8 @@ function updateContractSummary() {
 }
 
 function selectedSlot() {
-  const selectedId = $("selected-slot-id")?.value || "awls_zi_policy";
+  const selectedId = $("selected-slot-id")?.value || "agent_auto";
+  if (selectedId === "agent_auto") return null;
   return (state.slotManifest?.slots || []).find((slot) => slot.slot_id === selectedId) || null;
 }
 
@@ -206,8 +214,9 @@ function updateSlotConfirmationState() {
   const stateBadge = $("slot-confirmation-state");
   if (!stateBadge) return;
   const confirmed = $("slot-user-confirmed").checked;
-  const selectedId = $("selected-slot-id").value || "awls_zi_policy";
-  stateBadge.textContent = confirmed ? `已确认 · ${selectedId}` : `未确认 · ${selectedId}`;
+  const selectedId = $("selected-slot-id").value || "agent_auto";
+  const label = selectedId === "agent_auto" ? "agent 自动选槽" : selectedId;
+  stateBadge.textContent = confirmed ? `已确认 · ${label}` : `未确认 · ${label}`;
   stateBadge.className = `status-pill ${confirmed ? "confirmed" : "unconfirmed"}`;
   updateSlotFlow();
 }
@@ -230,7 +239,18 @@ function renderSlotCards(slots) {
   const container = $("slot-cards");
   if (!container) return;
   container.innerHTML = "";
-  const selectedId = $("selected-slot-id").value || "awls_zi_policy";
+  const selectedId = $("selected-slot-id").value || "agent_auto";
+  const autoCard = document.createElement("button");
+  autoCard.type = "button";
+  autoCard.className = `slot-card ${selectedId === "agent_auto" ? "active" : ""}`;
+  autoCard.innerHTML = `
+    <span>agent 自动 · 已接入 · 推荐</span>
+    <strong>Agent 自动选择代码槽</strong>
+    <small>根据需求文档、IO、算例特征和 slot 契约选择本轮最该修改的功能分区。</small>
+    <em>启动后写入事件流和 slot_manifest</em>
+  `;
+  autoCard.addEventListener("click", () => selectSlot("agent_auto"));
+  container.appendChild(autoCard);
   for (const slot of slots) {
     const card = document.createElement("button");
     card.type = "button";
@@ -258,12 +278,36 @@ function selectSlot(slotId) {
   renderSlotCards(state.slotManifest?.slots || []);
   updateContractSummary();
   const slot = selectedSlot();
-  appendChatMessage("assistant", `已选择代码槽：${slot?.title || slotId}。启动代码槽演进前还需要确认 IO 和评测器不变。`);
+  const title = slotId === "agent_auto" ? "Agent 自动选择" : (slot?.title || slotId);
+  appendChatMessage("assistant", `已选择代码槽策略：${title}。启动代码槽演进前还需要确认 IO 和评测器不变。`);
 }
 
 function renderSelectedSlotDetail() {
   const detail = $("slot-detail");
   if (!detail) return;
+  if (($("selected-slot-id")?.value || "") === "agent_auto") {
+    detail.innerHTML = `
+      <div class="slot-detail-header">
+        <div>
+          <span>agent_auto · Python marked slots · fixed evaluator</span>
+          <strong>Agent 自动选择代码槽</strong>
+        </div>
+        <span class="status-pill confirmed">已接入</span>
+      </div>
+      <div class="slot-tag-row">
+        <span>自动选择</span>
+        <span>可行性：可执行</span>
+        <span>重要性：按算例与需求判断</span>
+        <span>启动后解析</span>
+      </div>
+      <p>平台会先根据需求文档、IO 文档、算例是否含 SDST setup matrix、求解器和代码槽契约选择一个具体 slot，然后只确认并修改该 slot。</p>
+      <section class="slot-advisor-note">
+        <h4>顾问结论</h4>
+        <p>用户不需要猜该改 zi、邻域、tabu 还是初始化；agent 负责选择，Core evaluator 负责验收。</p>
+      </section>
+    `;
+    return;
+  }
   const slot = selectedSlot();
   if (!slot) {
     detail.textContent = "正在读取代码槽契约。";
@@ -350,11 +394,6 @@ async function submitCurrentJob() {
     appendChatMessage("assistant", "请先勾选确认，或在对话里说“确认代码槽”。");
     return;
   }
-  if (payload.evolution_mode === "slot" && payload.selected_slot_id !== "awls_zi_policy") {
-    $("artifact-preview").textContent = "当前可执行的代码槽 worker 只支持 awls_zi_policy；邻域动作槽已建模，执行器还在下一步接入。";
-    appendChatMessage("assistant", "这个代码槽已经进入平台清单，但当前执行 worker 还只支持 AWLS zi。先选 awls_zi_policy 跑通闭环。");
-    return;
-  }
   if (needsDeepSeek && state.deepseekStatus && !state.deepseekStatus.configured) {
     $("artifact-preview").textContent =
       "当前选择需要 DeepSeek API，但本地没有检测到 DEEPSEEK_API_KEY / DEEPSEEK_API_KEY_FILE。若只想跑通流程，可把策略来源切到本地兜底；若要 DeepSeek 写策略或写代码，请先配置本地密钥。";
@@ -434,18 +473,20 @@ async function handleChatCommand(message, options = {}) {
   if (["确认代码槽", "确认slot", "确认 slot", "confirm slot"].some((token) => normalized.includes(token))) {
     $("slot-user-confirmed").checked = true;
     updateContractSummary();
-    appendChatMessage("assistant", `已确认代码槽：${$("selected-slot-id").value}。本轮会锁住 IO、解析器和评测器。`);
+    const label = $("selected-slot-id").value === "agent_auto" ? "agent 自动选择" : $("selected-slot-id").value;
+    appendChatMessage("assistant", `已确认代码槽策略：${label}。本轮会锁住 IO、解析器和评测器。`);
     return;
   }
   if (["代码槽", "slot", "zi"].some((token) => normalized.includes(token))) {
     $("run-mode").value = "standard_loop";
     $("solver").value = "awls";
     $("evolution-mode").value = "slot";
+    $("selected-slot-id").value = "agent_auto";
     $("profile-mode").value = "deepseek";
     $("slot-user-confirmed").checked = false;
     $("worker-max-steps").value = Math.max(4, Number($("worker-max-steps").value || 4));
     updateContractSummary();
-    appendChatMessage("assistant", "已切到代码槽模式。请选中代码槽并说“确认代码槽”，DeepSeek 才能修改该槽。");
+    appendChatMessage("assistant", "已切到代码槽模式，默认由 agent 自动选择槽。请说“确认代码槽”锁住 IO 和评测器。");
     return;
   }
   if (["策略", "strategy", "profile"].some((token) => normalized.includes(token))) {

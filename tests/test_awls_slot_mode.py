@@ -2828,6 +2828,84 @@ class AwlsSlotModeTests(unittest.TestCase):
         )
         self.assertTrue(generic_slot_needs_repair(normalized))
 
+    def test_move_selection_slot_warns_on_items_for_machine_sequences(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "criticality_count_scan",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed selectors by counting critical operations after exact checks.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_selection",
+                        "content": (
+                            "    def _count_critical_ops(sched):\n"
+                            "        count = 0\n"
+                            "        for machine_id, sequence in sched.machine_sequences.items():\n"
+                            "            count += len(sequence)\n"
+                            "        return count\n"
+                            "    return Move(*min(best_moves or all_moves, key=lambda move_key: _count_critical_ops(schedule)))\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "move_selection_uses_dict_items_on_machine_sequences",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
+    def test_move_selection_slot_warns_on_calling_schedule_lists_as_functions(self) -> None:
+        worker = DeepSeekSlotWorker()
+        context = _generic_slot_context(slot_id="awls_sdst_move_selection")
+        slot = context["slot_manifest"]["slots"][0]
+
+        normalized = worker._normalize_generic_slot_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "critical_path_walk",
+                        "type": "local_search_operator",
+                        "novelty": "Different from failed selectors by walking predecessor and successor links.",
+                        "target_files": ["examples/standard_fjsp_awls_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "action": "replace_slot_block",
+                        "slot_id": "awls_sdst_move_selection",
+                        "content": (
+                            "    node = Move(*best_moves[0]).which\n"
+                            "    successor = schedule.machine_successor(node)\n"
+                            "    predecessor = schedule.job_predecessor(node)\n"
+                            "    return Move(*best_moves[0]) if successor is None or predecessor is None else None\n"
+                        ),
+                    }
+                ],
+            },
+            slot,
+            context=context,
+        )
+
+        self.assertIn(
+            "move_selection_calls_schedule_lists_as_functions",
+            normalized["proposal_audit"]["warnings"],
+        )
+        self.assertTrue(generic_slot_needs_repair(normalized))
+
     def test_move_selection_repair_guidance_names_select_only_contract(self) -> None:
         slot = _generic_slot_context(slot_id="awls_sdst_move_selection")["slot_manifest"]["slots"][0]
 
@@ -2841,6 +2919,8 @@ class AwlsSlotModeTests(unittest.TestCase):
         self.assertIn("not a machine id", guidance)
         self.assertIn("no `operations`", guidance)
         self.assertIn("are lists, not dicts", guidance)
+        self.assertIn("machine_sequences.items()", guidance)
+        self.assertIn("job_successor(node)", guidance)
         self.assertIn("operation_key(schedule, node)", guidance)
         self.assertIn("min(3, len(best_moves))", guidance)
         self.assertIn("global setup-sum", guidance)

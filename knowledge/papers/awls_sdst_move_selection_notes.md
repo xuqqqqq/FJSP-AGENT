@@ -101,6 +101,14 @@ move keys and keep Core evaluator promotion as the only quality authority.
   same-machine-first exploitation reduces useful diversification.  Do not
   retry same-machine-first deterministic sorting or removing the random escape
   as the main novelty unchanged.
+- A later `criticality_tie_break_exact_selection` proposal failed before
+  quality evaluation because it treated AWLS schedule list fields as callable
+  or dictionary-like objects: `sched.machine_sequences.items()`,
+  `sched.machine_successor(last_node)`, `sched.job_successor(last_node)`,
+  `sched.job_predecessor(curr)`, and `sched.machine_predecessor(curr)`.
+  `machine_sequences` is a list to scan with `enumerate(...)`, and
+  predecessor/successor links are lists to read with `[node]` while treating
+  the missing sentinel as `-1`, not `None`.
 
 ## Guardrails
 
@@ -116,6 +124,10 @@ move keys and keep Core evaluator promotion as the only quality authority.
   `idx.node_to_operation_key`; use `operation_key(schedule, node)`.
 - Do not call `.get(...)` on `on_machine`, `machine_predecessor`,
   `machine_successor`, `job_predecessor`, or `job_successor`; they are lists.
+- Do not call `.items()` on `machine_sequences`; scan it with
+  `enumerate(schedule.machine_sequences)`.
+- Do not call predecessor/successor lists as functions such as
+  `job_successor(node)`; use indexed access such as `job_successor[node]`.
 - Do not treat `move_key[2]` as a machine id; it is `where_node`.
 - Do not retry exact top-k selection whose main novelty is a global setup-sum
   tie-break after exact makespan; the legal version tied `oddla20` at `1010`.

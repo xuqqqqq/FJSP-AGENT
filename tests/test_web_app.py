@@ -130,6 +130,32 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual("awls_sdst_neighborhood_selection", job["config"]["selected_slot_id"])
         self.assertEqual("awls", job["config"]["solver"])
 
+    def test_slot_mode_auto_selects_sdst_slot_and_awls_policy(self) -> None:
+        demo = make_demo_examples()
+        sdst_instance = "1 1 1\n1 1 0 1\n0\n"
+        payload = {
+            "title": "auto sdst slot smoke",
+            "requirement": {"name": "req.md", "text": "FJSP-SDST with setup times; improve makespan."},
+            "io": demo["io"],
+            "instance": {"name": "oddtiny.txt", "text": sdst_instance},
+            "evolution_mode": "slot",
+            "selected_slot_id": "agent_auto",
+            "slot_user_confirmed": True,
+            "solver": "awls",
+            "awls_zi_policy": "auto",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            job = create_job(payload, output_root=Path(tmp))
+
+        self.assertEqual("slot", job["config"]["evolution_mode"])
+        self.assertEqual("awls_sdst_move_selection", job["config"]["selected_slot_id"])
+        self.assertEqual("agent_auto", job["config"]["slot_selection"]["mode"])
+        self.assertEqual("critical", job["config"]["awls_zi_policy"])
+        self.assertEqual(75, job["config"]["awls_critical_block_exhaustive_pct"])
+        messages = "\n".join(event["message"] for event in job["events"])
+        self.assertIn("代码槽选择", messages)
+        self.assertIn("awls_sdst_move_selection", messages)
+
     def test_run_job_routes_sdst_slot_without_enabling_zi_slot_policy(self) -> None:
         demo = make_demo_examples()
         payload = {
@@ -178,6 +204,54 @@ class WebAppTests(unittest.TestCase):
         self.assertTrue(confirmed["awls_sdst_neighborhood_selection"])
         self.assertFalse(confirmed["awls_zi_policy"])
         self.assertIn("awls_sdst_neighborhood_selection", request.hypothesis)
+
+    def test_run_job_routes_auto_selected_sdst_slot_with_critical_policy(self) -> None:
+        demo = make_demo_examples()
+        sdst_instance = "1 1 1\n1 1 0 1\n0\n"
+        payload = {
+            "title": "auto sdst slot route",
+            "requirement": {"name": "req.md", "text": "FJSP-SDST setup-aware neighborhood improvement."},
+            "io": demo["io"],
+            "instance": {"name": "oddtiny.txt", "text": sdst_instance},
+            "evolution_mode": "slot",
+            "selected_slot_id": "agent_auto",
+            "slot_user_confirmed": True,
+            "max_rounds": 1,
+            "seeds": "0",
+            "awls_zi_policy": "auto",
+        }
+        captured = {}
+
+        def fake_worker_loop(request):
+            captured["request"] = request
+            return {
+                "status": "ok",
+                "baseline_key": [-10.0],
+                "final_key": [-10.0],
+                "baseline_summary": {"valid": 1},
+                "rounds": [],
+                "round_count": 0,
+                "promoted_rounds": 0,
+                "improved": False,
+                "artifacts": {"manifest": str(Path(request.output_dir) / "manifest.json")},
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("harness_agent.web_app.is_deepseek_configured", return_value=True), patch(
+                "harness_agent.web_app.run_standard_worker_loop",
+                side_effect=fake_worker_loop,
+            ):
+                job = create_job(payload, output_root=Path(tmp))
+                run_job(job["id"])
+
+            request = captured["request"]
+            manifest = json.loads(Path(request.slot_manifest).read_text(encoding="utf-8"))
+
+        self.assertEqual("critical", request.awls_zi_policy)
+        self.assertEqual(75, request.awls_critical_block_exhaustive_pct)
+        confirmed = {slot["slot_id"]: slot["user_confirmed"] for slot in manifest["slots"]}
+        self.assertTrue(confirmed["awls_sdst_move_selection"])
+        self.assertFalse(confirmed["awls_zi_policy"])
 
     def test_run_job_routes_sdst_zi_features_slot_with_formula_consumer(self) -> None:
         demo = make_demo_examples()

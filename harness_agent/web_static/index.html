@@ -95,10 +95,10 @@
               </div>
               <div id="slot-cards" class="slot-card-grid"></div>
               <div id="slot-detail" class="slot-detail"></div>
-              <input id="selected-slot-id" type="hidden" value="awls_zi_policy" />
+              <input id="selected-slot-id" type="hidden" value="agent_auto" />
               <label class="field checkbox-field slot-confirm-field">
                 <input id="slot-user-confirmed" type="checkbox" />
-                <span>我确认本轮只允许修改选中的代码槽；输入、输出、解析器和评测器保持不变。</span>
+                <span>我确认本轮只允许修改 agent 选定或我手动选定的代码槽；输入、输出、解析器和评测器保持不变。</span>
               </label>
             </section>
 
@@ -245,6 +245,19 @@
               <label class="field compact">
                 <span>AWLS theta</span>
                 <input id="awls-theta" type="number" min="0" max="100000" value="5" />
+              </label>
+              <label class="field compact">
+                <span>AWLS zi 策略</span>
+                <select id="awls-zi-policy">
+                  <option value="auto">agent 自动</option>
+                  <option value="cpp">cpp</option>
+                  <option value="critical">critical</option>
+                  <option value="formula">formula</option>
+                </select>
+              </label>
+              <label class="field compact">
+                <span>关键块穷举比例</span>
+                <input id="awls-critical-block-exhaustive-pct" type="number" min="0" max="100" value="75" />
               </label>
               <label class="field compact">
                 <span>AWLS 同机评估</span>
