@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from tempfile import TemporaryDirectory
 from pathlib import Path
+from unittest.mock import patch
 
 from harness_agent.workers.deepseek_worker import (
     DeepSeekWorker,
@@ -10,6 +11,7 @@ from harness_agent.workers.deepseek_worker import (
     extract_json_object,
     insert_after_anchor,
     insert_before_anchor,
+    priority_context_max_chars,
     priority_worker_context,
     render_code_edit_markdown,
 )
@@ -409,6 +411,18 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("improvement_round", prompt_context)
         self.assertIn("examples/agent_generated_fjsp_solver.py", prompt_context)
         self.assertIn("def schedule(): pass", prompt_context)
+
+    def test_priority_context_max_chars_is_configurable_and_clamped(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(32000, priority_context_max_chars())
+        with patch.dict("os.environ", {"ALGOFORGE_PRIORITY_CONTEXT_MAX_CHARS": "48000"}, clear=True):
+            self.assertEqual(48000, priority_context_max_chars())
+        with patch.dict("os.environ", {"ALGOFORGE_PRIORITY_CONTEXT_MAX_CHARS": "1000"}, clear=True):
+            self.assertEqual(12000, priority_context_max_chars())
+        with patch.dict("os.environ", {"ALGOFORGE_PRIORITY_CONTEXT_MAX_CHARS": "999999"}, clear=True):
+            self.assertEqual(60000, priority_context_max_chars())
+        with patch.dict("os.environ", {"ALGOFORGE_PRIORITY_CONTEXT_MAX_CHARS": "wide"}, clear=True):
+            self.assertEqual(32000, priority_context_max_chars())
 
     def test_priority_worker_context_keeps_incumbent_before_large_rag_cards(self) -> None:
         context = _context_packet_with_intake()

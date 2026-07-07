@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -37,7 +38,9 @@ RULE_OPERATOR_TYPES = [
     "parameter_policy",
 ]
 
-PRIORITY_CONTEXT_MAX_CHARS = 22000
+PRIORITY_CONTEXT_DEFAULT_MAX_CHARS = 32000
+PRIORITY_CONTEXT_MIN_CHARS = 12000
+PRIORITY_CONTEXT_MAX_CHARS = 60000
 PRIORITY_INCUMBENT_FILE_MAX_CHARS = 5200
 PRIORITY_KNOWLEDGE_CARD_LIMIT = 3
 PRIORITY_KNOWLEDGE_CARD_MAX_CHARS = 1200
@@ -731,7 +734,18 @@ def priority_worker_context(context: dict[str, Any]) -> str:
             "shapes the proposal."
         ),
     }
-    return json.dumps(payload, ensure_ascii=False, indent=2)[:PRIORITY_CONTEXT_MAX_CHARS]
+    return json.dumps(payload, ensure_ascii=False, indent=2)[:priority_context_max_chars()]
+
+
+def priority_context_max_chars() -> int:
+    raw_value = os.getenv("ALGOFORGE_PRIORITY_CONTEXT_MAX_CHARS")
+    if raw_value is None:
+        return PRIORITY_CONTEXT_DEFAULT_MAX_CHARS
+    try:
+        requested = int(raw_value)
+    except ValueError:
+        return PRIORITY_CONTEXT_DEFAULT_MAX_CHARS
+    return max(PRIORITY_CONTEXT_MIN_CHARS, min(PRIORITY_CONTEXT_MAX_CHARS, requested))
 
 
 def compact_loop_feedback_for_prompt(loop_feedback: dict[str, Any]) -> dict[str, Any]:
