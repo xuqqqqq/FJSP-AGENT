@@ -51,6 +51,35 @@ class WebAppTests(unittest.TestCase):
         self.assertFalse(status["env_example"]["loaded"])
         self.assertIn("不会被自动加载", status["env_example"]["note"])
 
+    def test_demo_examples_default_to_sdst_la20_agent_generated_settings(self) -> None:
+        demo = make_demo_examples()
+
+        self.assertEqual("fjsp_sdst_fattahi_requirement.md", demo["requirement"]["name"])
+        self.assertEqual("fjsp_sdst_fattahi_io.md", demo["io"]["name"])
+        self.assertIn("FJSP-SDST", demo["requirement"]["text"])
+        self.assertIn("SDST-HUdata", demo["io"]["text"])
+        self.assertIn("la20", demo["best_known_csv"]["text"].lower())
+
+        config = demo["config"]
+        self.assertEqual("standard_loop", config["run_mode"])
+        self.assertEqual("agent_generated", config["baseline_source"])
+        self.assertEqual("agent-generated", config["solver"])
+        self.assertEqual("code", config["evolution_mode"])
+        self.assertEqual("deepseek", config["profile_mode"])
+        self.assertEqual(10, config["max_rounds"])
+        self.assertEqual("0,1,2,3,4,5,6,7,8,9", config["seeds"])
+        self.assertEqual("fixed", config["awls_time_policy"])
+        self.assertEqual(1, config["awls_restarts"])
+        self.assertEqual(1000, config["awls_cycles_per_restart"])
+        self.assertEqual(1000000, config["awls_iterations"])
+        self.assertEqual("random", config["awls_init"])
+        self.assertEqual(400, config["awls_beta"])
+        self.assertEqual(40, config["awls_gamma"])
+        self.assertEqual(5, config["awls_theta"])
+        self.assertEqual("critical", config["awls_zi_policy"])
+        self.assertEqual(75, config["awls_critical_block_exhaustive_pct"])
+        self.assertEqual("", config["awls_portfolio_lanes"])
+
     def test_deepseek_status_loads_explicit_env_file_without_returning_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             env_file = Path(tmp) / "agent.env"
@@ -168,6 +197,7 @@ class WebAppTests(unittest.TestCase):
             "slot_user_confirmed": True,
             "max_rounds": 1,
             "seeds": "0",
+            "awls_zi_policy": "cpp",
         }
         captured = {}
 

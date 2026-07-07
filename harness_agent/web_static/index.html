@@ -143,7 +143,7 @@
               </label>
               <label class="field compact">
                 <span>迭代轮次</span>
-                <input id="max-rounds" type="number" min="1" max="20" value="2" />
+                <input id="max-rounds" type="number" min="1" max="20" value="10" />
               </label>
               <label class="field compact">
                 <span>随机种子</span>
@@ -155,14 +155,14 @@
                   <option value="portfolio">组合求解器</option>
                   <option value="local-search">局部搜索</option>
                   <option value="awls">AWLS</option>
-                  <option value="agent-generated">Agent 自写 solver</option>
+                  <option value="agent-generated" selected>Agent 自写 solver</option>
                 </select>
               </label>
               <label class="field compact">
                 <span>基线来源</span>
                 <select id="baseline-source">
                   <option value="current_project">当前工程 incumbent</option>
-                  <option value="agent_generated">Agent 自写初始 solver</option>
+                  <option value="agent_generated" selected>Agent 自写初始 solver</option>
                 </select>
               </label>
               <label class="field compact">
@@ -170,7 +170,7 @@
                 <select id="evolution-mode">
                   <option value="strategy">策略层：DeepSeek 生成策略，不改源码</option>
                   <option value="slot">代码槽：DeepSeek 只改 EVOLVE 标记函数</option>
-                  <option value="code">自由代码层：DeepSeek 代码 worker 改候选代码</option>
+                  <option value="code" selected>自由代码层：DeepSeek 代码 worker 改候选代码</option>
                 </select>
               </label>
               <label class="field compact">
@@ -215,11 +215,11 @@
               </label>
               <label class="field compact">
                 <span>AWLS 每次循环数</span>
-                <input id="awls-cycles" type="number" min="1" max="100000" value="200" />
+                <input id="awls-cycles" type="number" min="1" max="100000" value="1000" />
               </label>
               <label class="field compact">
                 <span>AWLS 迭代上限</span>
-                <input id="awls-iterations" type="number" min="0" max="1000000" value="2000" />
+                <input id="awls-iterations" type="number" min="0" max="1000000" value="1000000" />
               </label>
               <label class="field compact">
                 <span>AWLS 时间上限</span>
@@ -229,7 +229,7 @@
                 <span>时间策略</span>
                 <select id="awls-time-policy">
                   <option value="scaled">按算例规模</option>
-                  <option value="fixed">固定秒数</option>
+                  <option value="fixed" selected>固定秒数</option>
                   <option value="mae2019">论文基准</option>
                   <option value="mae2019-hour">长跑复现</option>
                 </select>
@@ -244,7 +244,7 @@
               </label>
               <label class="field compact">
                 <span>AWLS beta</span>
-                <input id="awls-beta" type="number" min="1" max="100000" value="500" />
+                <input id="awls-beta" type="number" min="1" max="100000" value="400" />
               </label>
               <label class="field compact">
                 <span>AWLS gamma</span>
@@ -259,7 +259,7 @@
                 <select id="awls-zi-policy">
                   <option value="auto">agent 自动</option>
                   <option value="cpp">cpp</option>
-                  <option value="critical">critical</option>
+                  <option value="critical" selected>critical</option>
                   <option value="formula">formula</option>
                 </select>
               </label>
@@ -276,7 +276,7 @@
               </label>
               <label class="field compact wide-field">
                 <span>AWLS 组合通道</span>
-                <input id="awls-portfolio-lanes" value="3:random:1,5:mixed:1,17:random:1" />
+                <input id="awls-portfolio-lanes" value="" />
               </label>
               <label class="field compact">
                 <span>代码 worker 步数上限</span>

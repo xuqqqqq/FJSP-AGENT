@@ -33,6 +33,26 @@ DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "web_runs"
 MAX_REQUEST_BYTES = 8 * 1024 * 1024
 MAX_ARTIFACT_CHARS = 240_000
 DEFAULT_STANDARD_SEEDS_TEXT = "0,1,2,3,4,5,6,7,8,9"
+DEFAULT_DOWNLOADS_DIR = Path.home() / "Downloads"
+DEFAULT_SDST_HUDATA_LA20_INSTANCE = (
+    DEFAULT_DOWNLOADS_DIR
+    / "FJSP_SDST_HUdata_instances_package"
+    / "FJSP_SDST_HUdata_instances_package"
+    / "instances"
+    / "oddla20.txt"
+)
+DEFAULT_SDST_HUDATA_BOUNDS_CANDIDATES = [
+    DEFAULT_DOWNLOADS_DIR
+    / "FJSP_SDST_HUdata_instances_package"
+    / "FJSP_SDST_HUdata_instances_package"
+    / "bounds"
+    / "SDST_HUdata_bounds_LB_UB.csv",
+    DEFAULT_DOWNLOADS_DIR / "FJSP_SDST_benchmark_bounds_package" / "SDST_HUdata_bounds_LB_UB.csv",
+]
+DEFAULT_SDST_LA20_BOUNDS_CSV = (
+    "Instance,Lower bound (LB),Best-known upper bound (UB/BKS),Note\n"
+    "la20,857,997,SDST-HUdata LA20 fallback row\n"
+)
 
 _JOBS: dict[str, dict[str, Any]] = {}
 _LOCK = threading.Lock()
@@ -114,38 +134,62 @@ def write_job_status(job: dict[str, Any]) -> None:
 
 
 def make_demo_examples() -> dict[str, Any]:
-    requirement = (PROJECT_ROOT / "examples" / "web_demo_requirement.md").read_text(encoding="utf-8")
-    io_doc = (PROJECT_ROOT / "examples" / "web_demo_io.md").read_text(encoding="utf-8")
-    instance_name = "fjsp.brandimarte.Mk01.m6j10c3.txt"
-    best_known_name = "brandimarte_mk01_best.csv"
-    instance = (PROJECT_ROOT / "examples" / instance_name).read_text(encoding="utf-8")
-    best_known = (PROJECT_ROOT / "examples" / best_known_name).read_text(encoding="utf-8")
+    requirement_name = "fjsp_sdst_fattahi_requirement.md"
+    io_name = "fjsp_sdst_fattahi_io.md"
+    requirement = (PROJECT_ROOT / "examples" / requirement_name).read_text(encoding="utf-8")
+    io_doc = (PROJECT_ROOT / "examples" / io_name).read_text(encoding="utf-8")
+    instance_name, instance = read_default_sdst_la20_instance()
+    best_known_name, best_known = read_default_sdst_bounds_csv()
     return {
-        "requirement": {"name": "web_demo_requirement.md", "text": requirement},
-        "io": {"name": "web_demo_io.md", "text": io_doc},
+        "requirement": {"name": requirement_name, "text": requirement},
+        "io": {"name": io_name, "text": io_doc},
         "instance": {"name": instance_name, "text": instance},
         "best_known_csv": {"name": best_known_name, "text": best_known},
         "config": {
-            "title": "Brandimarte Mk01 标准 FJSP 闭环演示",
+            "title": "SDST-HUdata LA20（oddla20）Agent 自写闭环测试",
             "run_mode": "standard_loop",
-            "baseline_source": "current_project",
-            "max_rounds": 2,
+            "baseline_source": "agent_generated",
+            "max_rounds": 10,
             "seeds": DEFAULT_STANDARD_SEEDS_TEXT,
-            "solver": "portfolio",
-            "evolution_mode": "strategy",
+            "solver": "agent-generated",
+            "evolution_mode": "code",
             "profile_mode": "deepseek",
             "strategy_candidates": 2,
             "portfolio_size": 8,
             "timeout_seconds": 60,
             "max_workers": 1,
             "awls_time_limit_sec": 30,
-            "awls_time_policy": "scaled",
+            "awls_time_policy": "fixed",
+            "awls_restarts": 1,
+            "awls_cycles_per_restart": 1000,
+            "awls_iterations": 1000000,
+            "awls_init": "random",
+            "awls_beta": 400,
+            "awls_gamma": 40,
+            "awls_theta": 5,
+            "awls_zi_policy": "critical",
+            "awls_critical_block_exhaustive_pct": 75,
+            "awls_portfolio_lanes": "",
             "awls_zi_candidates": 2,
             "awls_same_machine_eval": "stable",
             "apply_worker_changes": True,
             "worker_max_steps": 4,
         },
     }
+
+
+def read_default_sdst_la20_instance() -> tuple[str, str]:
+    if DEFAULT_SDST_HUDATA_LA20_INSTANCE.is_file():
+        return DEFAULT_SDST_HUDATA_LA20_INSTANCE.name, DEFAULT_SDST_HUDATA_LA20_INSTANCE.read_text(encoding="utf-8")
+    fallback = PROJECT_ROOT / "examples" / "fjsp_sdst_hudata_tiny.txt"
+    return fallback.name, fallback.read_text(encoding="utf-8")
+
+
+def read_default_sdst_bounds_csv() -> tuple[str, str]:
+    for path in DEFAULT_SDST_HUDATA_BOUNDS_CANDIDATES:
+        if path.is_file():
+            return path.name, path.read_text(encoding="utf-8-sig")
+    return "SDST_HUdata_bounds_LB_UB_la20_fallback.csv", DEFAULT_SDST_LA20_BOUNDS_CSV
 
 
 def slot_manifest_catalog_payload() -> dict[str, Any]:

@@ -57,15 +57,23 @@ async function loadDemo(options = {}) {
   $("timeout-seconds").value = demo.config.timeout_seconds;
   $("awls-time-policy").value = demo.config.awls_time_policy || "scaled";
   $("awls-time-limit").value = demo.config.awls_time_limit_sec || 30;
+  $("awls-restarts").value = demo.config.awls_restarts || 1;
+  $("awls-cycles").value = demo.config.awls_cycles_per_restart || 200;
+  $("awls-iterations").value = demo.config.awls_iterations || 2000;
+  $("awls-init").value = demo.config.awls_init || "random";
+  $("awls-beta").value = demo.config.awls_beta || 500;
+  $("awls-gamma").value = demo.config.awls_gamma || 40;
+  $("awls-theta").value = demo.config.awls_theta ?? 5;
   $("awls-zi-policy").value = demo.config.awls_zi_policy || "auto";
   $("awls-critical-block-exhaustive-pct").value = demo.config.awls_critical_block_exhaustive_pct ?? 75;
   $("awls-same-machine-eval").value = demo.config.awls_same_machine_eval || "stable";
+  $("awls-portfolio-lanes").value = demo.config.awls_portfolio_lanes ?? "3:random:1,5:mixed:1,17:random:1";
   $("worker-max-steps").value = demo.config.worker_max_steps;
   $("apply-worker-changes").checked = Boolean(demo.config.apply_worker_changes);
-  $("artifact-preview").textContent = "内置示例已载入，可以直接启动循环迭代。";
+  $("artifact-preview").textContent = "SDST-HUdata LA20 默认测试已载入，可以直接启动循环迭代。";
   updateContractSummary();
   if (!options.silent) {
-    appendChatMessage("assistant", "内置 Mk01 示例已载入。你可以继续说“代码槽”或“策略层”，也可以直接“启动”。");
+    appendChatMessage("assistant", "SDST-HUdata LA20 默认测试已载入：Agent 自写初始 solver，DeepSeek 自由代码层，10 轮，10 个种子。可以直接“启动”。");
   }
 }
 
