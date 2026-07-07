@@ -9,6 +9,7 @@ from harness_agent.workers.deepseek_worker import (
     apply_code_edit_proposal,
     extract_json_object,
     insert_after_anchor,
+    insert_before_anchor,
     priority_worker_context,
     render_code_edit_markdown,
 )
@@ -122,6 +123,13 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                     "changes": [
                         {
                             "path": "examples/standard_fjsp_solver.py",
+                            "action": "insert_before",
+                            "anchor": "beta = 2\n",
+                            "content": "delta = 5\n",
+                            "rationale": "Small controlled pre-insertion.",
+                        },
+                        {
+                            "path": "examples/standard_fjsp_solver.py",
                             "action": "text_replace",
                             "old": "beta = 2\n",
                             "new": "beta = 3\n",
@@ -149,10 +157,14 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
             changed = apply_code_edit_proposal(proposal=normalized, worktree_path=root, context=context)
 
             self.assertEqual(
-                ["examples/standard_fjsp_solver.py", "examples/standard_fjsp_solver.py"],
+                [
+                    "examples/standard_fjsp_solver.py",
+                    "examples/standard_fjsp_solver.py",
+                    "examples/standard_fjsp_solver.py",
+                ],
                 changed,
             )
-            self.assertEqual("alpha = 1\ngamma = 4\nbeta = 3\n", target.read_text(encoding="utf-8"))
+            self.assertEqual("alpha = 1\ngamma = 4\ndelta = 5\nbeta = 3\n", target.read_text(encoding="utf-8"))
             self.assertEqual(["Single string risk note should stay one note."], normalized["risk_notes"])
 
     def test_insert_after_adds_line_boundaries_when_anchor_is_bare_line(self) -> None:
@@ -177,6 +189,23 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         updated = insert_after_anchor(text, "alpha = 1\n", "gamma = 4")
 
         self.assertEqual("alpha = 1\ngamma = 4\nbeta = 2\n", updated)
+
+    def test_insert_before_adds_line_boundaries_for_top_level_helper(self) -> None:
+        text = "import json\n\ndef main():\n    run()\n"
+        updated = insert_before_anchor(
+            text,
+            "def main():",
+            "def helper():\n    return 1",
+        )
+
+        self.assertEqual(
+            "import json\n\n"
+            "def helper():\n"
+            "    return 1\n"
+            "def main():\n"
+            "    run()\n",
+            updated,
+        )
 
     def test_replace_slot_block_action_rewrites_only_confirmed_slot(self) -> None:
         worker = DeepSeekWorker()

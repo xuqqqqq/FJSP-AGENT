@@ -366,6 +366,13 @@ Return JSON only with this schema:
     }},
     {{
       "path": "relative/path.py",
+      "action": "insert_before",
+      "anchor": "exact existing anchor text",
+      "content": "text inserted immediately before anchor",
+      "rationale": "why this insertion helps"
+    }},
+    {{
+      "path": "relative/path.py",
       "action": "insert_after",
       "anchor": "exact existing anchor text",
       "content": "text inserted immediately after anchor",
@@ -389,10 +396,17 @@ Rules:
   `create_or_replace` only for a new small helper file or when the full file
   content is short and complete. Do not rewrite a large solver file just to add
   a small operator.
+- Use `insert_before` instead of `insert_after` when adding a new top-level
+  helper before `def main(...)` or another function definition. Never insert a
+  top-level helper immediately after a `def ...:` line, because that leaves the
+  original function with no body and causes syntax errors.
+- For helper code longer than about 40 lines, prefer a new small helper file
+  plus a compact import/call patch over one huge inline JSON string. This keeps
+  proposals parseable and reduces indentation mistakes.
 - When iteration_edit_contract.mode is `incremental_after_baseline`, do not use
   `create_or_replace` on an existing solver entrypoint. Preserve the promoted
-  incumbent skeleton and use a small `text_replace`, `insert_after`, or confirmed
-  `replace_slot_block` mutation. Baseline-generation is the only phase where
+  incumbent skeleton and use a small `text_replace`, `insert_before`,
+  `insert_after`, or confirmed `replace_slot_block` mutation. Baseline-generation is the only phase where
   creating the initial solver entrypoint is expected.
 - If slot_manifest is present and the edit is inside a user-confirmed slot,
   prefer `replace_slot_block` with the slot_id.  Do not echo the whole
@@ -465,7 +479,7 @@ Context packet:
                         "Use exactly these top-level keys: summary, strategy_intent, rule_operator_hypotheses, changes, context_usage, quick_test_plan, risk_notes. "
                         "Each change must use one supported action: "
                         "replace_slot_block(path, slot_id, content), create_or_replace(path, content), text_replace(path, old, new), "
-                        "or insert_after(path, anchor, content). Return JSON only.\n\n"
+                        "insert_before(path, anchor, content), or insert_after(path, anchor, content). Return JSON only.\n\n"
                         f"JSON error: {error}\n\n"
                         f"Invalid response:\n{raw[:9000]}"
                     ),
@@ -529,7 +543,7 @@ Context packet:
                             "path": normalized_path,
                             "reason": (
                                 "iteration_edit_contract forbids create_or_replace on an existing solver file; "
-                                "preserve the incumbent and use text_replace/insert_after/replace_slot_block"
+                                "preserve the incumbent and use text_replace/insert_before/insert_after/replace_slot_block"
                             ),
                         }
                     )
@@ -560,19 +574,19 @@ Context packet:
                         "rationale": str(item.get("rationale", ""))[:2000],
                     }
                 )
-            elif action == "insert_after":
+            elif action in {"insert_before", "insert_after"}:
                 anchor = item.get("anchor")
                 content = item.get("content")
                 if not isinstance(anchor, str) or not anchor:
-                    rejected_changes.append({"path": path, "reason": "insert_after requires non-empty anchor text"})
+                    rejected_changes.append({"path": path, "reason": f"{action} requires non-empty anchor text"})
                     continue
                 if not isinstance(content, str) or not content:
-                    rejected_changes.append({"path": path, "reason": "insert_after requires non-empty content"})
+                    rejected_changes.append({"path": path, "reason": f"{action} requires non-empty content"})
                     continue
                 normalized_changes.append(
                     {
                         "path": normalized_path,
-                        "action": "insert_after",
+                        "action": action,
                         "anchor": anchor,
                         "content": content,
                         "rationale": str(item.get("rationale", ""))[:2000],
@@ -1147,6 +1161,17 @@ def apply_code_edit_proposal(
                 continue
             insert_text = str(change.get("content", ""))
             target.write_text(insert_after_anchor(text, anchor, insert_text), encoding="utf-8")
+        elif action == "insert_before":
+            if not target.exists():
+                proposal.setdefault("apply_rejections", []).append({"path": relative_path, "reason": "target file does not exist"})
+                continue
+            text = target.read_text(encoding="utf-8")
+            anchor = str(change.get("anchor", ""))
+            if anchor not in text:
+                proposal.setdefault("apply_rejections", []).append({"path": relative_path, "reason": "anchor text not found"})
+                continue
+            insert_text = str(change.get("content", ""))
+            target.write_text(insert_before_anchor(text, anchor, insert_text), encoding="utf-8")
         else:
             proposal.setdefault("apply_rejections", []).append({"path": relative_path, "reason": f"unsupported action: {action}"})
             continue
@@ -1161,6 +1186,20 @@ def insert_after_anchor(text: str, anchor: str, insert_text: str) -> str:
     end = start + len(anchor)
     before = text[:end]
     after = text[end:]
+    normalized_insert = str(insert_text)
+    if before and not before.endswith(("\n", "\r")) and not normalized_insert.startswith(("\n", "\r")):
+        normalized_insert = "\n" + normalized_insert
+    if after and not after.startswith(("\n", "\r")) and not normalized_insert.endswith(("\n", "\r")):
+        normalized_insert += "\n"
+    return before + normalized_insert + after
+
+
+def insert_before_anchor(text: str, anchor: str, insert_text: str) -> str:
+    start = text.find(anchor)
+    if start < 0:
+        raise ValueError("anchor text not found")
+    before = text[:start]
+    after = text[start:]
     normalized_insert = str(insert_text)
     if before and not before.endswith(("\n", "\r")) and not normalized_insert.startswith(("\n", "\r")):
         normalized_insert = "\n" + normalized_insert
