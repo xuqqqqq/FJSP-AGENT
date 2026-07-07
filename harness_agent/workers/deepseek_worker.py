@@ -1129,12 +1129,27 @@ def apply_code_edit_proposal(
                 proposal.setdefault("apply_rejections", []).append({"path": relative_path, "reason": "anchor text not found"})
                 continue
             insert_text = str(change.get("content", ""))
-            target.write_text(text.replace(anchor, anchor + insert_text, 1), encoding="utf-8")
+            target.write_text(insert_after_anchor(text, anchor, insert_text), encoding="utf-8")
         else:
             proposal.setdefault("apply_rejections", []).append({"path": relative_path, "reason": f"unsupported action: {action}"})
             continue
         changed_files.append(relative_path)
     return changed_files
+
+
+def insert_after_anchor(text: str, anchor: str, insert_text: str) -> str:
+    start = text.find(anchor)
+    if start < 0:
+        raise ValueError("anchor text not found")
+    end = start + len(anchor)
+    before = text[:end]
+    after = text[end:]
+    normalized_insert = str(insert_text)
+    if before and not before.endswith(("\n", "\r")) and not normalized_insert.startswith(("\n", "\r")):
+        normalized_insert = "\n" + normalized_insert
+    if after and not after.startswith(("\n", "\r")) and not normalized_insert.endswith(("\n", "\r")):
+        normalized_insert += "\n"
+    return before + normalized_insert + after
 
 
 def confirmed_context_slot(context: dict[str, Any], slot_id: str) -> tuple[dict[str, Any] | None, str]:

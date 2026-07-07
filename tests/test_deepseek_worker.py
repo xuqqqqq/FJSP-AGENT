@@ -8,6 +8,7 @@ from harness_agent.workers.deepseek_worker import (
     DeepSeekWorker,
     apply_code_edit_proposal,
     extract_json_object,
+    insert_after_anchor,
     priority_worker_context,
     render_code_edit_markdown,
 )
@@ -153,6 +154,29 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
             )
             self.assertEqual("alpha = 1\ngamma = 4\nbeta = 3\n", target.read_text(encoding="utf-8"))
             self.assertEqual(["Single string risk note should stay one note."], normalized["risk_notes"])
+
+    def test_insert_after_adds_line_boundaries_when_anchor_is_bare_line(self) -> None:
+        text = "machine_last_job = [-1] * n_machines\nschedule = []\n"
+        updated = insert_after_anchor(
+            text,
+            "machine_last_job = [-1] * n_machines",
+            "remaining_work = []\nfor job in jobs:\n    remaining_work.append(0)",
+        )
+
+        self.assertEqual(
+            "machine_last_job = [-1] * n_machines\n"
+            "remaining_work = []\n"
+            "for job in jobs:\n"
+            "    remaining_work.append(0)\n"
+            "schedule = []\n",
+            updated,
+        )
+
+    def test_insert_after_adds_trailing_line_boundary_when_anchor_contains_newline(self) -> None:
+        text = "alpha = 1\nbeta = 2\n"
+        updated = insert_after_anchor(text, "alpha = 1\n", "gamma = 4")
+
+        self.assertEqual("alpha = 1\ngamma = 4\nbeta = 2\n", updated)
 
     def test_replace_slot_block_action_rewrites_only_confirmed_slot(self) -> None:
         worker = DeepSeekWorker()
