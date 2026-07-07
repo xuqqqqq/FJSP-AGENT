@@ -14,15 +14,18 @@ Use this skill to keep FJSP-variant support platform-first and contract-gated.
 3. If the request concerns benchmark claims, read
    `knowledge/benchmarks/fjsp_benchmark_scope.md` and
    `knowledge/papers/fjsp_agent_current_capability_20260704.md`.
-4. If the request introduces industrial or non-standard constraints, read
+4. If the request concerns agent-generated FJSP-SDST solver evolution rather
+   than AWLS slot adaptation, read
+   `knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md`.
+5. If the request introduces industrial or non-standard constraints, read
    `knowledge/papers/fjsp_scene_survey_2025_10_17.md`.
-5. Identify variant constraints before proposing code: setup, lag/no-wait,
+6. Identify variant constraints before proposing code: setup, lag/no-wait,
    calendars, batching, transport, routes, releases, due dates, or objective
    changes.
-6. Choose knowledge cards by domain-pack tags and selected slots. Keep the
+7. Choose knowledge cards by domain-pack tags and selected slots. Keep the
    worker prompt compact and slot-local.
-7. Require a natural-language rule/operator hypothesis before worker code.
-8. Promote only by Core evaluator results.
+8. Require a natural-language rule/operator hypothesis before worker code.
+9. Promote only by Core evaluator results.
 
 ## Backend Boundary
 

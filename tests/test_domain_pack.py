@@ -152,6 +152,7 @@ class DomainPackTests(unittest.TestCase):
 
         self.assertIn("knowledge/benchmarks/standard_fjsp_format.md", card_paths)
         self.assertIn("knowledge/principles/fjsp_variant_domain_pack_rag.md", card_paths)
+        self.assertIn("knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md", card_paths)
         self.assertIn("knowledge/papers/awls_sdst_hudata20_baseline_notes.md", card_paths)
         self.assertIn("knowledge/papers/awls_sdst_weight_update_notes.md", card_paths)
 
@@ -197,6 +198,7 @@ class DomainPackTests(unittest.TestCase):
         auto_cards = {Path(path).name for path in packet["auto_knowledge_cards"]}
         self.assertIn("standard_fjsp_format.md", auto_cards)
         self.assertIn("fjsp_variant_domain_pack_rag.md", auto_cards)
+        self.assertIn("fjsp_sdst_agent_generated_search_memory_20260707.md", auto_cards)
         self.assertIn("awls_sdst_hudata20_baseline_notes.md", auto_cards)
 
 

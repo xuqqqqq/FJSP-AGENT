@@ -34,8 +34,11 @@ For standard FJSP benchmark work, retrieve:
 For FJSP-SDST / HUdata work, retrieve:
 
 1. `papers/fjsp_agent_current_capability_20260704.md`
-2. `papers/awls_sdst_hudata20_baseline_notes.md`
-3. only the selected slot's notes, such as
+2. `papers/fjsp_sdst_agent_generated_search_memory_20260707.md` when the worker
+   is creating or improving an agent-generated solver rather than adapting AWLS
+   slots
+3. `papers/awls_sdst_hudata20_baseline_notes.md`
+4. only the selected slot's notes, such as
    `awls_sdst_initialization_notes.md` or `awls_sdst_move_evaluation_notes.md`
 
 LB/UB cards are comparison references.  They should guide benchmark selection
