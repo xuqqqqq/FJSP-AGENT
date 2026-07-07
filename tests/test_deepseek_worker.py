@@ -382,6 +382,10 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
             self.assertEqual(["examples/agent_generated_fjsp_solver.py"], [item["path"] for item in normalized["changes"]])
             self.assertEqual([], normalized["rejected_changes"])
 
+            prompt_context = priority_worker_context(context)
+            self.assertIn('"incumbent_requires_legality_repair": true', prompt_context)
+            self.assertIn("create_or_replace of the solver entrypoint is allowed", prompt_context)
+
     def test_priority_worker_context_frontloads_incumbent_source(self) -> None:
         context = _context_packet_with_intake()
         context["iteration_edit_contract"] = {"mode": "incremental_after_baseline"}

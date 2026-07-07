@@ -110,6 +110,12 @@ def judge_worker_result(
         audit_warnings = proposal_audit.get("warnings") or []
         if isinstance(audit_warnings, list):
             warnings.extend(str(item) for item in audit_warnings)
+        apply_rejections = proposal.get("apply_rejections") or []
+        if isinstance(apply_rejections, list) and apply_rejections:
+            issues.append("proposal_apply_rejections")
+            suggestions.append(
+                "Repair proposal anchors/text_replace blocks before evaluation; partial application can leave the solver entrypoint unchanged."
+            )
 
         changed_validators = proposal_audit.get("changed_validator_files") or []
         changed_benchmarks = proposal_audit.get("changed_benchmark_files") or []
@@ -153,6 +159,7 @@ def judge_worker_result(
         "changed_files": worker_result.changed_files,
         "proposal_present": isinstance(proposal, dict),
         "proposal_audit_warnings": warnings,
+        "apply_rejections": proposal.get("apply_rejections") if isinstance(proposal, dict) else None,
         "edit_policy": context.get("edit_policy") or {},
         "python_compile_errors": py_compile_errors,
         "parser_rewrite_files": parser_rewrite_files,

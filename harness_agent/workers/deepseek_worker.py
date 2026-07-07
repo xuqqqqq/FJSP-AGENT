@@ -407,7 +407,11 @@ Rules:
   `create_or_replace` on an existing solver entrypoint. Preserve the promoted
   incumbent skeleton and use a small `text_replace`, `insert_before`,
   `insert_after`, or confirmed `replace_slot_block` mutation. Baseline-generation is the only phase where
-  creating the initial solver entrypoint is expected.
+  creating the initial solver entrypoint is expected. Exception: if Priority
+  context says the incumbent requires legality repair, you may use
+  `create_or_replace` on the solver entrypoint to restore a runnable complete
+  solver; do not rely on fragile `text_replace` anchors when the entrypoint is
+  already invalid.
 - If slot_manifest is present and the edit is inside a user-confirmed slot,
   prefer `replace_slot_block` with the slot_id.  Do not echo the whole
   original_content in an `old` field; Core will locate marker_start/marker_end
@@ -686,6 +690,12 @@ def priority_worker_context(context: dict[str, Any]) -> str:
     payload = {
         "round_type": "improvement_round" if context.get("iteration_edit_contract") else "baseline_or_single_round",
         "iteration_edit_contract": context.get("iteration_edit_contract") or {},
+        "incumbent_requires_legality_repair": incumbent_requires_legality_repair(context),
+        "legality_repair_rule": (
+            "If incumbent_requires_legality_repair is true, the current incumbent is not a valid solver. "
+            "A full create_or_replace of the solver entrypoint is allowed for legality repair; prefer that over "
+            "fragile text_replace anchors when replacing an invalid generated solver."
+        ),
         "priority_knowledge_cards": compact_priority_knowledge_cards(context, limit=5),
         "knowledge_use_rule": (
             "Use priority_knowledge_cards as the selected RAG brief before the full context packet. "

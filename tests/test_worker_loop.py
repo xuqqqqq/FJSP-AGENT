@@ -93,6 +93,66 @@ class RuntimeFailWorker:
         )
 
 
+class PartialApplyRejectionWorker:
+    """Test worker that changed a helper but failed to patch the intended entrypoint."""
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="partial-apply-rejection",
+            supports_code_generation=True,
+            supports_repair=False,
+            supports_structured_output=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        output_dir = Path(spec.output_dir or spec.worktree_path)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        helper_path = Path(spec.worktree_path) / "examples" / "new_helper.py"
+        helper_path.write_text("VALUE = 1\n", encoding="utf-8")
+        proposal_path = output_dir / "proposal.json"
+        proposal_path.write_text(
+            json.dumps(
+                {
+                    "summary": "Create a helper but fail to patch the solver entrypoint.",
+                    "strategy_intent": "This simulates a text_replace old block mismatch.",
+                    "rule_operator_hypotheses": [
+                        {
+                            "name": "helper_plus_entrypoint_patch",
+                            "type": "repair_rule",
+                            "target_files": ["examples/dummy_solver.py", "examples/new_helper.py"],
+                        }
+                    ],
+                    "changes": [
+                        {
+                            "path": "examples/new_helper.py",
+                            "action": "create_or_replace",
+                            "content": "VALUE = 1\n",
+                        },
+                        {
+                            "path": "examples/dummy_solver.py",
+                            "action": "text_replace",
+                            "old": "missing anchor",
+                            "new": "replacement",
+                        },
+                    ],
+                    "apply_rejections": [
+                        {"path": "examples/dummy_solver.py", "reason": "old text not found"}
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return WorkerResult(
+            status="applied",
+            changed_files=["examples/new_helper.py"],
+            summary="Only the helper file changed; the entrypoint patch was rejected.",
+            artifacts={"proposal": str(proposal_path)},
+        )
+
+
 class IncompleteLocalSearchWorker:
     """Test worker that adds a local-search decoder accepting incomplete schedules."""
 
@@ -542,6 +602,33 @@ class WorkerLoopTests(unittest.TestCase):
             checks = result.agentic_judgment.checks
             self.assertIn("empty_schedule_scored_as_zero", checks["incomplete_solution_acceptance_risks"][0])
             self.assertIn("decoder_can_return_partial_schedule", checks["incomplete_solution_acceptance_risks"][0])
+
+    def test_code_judgment_rejects_partial_apply_rejections(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+
+            result = run_worker_cycle(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "cycle",
+                context_packet_path=context_path,
+                worker=PartialApplyRejectionWorker(),
+                experiment_id="test_partial_apply_rejection",
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=True,
+            )
+
+            self.assertFalse(result.agentic_judgment.accepted)
+            self.assertIn("proposal_apply_rejections", result.agentic_judgment.issues)
+            self.assertEqual(0, result.summary.total)
+            self.assertFalse(result.full_evaluation_started)
+            self.assertEqual(
+                [{"path": "examples/dummy_solver.py", "reason": "old text not found"}],
+                result.agentic_judgment.checks["apply_rejections"],
+            )
 
     def test_render_worktree_patch_ignores_line_ending_noise(self) -> None:
         patch = render_worktree_patch(
