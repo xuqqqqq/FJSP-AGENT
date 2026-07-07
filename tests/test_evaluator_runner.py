@@ -12,7 +12,7 @@ from pathlib import Path
 from harness_agent.evaluator import EvaluationResult
 from harness_agent.ledger import ExperimentRecord
 from harness_agent.models import ObjectiveSpec
-from harness_agent.runner import pareto_frontier, run_shell_command, validation_summary
+from harness_agent.runner import command_failure_message, pareto_frontier, run_shell_command, validation_summary
 
 
 class EvaluatorRunnerTests(unittest.TestCase):
@@ -65,6 +65,22 @@ class EvaluatorRunnerTests(unittest.TestCase):
             [{"error": "missing required metric: score", "count": 2}],
             summary["top_errors"],
         )
+
+    def test_command_failure_message_includes_stderr_tail(self) -> None:
+        stderr = "\n".join(
+            [
+                "Traceback (most recent call last):",
+                '  File "solver.py", line 10, in <module>',
+                "    main()",
+                "TypeError: tuple indices must be integers or slices, not str",
+            ]
+        )
+
+        message = command_failure_message("solver", 1, stderr)
+
+        self.assertIn("solver command failed with exit code 1", message)
+        self.assertIn("stderr_excerpt", message)
+        self.assertIn("TypeError: tuple indices must be integers or slices, not str", message)
 
     def test_shell_timeout_kills_child_process_tree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

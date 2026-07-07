@@ -34,6 +34,12 @@ Recent web worker-loop artifacts:
 - `outputs/web_runs/20260707_195235_36182a23`: baseline `3817`, promoted to
   `1733` through feasible relocation/tabu/multi-start local search, but it did
   not recover the stronger operation-level EST multi-start skeleton.
+- `outputs/web_runs/20260708_005553_12189369`: baseline repair promoted to
+  `1131` by recovering setup-aware operation-level dispatch, then to `1102`.
+  Rounds 7-10, 12, 17, and 18 repeatedly tried insertion/all-pair local search
+  and failed at runtime because the new decoder mixed global operation ids,
+  `(job, op)` pairs, and schedule dictionaries in `machine_sequences`/`op_info`.
+  A later multi-seed wrapper was legal but tied the incumbent at `1102`.
 
 Treat these as local learning signals.  They do not prove a global algorithmic
 ranking, but they show which structures the current worker should preserve or
@@ -92,6 +98,12 @@ Risk patterns already observed:
   `0` makespan.
 - Reordering machine sequences without propagating precedence to downstream
   operations.
+- Mixing operation representations inside local-search decoders.  If
+  `machine_sequences` stores `(job, op)` pairs, every trial move and
+  `op_info` lookup must use that exact shape; do not mix in global operation
+  ids or full schedule dictionaries.  Recent bad proposals crashed with
+  `TypeError` such as "cannot unpack non-iterable int object" and "tuple
+  indices must be integers or slices, not str".
 - Long inline helper functions inserted after `def main():`, which breaks
   Python structure.  Use `insert_before` for top-level helpers or create a
   small helper file plus a compact import/call patch.

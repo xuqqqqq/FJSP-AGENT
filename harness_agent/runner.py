@@ -14,6 +14,7 @@ from .models import TaskContract, resolve_project_path
 
 
 CREATE_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+SUBPROCESS_ERROR_EXCERPT_MAX_CHARS = 900
 
 
 @dataclass(frozen=True)
@@ -142,7 +143,7 @@ class HarnessRunner:
             solver_stdout.write_text(solver_result.stdout, encoding="utf-8")
             solver_stderr.write_text(solver_result.stderr, encoding="utf-8")
             if solver_result.returncode != 0:
-                raise RuntimeError(f"solver command failed with exit code {solver_result.returncode}")
+                raise RuntimeError(command_failure_message("solver", solver_result.returncode, solver_result.stderr))
 
             evaluator_cmd = self.contract.commands.evaluator.format(**placeholders)
             evaluator_result = run_shell_command(
@@ -154,7 +155,7 @@ class HarnessRunner:
             evaluator_stdout.write_text(evaluator_result.stdout, encoding="utf-8")
             evaluator_stderr.write_text(evaluator_result.stderr, encoding="utf-8")
             if evaluator_result.returncode != 0:
-                raise RuntimeError(f"evaluator command failed with exit code {evaluator_result.returncode}")
+                raise RuntimeError(command_failure_message("evaluator", evaluator_result.returncode, evaluator_result.stderr))
             if not metrics_path.exists():
                 raise RuntimeError("evaluator did not create metrics file")
 
@@ -435,3 +436,24 @@ def _finite_key(value: object) -> bool:
     if not isinstance(value, tuple):
         return False
     return bool(value) and all(item != float("-inf") for item in value)
+
+
+def command_failure_message(stage: str, returncode: int, stderr: str) -> str:
+    message = f"{stage} command failed with exit code {returncode}"
+    excerpt = subprocess_error_excerpt(stderr)
+    if excerpt:
+        message += f" | stderr_excerpt: {excerpt}"
+    return message
+
+
+def subprocess_error_excerpt(stderr: str) -> str:
+    if not stderr:
+        return ""
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    if not lines:
+        return ""
+    tail = lines[-6:]
+    excerpt = " | ".join(tail)
+    if len(excerpt) > SUBPROCESS_ERROR_EXCERPT_MAX_CHARS:
+        excerpt = excerpt[-SUBPROCESS_ERROR_EXCERPT_MAX_CHARS:]
+    return excerpt

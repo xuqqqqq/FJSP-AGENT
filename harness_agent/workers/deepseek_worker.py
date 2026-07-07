@@ -43,7 +43,7 @@ PRIORITY_CONTEXT_MIN_CHARS = 12000
 PRIORITY_CONTEXT_MAX_CHARS = 60000
 PRIORITY_INCUMBENT_FILE_MAX_CHARS = 5200
 PRIORITY_KNOWLEDGE_CARD_LIMIT = 3
-PRIORITY_KNOWLEDGE_CARD_MAX_CHARS = 1200
+PRIORITY_KNOWLEDGE_CARD_MAX_CHARS = 1800
 
 
 def extract_json_object(text: str) -> dict[str, Any]:
@@ -716,6 +716,12 @@ def priority_worker_context(context: dict[str, Any]) -> str:
                 "max(... for op in candidate_schedule) if candidate_schedule else 0",
                 "decoder deadlock breaks and returns a partial schedule as if feasible",
             ],
+            "representation_rule": (
+                "When adding a decoder or machine-sequence local search, preserve one operation representation "
+                "end to end. Do not mix global operation ids, (job, op) pairs, and full schedule dictionaries in "
+                "the same machine_sequences/op_info path. If a trial decoder sees an unexpected item shape or "
+                "cannot decode all operations, reject that neighbor and keep the incumbent schedule."
+            ),
         },
         "worker_instruction": {
             "round_feedback_rule": (context.get("worker_instruction") or {}).get("round_feedback_rule"),
@@ -969,16 +975,24 @@ def compact_knowledge_card_snippet(snippet: str, *, query_terms: set[str], max_c
         return snippet
 
     lower = snippet.lower().replace("_", "-")
-    needles = [
+    local_search_needles = [
+        "local search quality",
+        "risk patterns",
+        "candidate schedules must contain",
+        "partial schedule",
+        "decode fixed machine sequences",
+        "operation coverage",
+        "machine sequences",
+        "deadlock",
+    ]
+    general_needles = [
         "what to preserve",
         "preserve or recover",
         "operation-level",
         "setup-aware",
         "multi-start",
-        "local search quality",
         "critical-block",
         "critical path",
-        "risk patterns",
         "anchor text",
         "old text",
         "regret",
@@ -986,6 +1000,10 @@ def compact_knowledge_card_snippet(snippet: str, *, query_terms: set[str], max_c
         "tabu",
         "avoid",
     ]
+    if "local_search" in query_terms:
+        needles = local_search_needles + general_needles
+    else:
+        needles = general_needles + local_search_needles
     for term in sorted(query_terms):
         normalized = term.lower().replace("_", "-")
         if len(normalized) >= 5 and normalized not in {"agent", "generated"}:

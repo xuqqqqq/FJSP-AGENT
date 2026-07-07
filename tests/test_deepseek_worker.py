@@ -569,6 +569,63 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("priority_knowledge_cards", prompt_context)
         self.assertIn("operation-level list scheduler", prompt_context)
 
+    def test_priority_worker_context_prioritizes_local_search_safety_card(self) -> None:
+        context = _context_packet_with_intake()
+        context["task"] = {
+            "problem_family": "fjsp_sdst",
+            "description": "Improve an agent_generated FJSP-SDST solver with local_search_operator.",
+            "instances": [{"id": "oddla20", "path": "instances/oddla20.txt"}],
+        }
+        context["iteration_edit_contract"] = {"mode": "incremental_after_baseline"}
+        context["loop_feedback"] = {
+            "incumbent_key_before": [-1102.0],
+            "previous_rounds": [
+                {
+                    "round_index": 7,
+                    "decision": "rolled_back",
+                    "smoke_gate": {
+                        "passed": False,
+                        "summary": {
+                            "validation_summary": {
+                                "top_errors": [
+                                    {
+                                        "error": (
+                                            "solver command failed with exit code 1 | stderr_excerpt: "
+                                            "TypeError: tuple indices must be integers or slices, not str"
+                                        ),
+                                        "count": 1,
+                                    }
+                                ]
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+        context["knowledge_cards"] = [
+            {
+                "path": "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "chars": 10000,
+                "truncated": False,
+                "snippet": (
+                    ("RAG_FILLER " * 500)
+                    + "## What To Preserve Or Recover First\nRecover operation-level list scheduler.\n"
+                    + ("RAG_FILLER " * 300)
+                    + "## Local Search Quality Contract\n"
+                    "Candidate schedules must contain exactly the same operation set. "
+                    "Decode fixed machine sequences with operation coverage checks.\n"
+                    "Risk patterns: partial schedule, deadlock, and mixed machine sequences.\n"
+                    + ("RAG_FILLER " * 300)
+                ),
+            }
+        ]
+
+        prompt_context = priority_worker_context(context)
+
+        self.assertIn("Local Search Quality Contract", prompt_context)
+        self.assertIn("Risk patterns", prompt_context)
+        self.assertIn("TypeError: tuple indices", prompt_context)
+
     def test_priority_worker_context_frontloads_relevant_knowledge_cards(self) -> None:
         context = _context_packet_with_intake()
         context["task"] = {
