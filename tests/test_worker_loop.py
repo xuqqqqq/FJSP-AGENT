@@ -93,6 +93,44 @@ class RuntimeFailWorker:
         )
 
 
+class IncompleteLocalSearchWorker:
+    """Test worker that adds a local-search decoder accepting incomplete schedules."""
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="incomplete-local-search",
+            supports_code_generation=True,
+            supports_repair=False,
+            supports_structured_output=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        solver_path = Path(spec.worktree_path) / "examples" / "dummy_solver.py"
+        text = solver_path.read_text(encoding="utf-8")
+        solver_path.write_text(
+            text
+            + "\n\n"
+            + "def risky_decode(machine_sequences):\n"
+            + "    schedule = []\n"
+            + "    while True:\n"
+            + "        best_machine = None\n"
+            + "        if best_machine is None:\n"
+            + "            break\n"
+            + "    return schedule\n"
+            + "\n\n"
+            + "def risky_local_search():\n"
+            + "    new_schedule = risky_decode([])\n"
+            + "    new_makespan = max(op['end'] for op in new_schedule) if new_schedule else 0\n"
+            + "    return new_makespan\n",
+            encoding="utf-8",
+        )
+        return WorkerResult(
+            status="ok",
+            changed_files=["examples/dummy_solver.py"],
+            summary="Add a risky local search that treats empty schedules as improvements.",
+        )
+
+
 class ProposalAuditWorker:
     """Test worker that writes a structured proposal artifact without changing files."""
 
@@ -478,6 +516,32 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertTrue(cycle_result["smoke_gate"]["enabled"])
             self.assertFalse(cycle_result["smoke_gate"]["passed"])
             self.assertFalse(cycle_result["smoke_gate"]["full_evaluation_started"])
+
+    def test_code_judgment_rejects_incomplete_local_search_acceptance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+
+            result = run_worker_cycle(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "cycle",
+                context_packet_path=context_path,
+                worker=IncompleteLocalSearchWorker(),
+                experiment_id="test_incomplete_local_search",
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+            )
+
+            self.assertFalse(result.agentic_judgment.accepted)
+            self.assertIn("incomplete_solution_acceptance_risk", result.agentic_judgment.issues)
+            self.assertEqual(0, result.summary.total)
+            self.assertFalse(result.full_evaluation_started)
+            checks = result.agentic_judgment.checks
+            self.assertIn("empty_schedule_scored_as_zero", checks["incomplete_solution_acceptance_risks"][0])
+            self.assertIn("decoder_can_return_partial_schedule", checks["incomplete_solution_acceptance_risks"][0])
 
     def test_render_worktree_patch_ignores_line_ending_noise(self) -> None:
         patch = render_worktree_patch(

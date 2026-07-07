@@ -428,6 +428,12 @@ Rules:
 - If contract_review_evidence.role_prioritized_sections is present, cite it in
   evidence_used when the rule/operator comes from objectives, constraints, IO,
   acceptance, or algorithm-guidance sections.
+- For local_search_operator, neighborhood, decoder, destroy-repair, or
+  post-processing proposals, preserve feasibility before objective comparison:
+  every decoded candidate must cover the full required operation/job set before
+  makespan or score is computed; deadlocked/partial/empty schedules must be
+  skipped or treated as infeasible, never as makespan 0; only replace the
+  incumbent schedule after verifying identical operation coverage.
 - If the task contract requires human confirmation, say so in risk_notes and
   avoid claiming formal success.
 - Do not include Markdown fences or commentary outside JSON.
@@ -661,6 +667,17 @@ def priority_worker_context(context: dict[str, Any]) -> str:
     payload = {
         "round_type": "improvement_round" if context.get("iteration_edit_contract") else "baseline_or_single_round",
         "iteration_edit_contract": context.get("iteration_edit_contract") or {},
+        "candidate_feasibility_guard": {
+            "rule": (
+                "For local search, neighborhood, decoder, destroy-repair, or post-processing changes, "
+                "never score or accept empty/partial candidate schedules. Verify full operation coverage "
+                "before computing makespan and before replacing the incumbent schedule."
+            ),
+            "forbidden_patterns": [
+                "max(... for op in candidate_schedule) if candidate_schedule else 0",
+                "decoder deadlock breaks and returns a partial schedule as if feasible",
+            ],
+        },
         "worker_instruction": {
             "round_feedback_rule": (context.get("worker_instruction") or {}).get("round_feedback_rule"),
             "incremental_edit_rule": (context.get("worker_instruction") or {}).get("incremental_edit_rule"),

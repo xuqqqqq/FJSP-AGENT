@@ -137,6 +137,16 @@ def judge_worker_result(
             "For standard FJSP runs, reuse harness_agent.standard_fjsp parsing instead of reimplementing machine-index parsing."
         )
 
+    incomplete_solution_risks = _detect_incomplete_solution_acceptance_risks(worktree_path, worker_result.changed_files)
+    if incomplete_solution_risks:
+        issues.append("incomplete_solution_acceptance_risk")
+        suggestions.append(
+            "Local search or neighborhood decoders must reject incomplete candidate solutions before comparing objective values."
+        )
+        suggestions.append(
+            "Do not treat empty or partial schedules/routes as zero-cost improvements; require full operation coverage before acceptance."
+        )
+
     checks = {
         "worker_status": worker_result.status,
         "apply_worker_changes": apply_worker_changes,
@@ -146,6 +156,7 @@ def judge_worker_result(
         "edit_policy": context.get("edit_policy") or {},
         "python_compile_errors": py_compile_errors,
         "parser_rewrite_files": parser_rewrite_files,
+        "incomplete_solution_acceptance_risks": incomplete_solution_risks,
     }
     judgment = AgenticJudgment(
         accepted=not issues,
@@ -314,3 +325,47 @@ def _detect_standard_parser_rewrites(worktree_path: Path, changed_files: list[st
         if has_custom_parser and not uses_standard_parser:
             suspicious.append(relative)
     return suspicious
+
+
+def _detect_incomplete_solution_acceptance_risks(worktree_path: Path, changed_files: list[str]) -> list[str]:
+    risky: list[str] = []
+    for relative in changed_files:
+        normalized = relative.replace("\\", "/")
+        if not normalized.endswith(".py"):
+            continue
+        path = worktree_path / relative
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        detected = _incomplete_solution_risk_reasons(text)
+        if detected:
+            risky.append(f"{relative}: {', '.join(detected)}")
+    return risky
+
+
+def _incomplete_solution_risk_reasons(text: str) -> list[str]:
+    compact = " ".join(text.split())
+    reasons: list[str] = []
+    if "_schedule" in text or "schedule" in text or "route" in text or "solution" in text:
+        if " if new_schedule else 0" in compact or " if schedule else 0" in compact:
+            reasons.append("empty_schedule_scored_as_zero")
+        if " if best_schedule else 0" in compact or " if candidate_schedule else 0" in compact:
+            reasons.append("empty_candidate_scored_as_zero")
+        if "if best_machine is None:" in text and "break" in text and "return schedule" in text:
+            if not _has_explicit_completion_guard(text):
+                reasons.append("decoder_can_return_partial_schedule")
+    return reasons
+
+
+def _has_explicit_completion_guard(text: str) -> bool:
+    coverage_terms = [
+        "len(schedule) == total_ops",
+        "len(schedule) != total_ops",
+        "len(new_schedule) == total_ops",
+        "len(new_schedule) != total_ops",
+        "expected_ops",
+        "operation_count",
+    ]
+    invalid_terms = ["return None", "raise ValueError", "continue", "float('inf')", "math.inf"]
+    return any(term in text for term in coverage_terms) and any(term in text for term in invalid_terms)
