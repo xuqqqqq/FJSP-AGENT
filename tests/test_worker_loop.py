@@ -335,6 +335,9 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual(1, round_001_context["loop_feedback"]["round_index"])
             self.assertEqual("rolled_back", round_001_context["loop_feedback"]["previous_rounds"][0]["decision"])
             self.assertEqual("incremental_after_baseline", round_001_context["iteration_edit_contract"]["mode"])
+            self.assertIn("improvement round", round_001_context["hypothesis"])
+            self.assertIn("examples/dummy_solver.py", round_001_context["incumbent_code_context"]["files"][0]["relative_path"])
+            self.assertIn("def main", round_001_context["incumbent_code_context"]["files"][0]["snippet"])
             self.assertTrue(round_001_context["worker_instruction"]["round_feedback_rule"])
             self.assertTrue(round_001_context["worker_instruction"]["incremental_edit_rule"])
 

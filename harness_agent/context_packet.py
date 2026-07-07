@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -199,7 +200,6 @@ def write_refreshed_context_packet(
     refreshed["created_at"] = datetime.now(timezone.utc).isoformat()
     refreshed["parent_packet_hash"] = parent_hash
     refreshed["refresh_reason"] = "worker_loop_round_feedback"
-    refreshed["loop_feedback"] = loop_feedback
     refreshed["iteration_edit_contract"] = {
         "mode": "incremental_after_baseline",
         "preserve_incumbent_rule": (
@@ -216,6 +216,11 @@ def write_refreshed_context_packet(
             "that smoke to diagnose quickly."
         ),
     }
+    incumbent_code_context = _incumbent_code_context(refreshed, project_root=project_root)
+    if incumbent_code_context:
+        refreshed["incumbent_code_context"] = incumbent_code_context
+    refreshed["loop_feedback"] = loop_feedback
+    refreshed["hypothesis"] = _improvement_round_hypothesis(str(refreshed.get("hypothesis") or ""))
     if project_root is not None:
         refreshed["slot_manifest"] = _refresh_slot_manifest_sources(
             refreshed.get("slot_manifest"),
@@ -246,6 +251,72 @@ def write_refreshed_context_packet(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(refreshed, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return output_path
+
+
+def _improvement_round_hypothesis(base_hypothesis: str) -> str:
+    baseline_generation_pattern = (
+        r"If baseline_source is agent_generated,\s*first create a runnable solver entrypoint at .*?"
+        r"rather than relying on an incumbent solver\.\s*"
+    )
+    cleaned = re.sub(baseline_generation_pattern, "", base_hypothesis, flags=re.IGNORECASE | re.DOTALL).strip()
+    prefix = (
+        "This is an improvement round, not baseline generation. A measured incumbent solver already exists. "
+        "Use incumbent_code_context and loop_feedback to make one small patch to the promoted solver; do not "
+        "create the initial solver again and do not replace the whole existing solver file."
+    )
+    if not cleaned:
+        return prefix
+    return f"{prefix}\n\nOriginal task context, with baseline-generation instructions superseded:\n{cleaned}"
+
+
+def _incumbent_code_context(packet: dict[str, Any], *, project_root: Path | None, max_chars: int = 16000) -> dict[str, Any] | None:
+    if project_root is None:
+        return None
+    evaluator_protocol = packet.get("evaluator_protocol")
+    if not isinstance(evaluator_protocol, dict):
+        return None
+    solver_template = str(evaluator_protocol.get("solver_command_template") or "")
+    relative_paths = _python_paths_from_command(solver_template)
+    files: list[dict[str, Any]] = []
+    for relative in relative_paths:
+        source = (project_root / relative).resolve()
+        try:
+            source.relative_to(project_root.resolve())
+        except ValueError:
+            continue
+        if not source.is_file():
+            continue
+        payload = _source_payload(source, max_chars)
+        payload["relative_path"] = relative.as_posix()
+        files.append(payload)
+    if not files:
+        return None
+    return {
+        "source": "promoted_incumbent_worktree",
+        "root": str(project_root),
+        "purpose": (
+            "Current solver source available for incremental text_replace or insert_after proposals. "
+            "Preserve this structure unless loop_feedback identifies a measured weakness."
+        ),
+        "files": files,
+    }
+
+
+def _python_paths_from_command(command: str) -> list[Path]:
+    paths: list[Path] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"(?P<quote>['\"])?(?P<path>[A-Za-z0-9_./\\-]+\.py)(?P=quote)?", command):
+        raw_path = match.group("path").replace("\\", "/").strip()
+        if not raw_path or "{" in raw_path or "}" in raw_path:
+            continue
+        path = Path(raw_path)
+        if path.is_absolute() or any(part == ".." for part in path.parts):
+            continue
+        normalized = path.as_posix()
+        if normalized not in seen:
+            seen.add(normalized)
+            paths.append(Path(normalized))
+    return paths
 
 
 def _source_payload(path: Path, max_chars: int) -> dict[str, Any]:

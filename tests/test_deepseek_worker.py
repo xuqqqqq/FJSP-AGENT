@@ -8,6 +8,7 @@ from harness_agent.workers.deepseek_worker import (
     DeepSeekWorker,
     apply_code_edit_proposal,
     extract_json_object,
+    priority_worker_context,
     render_code_edit_markdown,
 )
 
@@ -299,6 +300,59 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
             self.assertEqual("examples/agent_generated_fjsp_solver.py", normalized["rejected_changes"][0]["path"])
             self.assertIn("forbids create_or_replace", normalized["rejected_changes"][0]["reason"])
 
+    def test_iteration_contract_allows_full_solver_rewrite_when_incumbent_is_invalid(self) -> None:
+        worker = DeepSeekWorker()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "examples" / "agent_generated_fjsp_solver.py"
+            target.parent.mkdir(parents=True)
+            target.write_text("broken = True\n", encoding="utf-8")
+            context = _context_packet_with_iteration_contract(root, incumbent_key=[float("-inf")], valid=0)
+
+            normalized = worker._normalize_code_edit_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+                {
+                    "summary": "Repair an invalid incumbent.",
+                    "strategy_intent": "Replace the invalid generated solver so legality can be restored.",
+                    "changes": [
+                        {
+                            "path": "examples/agent_generated_fjsp_solver.py",
+                            "action": "create_or_replace",
+                            "content": "print('repair')\n",
+                            "rationale": "Invalid incumbents need full-entrypoint repair.",
+                        }
+                    ],
+                    "quick_test_plan": "python -m compileall harness_agent examples",
+                },
+                context,
+            )
+
+            self.assertEqual(["examples/agent_generated_fjsp_solver.py"], [item["path"] for item in normalized["changes"]])
+            self.assertEqual([], normalized["rejected_changes"])
+
+    def test_priority_worker_context_frontloads_incumbent_source(self) -> None:
+        context = _context_packet_with_intake()
+        context["iteration_edit_contract"] = {"mode": "incremental_after_baseline"}
+        context["worker_instruction"] = {"incremental_edit_rule": "Patch only."}
+        context["loop_feedback"] = {"incumbent_key_before": [-1160.0], "previous_rounds": []}
+        context["incumbent_code_context"] = {
+            "source": "promoted_incumbent_worktree",
+            "purpose": "test",
+            "files": [
+                {
+                    "relative_path": "examples/agent_generated_fjsp_solver.py",
+                    "chars": 21,
+                    "truncated": False,
+                    "snippet": "def schedule(): pass\n",
+                }
+            ],
+        }
+
+        prompt_context = priority_worker_context(context)
+
+        self.assertIn("improvement_round", prompt_context)
+        self.assertIn("examples/agent_generated_fjsp_solver.py", prompt_context)
+        self.assertIn("def schedule(): pass", prompt_context)
+
 
 def _context_packet_with_intake() -> dict[str, object]:
     return {
@@ -358,9 +412,18 @@ def _context_packet_with_slot_manifest(*, user_confirmed: bool = True) -> dict[s
     }
 
 
-def _context_packet_with_iteration_contract(incumbent_root: Path) -> dict[str, object]:
+def _context_packet_with_iteration_contract(
+    incumbent_root: Path,
+    *,
+    incumbent_key: list[float] | None = None,
+    valid: int = 1,
+) -> dict[str, object]:
     context = _context_packet_with_intake()
-    context["loop_feedback"] = {"incumbent_worktree": str(incumbent_root)}
+    context["loop_feedback"] = {
+        "incumbent_worktree": str(incumbent_root),
+        "incumbent_key_before": incumbent_key or [-100.0],
+        "baseline_summary": {"total": 1, "valid": valid},
+    }
     context["iteration_edit_contract"] = {
         "mode": "incremental_after_baseline",
         "whole_file_rewrite_policy": "Do not rewrite existing solver files during improvement rounds.",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -321,6 +322,7 @@ Selected harness report excerpt:
 
     def _code_edit_prompt(self, *, context: dict[str, Any], max_steps: int) -> str:
         compact_context = json.dumps(context, ensure_ascii=False, indent=2)
+        priority_context = priority_worker_context(context)
         return f"""
 You are inside an AlgoForge coding-worker loop. The harness/evaluator is the
 source of truth; your job is to propose a small code change that can be audited
@@ -433,6 +435,9 @@ Rules:
   explicitly requests scaffolding.
 - If no safe edit is possible, return an empty "changes" list with an explicit
   risk note.
+
+Priority context for this round:
+{priority_context}
 
 Context packet:
 {compact_context[:26000]}
@@ -649,6 +654,88 @@ def normalize_strategy_profile(profile: dict[str, Any]) -> dict[str, Any]:
         "rationale": str(profile.get("rationale", ""))[:4000],
         "strategies": strategies,
         "local_search_profiles": normalize_local_search_profiles(profile),
+    }
+
+
+def priority_worker_context(context: dict[str, Any]) -> str:
+    payload = {
+        "round_type": "improvement_round" if context.get("iteration_edit_contract") else "baseline_or_single_round",
+        "iteration_edit_contract": context.get("iteration_edit_contract") or {},
+        "worker_instruction": {
+            "round_feedback_rule": (context.get("worker_instruction") or {}).get("round_feedback_rule"),
+            "incremental_edit_rule": (context.get("worker_instruction") or {}).get("incremental_edit_rule"),
+        },
+        "loop_feedback": compact_loop_feedback_for_prompt(context.get("loop_feedback") or {}),
+        "incumbent_code_context": compact_incumbent_code_context(context.get("incumbent_code_context") or {}),
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)[:18000]
+
+
+def compact_loop_feedback_for_prompt(loop_feedback: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(loop_feedback, dict):
+        return {}
+    baseline_summary = loop_feedback.get("baseline_summary")
+    if not isinstance(baseline_summary, dict):
+        baseline_summary = {}
+    previous_rounds = loop_feedback.get("previous_rounds")
+    if not isinstance(previous_rounds, list):
+        previous_rounds = []
+    compact_previous = []
+    for item in previous_rounds[-6:]:
+        if not isinstance(item, dict):
+            continue
+        diagnostics = item.get("proposal_diagnostics") if isinstance(item.get("proposal_diagnostics"), dict) else {}
+        smoke_gate = item.get("smoke_gate") if isinstance(item.get("smoke_gate"), dict) else {}
+        candidate_summary = item.get("candidate_summary") if isinstance(item.get("candidate_summary"), dict) else {}
+        compact_previous.append(
+            {
+                "round_index": item.get("round_index"),
+                "decision": item.get("decision"),
+                "candidate_key": item.get("candidate_key"),
+                "incumbent_key_after": item.get("incumbent_key_after"),
+                "summary": diagnostics.get("summary"),
+                "strategy_intent": diagnostics.get("strategy_intent"),
+                "rejected_change_count": ((diagnostics.get("proposal_audit") or {}).get("rejected_change_count")),
+                "smoke_gate": {
+                    "passed": smoke_gate.get("passed"),
+                    "full_evaluation_started": smoke_gate.get("full_evaluation_started"),
+                    "errors": (((smoke_gate.get("summary") or {}).get("validation_summary") or {}).get("top_errors") or [])[:2],
+                },
+                "validation_errors": ((candidate_summary.get("validation_summary") or {}).get("top_errors") or [])[:2],
+            }
+        )
+    return {
+        "round_index": loop_feedback.get("round_index"),
+        "baseline_key": loop_feedback.get("baseline_key"),
+        "incumbent_key_before": loop_feedback.get("incumbent_key_before"),
+        "incumbent_worktree": loop_feedback.get("incumbent_worktree"),
+        "baseline_best_metrics": baseline_summary.get("best_metrics"),
+        "baseline_best_candidate_metrics": baseline_summary.get("best_candidate_metrics"),
+        "baseline_validation_summary": baseline_summary.get("validation_summary"),
+        "previous_rounds": compact_previous,
+        "instructions": loop_feedback.get("instructions"),
+    }
+
+
+def compact_incumbent_code_context(incumbent_code_context: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(incumbent_code_context, dict):
+        return {}
+    files = []
+    for item in incumbent_code_context.get("files") or []:
+        if not isinstance(item, dict):
+            continue
+        files.append(
+            {
+                "relative_path": item.get("relative_path"),
+                "chars": item.get("chars"),
+                "truncated": item.get("truncated"),
+                "snippet": item.get("snippet"),
+            }
+        )
+    return {
+        "source": incumbent_code_context.get("source"),
+        "purpose": incumbent_code_context.get("purpose"),
+        "files": files,
     }
 
 
@@ -905,6 +992,8 @@ def create_or_replace_forbidden(path_value: str, context: dict[str, Any]) -> boo
     contract = context.get("iteration_edit_contract")
     if not isinstance(contract, dict) or contract.get("mode") != "incremental_after_baseline":
         return False
+    if incumbent_requires_legality_repair(context):
+        return False
     normalized = normalize_relative_path(path_value)
     if not _looks_like_solver_file(normalized):
         return False
@@ -912,6 +1001,26 @@ def create_or_replace_forbidden(path_value: str, context: dict[str, Any]) -> boo
     if incumbent_path is None:
         return False
     return (incumbent_path / normalized).exists()
+
+
+def incumbent_requires_legality_repair(context: dict[str, Any]) -> bool:
+    loop_feedback = context.get("loop_feedback")
+    if not isinstance(loop_feedback, dict):
+        return False
+    incumbent_key = loop_feedback.get("incumbent_key_before")
+    if isinstance(incumbent_key, list) and any(not _finite_number(value) for value in incumbent_key):
+        return True
+    baseline_summary = loop_feedback.get("baseline_summary")
+    if isinstance(baseline_summary, dict):
+        total = baseline_summary.get("total")
+        valid = baseline_summary.get("valid")
+        if isinstance(total, int) and total > 0 and valid == 0:
+            return True
+    return False
+
+
+def _finite_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and math.isfinite(float(value))
 
 
 def _context_incumbent_worktree(context: dict[str, Any]) -> Path | None:
