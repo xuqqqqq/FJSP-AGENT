@@ -485,6 +485,76 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("operation-level list scheduler", prompt_context)
         self.assertLess(prompt_context.index("incumbent_code_context"), prompt_context.index("priority_knowledge_cards"))
 
+    def test_priority_worker_context_keeps_rag_after_incumbent_source_grows(self) -> None:
+        context = _context_packet_with_intake()
+        context["task"] = {
+            "problem_family": "fjsp_sdst",
+            "description": "Improve an agent_generated FJSP-SDST solver on oddla20 with local_search_operator.",
+            "instances": [{"id": "oddla20", "path": "instances/oddla20.txt"}],
+        }
+        context["iteration_edit_contract"] = {"mode": "incremental_after_baseline"}
+        context["loop_feedback"] = {
+            "incumbent_key_before": [-1133.0],
+            "previous_rounds": [{"round_index": 7, "decision": "promoted", "candidate_key": [-1133.0]}],
+        }
+        long_source = (
+            "#!/usr/bin/env python3\n"
+            "def parse_instance(path):\n"
+            "    return {}\n\n"
+            + ("# solve filler\n" * 180)
+            + "def solve(instance_path, seed=0):\n"
+            "    best_schedule = []\n"
+            "    return best_schedule\n\n"
+            + ("# decode filler\n" * 180)
+            + "def decode_schedule(machine_orders):\n"
+            "    return []\n\n"
+            + ("# local search filler\n" * 230)
+            + "def local_search_improve(schedule, seed):\n"
+            "    return schedule\n\n"
+            + ("# relocate filler\n" * 230)
+            + "def relocate_improve(schedule):\n"
+            "    return schedule\n\n"
+            + ("# tail filler\n" * 160)
+            + "def main():\n"
+            "    solve('instance')\n\n"
+            "if __name__ == \"__main__\":\n"
+            "    main()\n"
+        )
+        self.assertGreater(len(long_source), 12000)
+        context["incumbent_code_context"] = {
+            "source": "promoted_incumbent_worktree",
+            "purpose": "Current promoted solver source for surgical patches.",
+            "files": [
+                {
+                    "relative_path": "examples/agent_generated_fjsp_solver.py",
+                    "chars": len(long_source),
+                    "truncated": False,
+                    "snippet": long_source,
+                }
+            ],
+        }
+        context["knowledge_cards"] = [
+            {
+                "path": "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "chars": 10000,
+                "truncated": False,
+                "snippet": (
+                    ("RAG_FILLER " * 600)
+                    + "What To Preserve Or Recover First: Recover operation-level list scheduler and setup-aware multi-start. "
+                    + ("RAG_FILLER " * 600)
+                ),
+            }
+        ]
+
+        prompt_context = priority_worker_context(context)
+
+        self.assertIn("snippet_compacted_for_priority", prompt_context)
+        self.assertIn("def parse_instance(path):", prompt_context)
+        self.assertIn("def solve(instance_path, seed=0):", prompt_context)
+        self.assertIn("def main():", prompt_context)
+        self.assertIn("priority_knowledge_cards", prompt_context)
+        self.assertIn("operation-level list scheduler", prompt_context)
+
     def test_priority_worker_context_frontloads_relevant_knowledge_cards(self) -> None:
         context = _context_packet_with_intake()
         context["task"] = {

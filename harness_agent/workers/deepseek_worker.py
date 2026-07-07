@@ -38,6 +38,7 @@ RULE_OPERATOR_TYPES = [
 ]
 
 PRIORITY_CONTEXT_MAX_CHARS = 22000
+PRIORITY_INCUMBENT_FILE_MAX_CHARS = 5200
 PRIORITY_KNOWLEDGE_CARD_LIMIT = 3
 PRIORITY_KNOWLEDGE_CARD_MAX_CHARS = 1200
 
@@ -786,12 +787,15 @@ def compact_incumbent_code_context(incumbent_code_context: dict[str, Any]) -> di
     for item in incumbent_code_context.get("files") or []:
         if not isinstance(item, dict):
             continue
+        raw_snippet = str(item.get("snippet") or "")
         files.append(
             {
                 "relative_path": item.get("relative_path"),
                 "chars": item.get("chars"),
                 "truncated": item.get("truncated"),
-                "snippet": item.get("snippet"),
+                "top_level_symbols": extract_top_level_symbols(raw_snippet),
+                "snippet": compact_incumbent_source_snippet(raw_snippet, max_chars=PRIORITY_INCUMBENT_FILE_MAX_CHARS),
+                "snippet_compacted_for_priority": len(raw_snippet) > PRIORITY_INCUMBENT_FILE_MAX_CHARS,
             }
         )
     return {
@@ -799,6 +803,81 @@ def compact_incumbent_code_context(incumbent_code_context: dict[str, Any]) -> di
         "purpose": incumbent_code_context.get("purpose"),
         "files": files,
     }
+
+
+def extract_top_level_symbols(snippet: str) -> list[dict[str, Any]]:
+    symbols: list[dict[str, Any]] = []
+    offset = 0
+    for line_number, line in enumerate(snippet.splitlines(), start=1):
+        stripped = line.strip()
+        if line.startswith(("def ", "class ")):
+            symbols.append(
+                {
+                    "line": line_number,
+                    "char": offset,
+                    "signature": stripped[:180],
+                }
+            )
+        offset += len(line) + 1
+    return symbols[:40]
+
+
+def compact_incumbent_source_snippet(snippet: str, *, max_chars: int) -> str:
+    if max_chars <= 0:
+        return ""
+    if len(snippet) <= max_chars:
+        return snippet
+
+    lower = snippet.lower()
+    anchors = [
+        "def parse_instance",
+        "def solve",
+        "def decode",
+        "def local_search",
+        "def relocate",
+        "def main",
+        "if __name__",
+    ]
+    windows: list[tuple[int, int]] = []
+
+    def add_window(start: int, end: int) -> None:
+        start = max(0, start)
+        end = min(len(snippet), end)
+        if end <= start:
+            return
+        windows.append((start, end))
+
+    add_window(0, min(len(snippet), 1400))
+    for anchor in anchors:
+        position = lower.find(anchor)
+        if position < 0:
+            continue
+        extra_after = 1200 if any(key in anchor for key in ("solve", "local_search", "relocate")) else 900
+        add_window(position - 260, position + extra_after)
+    add_window(len(snippet) - 800, len(snippet))
+
+    result = ""
+    separator = "\n\n# ... priority context omitted middle of incumbent source ...\n\n"
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(windows):
+        if not merged or start > merged[-1][1] + 120:
+            merged.append((start, end))
+        else:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+    for start, end in merged:
+        piece = snippet[start:end].strip()
+        if not piece:
+            continue
+        addition = piece if not result else separator + piece
+        remaining = max_chars - len(result)
+        if remaining <= 0:
+            break
+        if len(addition) > remaining:
+            if remaining > len(separator) + 120:
+                result += addition[:remaining]
+            break
+        result += addition
+    return result[:max_chars]
 
 
 def compact_priority_knowledge_cards(
