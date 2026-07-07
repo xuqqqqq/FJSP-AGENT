@@ -406,6 +406,113 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("examples/agent_generated_fjsp_solver.py", prompt_context)
         self.assertIn("def schedule(): pass", prompt_context)
 
+    def test_priority_worker_context_frontloads_relevant_knowledge_cards(self) -> None:
+        context = _context_packet_with_intake()
+        context["task"] = {
+            "problem_family": "fjsp_sdst",
+            "description": "Improve an agent_generated FJSP-SDST solver on oddla20.",
+            "instances": [{"id": "oddla20", "path": "instances/oddla20.txt"}],
+        }
+        context["evaluator_protocol"] = {
+            "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance}",
+            "quick_test_command": "python -m compileall examples/agent_generated_fjsp_solver.py",
+        }
+        context["problem_family_capability"] = {
+            "knowledge_tags": ["fjsp", "sdst", "sequence_dependent_setup"],
+            "specialization_hooks": ["setup_aware_dispatch_or_insertion"],
+        }
+        context["knowledge_cards"] = [
+            {
+                "path": "knowledge/benchmarks/fjsp_benchmark_scope.md",
+                "chars": 4000,
+                "truncated": False,
+                "snippet": "Generic benchmark scope." * 200,
+            },
+            {
+                "path": "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "chars": 5400,
+                "truncated": False,
+                "snippet": (
+                    "Use this card for agent-generated FJSP-SDST solver improvement. "
+                    "Recover operation-level list scheduler and setup-aware operation-level dispatch."
+                ),
+            },
+        ]
+
+        prompt_context = priority_worker_context(context)
+
+        self.assertIn("priority_knowledge_cards", prompt_context)
+        self.assertIn("fjsp_sdst_agent_generated_search_memory_20260707.md", prompt_context)
+        self.assertIn("operation-level list scheduler", prompt_context)
+
+    def test_proposal_audit_warns_when_priority_knowledge_is_ignored(self) -> None:
+        worker = DeepSeekWorker()
+        context = _context_packet_with_intake()
+        context["task"] = {"problem_family": "fjsp_sdst", "description": "agent_generated SDST run"}
+        context["evaluator_protocol"] = {
+            "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance}"
+        }
+        context["problem_family_capability"] = {"knowledge_tags": ["sdst", "sequence_dependent_setup"]}
+        context["knowledge_cards"] = [
+            {
+                "path": "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "chars": 5400,
+                "truncated": False,
+                "snippet": "Preserve operation-level setup-aware dispatch and multi-start.",
+            }
+        ]
+
+        ignored = worker._normalize_code_edit_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "summary": "Change a tie-break.",
+                "strategy_intent": "Try a small dispatch change.",
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "tie_break",
+                        "type": "dispatch_rule",
+                        "target_files": ["examples/agent_generated_fjsp_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "path": "examples/agent_generated_fjsp_solver.py",
+                        "action": "create_or_replace",
+                        "content": "print('solver')\n",
+                    }
+                ],
+                "quick_test_plan": "python -m compileall harness_agent examples",
+            },
+            context,
+        )
+
+        self.assertIn("priority_knowledge_cards_not_referenced", ignored["proposal_audit"]["warnings"])
+
+        referenced = worker._normalize_code_edit_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "summary": "Follow the RAG brief.",
+                "strategy_intent": "Use knowledge_cards to preserve the setup-aware constructive skeleton.",
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "knowledge_guided_dispatch",
+                        "type": "dispatch_rule",
+                        "evidence_used": ["knowledge_cards", "loop_feedback.previous_rounds"],
+                        "target_files": ["examples/agent_generated_fjsp_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "path": "examples/agent_generated_fjsp_solver.py",
+                        "action": "create_or_replace",
+                        "content": "print('solver')\n",
+                    }
+                ],
+                "quick_test_plan": "python -m compileall harness_agent examples",
+            },
+            context,
+        )
+
+        self.assertNotIn("priority_knowledge_cards_not_referenced", referenced["proposal_audit"]["warnings"])
+
 
 def _context_packet_with_intake() -> dict[str, object]:
     return {

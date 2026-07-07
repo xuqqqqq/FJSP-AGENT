@@ -437,6 +437,11 @@ Rules:
 - If previous_pipeline_memory.operator_guidance is present, use its must_do,
   preserve, mutate, and avoid lists when forming rule_operator_hypotheses and
   novelty statements.
+- Read Priority context before the full Context packet.  If
+  priority_knowledge_cards are present, cite `knowledge_cards` in
+  evidence_used when they shape the proposal, and either follow any
+  preserve/recover/avoid guidance or explain in risk_notes why loop_feedback
+  overrides it.
 - If loop_feedback or previous_pipeline_memory reports rolled-back or duplicate
   proposals, novelty must explain what is materially different this time.
 - If contract_review_evidence.role_prioritized_sections is present, cite it in
@@ -681,6 +686,12 @@ def priority_worker_context(context: dict[str, Any]) -> str:
     payload = {
         "round_type": "improvement_round" if context.get("iteration_edit_contract") else "baseline_or_single_round",
         "iteration_edit_contract": context.get("iteration_edit_contract") or {},
+        "priority_knowledge_cards": compact_priority_knowledge_cards(context, limit=5),
+        "knowledge_use_rule": (
+            "Use priority_knowledge_cards as the selected RAG brief before the full context packet. "
+            "If they contain preserve/recover/avoid guidance, either follow it or explain why loop_feedback "
+            "overrides it. Cite knowledge_cards in evidence_used when it shapes the proposal."
+        ),
         "candidate_feasibility_guard": {
             "rule": (
                 "For local search, neighborhood, decoder, destroy-repair, or post-processing changes, "
@@ -768,6 +779,117 @@ def compact_incumbent_code_context(incumbent_code_context: dict[str, Any]) -> di
         "purpose": incumbent_code_context.get("purpose"),
         "files": files,
     }
+
+
+def compact_priority_knowledge_cards(
+    context: dict[str, Any],
+    *,
+    limit: int,
+    max_chars_per_card: int = 2400,
+) -> list[dict[str, Any]]:
+    cards = context.get("knowledge_cards") or []
+    if not isinstance(cards, list):
+        return []
+    typed_cards = [card for card in cards if isinstance(card, dict)]
+    if not typed_cards:
+        return []
+
+    query_terms = _knowledge_query_terms(context)
+
+    def card_score(card: dict[str, Any]) -> int:
+        path = str(card.get("path") or "").lower()
+        snippet = str(card.get("snippet") or "").lower()
+        haystack = f"{path}\n{snippet}"
+        score = 0
+        for term in query_terms:
+            if term and term in haystack:
+                score += 4
+        if "sdst" in query_terms and "sdst" in haystack:
+            score += 25
+        agent_generated_card = (
+            "agent_generated" in haystack or "agent-generated" in haystack or "generated solver" in haystack
+        )
+        if "agent_generated" in query_terms and agent_generated_card:
+            score += 220
+        if "agent_generated" in query_terms and "awls" in haystack and not agent_generated_card:
+            score -= 80
+        if "local_search" in query_terms and ("local search" in haystack or "local-search" in haystack):
+            score += 12
+        if "loop_feedback" in query_terms and ("memory" in haystack or "failed attempt" in haystack):
+            score += 12
+        return score
+
+    ranked = sorted(enumerate(typed_cards), key=lambda item: (card_score(item[1]), -item[0]), reverse=True)
+    selected: list[dict[str, Any]] = []
+    seen_paths: set[str] = set()
+    for _index, card in ranked:
+        path = str(card.get("path") or "")
+        if not path or path in seen_paths:
+            continue
+        score = card_score(card)
+        if score <= 0 and selected:
+            continue
+        snippet = str(card.get("snippet") or "")
+        selected.append(
+            {
+                "path": path,
+                "chars": card.get("chars"),
+                "truncated": bool(card.get("truncated")),
+                "relevance_score": score,
+                "snippet": snippet[:max_chars_per_card],
+            }
+        )
+        seen_paths.add(path)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def _knowledge_query_terms(context: dict[str, Any]) -> set[str]:
+    terms: set[str] = set()
+
+    def add_text(value: Any) -> None:
+        text = str(value).lower().replace("-", "_")
+        for raw in re.split(r"[^a-z0-9_]+", text):
+            term = raw.strip("_")
+            if len(term) >= 3:
+                terms.add(term)
+
+    task = context.get("task") if isinstance(context.get("task"), dict) else {}
+    add_text(task.get("problem_family"))
+    add_text(task.get("description"))
+    for instance in task.get("instances") or []:
+        if isinstance(instance, dict):
+            add_text(instance.get("id"))
+            add_text(instance.get("path"))
+
+    capability = context.get("problem_family_capability")
+    if isinstance(capability, dict):
+        for key in ("supported_variants", "knowledge_tags", "specialization_hooks"):
+            for item in capability.get(key) or []:
+                add_text(item)
+
+    evaluator_protocol = context.get("evaluator_protocol")
+    if isinstance(evaluator_protocol, dict):
+        add_text(evaluator_protocol.get("solver_command_template"))
+        add_text(evaluator_protocol.get("quick_test_command"))
+
+    add_text(context.get("hypothesis"))
+    if context.get("iteration_edit_contract"):
+        terms.add("loop_feedback")
+    if context.get("loop_feedback"):
+        terms.add("loop_feedback")
+        add_text(context.get("loop_feedback"))
+    if context.get("incumbent_code_context"):
+        add_text(context.get("incumbent_code_context"))
+
+    if any(term in terms for term in {"fjsp_sdst", "sequence_dependent_setup", "setup_matrix", "oddla20", "oddla"}):
+        terms.add("sdst")
+    if any("agent_generated" in term or term == "generated" for term in terms):
+        terms.add("agent_generated")
+    if any(term in terms for term in {"local_search_operator", "neighborhood", "tabu", "hill_climbing"}):
+        terms.add("local_search")
+    return terms
 
 
 def normalize_local_search_profiles(profile: dict[str, Any]) -> list[dict[str, Any]]:
@@ -918,6 +1040,8 @@ def build_proposal_audit(proposal: dict[str, Any], context: dict[str, Any]) -> d
             if isinstance(item, dict) and item.get("type")
         }
     )
+    priority_knowledge = compact_priority_knowledge_cards(context, limit=5, max_chars_per_card=400)
+    knowledge_referenced = _proposal_references_knowledge(proposal, priority_knowledge)
 
     warnings = []
     if project_intake and not (declared_usage.get("used_project_intake") or referenced_paths or touched_intake_paths):
@@ -930,6 +1054,8 @@ def build_proposal_audit(proposal: dict[str, Any], context: dict[str, Any]) -> d
         warnings.append("proposal_touches_benchmark_candidates")
     if accepted_paths and not referenced_test_commands:
         warnings.append("quick_test_plan_does_not_reference_intake_test_command")
+    if accepted_paths and priority_knowledge and not knowledge_referenced:
+        warnings.append("priority_knowledge_cards_not_referenced")
 
     return {
         "project_intake_present": bool(project_intake),
@@ -945,6 +1071,8 @@ def build_proposal_audit(proposal: dict[str, Any], context: dict[str, Any]) -> d
         "changed_benchmark_files": changed_benchmarks,
         "changed_files_seen_in_intake": touched_intake_paths,
         "referenced_test_commands": referenced_test_commands,
+        "priority_knowledge_paths": [str(card.get("path") or "") for card in priority_knowledge],
+        "declared_knowledge_used": knowledge_referenced,
         "project_intake_risk_codes": risk_codes,
         "operator_lineage": {
             "hypothesis_count": len(hypotheses),
@@ -956,6 +1084,23 @@ def build_proposal_audit(proposal: dict[str, Any], context: dict[str, Any]) -> d
         },
         "warnings": warnings,
     }
+
+
+def _proposal_references_knowledge(proposal: dict[str, Any], priority_knowledge: list[dict[str, Any]]) -> bool:
+    proposal_text = proposal_search_text(proposal)
+    if "knowledge_cards" in proposal_text or "knowledge cards" in proposal_text or "rag" in proposal_text:
+        return True
+    for card in priority_knowledge:
+        path = str(card.get("path") or "")
+        if not path:
+            continue
+        name = Path(path).name.lower()
+        stem = Path(path).stem.lower()
+        if name and name in proposal_text:
+            return True
+        if stem and stem in proposal_text:
+            return True
+    return False
 
 
 def normalized_path_set(values: list[Any]) -> set[str]:
