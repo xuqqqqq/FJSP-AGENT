@@ -4,7 +4,7 @@ import difflib
 import hashlib
 import json
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +31,9 @@ class WorkerCycleResult:
     patch_path: Path
     agentic_judgment: AgenticJudgment
     agentic_error_analysis: ErrorAnalysis | None
+    smoke_summary: RunSummary | None = None
+    smoke_output_dir: Path | None = None
+    full_evaluation_started: bool = False
 
 
 def run_worker_cycle(
@@ -51,6 +54,7 @@ def run_worker_cycle(
     worktree_path = output_dir / "candidate_worktree"
     worker_output_dir = output_dir / "worker"
     harness_output_dir = output_dir / "harness"
+    smoke_output_dir = output_dir / "harness_smoke"
     prepare_candidate_worktree(
         project_root=project_root.resolve(),
         contract=contract,
@@ -99,12 +103,27 @@ def run_worker_cycle(
             validation_summary={"agentic_judgment": agentic_judgment.to_payload()},
         )
         agentic_error_analysis = analyze_rejected_judgment(judgment=agentic_judgment, output_dir=output_dir)
+        smoke_summary = None
+        full_evaluation_started = False
     else:
-        runner = GraphHarnessRunner(contract=contract, project_root=worktree_path, output_dir=harness_output_dir)
+        smoke_contract = smoke_gate_contract(contract)
+        smoke_runner = GraphHarnessRunner(contract=smoke_contract, project_root=worktree_path, output_dir=smoke_output_dir)
         try:
-            summary = runner.run()
+            smoke_summary = smoke_runner.run()
         finally:
-            runner.close()
+            smoke_runner.close()
+        smoke_passed = smoke_summary.total > 0 and smoke_summary.valid == smoke_summary.total
+        full_evaluation_started = False
+        if smoke_passed and full_evaluation_required(contract):
+            runner = GraphHarnessRunner(contract=contract, project_root=worktree_path, output_dir=harness_output_dir)
+            try:
+                summary = runner.run()
+            finally:
+                runner.close()
+            full_evaluation_started = True
+        else:
+            summary = smoke_summary
+            harness_output_dir = smoke_output_dir
         agentic_error_analysis = analyze_run_summary(summary=summary, output_dir=output_dir)
     write_cycle_report(
         output_dir=output_dir,
@@ -117,6 +136,9 @@ def run_worker_cycle(
         patch_path=patch_path,
         agentic_judgment=agentic_judgment,
         agentic_error_analysis=agentic_error_analysis,
+        smoke_summary=smoke_summary,
+        smoke_output_dir=smoke_output_dir if smoke_summary else None,
+        full_evaluation_started=full_evaluation_started,
     )
     return WorkerCycleResult(
         worker_result=worker_result,
@@ -127,7 +149,30 @@ def run_worker_cycle(
         patch_path=patch_path,
         agentic_judgment=agentic_judgment,
         agentic_error_analysis=agentic_error_analysis,
+        smoke_summary=smoke_summary,
+        smoke_output_dir=smoke_output_dir if smoke_summary else None,
+        full_evaluation_started=full_evaluation_started,
     )
+
+
+def smoke_gate_contract(contract: TaskContract) -> TaskContract:
+    """Return the one-seed evaluator smoke used before full candidate scoring."""
+
+    first_seed = contract.budget.seeds[0] if contract.budget.seeds else 0
+    return replace(
+        contract,
+        task_id=f"{contract.task_id}_candidate_smoke",
+        budget=replace(
+            contract.budget,
+            rounds=1,
+            seeds=[first_seed],
+            max_workers=1,
+        ),
+    )
+
+
+def full_evaluation_required(contract: TaskContract) -> bool:
+    return contract.budget.rounds > 1 or len(contract.budget.seeds) > 1
 
 
 def prepare_candidate_worktree(*, project_root: Path, contract: TaskContract, worktree_path: Path) -> None:
@@ -166,6 +211,9 @@ def write_cycle_report(
     patch_path: Path,
     agentic_judgment: AgenticJudgment,
     agentic_error_analysis: ErrorAnalysis | None,
+    smoke_summary: RunSummary | None = None,
+    smoke_output_dir: Path | None = None,
+    full_evaluation_started: bool = False,
 ) -> None:
     payload: dict[str, Any] = {
         "worker": {
@@ -187,8 +235,15 @@ def write_cycle_report(
         "paths": {
             "worktree": str(worktree_path),
             "harness_output": str(harness_output_dir),
+            "smoke_output": str(smoke_output_dir) if smoke_output_dir else None,
             "worktree_delta": str(delta_path),
             "worktree_patch": str(patch_path),
+        },
+        "smoke_gate": {
+            "enabled": smoke_summary is not None,
+            "passed": bool(smoke_summary and smoke_summary.total > 0 and smoke_summary.valid == smoke_summary.total),
+            "full_evaluation_started": full_evaluation_started,
+            "summary": run_summary_payload(smoke_summary) if smoke_summary else None,
         },
         "worktree_delta": delta,
         "agentic_judgment": agentic_judgment.to_payload(),
@@ -225,6 +280,18 @@ def write_cycle_report(
                 f"- Suggestions: `{json.dumps(agentic_error_analysis.suggestions, ensure_ascii=False)}`",
             ]
         )
+    if smoke_summary:
+        lines.extend(
+            [
+                "",
+                "## Smoke Gate",
+                "",
+                f"- Passed: `{smoke_summary.total > 0 and smoke_summary.valid == smoke_summary.total}`",
+                f"- Full evaluation started: `{full_evaluation_started}`",
+                f"- Smoke output: `{smoke_output_dir}`",
+                f"- Smoke summary: `{json.dumps(run_summary_payload(smoke_summary), ensure_ascii=False)}`",
+            ]
+        )
     lines.extend(
         [
         "",
@@ -242,6 +309,21 @@ def write_cycle_report(
         ]
     )
     (output_dir / "cycle_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def run_summary_payload(summary: RunSummary) -> dict[str, Any]:
+    return {
+        "total": summary.total,
+        "valid": summary.valid,
+        "failed": summary.failed,
+        "best_experiment_id": summary.best_experiment_id,
+        "best_metrics": summary.best_metrics,
+        "best_candidate_id": summary.best_candidate_id,
+        "best_candidate_metrics": summary.best_candidate_metrics,
+        "candidate_summaries": summary.candidate_summaries or [],
+        "pareto_frontier": summary.pareto_frontier or [],
+        "validation_summary": summary.validation_summary or {},
+    }
 
 
 def collect_worktree_snapshot(root: Path, max_text_bytes: int = 200_000) -> dict[str, dict[str, Any]]:

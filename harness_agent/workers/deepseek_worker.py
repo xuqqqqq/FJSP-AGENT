@@ -387,6 +387,11 @@ Rules:
   `create_or_replace` only for a new small helper file or when the full file
   content is short and complete. Do not rewrite a large solver file just to add
   a small operator.
+- When iteration_edit_contract.mode is `incremental_after_baseline`, do not use
+  `create_or_replace` on an existing solver entrypoint. Preserve the promoted
+  incumbent skeleton and use a small `text_replace`, `insert_after`, or confirmed
+  `replace_slot_block` mutation. Baseline-generation is the only phase where
+  creating the initial solver entrypoint is expected.
 - If slot_manifest is present and the edit is inside a user-confirmed slot,
   prefer `replace_slot_block` with the slot_id.  Do not echo the whole
   original_content in an `old` field; Core will locate marker_start/marker_end
@@ -506,6 +511,17 @@ Context packet:
                 content = item.get("content")
                 if not isinstance(content, str):
                     rejected_changes.append({"path": path, "reason": "create_or_replace requires string content"})
+                    continue
+                if create_or_replace_forbidden(normalized_path, context):
+                    rejected_changes.append(
+                        {
+                            "path": normalized_path,
+                            "reason": (
+                                "iteration_edit_contract forbids create_or_replace on an existing solver file; "
+                                "preserve the incumbent and use text_replace/insert_after/replace_slot_block"
+                            ),
+                        }
+                    )
                     continue
                 normalized_changes.append(
                     {
@@ -883,6 +899,37 @@ def normalize_relative_path(value: str) -> str:
     normalized = value.replace("\\", "/").strip().lstrip("/")
     parts = [part for part in normalized.split("/") if part not in {"", "."}]
     return "/".join(parts)
+
+
+def create_or_replace_forbidden(path_value: str, context: dict[str, Any]) -> bool:
+    contract = context.get("iteration_edit_contract")
+    if not isinstance(contract, dict) or contract.get("mode") != "incremental_after_baseline":
+        return False
+    normalized = normalize_relative_path(path_value)
+    if not _looks_like_solver_file(normalized):
+        return False
+    incumbent_path = _context_incumbent_worktree(context)
+    if incumbent_path is None:
+        return False
+    return (incumbent_path / normalized).exists()
+
+
+def _context_incumbent_worktree(context: dict[str, Any]) -> Path | None:
+    loop_feedback = context.get("loop_feedback")
+    if not isinstance(loop_feedback, dict):
+        return None
+    raw_path = loop_feedback.get("incumbent_worktree")
+    if not raw_path:
+        return None
+    return Path(str(raw_path))
+
+
+def _looks_like_solver_file(path_value: str) -> bool:
+    normalized = normalize_relative_path(path_value).lower()
+    if not normalized.endswith(".py"):
+        return False
+    name = Path(normalized).name
+    return "solver" in name
 
 
 def is_path_allowed(path_value: str, context: dict[str, Any]) -> tuple[bool, str]:

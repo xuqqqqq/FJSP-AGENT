@@ -200,6 +200,22 @@ def write_refreshed_context_packet(
     refreshed["parent_packet_hash"] = parent_hash
     refreshed["refresh_reason"] = "worker_loop_round_feedback"
     refreshed["loop_feedback"] = loop_feedback
+    refreshed["iteration_edit_contract"] = {
+        "mode": "incremental_after_baseline",
+        "preserve_incumbent_rule": (
+            "Start from the incumbent worktree and preserve the best promoted solver structure unless the proposal "
+            "names a measured weakness and makes a smaller, evaluator-checkable mutation."
+        ),
+        "whole_file_rewrite_policy": (
+            "Do not use create_or_replace on an existing solver file during improvement rounds. Use text_replace, "
+            "insert_after, or a confirmed replace_slot_block for small changes; create_or_replace is reserved for "
+            "new helper files or baseline-generation entrypoints."
+        ),
+        "required_pre_full_eval_gate": (
+            "Core runs a one-seed evaluator smoke before the full benchmark; proposals should be small enough for "
+            "that smoke to diagnose quickly."
+        ),
+    }
     if project_root is not None:
         refreshed["slot_manifest"] = _refresh_slot_manifest_sources(
             refreshed.get("slot_manifest"),
@@ -211,11 +227,18 @@ def write_refreshed_context_packet(
     feedback_step = "Review loop_feedback and avoid repeating rolled-back changes unless the new proposal is materially different."
     if feedback_step not in required_order:
         required_order.insert(1, feedback_step)
+    incumbent_step = "Preserve the current promoted incumbent; make a small incremental edit rather than rewriting the solver."
+    if incumbent_step not in required_order:
+        required_order.insert(2, incumbent_step)
     worker_instruction["required_order"] = required_order
     worker_instruction["round_feedback_rule"] = (
         "Treat loop_feedback as Core evaluator evidence.  Promoted rounds show "
         "directions worth preserving; rolled-back rounds show directions to avoid "
         "or modify.  Do not use worker self-claims as success evidence."
+    )
+    worker_instruction["incremental_edit_rule"] = (
+        "After an incumbent exists, keep the promoted solver skeleton and mutate one bounded rule/operator at a time. "
+        "A full-file rewrite of an existing solver is not an acceptable improvement-round edit."
     )
     refreshed["worker_instruction"] = worker_instruction
     refreshed["packet_hash"] = _hash_text(json.dumps(refreshed, ensure_ascii=False, sort_keys=True))

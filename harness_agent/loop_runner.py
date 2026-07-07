@@ -43,6 +43,7 @@ class LoopRoundRecord:
     duplicate_proposal: bool
     proposal_diagnostics: dict[str, Any]
     candidate_summary: dict[str, Any]
+    smoke_gate: dict[str, Any]
     promotion_check: dict[str, Any]
     cycle_dir: str
     context_packet_path: str
@@ -187,6 +188,12 @@ def run_worker_loop(
                         "failed": 0,
                         "error": str(exc),
                     },
+                    smoke_gate={
+                        "enabled": False,
+                        "passed": False,
+                        "full_evaluation_started": False,
+                        "summary": None,
+                    },
                     promotion_check={
                         "status": "skipped",
                         "reason": "worker_exception",
@@ -232,6 +239,7 @@ def run_worker_loop(
                 duplicate_proposal=duplicate_proposal,
                 proposal_diagnostics=proposal_diagnostics,
                 candidate_summary=summary_payload(cycle.summary),
+                smoke_gate=cycle_smoke_gate_payload(cycle),
                 promotion_check=promotion_check,
                 cycle_dir=str(cycle_dir),
                 context_packet_path=str(round_context_packet_path),
@@ -647,6 +655,7 @@ def round_record_payload(item: LoopRoundRecord) -> dict[str, Any]:
         "duplicate_proposal": item.duplicate_proposal,
         "proposal_diagnostics": item.proposal_diagnostics,
         "candidate_summary": item.candidate_summary,
+        "smoke_gate": item.smoke_gate,
         "promotion_check": item.promotion_check,
         "cycle_dir": item.cycle_dir,
         "context_packet_path": item.context_packet_path,
@@ -679,6 +688,17 @@ def worker_proposal_fingerprint(worker_result: WorkerResult) -> str:
             "artifacts": sorted((worker_result.artifacts or {}).keys()),
         }
     )
+
+
+def cycle_smoke_gate_payload(cycle: Any) -> dict[str, Any]:
+    summary = cycle.smoke_summary
+    return {
+        "enabled": summary is not None,
+        "passed": bool(summary and summary.total > 0 and summary.valid == summary.total),
+        "full_evaluation_started": bool(cycle.full_evaluation_started),
+        "summary": summary_payload(summary) if summary else None,
+        "output_dir": str(cycle.smoke_output_dir) if cycle.smoke_output_dir else None,
+    }
 
 
 def worker_proposal_diagnostics(worker_result: WorkerResult) -> dict[str, Any]:
@@ -779,14 +799,15 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult) -> None:
         "",
         "## Rounds",
         "",
-        "| Round | Decision | Worker | Duplicate Proposal | Promotion Check | Proposal Audit | Candidate Key | Incumbent Key After | Context Packet | Worktree Delta | Changed Files |",
-        "| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Round | Decision | Worker | Duplicate Proposal | Smoke Gate | Promotion Check | Proposal Audit | Candidate Key | Incumbent Key After | Context Packet | Worktree Delta | Changed Files |",
+        "| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for item in result.rounds:
         proposal_audit = compact_proposal_audit(item.proposal_diagnostics)
         lines.append(
             f"| {item.round_index} | {item.decision} | {item.worker_status} | "
             f"{'yes' if item.duplicate_proposal else 'no'} | "
+            f"`{json.dumps(compact_smoke_gate(item.smoke_gate), ensure_ascii=False)}` | "
             f"`{json.dumps(compact_promotion_check(item.promotion_check), ensure_ascii=False)}` | "
             f"`{json.dumps(proposal_audit, ensure_ascii=False)}` | "
             f"`{json.dumps(item.candidate_key, ensure_ascii=False)}` | "
@@ -802,6 +823,7 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult) -> None:
             "When a repeat promotion check is configured, the candidate must also beat the incumbent on the repeated Core evaluator probe.",
             "Rolled-back rounds leave the incumbent worktree unchanged.",
             "Proposal audit fields are reflection inputs for later rounds; they are not promotion gates.",
+            "Smoke Gate runs the first seed through the fixed evaluator before the full benchmark; failed smoke rounds skip the full evaluator run.",
         ]
     )
     (output_dir / "loop_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -838,6 +860,21 @@ def compact_proposal_audit(diagnostics: dict[str, Any]) -> dict[str, Any]:
         "changed_core": audit.get("changed_core_algorithm_files") or [],
         "changed_validators": audit.get("changed_validator_files") or [],
         "warnings": audit.get("warnings") or [],
+    }
+
+
+def compact_smoke_gate(smoke_gate: dict[str, Any]) -> dict[str, Any]:
+    summary = smoke_gate.get("summary") if isinstance(smoke_gate, dict) else None
+    return {
+        "enabled": bool(smoke_gate.get("enabled")) if isinstance(smoke_gate, dict) else False,
+        "passed": bool(smoke_gate.get("passed")) if isinstance(smoke_gate, dict) else False,
+        "full": bool(smoke_gate.get("full_evaluation_started")) if isinstance(smoke_gate, dict) else False,
+        "total": summary.get("total") if isinstance(summary, dict) else None,
+        "valid": summary.get("valid") if isinstance(summary, dict) else None,
+        "failed": summary.get("failed") if isinstance(summary, dict) else None,
+        "errors": ((summary.get("validation_summary") or {}).get("top_errors") or [])[:2]
+        if isinstance(summary, dict)
+        else [],
     }
 
 

@@ -254,6 +254,51 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertEqual([], normalized["rejected_changes"])
         self.assertEqual("examples/standard_fjsp_local_search_solver.py", normalized["changes"][0]["path"])
 
+    def test_iteration_contract_rejects_full_solver_rewrite(self) -> None:
+        worker = DeepSeekWorker()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "examples" / "agent_generated_fjsp_solver.py"
+            target.parent.mkdir(parents=True)
+            target.write_text("print('incumbent')\n", encoding="utf-8")
+            context = _context_packet_with_iteration_contract(root)
+
+            normalized = worker._normalize_code_edit_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+                {
+                    "summary": "Rewrite the solver.",
+                    "strategy_intent": "Replace the incumbent with a fresh solver.",
+                    "rule_operator_hypotheses": [
+                        {
+                            "name": "fresh_solver_rewrite",
+                            "type": "dispatch_rule",
+                            "novelty": "Claims to differ from rollback history.",
+                            "expected_effect": "Lower makespan.",
+                            "target_files": ["examples/agent_generated_fjsp_solver.py"],
+                        }
+                    ],
+                    "changes": [
+                        {
+                            "path": "examples/agent_generated_fjsp_solver.py",
+                            "action": "create_or_replace",
+                            "content": "print('new solver')\n",
+                            "rationale": "Full rewrite.",
+                        },
+                        {
+                            "path": "examples/new_helper.py",
+                            "action": "create_or_replace",
+                            "content": "VALUE = 1\n",
+                            "rationale": "New helper files remain allowed.",
+                        },
+                    ],
+                    "quick_test_plan": "python -m compileall harness_agent examples",
+                },
+                context,
+            )
+
+            self.assertEqual(["examples/new_helper.py"], [item["path"] for item in normalized["changes"]])
+            self.assertEqual("examples/agent_generated_fjsp_solver.py", normalized["rejected_changes"][0]["path"])
+            self.assertIn("forbids create_or_replace", normalized["rejected_changes"][0]["reason"])
+
 
 def _context_packet_with_intake() -> dict[str, object]:
     return {
@@ -311,6 +356,16 @@ def _context_packet_with_slot_manifest(*, user_confirmed: bool = True) -> dict[s
             ],
         },
     }
+
+
+def _context_packet_with_iteration_contract(incumbent_root: Path) -> dict[str, object]:
+    context = _context_packet_with_intake()
+    context["loop_feedback"] = {"incumbent_worktree": str(incumbent_root)}
+    context["iteration_edit_contract"] = {
+        "mode": "incremental_after_baseline",
+        "whole_file_rewrite_policy": "Do not rewrite existing solver files during improvement rounds.",
+    }
+    return context
 
 
 if __name__ == "__main__":

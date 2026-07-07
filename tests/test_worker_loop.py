@@ -65,6 +65,34 @@ class UnstableImproveWorker:
         )
 
 
+class RuntimeFailWorker:
+    """Test worker that compiles but fails the one-seed evaluator smoke."""
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="runtime-fail",
+            supports_code_generation=True,
+            supports_repair=False,
+            supports_structured_output=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        solver_path = Path(spec.worktree_path) / "examples" / "dummy_solver.py"
+        text = solver_path.read_text(encoding="utf-8")
+        solver_path.write_text(
+            text.replace(
+                "args = parser.parse_args()",
+                "args = parser.parse_args()\n    raise RuntimeError('smoke should catch this before full evaluation')",
+            ),
+            encoding="utf-8",
+        )
+        return WorkerResult(
+            status="ok",
+            changed_files=["examples/dummy_solver.py"],
+            summary="Introduce a runtime failure that py_compile cannot catch.",
+        )
+
+
 class ProposalAuditWorker:
     """Test worker that writes a structured proposal artifact without changing files."""
 
@@ -306,7 +334,9 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual("worker_loop_round_feedback", round_001_context["refresh_reason"])
             self.assertEqual(1, round_001_context["loop_feedback"]["round_index"])
             self.assertEqual("rolled_back", round_001_context["loop_feedback"]["previous_rounds"][0]["decision"])
+            self.assertEqual("incremental_after_baseline", round_001_context["iteration_edit_contract"]["mode"])
             self.assertTrue(round_001_context["worker_instruction"]["round_feedback_rule"])
+            self.assertTrue(round_001_context["worker_instruction"]["incremental_edit_rule"])
 
             round_001_delta = json.loads((tmp_path / "loop" / "round_001" / "worker_worktree_delta.json").read_text(encoding="utf-8"))
             self.assertEqual(0, round_001_delta["counts"]["total_changed"])
@@ -414,6 +444,37 @@ class WorkerLoopTests(unittest.TestCase):
 
             loop_result = json.loads((tmp_path / "loop" / "loop_result.json").read_text(encoding="utf-8"))
             self.assertEqual("failed", loop_result["rounds"][0]["promotion_check"]["status"])
+
+    def test_candidate_smoke_gate_blocks_full_evaluation_on_runtime_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+
+            result = run_worker_cycle(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "cycle",
+                context_packet_path=context_path,
+                worker=RuntimeFailWorker(),
+                experiment_id="test_smoke_gate_runtime_failure",
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+            )
+
+            self.assertTrue(result.agentic_judgment.accepted)
+            self.assertIsNotNone(result.smoke_summary)
+            self.assertEqual(1, result.smoke_summary.total)
+            self.assertEqual(0, result.smoke_summary.valid)
+            self.assertFalse(result.full_evaluation_started)
+            self.assertEqual(1, result.summary.total)
+            self.assertTrue((tmp_path / "cycle" / "harness_smoke" / "report.md").exists())
+            self.assertFalse((tmp_path / "cycle" / "harness" / "report.md").exists())
+            cycle_result = json.loads((tmp_path / "cycle" / "cycle_result.json").read_text(encoding="utf-8"))
+            self.assertTrue(cycle_result["smoke_gate"]["enabled"])
+            self.assertFalse(cycle_result["smoke_gate"]["passed"])
+            self.assertFalse(cycle_result["smoke_gate"]["full_evaluation_started"])
 
     def test_render_worktree_patch_ignores_line_ending_noise(self) -> None:
         patch = render_worktree_patch(
