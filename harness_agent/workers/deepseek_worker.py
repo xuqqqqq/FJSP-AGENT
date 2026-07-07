@@ -37,6 +37,10 @@ RULE_OPERATOR_TYPES = [
     "parameter_policy",
 ]
 
+PRIORITY_CONTEXT_MAX_CHARS = 22000
+PRIORITY_KNOWLEDGE_CARD_LIMIT = 3
+PRIORITY_KNOWLEDGE_CARD_MAX_CHARS = 1200
+
 
 def extract_json_object(text: str) -> dict[str, Any]:
     stripped = text.strip()
@@ -696,12 +700,8 @@ def priority_worker_context(context: dict[str, Any]) -> str:
             "A full create_or_replace of the solver entrypoint is allowed for legality repair; prefer that over "
             "fragile text_replace anchors when replacing an invalid generated solver."
         ),
-        "priority_knowledge_cards": compact_priority_knowledge_cards(context, limit=5),
-        "knowledge_use_rule": (
-            "Use priority_knowledge_cards as the selected RAG brief before the full context packet. "
-            "If they contain preserve/recover/avoid guidance, either follow it or explain why loop_feedback "
-            "overrides it. Cite knowledge_cards in evidence_used when it shapes the proposal."
-        ),
+        "incumbent_code_context": compact_incumbent_code_context(context.get("incumbent_code_context") or {}),
+        "loop_feedback": compact_loop_feedback_for_prompt(context.get("loop_feedback") or {}),
         "candidate_feasibility_guard": {
             "rule": (
                 "For local search, neighborhood, decoder, destroy-repair, or post-processing changes, "
@@ -717,10 +717,20 @@ def priority_worker_context(context: dict[str, Any]) -> str:
             "round_feedback_rule": (context.get("worker_instruction") or {}).get("round_feedback_rule"),
             "incremental_edit_rule": (context.get("worker_instruction") or {}).get("incremental_edit_rule"),
         },
-        "loop_feedback": compact_loop_feedback_for_prompt(context.get("loop_feedback") or {}),
-        "incumbent_code_context": compact_incumbent_code_context(context.get("incumbent_code_context") or {}),
+        "priority_knowledge_cards": compact_priority_knowledge_cards(
+            context,
+            limit=PRIORITY_KNOWLEDGE_CARD_LIMIT,
+            max_chars_per_card=PRIORITY_KNOWLEDGE_CARD_MAX_CHARS,
+        ),
+        "knowledge_use_rule": (
+            "Use priority_knowledge_cards after reading the incumbent_code_context and loop_feedback. "
+            "The current code and failed anchors are authoritative for patch shape; RAG cards only guide "
+            "the rule/operator hypothesis. If cards contain preserve/recover/avoid guidance, either follow "
+            "it or explain why loop_feedback overrides it. Cite knowledge_cards in evidence_used when it "
+            "shapes the proposal."
+        ),
     }
-    return json.dumps(payload, ensure_ascii=False, indent=2)[:18000]
+    return json.dumps(payload, ensure_ascii=False, indent=2)[:PRIORITY_CONTEXT_MAX_CHARS]
 
 
 def compact_loop_feedback_for_prompt(loop_feedback: dict[str, Any]) -> dict[str, Any]:
@@ -839,7 +849,11 @@ def compact_priority_knowledge_cards(
         score = card_score(card)
         if score <= 0 and selected:
             continue
-        snippet = str(card.get("snippet") or "")
+        snippet = compact_knowledge_card_snippet(
+            str(card.get("snippet") or ""),
+            query_terms=query_terms,
+            max_chars=max_chars_per_card,
+        )
         selected.append(
             {
                 "path": path,
@@ -853,6 +867,74 @@ def compact_priority_knowledge_cards(
         if len(selected) >= limit:
             break
     return selected
+
+
+def compact_knowledge_card_snippet(snippet: str, *, query_terms: set[str], max_chars: int) -> str:
+    if max_chars <= 0:
+        return ""
+    if len(snippet) <= max_chars:
+        return snippet
+
+    lower = snippet.lower().replace("_", "-")
+    needles = [
+        "what to preserve",
+        "preserve or recover",
+        "operation-level",
+        "setup-aware",
+        "multi-start",
+        "local search quality",
+        "critical-block",
+        "critical path",
+        "risk patterns",
+        "anchor text",
+        "old text",
+        "regret",
+        "insertion",
+        "tabu",
+        "avoid",
+    ]
+    for term in sorted(query_terms):
+        normalized = term.lower().replace("_", "-")
+        if len(normalized) >= 5 and normalized not in {"agent", "generated"}:
+            needles.append(normalized)
+
+    windows: list[tuple[int, int]] = []
+
+    def add_window(start: int, end: int) -> None:
+        start = max(0, start)
+        end = min(len(snippet), end)
+        if end <= start:
+            return
+        for existing_start, existing_end in windows:
+            if start <= existing_end + 80 and end >= existing_start - 80:
+                return
+        windows.append((start, end))
+
+    add_window(0, min(len(snippet), min(520, max_chars)))
+    for needle in needles:
+        position = lower.find(needle)
+        if position < 0:
+            continue
+        add_window(position - 180, position + 560)
+        if len(windows) >= 7:
+            break
+
+    result = ""
+    separator = "\n...\n"
+    for start, end in windows:
+        piece = snippet[start:end].strip()
+        if not piece:
+            continue
+        addition = piece if not result else separator + piece
+        remaining = max_chars - len(result)
+        if remaining <= 0:
+            break
+        if len(addition) > remaining:
+            if remaining > len(separator) + 80:
+                result += addition[:remaining]
+            break
+        result += addition
+    return result[:max_chars]
 
 
 def _knowledge_query_terms(context: dict[str, Any]) -> set[str]:

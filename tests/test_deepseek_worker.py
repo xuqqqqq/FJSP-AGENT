@@ -410,6 +410,81 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("examples/agent_generated_fjsp_solver.py", prompt_context)
         self.assertIn("def schedule(): pass", prompt_context)
 
+    def test_priority_worker_context_keeps_incumbent_before_large_rag_cards(self) -> None:
+        context = _context_packet_with_intake()
+        context["task"] = {
+            "problem_family": "fjsp_sdst",
+            "description": "Improve an agent_generated FJSP-SDST solver on oddla20.",
+            "instances": [{"id": "oddla20", "path": "instances/oddla20.txt"}],
+        }
+        context["iteration_edit_contract"] = {"mode": "incremental_after_baseline"}
+        context["loop_feedback"] = {
+            "incumbent_key_before": [-1277.0],
+            "previous_rounds": [
+                {
+                    "round_index": 1,
+                    "decision": "rolled_back",
+                    "proposal_diagnostics": {
+                        "summary": "Patch failed because the worker guessed an anchor.",
+                        "proposal_audit": {"rejected_change_count": 2},
+                    },
+                    "candidate_summary": {
+                        "validation_summary": {
+                            "top_errors": ["anchor text not found", "old text not found"],
+                        }
+                    },
+                }
+            ],
+        }
+        context["incumbent_code_context"] = {
+            "source": "promoted_incumbent_worktree",
+            "purpose": "Current promoted solver source for surgical patches.",
+            "files": [
+                {
+                    "relative_path": "examples/agent_generated_fjsp_solver.py",
+                    "chars": 4800,
+                    "truncated": False,
+                    "snippet": (
+                        "def parse_instance(path):\n"
+                        "    return load_hudata(path)\n\n"
+                        "def main():\n"
+                        "    schedule = build_current_incumbent_schedule()\n"
+                        "    print(schedule)\n"
+                    ),
+                }
+            ],
+        }
+        context["knowledge_cards"] = [
+            {
+                "path": "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "chars": 10000,
+                "truncated": False,
+                "snippet": (
+                    ("RAG_FILLER " * 700)
+                    + "Recover operation-level list scheduler and keep setup-aware multi-start. "
+                    + ("RAG_FILLER " * 500)
+                ),
+            }
+        ] + [
+            {
+                "path": f"knowledge/papers/large_card_{index}.md",
+                "chars": 10000,
+                "truncated": False,
+                "snippet": "FJSP-SDST local search background. " + ("MORE_FILLER " * 1200),
+            }
+            for index in range(4)
+        ]
+
+        prompt_context = priority_worker_context(context)
+
+        self.assertIn("examples/agent_generated_fjsp_solver.py", prompt_context)
+        self.assertIn("def parse_instance(path):", prompt_context)
+        self.assertIn("def main():", prompt_context)
+        self.assertIn("anchor text not found", prompt_context)
+        self.assertIn("priority_knowledge_cards", prompt_context)
+        self.assertIn("operation-level list scheduler", prompt_context)
+        self.assertLess(prompt_context.index("incumbent_code_context"), prompt_context.index("priority_knowledge_cards"))
+
     def test_priority_worker_context_frontloads_relevant_knowledge_cards(self) -> None:
         context = _context_packet_with_intake()
         context["task"] = {
