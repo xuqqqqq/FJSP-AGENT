@@ -402,6 +402,32 @@ class AgentBaselineWorker:
         )
 
 
+class AgentGeneratedBackendImportWorker:
+    """Worker that writes a helper import unsafe for standalone generated solvers."""
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="agent-generated-backend-import",
+            supports_code_generation=True,
+            supports_repair=False,
+            supports_structured_output=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        helper_path = Path(spec.worktree_path) / "examples" / "agent_generated_helper.py"
+        helper_path.write_text(
+            "from harness_agent.standard_fjsp import setup_time_between\n\n"
+            "def helper():\n"
+            "    return setup_time_between\n",
+            encoding="utf-8",
+        )
+        return WorkerResult(
+            status="ok",
+            changed_files=["examples/agent_generated_helper.py"],
+            summary="Add helper that imports backend package.",
+        )
+
+
 class WorkerLoopTests(unittest.TestCase):
     def test_refreshed_context_records_previous_round_and_duplicate_proposal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -739,6 +765,32 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertIsNotNone(result.agentic_error_analysis)
             self.assertTrue((tmp_path / "cycle" / "agentic_judgment.json").exists())
             self.assertTrue((tmp_path / "cycle" / "agentic_error_analysis.md").exists())
+
+    def test_code_judgment_rejects_agent_generated_backend_import(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract_path = _write_agent_baseline_contract(tmp_path)
+            contract = TaskContract.load(contract_path)
+            context_path = _write_test_context(tmp_path, contract_path=contract_path)
+
+            result = run_worker_cycle(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "cycle",
+                context_packet_path=context_path,
+                worker=AgentGeneratedBackendImportWorker(),
+                experiment_id="test_agent_generated_backend_import",
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+            )
+
+            self.assertFalse(result.agentic_judgment.accepted)
+            self.assertIn("agent_generated_solver_imports_backend_package", result.agentic_judgment.issues)
+            self.assertFalse(result.full_evaluation_started)
+            self.assertEqual(0, result.summary.total)
+            risks = result.agentic_judgment.checks["agent_generated_runtime_import_risks"]
+            self.assertIn("examples/agent_generated_helper.py", risks[0])
 
     def test_code_judgment_rejects_empty_slot_proposal_without_risk_note(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

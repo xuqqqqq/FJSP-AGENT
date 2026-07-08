@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -153,6 +154,21 @@ def judge_worker_result(
             "Do not treat empty or partial schedules/routes as zero-cost improvements; require full operation coverage before acceptance."
         )
 
+    agent_generated_import_risks = _detect_agent_generated_runtime_import_risks(
+        context,
+        worktree_path,
+        worker_result.changed_files,
+    )
+    if agent_generated_import_risks:
+        issues.append("agent_generated_solver_imports_backend_package")
+        suggestions.append(
+            "Agent-generated solver/helper files under examples must be runnable as standalone scripts; "
+            "do not import harness_agent.* from them."
+        )
+        suggestions.append(
+            "Keep small setup/decoder helpers self-contained or move the change back into the existing generated solver file."
+        )
+
     checks = {
         "worker_status": worker_result.status,
         "apply_worker_changes": apply_worker_changes,
@@ -164,6 +180,7 @@ def judge_worker_result(
         "python_compile_errors": py_compile_errors,
         "parser_rewrite_files": parser_rewrite_files,
         "incomplete_solution_acceptance_risks": incomplete_solution_risks,
+        "agent_generated_runtime_import_risks": agent_generated_import_risks,
     }
     judgment = AgenticJudgment(
         accepted=not issues,
@@ -349,6 +366,40 @@ def _detect_incomplete_solution_acceptance_risks(worktree_path: Path, changed_fi
         if detected:
             risky.append(f"{relative}: {', '.join(detected)}")
     return risky
+
+
+def _detect_agent_generated_runtime_import_risks(
+    context: dict[str, Any],
+    worktree_path: Path,
+    changed_files: list[str],
+) -> list[str]:
+    if not _is_agent_generated_solver_context(context):
+        return []
+    risky: list[str] = []
+    for relative in changed_files:
+        normalized = relative.replace("\\", "/")
+        if not (normalized.startswith("examples/") and normalized.endswith(".py")):
+            continue
+        path = worktree_path / relative
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if re.search(r"^\s*(from\s+harness_agent(?:\.|\s+import)|import\s+harness_agent(?:\b|\.))", text, re.M):
+            risky.append(f"{relative}: imports harness_agent from standalone agent-generated solver runtime")
+    return risky
+
+
+def _is_agent_generated_solver_context(context: dict[str, Any]) -> bool:
+    protocol = context.get("evaluator_protocol") if isinstance(context.get("evaluator_protocol"), dict) else {}
+    solver_command = str(protocol.get("solver_command_template") or "")
+    if "agent_generated" in solver_command.replace("\\", "/"):
+        return True
+    generation = context.get("baseline_generation") if isinstance(context.get("baseline_generation"), dict) else {}
+    if str(generation.get("source") or "") == "agent_generated":
+        return True
+    instruction_text = json.dumps(context.get("worker_instruction") or {}, ensure_ascii=False)
+    return "agent-generated" in instruction_text or "agent_generated" in instruction_text
 
 
 def _incomplete_solution_risk_reasons(text: str) -> list[str]:

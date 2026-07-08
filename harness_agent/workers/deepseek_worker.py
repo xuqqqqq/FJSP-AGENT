@@ -439,6 +439,12 @@ Rules:
   the task contract explicitly asks to implement those surfaces.  For standard
   FJSP runs, prefer importing the existing parser/evaluator helpers instead of
   reimplementing machine-index or duration parsing.
+- If evaluator_protocol.solver_command_template runs an agent-generated solver
+  under `examples/agent_generated*.py`, treat generated solver/helper files as
+  standalone example scripts. Do not import `harness_agent.*` from those files;
+  keep small setup/decoder utilities self-contained or reuse helpers already
+  present in the incumbent generated solver. Core will reject backend-package
+  imports in that runtime.
 - If project_intake is present, use it to identify entry files, core solver
   files, evaluator/validator files, and test commands before choosing edits.
 - In context_usage, explicitly list the project_intake files or commands that
@@ -723,6 +729,12 @@ def priority_worker_context(context: dict[str, Any]) -> str:
                 "cannot decode all operations, reject that neighbor and keep the incumbent schedule."
             ),
         },
+        "candidate_runtime_import_rule": (
+            "When the solver command is an agent-generated examples/agent_generated*.py entrypoint, "
+            "the entrypoint and helper modules under examples must run as standalone example scripts. "
+            "Do not add `from harness_agent...` or `import harness_agent...` in those files; the Core JA "
+            "gate rejects such imports before evaluator execution."
+        ),
         "worker_instruction": {
             "round_feedback_rule": (context.get("worker_instruction") or {}).get("round_feedback_rule"),
             "incremental_edit_rule": (context.get("worker_instruction") or {}).get("incremental_edit_rule"),

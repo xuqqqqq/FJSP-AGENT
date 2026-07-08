@@ -18,6 +18,7 @@ from harness_agent.web_app import (
     scan_awls_zi_progress,
     scan_code_evolution_progress,
     slot_manifest_catalog_payload,
+    summarize_code_evolution_progress,
     summarize_worker_manifest,
 )
 
@@ -549,6 +550,47 @@ class WebAppTests(unittest.TestCase):
             self.assertIn("round_000 DeepSeek 已返回原始代码修改响应", messages)
             self.assertIn("round_000 执行异常", messages)
             self.assertTrue((job_dir / "web_job_status.json").exists())
+
+    def test_code_progress_summary_tracks_best_so_far_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            worker_root = Path(tmp) / "worker_loop"
+            first = worker_root / "round_000"
+            second = worker_root / "round_001"
+            first.mkdir(parents=True)
+            second.mkdir(parents=True)
+            (first / "cycle_result.json").write_text(
+                json.dumps(
+                    {
+                        "harness": {
+                            "total": 10,
+                            "valid": 10,
+                            "failed": 0,
+                            "best_metrics": {"makespan": 1200.0, "gap_pct": 20.36},
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (second / "cycle_result.json").write_text(
+                json.dumps(
+                    {
+                        "harness": {
+                            "total": 10,
+                            "valid": 10,
+                            "failed": 0,
+                            "best_metrics": {"makespan": 1138.0, "gap_pct": 14.14},
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            progress = summarize_code_evolution_progress(worker_root)
+
+        self.assertEqual(2, progress["completed_round_count"])
+        self.assertEqual(1138.0, progress["best_makespan_so_far"])
+        self.assertEqual(14.14, progress["best_gap_pct_so_far"])
+        self.assertEqual(1138.0, progress["latest_makespan"])
 
     def test_awls_zi_progress_scanner_writes_visible_events(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

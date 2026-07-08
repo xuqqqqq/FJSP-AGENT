@@ -1496,10 +1496,17 @@ def summarize_code_evolution_progress(worker_root: Path) -> dict[str, Any]:
             evaluated_rounds.append(summary)
     latest_summary = evaluated_rounds[-1] if evaluated_rounds else {}
     latest_metrics = summary_metrics(latest_summary)
+    best_summary = best_progress_summary(evaluated_rounds)
+    best_metrics = summary_metrics(best_summary)
     return {
         "round_count": len(round_dirs),
         "completed_round_count": len(evaluated_rounds),
         "evaluated_round_count": len(evaluated_rounds),
+        "best_makespan_so_far": best_metrics.get("makespan"),
+        "best_gap_pct_so_far": best_metrics.get("gap_pct"),
+        "best_total_so_far": int(best_summary.get("total", 0) or 0),
+        "best_valid_so_far": int(best_summary.get("valid", 0) or 0),
+        "best_failed_so_far": int(best_summary.get("failed", 0) or 0),
         "latest_makespan": latest_metrics.get("makespan"),
         "latest_gap_pct": latest_metrics.get("gap_pct"),
         "latest_total": int(latest_summary.get("total", 0) or 0),
@@ -1509,9 +1516,25 @@ def summarize_code_evolution_progress(worker_root: Path) -> dict[str, Any]:
     }
 
 
+def best_progress_summary(summaries: list[dict[str, Any]]) -> dict[str, Any]:
+    best_summary: dict[str, Any] = {}
+    best_makespan: float | None = None
+    for summary in summaries:
+        if int(summary.get("valid", 0) or 0) <= 0:
+            continue
+        metrics = summary_metrics(summary)
+        makespan = first_number(metrics.get("makespan"))
+        if makespan is None:
+            continue
+        if best_makespan is None or makespan < best_makespan:
+            best_makespan = makespan
+            best_summary = summary
+    return best_summary
+
+
 def read_json_file(path: Path) -> dict[str, Any]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        data = json.loads(path.read_text(encoding="utf-8-sig", errors="replace"))
     except (OSError, json.JSONDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
@@ -1519,7 +1542,7 @@ def read_json_file(path: Path) -> dict[str, Any]:
 
 def read_json_list(path: Path) -> list[Any]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        data = json.loads(path.read_text(encoding="utf-8-sig", errors="replace"))
     except (OSError, json.JSONDecodeError):
         return []
     return data if isinstance(data, list) else []

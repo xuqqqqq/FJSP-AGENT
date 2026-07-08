@@ -3,6 +3,7 @@ const state = {
   pollTimer: null,
   deepseekStatus: null,
   lastRenderedStatus: null,
+  previewArtifactName: null,
   slotManifest: null,
 };
 const DEFAULT_STANDARD_SEEDS = "0,1,2,3,4,5,6,7,8,9";
@@ -443,6 +444,7 @@ async function submitCurrentJob() {
   }
   state.currentJobId = job.id;
   state.lastRenderedStatus = null;
+  state.previewArtifactName = null;
   renderJob(job);
   $("artifact-preview").textContent =
     "任务已启动，进度会持续刷新到右侧事件流。完成后会自动载入报告预览。";
@@ -600,12 +602,8 @@ async function refreshJob() {
     if (!["queued", "running"].includes(job.status) && state.pollTimer) {
       clearInterval(state.pollTimer);
       state.pollTimer = null;
-      const preferredReport =
-        job.artifacts?.report ? "report" :
-        job.artifacts?.zi_evolution_report ? "zi_evolution_report" :
-        job.artifacts?.standard_agent_report ? "standard_agent_report" :
-        null;
-      if (preferredReport) {
+      const preferredReport = preferredArtifactName(job);
+      if (preferredReport && (!state.previewArtifactName || state.previewArtifactName === "status")) {
         loadArtifact(preferredReport);
       }
     }
@@ -630,12 +628,14 @@ function renderJob(job) {
   const ziSummary = job.summary?.zi_summary || {};
   const makespan =
     workerSummary.final_makespan ??
+    workerSummary.best_makespan_so_far ??
     workerSummary.latest_makespan ??
     summary.best_metrics?.makespan ??
     summary.best_candidate_metrics?.avg_makespan;
   const gap =
     ziSummary.best_avg_gap_pct ??
     workerSummary.final_gap_pct ??
+    workerSummary.best_gap_pct_so_far ??
     workerSummary.latest_gap_pct ??
     benchmark.gap_metrics?.avg_gap_pct ??
     summary.best_metrics?.avg_gap_pct;
@@ -649,8 +649,15 @@ function renderJob(job) {
       ? `${ziSummary.best_valid_instance_count}/${ziSummary.selected_instance_count}`
       : workerSummary.promoted_rounds !== undefined
         ? `最终 ${workerSummary.final_valid ?? workerSummary.latest_valid ?? "-"}/${workerSummary.final_total ?? workerSummary.latest_total ?? "-"} · 提升 ${workerSummary.promoted_rounds}/${workerSummary.round_count}`
-        : workerSummary.latest_valid !== undefined
-        ? `最新 ${workerSummary.latest_valid}/${workerSummary.latest_total ?? "-"}`
+        : workerSummary.best_valid_so_far !== undefined || workerSummary.latest_valid !== undefined
+        ? [
+            workerSummary.best_valid_so_far !== undefined
+              ? `当前最好 ${formatMetric(workerSummary.best_makespan_so_far)}`
+              : null,
+            workerSummary.latest_valid !== undefined
+              ? `最新 ${workerSummary.latest_valid}/${workerSummary.latest_total ?? "-"}`
+              : null,
+          ].filter(Boolean).join(" · ")
         : summary.valid ?? benchmark.valid_experiments ?? "-";
   $("metric-makespan").textContent = formatMetric(makespan);
   $("metric-gap").textContent = gap === undefined || gap === null ? "-" : `${Number(gap).toFixed(2)}%`;
@@ -702,8 +709,18 @@ async function loadArtifact(name) {
     $("artifact-preview").textContent = payload.error || "读取产物失败";
     return;
   }
+  state.previewArtifactName = name;
   $("artifact-path").textContent = payload.path;
   $("artifact-preview").textContent = payload.text + (payload.truncated ? "\n\n[内容过长，已截断预览]" : "");
+}
+
+function preferredArtifactName(job) {
+  const artifacts = job.artifacts || {};
+  if (artifacts.report) return "report";
+  if (artifacts.standard_agent_report) return "standard_agent_report";
+  if (artifacts.loop_report) return "loop_report";
+  if (artifacts.zi_evolution_report) return "zi_evolution_report";
+  return null;
 }
 
 function formatMetric(value) {
