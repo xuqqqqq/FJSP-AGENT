@@ -626,6 +626,45 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("Risk patterns", prompt_context)
         self.assertIn("TypeError: tuple indices", prompt_context)
 
+    def test_priority_worker_context_keeps_agent_generated_local_evidence(self) -> None:
+        context = _context_packet_with_intake()
+        context["task"] = {
+            "problem_family": "fjsp_sdst",
+            "description": "Improve an agent_generated FJSP-SDST solver on oddla20 with local_search_operator.",
+            "instances": [{"id": "oddla20", "path": "instances/oddla20.txt"}],
+        }
+        context["knowledge_cards"] = [
+            {
+                "path": "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "chars": 12000,
+                "truncated": False,
+                "snippet": (
+                    "# FJSP-SDST Agent-Generated Solver Search Memory\n"
+                    "Purpose text.\n"
+                    + ("INTRO_FILLER " * 160)
+                    + "## Local Evidence\n"
+                    "- `outputs/web_runs/old`: promoted to `1096` by setup-aware operation-level dispatch.\n"
+                    "- `outputs/web_runs/new`: promoted to `1102`; insertion/all-pair local search crashed by mixing operation representations.\n"
+                    + ("EVIDENCE_FILLER " * 220)
+                    + "## What To Preserve Or Recover First\n"
+                    "Recover operation-level list scheduler and setup-aware multi-start.\n"
+                    + ("PRESERVE_FILLER " * 120)
+                    + "## Local Search Quality Contract\n"
+                    "Candidate schedules must contain exactly the same operation set.\n"
+                    "Risk patterns already observed: Mixing operation representations inside local-search decoders.\n"
+                    + ("TAIL_FILLER " * 160)
+                ),
+            }
+        ]
+
+        prompt_context = priority_worker_context(context)
+
+        self.assertIn("Local Evidence", prompt_context)
+        self.assertIn("1102", prompt_context)
+        self.assertIn("mixing operation representations", prompt_context)
+        self.assertIn("operation-level list scheduler", prompt_context)
+        self.assertIn("Risk patterns already observed", prompt_context)
+
     def test_priority_worker_context_frontloads_relevant_knowledge_cards(self) -> None:
         context = _context_packet_with_intake()
         context["task"] = {

@@ -43,7 +43,7 @@ PRIORITY_CONTEXT_MIN_CHARS = 12000
 PRIORITY_CONTEXT_MAX_CHARS = 60000
 PRIORITY_INCUMBENT_FILE_MAX_CHARS = 5200
 PRIORITY_KNOWLEDGE_CARD_LIMIT = 3
-PRIORITY_KNOWLEDGE_CARD_MAX_CHARS = 1800
+PRIORITY_KNOWLEDGE_CARD_MAX_CHARS = 3600
 
 
 def extract_json_object(text: str) -> dict[str, Any]:
@@ -736,8 +736,9 @@ def priority_worker_context(context: dict[str, Any]) -> str:
             "Use priority_knowledge_cards after reading the incumbent_code_context and loop_feedback. "
             "The current code and failed anchors are authoritative for patch shape; RAG cards only guide "
             "the rule/operator hypothesis. If cards contain preserve/recover/avoid guidance, either follow "
-            "it or explain why loop_feedback overrides it. Cite knowledge_cards in evidence_used when it "
-            "shapes the proposal."
+            "it or explain why loop_feedback overrides it. If local evidence cites a stronger previous run, "
+            "explain whether the proposal preserves, recovers, or intentionally ablates that mechanism. "
+            "Cite knowledge_cards in evidence_used when it shapes the proposal."
         ),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)[:priority_context_max_chars()]
@@ -976,6 +977,8 @@ def compact_knowledge_card_snippet(snippet: str, *, query_terms: set[str], max_c
 
     lower = snippet.lower().replace("_", "-")
     local_search_needles = [
+        "local evidence",
+        "recent web worker-loop artifacts",
         "local search quality",
         "risk patterns",
         "candidate schedules must contain",
@@ -986,6 +989,9 @@ def compact_knowledge_card_snippet(snippet: str, *, query_terms: set[str], max_c
         "deadlock",
     ]
     general_needles = [
+        "local evidence",
+        "recent web worker-loop artifacts",
+        "promoted to",
         "what to preserve",
         "preserve or recover",
         "operation-level",
@@ -1011,17 +1017,41 @@ def compact_knowledge_card_snippet(snippet: str, *, query_terms: set[str], max_c
 
     windows: list[tuple[int, int]] = []
 
-    def add_window(start: int, end: int) -> None:
+    def add_window(start: int, end: int, *, overlap_margin: int = 80) -> None:
         start = max(0, start)
         end = min(len(snippet), end)
         if end <= start:
             return
         for existing_start, existing_end in windows:
-            if start <= existing_end + 80 and end >= existing_start - 80:
+            if start <= existing_end + overlap_margin and end >= existing_start - overlap_margin:
                 return
         windows.append((start, end))
 
-    add_window(0, min(len(snippet), min(520, max_chars)))
+    def add_markdown_section(heading: str, *, char_limit: int) -> None:
+        position = lower.find(heading)
+        if position < 0:
+            return
+        line_start = snippet.rfind("\n", 0, position) + 1
+        start = line_start if not lower[line_start:position].strip() else position
+        next_heading = re.search(r"\n##+\s+", lower[position + 1 :])
+        end = position + 1 + next_heading.start() if next_heading else len(snippet)
+        add_window(start, min(end, start + char_limit), overlap_margin=-1)
+
+    def add_anchor_excerpt(anchor: str, *, before: int, after: int) -> None:
+        position = lower.find(anchor)
+        if position < 0:
+            return
+        add_window(position - before, position + after, overlap_margin=-1)
+
+    has_local_experiment_memory = "local evidence" in lower or "agent-generated" in lower
+    intro_chars = 360 if has_local_experiment_memory else 520
+    add_window(0, min(len(snippet), min(intro_chars, max_chars)))
+    if has_local_experiment_memory:
+        add_markdown_section("## local evidence", char_limit=1700)
+        add_markdown_section("## what to preserve", char_limit=760)
+        if "local_search" in query_terms:
+            add_anchor_excerpt("risk patterns already observed", before=80, after=880)
+
     for needle in needles:
         position = lower.find(needle)
         if position < 0:
