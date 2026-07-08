@@ -809,6 +809,7 @@ def compact_loop_feedback_for_prompt(loop_feedback: dict[str, Any]) -> dict[str,
         "baseline_best_metrics": baseline_summary.get("best_metrics"),
         "baseline_best_candidate_metrics": baseline_summary.get("best_candidate_metrics"),
         "baseline_validation_summary": baseline_summary.get("validation_summary"),
+        "protected_promoted_facts": loop_feedback.get("protected_promoted_facts") or [],
         "previous_rounds": compact_previous,
         "instructions": loop_feedback.get("instructions"),
     }

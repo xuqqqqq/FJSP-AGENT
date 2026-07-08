@@ -169,6 +169,18 @@ def judge_worker_result(
             "Keep small setup/decoder helpers self-contained or move the change back into the existing generated solver file."
         )
 
+    protected_fact_regressions = _detect_protected_promoted_fact_regressions(
+        context,
+        proposal if isinstance(proposal, dict) else None,
+        worker_result.changed_files,
+    )
+    if protected_fact_regressions:
+        issues.append("protected_promoted_fact_regression")
+        suggestions.append(
+            "Do not remove or disable Core-promoted mechanisms in the next round. "
+            "Preserve them or explicitly ablate them with a legality-preserving fallback."
+        )
+
     checks = {
         "worker_status": worker_result.status,
         "apply_worker_changes": apply_worker_changes,
@@ -181,6 +193,7 @@ def judge_worker_result(
         "parser_rewrite_files": parser_rewrite_files,
         "incomplete_solution_acceptance_risks": incomplete_solution_risks,
         "agent_generated_runtime_import_risks": agent_generated_import_risks,
+        "protected_promoted_fact_regressions": protected_fact_regressions,
     }
     judgment = AgenticJudgment(
         accepted=not issues,
@@ -388,6 +401,101 @@ def _detect_agent_generated_runtime_import_risks(
         if re.search(r"^\s*(from\s+harness_agent(?:\.|\s+import)|import\s+harness_agent(?:\b|\.))", text, re.M):
             risky.append(f"{relative}: imports harness_agent from standalone agent-generated solver runtime")
     return risky
+
+
+def _detect_protected_promoted_fact_regressions(
+    context: dict[str, Any],
+    proposal: dict[str, Any] | None,
+    changed_files: list[str],
+) -> list[str]:
+    if not isinstance(proposal, dict):
+        return []
+    loop_feedback = context.get("loop_feedback") if isinstance(context.get("loop_feedback"), dict) else {}
+    facts = loop_feedback.get("protected_promoted_facts") or []
+    if not isinstance(facts, list) or not facts:
+        return []
+    changed = {item.replace("\\", "/") for item in changed_files}
+    proposal_text = _proposal_text_for_guard(proposal)
+    regressions: list[str] = []
+    for fact in facts:
+        if not isinstance(fact, dict):
+            continue
+        target_files = {
+            str(path).replace("\\", "/")
+            for path in (fact.get("target_files") or [])
+            if isinstance(path, str) and path.strip()
+        }
+        if target_files and changed and not (target_files & changed):
+            continue
+        keywords = _protected_fact_keywords(fact)
+        for keyword in keywords:
+            if _proposal_removes_keyword(proposal_text, keyword):
+                regressions.append(
+                    f"{fact.get('name') or 'promoted_fact'}: proposal appears to remove protected mechanism `{keyword}`"
+                )
+                break
+    return regressions
+
+
+def _proposal_text_for_guard(proposal: dict[str, Any]) -> str:
+    parts = [
+        str(proposal.get("summary") or ""),
+        str(proposal.get("strategy_intent") or ""),
+        " ".join(str(item) for item in (proposal.get("risk_notes") or []) if isinstance(item, str)),
+    ]
+    for hypothesis in proposal.get("rule_operator_hypotheses") or []:
+        if not isinstance(hypothesis, dict):
+            continue
+        parts.extend(
+            [
+                str(hypothesis.get("name") or ""),
+                str(hypothesis.get("type") or ""),
+                str(hypothesis.get("novelty") or ""),
+                str(hypothesis.get("expected_effect") or ""),
+                str(hypothesis.get("ablation_plan") or ""),
+            ]
+        )
+    for change in proposal.get("changes") or []:
+        if not isinstance(change, dict):
+            continue
+        parts.extend([str(change.get("path") or ""), str(change.get("rationale") or "")])
+    return "\n".join(parts).replace("_", " ").lower()
+
+
+def _protected_fact_keywords(fact: dict[str, Any]) -> list[str]:
+    text = " ".join(
+        str(fact.get(key) or "")
+        for key in ("name", "type", "novelty", "expected_effect", "protection_rule")
+    ).replace("_", " ")
+    stopwords = {
+        "promoted",
+        "mechanism",
+        "proposal",
+        "solver",
+        "target",
+        "files",
+        "round",
+        "effect",
+        "repair",
+        "rule",
+        "dispatch",
+        "policy",
+    }
+    keywords: list[str] = []
+    for token in re.findall(r"[a-zA-Z][a-zA-Z0-9-]{5,}", text.lower()):
+        normalized = token.strip("-")
+        if normalized and normalized not in stopwords and normalized not in keywords:
+            keywords.append(normalized)
+    return keywords[:12]
+
+
+def _proposal_removes_keyword(proposal_text: str, keyword: str) -> bool:
+    escaped = re.escape(keyword)
+    removal_verbs = r"(remove|removing|removed|delete|deleting|deleted|eliminate|eliminating|disable|disabling|discard|discarding|drop|dropping|strip|stripping|undo|revert)"
+    return bool(
+        re.search(rf"\b{removal_verbs}\b[\s\S]{{0,120}}\b{escaped}\b", proposal_text)
+        or re.search(rf"\b{escaped}\b[\s\S]{{0,120}}\b{removal_verbs}\b", proposal_text)
+    )
 
 
 def _is_agent_generated_solver_context(context: dict[str, Any]) -> bool:

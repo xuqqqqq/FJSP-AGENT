@@ -632,9 +632,11 @@ def loop_feedback_payload(
         "incumbent_worktree": str(incumbent_worktree),
         "baseline_summary": summary_payload(baseline_summary),
         "previous_rounds": [round_record_payload(item) for item in previous_rounds],
+        "protected_promoted_facts": protected_promoted_facts(previous_rounds),
         "instructions": [
             "Use only Core evaluator metrics as promotion evidence.",
             "Preserve successful ideas from promoted rounds unless a better alternative is justified.",
+            "Treat protected_promoted_facts as mechanisms to preserve; do not remove or disable them in the next proposal unless the proposal explicitly ablates them with a legality-preserving fallback.",
             "Do not repeat rolled-back edits unchanged; explain what is materially different if revisiting them.",
             "If promotion_check failed, treat the candidate as a noisy or unstable improvement and change the rule-level idea.",
             "Use proposal_diagnostics to inspect whether prior proposals used project_intake, touched solver or validator files, or missed quick-test guidance.",
@@ -663,6 +665,42 @@ def round_record_payload(item: LoopRoundRecord) -> dict[str, Any]:
         "patch_path": item.patch_path,
         "promoted_worktree": item.promoted_worktree,
     }
+
+
+def protected_promoted_facts(previous_rounds: list[LoopRoundRecord], *, limit: int = 8) -> list[dict[str, Any]]:
+    """Return promoted rule/operator mechanisms that later rounds should not casually remove."""
+
+    facts: list[dict[str, Any]] = []
+    for item in previous_rounds:
+        if item.decision != "promoted":
+            continue
+        diagnostics = item.proposal_diagnostics if isinstance(item.proposal_diagnostics, dict) else {}
+        hypotheses = diagnostics.get("rule_operator_hypotheses") or []
+        for hypothesis in hypotheses:
+            if not isinstance(hypothesis, dict):
+                continue
+            name = str(hypothesis.get("name") or "").strip()
+            if not name:
+                continue
+            facts.append(
+                {
+                    "round_index": item.round_index,
+                    "name": name[:160],
+                    "type": str(hypothesis.get("type") or "")[:80],
+                    "target_files": [
+                        str(path).replace("\\", "/")
+                        for path in (hypothesis.get("target_files") or [])
+                        if isinstance(path, str) and path.strip()
+                    ][:8],
+                    "novelty": str(hypothesis.get("novelty") or "")[:500],
+                    "expected_effect": str(hypothesis.get("expected_effect") or "")[:500],
+                    "protection_rule": (
+                        "Preserve this Core-promoted mechanism in later edits. "
+                        "If a proposal changes it, keep a legality-preserving fallback and explain the ablation."
+                    ),
+                }
+            )
+    return facts[-limit:]
 
 
 def worker_proposal_fingerprint(worker_result: WorkerResult) -> str:

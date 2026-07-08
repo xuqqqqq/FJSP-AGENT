@@ -45,6 +45,21 @@ Recent worker-loop artifacts produced the following reusable method lessons:
 - A multi-seed wrapper alone can be legal but may only replay the same search
   basin.  Treat it as a diversification wrapper around a useful construction
   or neighborhood, not as the whole improvement idea.
+- Recent agent-generated SDST loops showed that legality repairs can dominate
+  the early search.  Once Core promotes a machine-id representation repair, do
+  not remove or invert that repair in the next round.  Improve around it by
+  changing dispatch, restart, or neighborhood logic while preserving valid
+  machine indices and setup lookup consistency.
+- A reusable constructive pattern is: normalize raw machine identifiers into a
+  contiguous internal machine-index space, keep setup lookup aligned with that
+  internal representation, then run setup-aware operation-level dispatch with a
+  small RCL and enough seeded restarts to explore interleavings.  This is a
+  method lesson, not an instruction to target a particular instance score.
+- Earliest-start dispatch can be a useful alternative to earliest-finish once
+  legality is stable, because it front-loads ready operations while still
+  accounting for sequence-dependent setup.  Treat it as a promoted constructive
+  skeleton when Core validates it; later rounds should add bounded local search
+  or focused perturbations rather than reverting parser/indexing assumptions.
 
 Treat these as local learning signals.  They do not prove a global algorithmic
 ranking, but they show which structures the current worker should preserve or
@@ -77,6 +92,11 @@ bounded operator around the incumbent:
 
 - Preserve setup-aware operation-level dispatch, multi-start, and seeded
   tie-breaking unless loop feedback shows they are the direct failure source.
+- Preserve Core-promoted machine-id normalization or offset mapping unless the
+  next proposal provides an explicit ablation with a legality-preserving
+  fallback.  Removing normalization after it fixed evaluator legality usually
+  reintroduces out-of-range machine indices or "machine is not a candidate"
+  failures.
 - Add local search as a post-processing or per-restart intensification layer.
 - Keep the incumbent schedule if the local search fails, times out, or produces
   no strict makespan improvement.

@@ -267,6 +267,57 @@ class ProposalAuditWorker:
         )
 
 
+class PromotingProposalWorker:
+    """Worker that improves the dummy solver and emits an auditable hypothesis."""
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="promoting-proposal",
+            supports_code_generation=True,
+            supports_repair=False,
+            supports_structured_output=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        output_dir = Path(spec.output_dir or spec.worktree_path)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        solver_path = Path(spec.worktree_path) / "examples" / "dummy_solver.py"
+        text = solver_path.read_text(encoding="utf-8")
+        if "10 + args.seed" in text:
+            solver_path.write_text(text.replace("10 + args.seed", "8 + args.seed"), encoding="utf-8")
+        proposal_path = output_dir / "proposal.json"
+        proposal_path.write_text(
+            json.dumps(
+                {
+                    "summary": "Improve dummy finish expression.",
+                    "strategy_intent": "Preserve the promoted finish shift in later rounds.",
+                    "rule_operator_hypotheses": [
+                        {
+                            "name": "dummy_finish_shift",
+                            "type": "dispatch_rule",
+                            "novelty": "Shifts the dummy solver finish time while preserving the output contract.",
+                            "expected_effect": "Improve the fixed evaluator objective.",
+                            "target_files": ["examples/dummy_solver.py"],
+                        }
+                    ],
+                    "changes": [{"path": "examples/dummy_solver.py", "action": "text_replace"}],
+                    "context_usage": {"used_project_intake": False, "referenced_files": ["examples/dummy_solver.py"]},
+                    "quick_test_plan": "python -m compileall harness_agent examples",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return WorkerResult(
+            status="applied",
+            changed_files=["examples/dummy_solver.py"],
+            summary="Improved dummy solver and emitted proposal diagnostics.",
+            artifacts={"proposal": str(proposal_path)},
+        )
+
+
 class EmptySlotProposalWorker:
     """Test worker that emits an empty confirmed-slot proposal without risk notes."""
 
@@ -428,6 +479,53 @@ class AgentGeneratedBackendImportWorker:
         )
 
 
+class ProtectedFactRegressionWorker:
+    """Worker that tries to remove a protected promoted mechanism."""
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="protected-fact-regression",
+            supports_code_generation=True,
+            supports_repair=False,
+            supports_structured_output=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        output_dir = Path(spec.output_dir or spec.worktree_path)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        solver_path = Path(spec.worktree_path) / "examples" / "dummy_solver.py"
+        solver_path.write_text(solver_path.read_text(encoding="utf-8") + "\n# remove normalization\n", encoding="utf-8")
+        proposal_path = output_dir / "proposal.json"
+        proposal_path.write_text(
+            json.dumps(
+                {
+                    "summary": "Remove the normalization mechanism from the promoted solver.",
+                    "strategy_intent": "Drop normalization and use raw machine ids unchanged.",
+                    "rule_operator_hypotheses": [
+                        {
+                            "name": "remove_normalization",
+                            "type": "repair_rule",
+                            "target_files": ["examples/dummy_solver.py"],
+                            "novelty": "Remove normalization instead of preserving it.",
+                        }
+                    ],
+                    "changes": [{"path": "examples/dummy_solver.py", "action": "text_replace"}],
+                    "quick_test_plan": "python -m compileall harness_agent examples",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return WorkerResult(
+            status="applied",
+            changed_files=["examples/dummy_solver.py"],
+            summary="Remove protected normalization.",
+            artifacts={"proposal": str(proposal_path)},
+        )
+
+
 class WorkerLoopTests(unittest.TestCase):
     def test_refreshed_context_records_previous_round_and_duplicate_proposal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -467,6 +565,31 @@ class WorkerLoopTests(unittest.TestCase):
 
             round_001_delta = json.loads((tmp_path / "loop" / "round_001" / "worker_worktree_delta.json").read_text(encoding="utf-8"))
             self.assertEqual(0, round_001_delta["counts"]["total_changed"])
+
+    def test_promoted_hypotheses_become_protected_facts_in_next_round(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=PromotingProposalWorker(),
+                experiment_id="test_protected_promoted_facts",
+                iterations=2,
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+            )
+
+            self.assertEqual("promoted", result.rounds[0].decision)
+            round_001_context = json.loads((tmp_path / "loop" / "round_001" / "context_packet.json").read_text(encoding="utf-8"))
+            protected = round_001_context["loop_feedback"]["protected_promoted_facts"]
+            self.assertEqual("dummy_finish_shift", protected[0]["name"])
+            self.assertIn("examples/dummy_solver.py", protected[0]["target_files"])
 
     def test_agent_generated_baseline_is_written_before_first_measurement(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -791,6 +914,42 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual(0, result.summary.total)
             risks = result.agentic_judgment.checks["agent_generated_runtime_import_risks"]
             self.assertIn("examples/agent_generated_helper.py", risks[0])
+
+    def test_code_judgment_rejects_protected_promoted_fact_regression(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+            context = json.loads(context_path.read_text(encoding="utf-8"))
+            context["loop_feedback"] = {
+                "protected_promoted_facts": [
+                    {
+                        "round_index": 1,
+                        "name": "offset_machine_id_normalization",
+                        "type": "repair_rule",
+                        "target_files": ["examples/dummy_solver.py"],
+                        "novelty": "Preserve normalization after Core promotion.",
+                    }
+                ]
+            }
+            context_path.write_text(json.dumps(context, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+            result = run_worker_cycle(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "cycle",
+                context_packet_path=context_path,
+                worker=ProtectedFactRegressionWorker(),
+                experiment_id="test_protected_fact_regression",
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+            )
+
+            self.assertFalse(result.agentic_judgment.accepted)
+            self.assertIn("protected_promoted_fact_regression", result.agentic_judgment.issues)
+            regressions = result.agentic_judgment.checks["protected_promoted_fact_regressions"]
+            self.assertIn("normalization", regressions[0])
 
     def test_code_judgment_rejects_empty_slot_proposal_without_risk_note(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
