@@ -45,6 +45,20 @@ in domain packs, knowledge cards, skills, and context packets.
   worker mutates or avoids repeated ideas.
 - Treat LB/UB/BKS as reporting and gate-selection diagnostics only.
 
+## Evidence Hygiene
+
+- Method, skill, and slot guidance should describe reusable mechanisms,
+  invariants, and failure modes rather than instance-specific target makespans,
+  copied schedules, or seed-specific answers.
+- Numerical makespans, LB/UB/BKS, and per-instance gaps belong in benchmark or
+  capability reports.  If those reports are retrieved for a worker, they are
+  diagnostics for gates and comparisons, not solver inputs.
+- When promoting an experiment into a knowledge card, normalize concrete
+  outcomes into method lessons such as "operation-level setup-aware dispatch
+  helped" or "representation-mixing local search failed".
+- Keep artifact paths only as audit breadcrumbs.  Do not ask a worker to
+  reproduce a previous artifact's exact score or solution.
+
 ## Backend Boundary
 
 The backend may load:

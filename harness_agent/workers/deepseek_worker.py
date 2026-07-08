@@ -736,9 +736,10 @@ def priority_worker_context(context: dict[str, Any]) -> str:
             "Use priority_knowledge_cards after reading the incumbent_code_context and loop_feedback. "
             "The current code and failed anchors are authoritative for patch shape; RAG cards only guide "
             "the rule/operator hypothesis. If cards contain preserve/recover/avoid guidance, either follow "
-            "it or explain why loop_feedback overrides it. If local evidence cites a stronger previous run, "
-            "explain whether the proposal preserves, recovers, or intentionally ablates that mechanism. "
-            "Cite knowledge_cards in evidence_used when it shapes the proposal."
+            "it or explain why loop_feedback overrides it. If local evidence cites a reusable method pattern "
+            "or failure mode, explain whether the proposal preserves, recovers, avoids, or intentionally "
+            "ablates that mechanism. Do not treat prior instance scores as solver inputs. Cite "
+            "knowledge_cards in evidence_used when it shapes the proposal."
         ),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)[:priority_context_max_chars()]
@@ -978,6 +979,7 @@ def compact_knowledge_card_snippet(snippet: str, *, query_terms: set[str], max_c
     lower = snippet.lower().replace("_", "-")
     local_search_needles = [
         "local evidence",
+        "local method evidence",
         "recent web worker-loop artifacts",
         "local search quality",
         "risk patterns",
@@ -990,8 +992,10 @@ def compact_knowledge_card_snippet(snippet: str, *, query_terms: set[str], max_c
     ]
     general_needles = [
         "local evidence",
+        "local method evidence",
         "recent web worker-loop artifacts",
-        "promoted to",
+        "method-level",
+        "operation-level setup-aware",
         "what to preserve",
         "preserve or recover",
         "operation-level",
@@ -1043,11 +1047,14 @@ def compact_knowledge_card_snippet(snippet: str, *, query_terms: set[str], max_c
             return
         add_window(position - before, position + after, overlap_margin=-1)
 
-    has_local_experiment_memory = "local evidence" in lower or "agent-generated" in lower
+    has_local_experiment_memory = (
+        "local evidence" in lower or "local method evidence" in lower or "agent-generated" in lower
+    )
     intro_chars = 360 if has_local_experiment_memory else 520
     add_window(0, min(len(snippet), min(intro_chars, max_chars)))
     if has_local_experiment_memory:
         add_markdown_section("## local evidence", char_limit=1700)
+        add_markdown_section("## local method evidence", char_limit=1700)
         add_markdown_section("## what to preserve", char_limit=760)
         if "local_search" in query_terms:
             add_anchor_excerpt("risk patterns already observed", before=80, after=880)

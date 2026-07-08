@@ -578,7 +578,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         }
         context["iteration_edit_contract"] = {"mode": "incremental_after_baseline"}
         context["loop_feedback"] = {
-            "incumbent_key_before": [-1102.0],
+            "incumbent_key_before": [-1000.0],
             "previous_rounds": [
                 {
                     "round_index": 7,
@@ -626,7 +626,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("Risk patterns", prompt_context)
         self.assertIn("TypeError: tuple indices", prompt_context)
 
-    def test_priority_worker_context_keeps_agent_generated_local_evidence(self) -> None:
+    def test_priority_worker_context_keeps_agent_generated_local_method_evidence(self) -> None:
         context = _context_packet_with_intake()
         context["task"] = {
             "problem_family": "fjsp_sdst",
@@ -642,9 +642,9 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                     "# FJSP-SDST Agent-Generated Solver Search Memory\n"
                     "Purpose text.\n"
                     + ("INTRO_FILLER " * 160)
-                    + "## Local Evidence\n"
-                    "- `outputs/web_runs/old`: promoted to `1096` by setup-aware operation-level dispatch.\n"
-                    "- `outputs/web_runs/new`: promoted to `1102`; insertion/all-pair local search crashed by mixing operation representations.\n"
+                    + "## Local Method Evidence\n"
+                    "- Operation-level setup-aware dispatch is stronger than job-order greedy construction.\n"
+                    "- Insertion/all-pair local search crashed by mixing operation representations.\n"
                     + ("EVIDENCE_FILLER " * 220)
                     + "## What To Preserve Or Recover First\n"
                     "Recover operation-level list scheduler and setup-aware multi-start.\n"
@@ -659,11 +659,21 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
 
         prompt_context = priority_worker_context(context)
 
-        self.assertIn("Local Evidence", prompt_context)
-        self.assertIn("1102", prompt_context)
+        self.assertIn("Local Method Evidence", prompt_context)
+        self.assertIn("Operation-level setup-aware dispatch", prompt_context)
         self.assertIn("mixing operation representations", prompt_context)
         self.assertIn("operation-level list scheduler", prompt_context)
         self.assertIn("Risk patterns already observed", prompt_context)
+
+    def test_agent_generated_memory_card_uses_method_level_evidence(self) -> None:
+        text = Path("knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("## Local Method Evidence", text)
+        self.assertIn("Do not copy any previous", text)
+        for forbidden_value in ("1096", "1102", "1138", "1131", "3817"):
+            self.assertNotIn(forbidden_value, text)
 
     def test_priority_worker_context_frontloads_relevant_knowledge_cards(self) -> None:
         context = _context_packet_with_intake()

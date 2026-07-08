@@ -12,34 +12,39 @@ status: active
 
 Use this card when a worker is asked to create or improve an
 agent-generated FJSP-SDST solver rather than adapting the existing AWLS slot
-line.  It records local evaluator-backed lessons from recent `oddla20` worker
-loops so the worker does not relearn the same basic structure every run.
+line.  It records method-level evaluator-backed lessons from recent
+FJSP-SDST worker loops so the worker does not relearn the same basic
+structure every run.
 
 This card is prompt memory, not a hardcoded solver.  Score remains
-`-makespan`; LB/UB/BKS are diagnostics only.
+`-makespan`; LB/UB/BKS are diagnostics only.  Do not copy any previous
+schedule, seed result, or instance-specific target value from this card.
 
-## Local Evidence
+## Local Method Evidence
 
-Recent web worker-loop artifacts:
+Recent worker-loop artifacts produced the following reusable method lessons:
 
-- `outputs/web_runs/20260707_152030_4827124b`: agent-generated baseline
-  `3817`, promoted to `1138` after operation-level earliest-finish dispatch,
-  multi-start tie exploration, and a composite finish/setup score.
-- `outputs/web_runs/20260707_160522_64c9d0ee`: agent-generated baseline
-  `3817`, promoted to `1096`; the final promoted solver was setup-aware
-  operation-level earliest-start dispatch with random tie-breaking across
-  seeds.
-- `outputs/web_runs/20260707_180845_6335f433`: stronger baseline `1146`,
-  promoted to `1096` by adding multi-start restarts.
-- `outputs/web_runs/20260707_195235_36182a23`: baseline `3817`, promoted to
-  `1733` through feasible relocation/tabu/multi-start local search, but it did
-  not recover the stronger operation-level EST multi-start skeleton.
-- `outputs/web_runs/20260708_005553_12189369`: baseline repair promoted to
-  `1131` by recovering setup-aware operation-level dispatch, then to `1102`.
-  Rounds 7-10, 12, 17, and 18 repeatedly tried insertion/all-pair local search
-  and failed at runtime because the new decoder mixed global operation ids,
-  `(job, op)` pairs, and schedule dictionaries in `machine_sequences`/`op_info`.
-  A later multi-seed wrapper was legal but tied the incumbent at `1102`.
+- Job-by-job greedy construction is a weak default for SDST-HUdata-like cases
+  because it can schedule too many operations from one job before comparing
+  other ready jobs.
+- Operation-level setup-aware dispatch is the first structure to recover:
+  maintain one ready next operation per unfinished job, compare all ready
+  operation and machine choices, and include the setup induced by the current
+  last job on the candidate machine.
+- Earliest-start or earliest-finish dispatch becomes more useful when combined
+  with seeded random tie-breaking, small RCL choice, or multi-start restarts,
+  because the method explores different operation interleavings without
+  changing the parser/evaluator contract.
+- Feasible relocation/tabu/local-search layers can still be weak if they are
+  built on top of a job-order greedy skeleton.  Recover the operation-level
+  setup-aware constructive skeleton before adding complex neighborhoods.
+- Insertion/all-pair local search is risky unless the decoder keeps one
+  operation representation end to end.  Past failed attempts mixed global
+  operation ids, `(job, op)` pairs, and schedule dictionaries in
+  `machine_sequences`/`op_info`.
+- A multi-seed wrapper alone can be legal but may only replay the same search
+  basin.  Treat it as a diversification wrapper around a useful construction
+  or neighborhood, not as the whole improvement idea.
 
 Treat these as local learning signals.  They do not prove a global algorithmic
 ranking, but they show which structures the current worker should preserve or
@@ -59,10 +64,10 @@ an operation-level list scheduler:
   operation interleavings.
 - Run multi-start restarts and return the best complete valid schedule.
 
-Observed local lesson: weak job-order greedy baselines around `3817` improved
-dramatically once the worker moved to operation-level setup-aware dispatch and
-multi-start exploration.  Complex local search on top of a weak job-order
-baseline can still remain far from the stronger skeleton.
+Observed local lesson: weak job-order greedy baselines improved once the worker
+moved to operation-level setup-aware dispatch and multi-start exploration.
+Complex local search on top of a weak job-order baseline can still remain far
+from the stronger skeleton.
 
 ## What Not To Forget
 
