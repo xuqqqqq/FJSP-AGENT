@@ -81,6 +81,33 @@ bounded operator around the incumbent:
 - Keep the incumbent schedule if the local search fails, times out, or produces
   no strict makespan improvement.
 
+## Reusable Method Template From Local Solvers
+
+Local non-agent SDST solvers in this workspace show a method shape that is
+worth translating into agent-generated code as ideas, not copied source:
+
+- Represent a complete solution as an operation-to-machine assignment plus one
+  ordered operation sequence per machine.
+- Decode that representation with a forward/topological feasibility pass:
+  every operation start must respect its job predecessor and the previous
+  operation on the same machine, including sequence-dependent setup.
+- Build initial complete schedules with setup-aware operation-level dispatch or
+  randomized greedy multi-start, then keep the best complete valid schedule.
+- Improve only by complete-schedule moves: same-machine relocation/insertion
+  around critical or high-finish operations, alternate-machine insertion for
+  eligible operations, and small destroy-repair moves that decode back into all
+  operations.
+- Use tabu or short-term move memory to avoid undo loops.  Use aspiration only
+  when a fully decoded candidate strictly improves the incumbent makespan.
+- Score candidates by decoded makespan first.  Setup reduction, machine load,
+  bottleneck pressure, or critical-tail features are tie-breakers, not primary
+  objectives.
+
+For an agent-generated solver, this template should become a compact decoder
+and one bounded neighborhood.  Do not attempt to port the full AWLS code in one
+proposal; first create a legal fixed-sequence decoder, then add one local move
+operator with operation-coverage checks.
+
 ## Local Search Quality Contract
 
 Good FJSP-SDST local search must be feasibility-preserving before it is

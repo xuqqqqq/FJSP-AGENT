@@ -133,6 +133,75 @@ def write_job_status(job: dict[str, Any]) -> None:
     status_path.write_text(json.dumps(public_job(job), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def load_persisted_jobs(output_root: Path, *, limit: int = 30) -> None:
+    if not output_root.exists():
+        return
+    status_paths = sorted(output_root.glob("*/web_job_status.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    with _LOCK:
+        for status_path in status_paths[:limit]:
+            payload = read_json_file(status_path)
+            job_id = str(payload.get("id") or "").strip()
+            if not job_id or job_id in _JOBS:
+                continue
+            payload["job_dir"] = str(status_path.parent.resolve())
+            payload.setdefault("summary", {})
+            payload.setdefault("artifacts", {})
+            refresh_persisted_worker_summary(payload)
+            _JOBS[job_id] = payload
+
+
+def refresh_persisted_worker_summary(job: dict[str, Any]) -> None:
+    artifacts = job.get("artifacts") if isinstance(job.get("artifacts"), dict) else {}
+    manifest_path = Path(str(artifacts.get("manifest") or ""))
+    if not manifest_path.exists():
+        return
+    manifest = read_json_file(manifest_path)
+    if not manifest:
+        return
+    manifest = enrich_worker_manifest_from_loop_result(manifest)
+    worker_summary = summarize_worker_manifest(manifest)
+    summary = dict(job.get("summary") or {})
+    summary["manifest_status"] = manifest.get("status")
+    summary["worker_summary"] = worker_summary
+    summary["last_summary"] = manifest.get("final_summary") or manifest.get("baseline_summary", {})
+    summary["round_summary"] = {
+        "completed_round_count": worker_summary["completed_round_count"],
+        "reflection_count": worker_summary["completed_round_count"],
+        "harness_report_count": worker_summary["completed_round_count"],
+        "round_dirs": worker_summary["round_dirs"],
+    }
+    job["summary"] = summary
+
+
+def enrich_worker_manifest_from_loop_result(manifest: dict[str, Any]) -> dict[str, Any]:
+    if manifest.get("final_summary"):
+        return manifest
+    artifacts = manifest.get("artifacts") if isinstance(manifest.get("artifacts"), dict) else {}
+    loop_result_path = Path(str(artifacts.get("loop_result") or ""))
+    if not loop_result_path.exists():
+        return manifest
+    loop_result = read_json_file(loop_result_path)
+    rounds = loop_result.get("rounds") if isinstance(loop_result.get("rounds"), list) else []
+    final_key = list(manifest.get("final_key") or loop_result.get("final_key") or [])
+    final_summary = manifest.get("baseline_summary") or loop_result.get("baseline_summary") or {}
+    final_round_index = None
+    latest_candidate_summary = final_summary
+    for item in rounds:
+        if not isinstance(item, dict):
+            continue
+        candidate_summary = item.get("candidate_summary") if isinstance(item.get("candidate_summary"), dict) else {}
+        if candidate_summary:
+            latest_candidate_summary = candidate_summary
+        if item.get("decision") == "promoted" and list(item.get("incumbent_key_after") or []) == final_key:
+            final_summary = candidate_summary or final_summary
+            final_round_index = item.get("round_index")
+    enriched = dict(manifest)
+    enriched["final_summary"] = final_summary
+    enriched["final_round_index"] = final_round_index
+    enriched["latest_candidate_summary"] = latest_candidate_summary
+    return enriched
+
+
 def make_demo_examples() -> dict[str, Any]:
     requirement_name = "fjsp_sdst_fattahi_requirement.md"
     io_name = "fjsp_sdst_fattahi_io.md"
@@ -973,7 +1042,7 @@ def run_job(job_id: str) -> None:
             summary_payload = {
                 "manifest_status": manifest.get("status"),
                 "worker_summary": round_summary,
-                "last_summary": manifest.get("baseline_summary", {}),
+                "last_summary": manifest.get("final_summary") or manifest.get("baseline_summary", {}),
                 "artifact_checks": {},
                 "round_summary": {
                     "completed_round_count": round_summary["round_count"],
@@ -1084,11 +1153,15 @@ def summarize_worker_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     baseline_key = list(manifest.get("baseline_key") or [])
     final_key = list(manifest.get("final_key") or [])
     baseline_summary = manifest.get("baseline_summary") or {}
+    final_summary = manifest.get("final_summary") or {}
+    latest_summary = manifest.get("latest_candidate_summary") or final_summary
     rounds = manifest.get("rounds") or []
     round_dirs = [str(Path(item.get("cycle_dir", "")).resolve()) for item in manifest.get("rounds", []) if item.get("cycle_dir")]
     decision_counts = status_counts([str(item.get("decision") or "unknown") for item in rounds])
     worker_status_counts = status_counts([str(item.get("worker_status") or "unknown") for item in rounds])
     rejected_before_eval = sum(1 for item in rounds if list(item.get("candidate_key") or []) and all(value == float("-inf") for value in item.get("candidate_key") or []))
+    final_metrics = summary_metrics(final_summary)
+    latest_metrics = summary_metrics(latest_summary)
     return {
         "round_count": int(manifest.get("round_count", 0) or 0),
         "completed_round_count": int(manifest.get("round_count", 0) or 0),
@@ -1097,7 +1170,16 @@ def summarize_worker_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         "baseline_key": baseline_key,
         "final_key": final_key,
         "baseline_makespan": objective_key_to_makespan(baseline_key),
-        "final_makespan": objective_key_to_makespan(final_key),
+        "final_makespan": final_metrics.get("makespan") or objective_key_to_makespan(final_key),
+        "final_gap_pct": final_metrics.get("gap_pct"),
+        "final_total": int(final_summary.get("total", 0) or 0),
+        "final_valid": int(final_summary.get("valid", 0) or 0),
+        "final_failed": int(final_summary.get("failed", 0) or 0),
+        "latest_makespan": latest_metrics.get("makespan"),
+        "latest_gap_pct": latest_metrics.get("gap_pct"),
+        "latest_total": int(latest_summary.get("total", 0) or 0),
+        "latest_valid": int(latest_summary.get("valid", 0) or 0),
+        "latest_failed": int(latest_summary.get("failed", 0) or 0),
         "baseline_total": int(baseline_summary.get("total", 0) or 0),
         "baseline_valid": int(baseline_summary.get("valid", 0) or 0),
         "baseline_failed": int(baseline_summary.get("failed", 0) or 0),
@@ -1106,6 +1188,29 @@ def summarize_worker_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         "rejected_before_eval": rejected_before_eval,
         "round_dirs": round_dirs,
     }
+
+
+def summary_metrics(summary: dict[str, Any]) -> dict[str, float | None]:
+    best_metrics = summary.get("best_metrics") if isinstance(summary.get("best_metrics"), dict) else {}
+    candidate_metrics = (
+        summary.get("best_candidate_metrics") if isinstance(summary.get("best_candidate_metrics"), dict) else {}
+    )
+    return {
+        "makespan": first_number(best_metrics.get("makespan"), candidate_metrics.get("avg_makespan")),
+        "gap_pct": first_number(
+            best_metrics.get("gap_pct"),
+            best_metrics.get("gap_to_ub_pct"),
+            candidate_metrics.get("avg_gap_pct"),
+            candidate_metrics.get("avg_gap_to_ub_pct"),
+        ),
+    }
+
+
+def first_number(*values: Any) -> float | None:
+    for value in values:
+        if isinstance(value, (int, float)):
+            return float(value)
+    return None
 
 
 def status_counts(values: list[str]) -> dict[str, int]:
@@ -1244,6 +1349,7 @@ def scan_code_evolution_progress(job: dict[str, Any], worker_root: Path, seen: s
         patch = round_dir / "worker_changes.patch"
         if patch.exists() and patch.stat().st_size > 0:
             record_progress_event(job, seen, f"{label}:patch", f"{label} 产生候选代码 patch，等待提升判定。")
+    record_code_evolution_progress_summary(job, worker_root)
 
 
 def monitor_awls_zi_progress(job: dict[str, Any], evolution_root: Path, stop_event: threading.Event) -> None:
@@ -1353,6 +1459,54 @@ def record_progress_event(
             return
         append_event(job, message, level=level)
         write_job_status(job)
+
+
+def record_code_evolution_progress_summary(job: dict[str, Any], worker_root: Path) -> None:
+    progress = summarize_code_evolution_progress(worker_root)
+    if not progress:
+        return
+    with _LOCK:
+        if job.get("status") != "running":
+            return
+        summary = dict(job.get("summary") or {})
+        worker_summary = dict(summary.get("worker_summary") or {})
+        worker_summary.update(progress)
+        summary["worker_summary"] = worker_summary
+        summary["round_summary"] = {
+            "completed_round_count": progress.get("completed_round_count", 0),
+            "reflection_count": progress.get("completed_round_count", 0),
+            "harness_report_count": progress.get("evaluated_round_count", 0),
+            "round_dirs": progress.get("round_dirs", []),
+        }
+        job["summary"] = summary
+        write_job_status(job)
+
+
+def summarize_code_evolution_progress(worker_root: Path) -> dict[str, Any]:
+    if not worker_root.exists():
+        return {}
+    round_dirs = sorted(path for path in worker_root.glob("round_*") if path.is_dir())
+    if not round_dirs:
+        return {}
+    evaluated_rounds: list[dict[str, Any]] = []
+    for round_dir in round_dirs:
+        cycle_result = read_json_file(round_dir / "cycle_result.json")
+        summary = cycle_result.get("harness") if isinstance(cycle_result.get("harness"), dict) else {}
+        if summary:
+            evaluated_rounds.append(summary)
+    latest_summary = evaluated_rounds[-1] if evaluated_rounds else {}
+    latest_metrics = summary_metrics(latest_summary)
+    return {
+        "round_count": len(round_dirs),
+        "completed_round_count": len(evaluated_rounds),
+        "evaluated_round_count": len(evaluated_rounds),
+        "latest_makespan": latest_metrics.get("makespan"),
+        "latest_gap_pct": latest_metrics.get("gap_pct"),
+        "latest_total": int(latest_summary.get("total", 0) or 0),
+        "latest_valid": int(latest_summary.get("valid", 0) or 0),
+        "latest_failed": int(latest_summary.get("failed", 0) or 0),
+        "round_dirs": [str(path.resolve()) for path in round_dirs],
+    }
 
 
 def read_json_file(path: Path) -> dict[str, Any]:
@@ -1518,6 +1672,7 @@ def run_web_server(host: str = "127.0.0.1", port: int = 7860, *, output_root: Pa
     global _ACTIVE_OUTPUT_ROOT
     _ACTIVE_OUTPUT_ROOT = output_root.resolve()
     output_root.mkdir(parents=True, exist_ok=True)
+    load_persisted_jobs(output_root)
     server = ThreadingHTTPServer((host, port), AlgoForgeWebHandler)
     print(f"[web] AlgoForge demo UI: http://{host}:{port}")
     print(f"[web] Output root: {output_root.resolve()}")

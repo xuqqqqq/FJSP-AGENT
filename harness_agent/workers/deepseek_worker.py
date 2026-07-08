@@ -916,6 +916,7 @@ def compact_priority_knowledge_cards(
         return []
 
     query_terms = _knowledge_query_terms(context)
+    agent_generated_mode = "agent_generated" in query_terms
 
     def card_score(card: dict[str, Any]) -> int:
         path = str(card.get("path") or "").lower()
@@ -930,10 +931,18 @@ def compact_priority_knowledge_cards(
         agent_generated_card = (
             "agent_generated" in haystack or "agent-generated" in haystack or "generated solver" in haystack
         )
-        if "agent_generated" in query_terms and agent_generated_card:
+        if agent_generated_mode and agent_generated_card:
             score += 220
-        if "agent_generated" in query_terms and "awls" in haystack and not agent_generated_card:
-            score -= 80
+        if agent_generated_mode and "fjsp_sdst_agent_generated_search_memory" in haystack:
+            score += 80
+        if agent_generated_mode and "fjsp_variant_domain_pack_rag" in haystack:
+            score += 30
+        if agent_generated_mode and "fjsp_agent_current_capability" in haystack:
+            score += 20
+        if agent_generated_mode and "awls_sdst_" in path and not agent_generated_card:
+            score -= 260
+        elif agent_generated_mode and "awls" in haystack and not agent_generated_card:
+            score -= 120
         if "local_search" in query_terms and ("local search" in haystack or "local-search" in haystack):
             score += 12
         if "loop_feedback" in query_terms and ("memory" in haystack or "failed attempt" in haystack):

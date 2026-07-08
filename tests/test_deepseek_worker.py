@@ -8,6 +8,7 @@ from unittest.mock import patch
 from harness_agent.workers.deepseek_worker import (
     DeepSeekWorker,
     apply_code_edit_proposal,
+    compact_priority_knowledge_cards,
     extract_json_object,
     insert_after_anchor,
     insert_before_anchor,
@@ -713,6 +714,56 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("priority_knowledge_cards", prompt_context)
         self.assertIn("fjsp_sdst_agent_generated_search_memory_20260707.md", prompt_context)
         self.assertIn("operation-level list scheduler", prompt_context)
+
+    def test_agent_generated_priority_cards_deprioritize_awls_slot_notes(self) -> None:
+        context = _context_packet_with_intake()
+        context["task"] = {
+            "problem_family": "fjsp_sdst",
+            "description": "Improve an agent_generated FJSP-SDST solver on oddla20.",
+        }
+        context["evaluator_protocol"] = {
+            "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance}",
+        }
+        context["problem_family_capability"] = {
+            "knowledge_tags": ["fjsp", "sdst", "awls", "sequence_dependent_setup"],
+            "specialization_hooks": ["setup_aware_dispatch_or_insertion"],
+        }
+        context["knowledge_cards"] = [
+            {
+                "path": "knowledge/papers/awls_sdst_initialization_notes.md",
+                "chars": 12000,
+                "truncated": False,
+                "snippet": "AWLS-SDST initialization setup-aware oddla20 local search critical block " * 80,
+            },
+            {
+                "path": "knowledge/papers/awls_sdst_tabu_memory_notes.md",
+                "chars": 12000,
+                "truncated": False,
+                "snippet": "AWLS-SDST tabu memory setup-aware oddla20 local search critical block " * 80,
+            },
+            {
+                "path": "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "chars": 5400,
+                "truncated": False,
+                "snippet": (
+                    "Use this card for agent-generated FJSP-SDST solver improvement. "
+                    "Recover operation-level list scheduler, setup-aware multi-start, and decoder coverage checks."
+                ),
+            },
+            {
+                "path": "knowledge/principles/fjsp_variant_domain_pack_rag.md",
+                "chars": 4000,
+                "truncated": False,
+                "snippet": "Variant domain pack RAG contract for FJSP-SDST.",
+            },
+        ]
+
+        selected = compact_priority_knowledge_cards(context, limit=3, max_chars_per_card=400)
+        selected_names = [Path(card["path"]).name for card in selected]
+
+        self.assertEqual("fjsp_sdst_agent_generated_search_memory_20260707.md", selected_names[0])
+        self.assertNotIn("awls_sdst_initialization_notes.md", selected_names)
+        self.assertNotIn("awls_sdst_tabu_memory_notes.md", selected_names)
 
     def test_proposal_audit_warns_when_priority_knowledge_is_ignored(self) -> None:
         worker = DeepSeekWorker()

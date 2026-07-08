@@ -630,10 +630,13 @@ function renderJob(job) {
   const ziSummary = job.summary?.zi_summary || {};
   const makespan =
     workerSummary.final_makespan ??
+    workerSummary.latest_makespan ??
     summary.best_metrics?.makespan ??
     summary.best_candidate_metrics?.avg_makespan;
   const gap =
     ziSummary.best_avg_gap_pct ??
+    workerSummary.final_gap_pct ??
+    workerSummary.latest_gap_pct ??
     benchmark.gap_metrics?.avg_gap_pct ??
     summary.best_metrics?.avg_gap_pct;
   $("metric-rounds").textContent =
@@ -645,7 +648,9 @@ function renderJob(job) {
     ziSummary.best_valid_instance_count !== undefined
       ? `${ziSummary.best_valid_instance_count}/${ziSummary.selected_instance_count}`
       : workerSummary.promoted_rounds !== undefined
-        ? `基线 ${workerSummary.baseline_valid ?? "-"}/${workerSummary.baseline_total ?? "-"} · 提升 ${workerSummary.promoted_rounds}/${workerSummary.round_count}`
+        ? `最终 ${workerSummary.final_valid ?? workerSummary.latest_valid ?? "-"}/${workerSummary.final_total ?? workerSummary.latest_total ?? "-"} · 提升 ${workerSummary.promoted_rounds}/${workerSummary.round_count}`
+        : workerSummary.latest_valid !== undefined
+        ? `最新 ${workerSummary.latest_valid}/${workerSummary.latest_total ?? "-"}`
         : summary.valid ?? benchmark.valid_experiments ?? "-";
   $("metric-makespan").textContent = formatMetric(makespan);
   $("metric-gap").textContent = gap === undefined || gap === null ? "-" : `${Number(gap).toFixed(2)}%`;

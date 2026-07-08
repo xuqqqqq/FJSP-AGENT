@@ -278,6 +278,17 @@ def standard_worker_manifest(
     output_dir: Path,
 ) -> dict[str, Any]:
     promoted_rounds = sum(1 for item in loop_result.rounds if item.decision == "promoted")
+    final_summary = summary_payload(loop_result.baseline_summary)
+    final_round_index: int | None = None
+    for item in loop_result.rounds:
+        if item.decision == "promoted" and tuple(item.incumbent_key_after) == tuple(loop_result.final_key):
+            final_summary = item.candidate_summary
+            final_round_index = item.round_index
+    latest_candidate_summary = (
+        loop_result.rounds[-1].candidate_summary
+        if loop_result.rounds
+        else summary_payload(loop_result.baseline_summary)
+    )
     return {
         "status": "ok",
         "request": {
@@ -310,6 +321,9 @@ def standard_worker_manifest(
         "promoted_rounds": promoted_rounds,
         "final_worktree": str(loop_result.final_worktree),
         "baseline_summary": summary_payload(loop_result.baseline_summary),
+        "final_summary": final_summary,
+        "final_round_index": final_round_index,
+        "latest_candidate_summary": latest_candidate_summary,
         "rounds": [
             {
                 "round_index": item.round_index,

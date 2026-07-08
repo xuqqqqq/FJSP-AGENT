@@ -18,6 +18,7 @@ from harness_agent.web_app import (
     scan_awls_zi_progress,
     scan_code_evolution_progress,
     slot_manifest_catalog_payload,
+    summarize_worker_manifest,
 )
 
 
@@ -79,6 +80,36 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual("critical", config["awls_zi_policy"])
         self.assertEqual(75, config["awls_critical_block_exhaustive_pct"])
         self.assertEqual("", config["awls_portfolio_lanes"])
+
+    def test_worker_manifest_summary_uses_final_metrics(self) -> None:
+        summary = summarize_worker_manifest(
+            {
+                "baseline_key": [-1366.0],
+                "final_key": [-1277.0],
+                "round_count": 2,
+                "promoted_rounds": 1,
+                "improved": True,
+                "baseline_summary": {"total": 1, "valid": 1, "failed": 0},
+                "final_summary": {
+                    "total": 10,
+                    "valid": 10,
+                    "failed": 0,
+                    "best_metrics": {"makespan": 1277.0, "gap_pct": 28.08},
+                },
+                "latest_candidate_summary": {
+                    "total": 10,
+                    "valid": 10,
+                    "failed": 0,
+                    "best_metrics": {"makespan": 1300.0, "gap_pct": 30.39},
+                },
+                "rounds": [],
+            }
+        )
+
+        self.assertEqual(1277.0, summary["final_makespan"])
+        self.assertEqual(28.08, summary["final_gap_pct"])
+        self.assertEqual(10, summary["final_valid"])
+        self.assertEqual(1300.0, summary["latest_makespan"])
 
     def test_deepseek_status_loads_explicit_env_file_without_returning_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
