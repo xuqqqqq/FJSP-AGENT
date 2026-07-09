@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import traceback
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -633,10 +634,14 @@ def loop_feedback_payload(
         "baseline_summary": summary_payload(baseline_summary),
         "previous_rounds": [round_record_payload(item) for item in previous_rounds],
         "protected_promoted_facts": protected_promoted_facts(previous_rounds),
+        "failure_memory": round_failure_memory(previous_rounds),
+        "next_round_guidance": next_round_guidance(previous_rounds),
         "instructions": [
             "Use only Core evaluator metrics as promotion evidence.",
             "Preserve successful ideas from promoted rounds unless a better alternative is justified.",
             "Treat protected_promoted_facts as mechanisms to preserve; do not remove or disable them in the next proposal unless the proposal explicitly ablates them with a legality-preserving fallback.",
+            "Treat failure_memory.must_avoid as hard negative memory for the next proposal, not as optional report text.",
+            "Follow next_round_guidance.must_do before selecting a new code change.",
             "Do not repeat rolled-back edits unchanged; explain what is materially different if revisiting them.",
             "If promotion_check failed, treat the candidate as a noisy or unstable improvement and change the rule-level idea.",
             "Use proposal_diagnostics to inspect whether prior proposals used project_intake, touched solver or validator files, or missed quick-test guidance.",
@@ -701,6 +706,173 @@ def protected_promoted_facts(previous_rounds: list[LoopRoundRecord], *, limit: i
                 }
             )
     return facts[-limit:]
+
+
+def round_failure_memory(previous_rounds: list[LoopRoundRecord], *, limit: int = 8) -> dict[str, Any]:
+    """Summarize recent evaluator and JA failures as explicit negative memory."""
+
+    failures: list[dict[str, Any]] = []
+    for item in previous_rounds:
+        if item.decision != "rolled_back":
+            continue
+        signatures = round_failure_signatures(item)
+        if not signatures:
+            signatures = ["candidate_not_strictly_better"]
+        failures.append(
+            {
+                "round_index": item.round_index,
+                "failure_signatures": signatures,
+                "hypotheses": [
+                    {
+                        "name": str(hypothesis.get("name") or "")[:120],
+                        "type": str(hypothesis.get("type") or "")[:80],
+                    }
+                    for hypothesis in (
+                        (item.proposal_diagnostics or {}).get("rule_operator_hypotheses") or []
+                    )
+                    if isinstance(hypothesis, dict)
+                ][:4],
+                "changed_files": item.worker_changed_files[:8],
+                "candidate_key": list(item.candidate_key),
+                "incumbent_key_after": list(item.incumbent_key_after),
+                "summary": _bounded_text((item.proposal_diagnostics or {}).get("summary"), limit=300),
+            }
+        )
+    recent_failures = failures[-limit:]
+    must_avoid = sorted({signature for failure in recent_failures for signature in failure["failure_signatures"]})
+    return {
+        "status": "available" if recent_failures else "empty",
+        "recent_failures": recent_failures,
+        "must_avoid": must_avoid,
+        "rule": (
+            "Do not repeat a recent rolled-back mechanism unchanged. If revisiting a failed family, "
+            "state the concrete representation, legality, or neighborhood change that makes it different."
+        ),
+    }
+
+
+def next_round_guidance(previous_rounds: list[LoopRoundRecord]) -> dict[str, Any]:
+    """Convert loop history into compact mandatory guidance for the next worker call."""
+
+    promoted = [item for item in previous_rounds if item.decision == "promoted"]
+    rolled_back = [item for item in previous_rounds if item.decision == "rolled_back"]
+    recent_signatures = [
+        signature
+        for item in previous_rounds[-6:]
+        for signature in round_failure_signatures(item)
+    ]
+    valid_non_improving = [
+        item
+        for item in rolled_back
+        if not _all_negative_infinity(item.candidate_key)
+        and (item.smoke_gate or {}).get("passed")
+    ]
+    must_do = [
+        "Start from the current promoted incumbent; make one small incremental edit.",
+        "State 1-3 concrete rule/operator hypotheses before code, with target files.",
+        "Compile changed Python files mentally and structurally: no dangling try/def blocks, no top-level helper inserted inside another function.",
+        "If adding local search or decoder logic, verify full operation coverage before scoring or replacing the incumbent schedule.",
+    ]
+    if promoted:
+        must_do.append("Preserve promoted mechanisms unless the proposal explicitly provides a legal fallback.")
+    if any("no_changed_files_after_apply" in item for item in recent_signatures):
+        must_do.append("Submit an actual accepted edit; an empty or fully rejected proposal is not a useful iteration.")
+    if any("python_syntax_error" in item for item in recent_signatures):
+        must_do.append("Prefer a small helper file or insert_before a top-level def; avoid fragile indentation-heavy patches.")
+    if any("protected_promoted_fact_regression" in item for item in recent_signatures):
+        must_do.append("Do not remove the promoted setup-aware dispatch/list-scheduler mechanism.")
+    if len(valid_non_improving) >= 1:
+        must_do.append(
+            "A legal no-improvement round means tiny tie-break or cosmetic repair is saturated; try a materially different "
+            "bounded critical-block insertion, critical-operation reassignment, or setup-aware regret/insertion idea."
+        )
+    avoid = sorted(set(recent_signatures))
+    return {
+        "status": "available" if previous_rounds else "empty",
+        "must_do": must_do,
+        "avoid": avoid,
+        "preferred_direction": (
+            "For FJSP-SDST, prefer setup-aware operation-level construction plus bounded critical-block or insertion "
+            "neighborhoods over repeated tie-break-only tweaks. Keep LB/UB out of solver logic."
+        ),
+    }
+
+
+def round_failure_signatures(item: LoopRoundRecord) -> list[str]:
+    signatures: list[str] = []
+    if item.duplicate_proposal:
+        signatures.append("duplicate_proposal")
+    if not item.worker_changed_files:
+        signatures.append("no_changed_files_after_apply")
+    if _all_negative_infinity(item.candidate_key):
+        signatures.append("invalid_or_rejected_candidate")
+
+    candidate_validation = (item.candidate_summary or {}).get("validation_summary")
+    if isinstance(candidate_validation, dict):
+        judgment = candidate_validation.get("agentic_judgment")
+        if isinstance(judgment, dict):
+            for issue in judgment.get("issues") or []:
+                signatures.append(_failure_token(str(issue)))
+        for error in candidate_validation.get("top_errors") or []:
+            signatures.append(_failure_token(_error_text(error)))
+
+    smoke_summary = (item.smoke_gate or {}).get("summary")
+    if isinstance(smoke_summary, dict):
+        validation = smoke_summary.get("validation_summary")
+        if isinstance(validation, dict):
+            for error in validation.get("top_errors") or []:
+                signatures.append(_failure_token(_error_text(error)))
+
+    audit = (item.proposal_diagnostics or {}).get("proposal_audit")
+    if isinstance(audit, dict):
+        if audit.get("rejected_change_count"):
+            signatures.append("proposal_changes_rejected")
+        for warning in audit.get("warnings") or []:
+            signatures.append(_failure_token(str(warning)))
+    if item.decision == "rolled_back" and not _all_negative_infinity(item.candidate_key):
+        signatures.append("legal_but_not_strictly_better")
+    return _dedupe([signature for signature in signatures if signature])
+
+
+def _all_negative_infinity(values: tuple[float, ...] | list[Any]) -> bool:
+    if not values:
+        return False
+    return all(isinstance(value, (int, float)) and float(value) == float("-inf") for value in values)
+
+
+def _error_text(error: Any) -> str:
+    if isinstance(error, dict):
+        return str(error.get("error") or error.get("message") or error)
+    return str(error)
+
+
+def _failure_token(text: str, *, limit: int = 120) -> str:
+    lowered = text.strip().replace("\\", "/")
+    lowered = _normalize_failure_token(lowered)
+    if len(lowered) > limit:
+        lowered = lowered[:limit].rstrip("_")
+    return lowered or "unknown_failure"
+
+
+def _normalize_failure_token(text: str) -> str:
+    token = text.lower()
+    token = re.sub(r"f:/[^ |)]+", "path", token)
+    token = re.sub(r"line \d+", "line", token)
+    token = re.sub(r"\d+", "n", token)
+    token = re.sub(r"[^a-z0-9_]+", "_", token)
+    token = re.sub(r"_+", "_", token).strip("_")
+    return token
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
 
 
 def worker_proposal_fingerprint(worker_result: WorkerResult) -> str:

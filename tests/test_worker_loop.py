@@ -267,6 +267,48 @@ class ProposalAuditWorker:
         )
 
 
+class MissingHypothesisEditWorker:
+    """Worker that changes code but omits auditable rule/operator hypotheses."""
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="missing-hypothesis-edit",
+            supports_code_generation=True,
+            supports_repair=False,
+            supports_structured_output=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        output_dir = Path(spec.output_dir or spec.worktree_path)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        solver_path = Path(spec.worktree_path) / "examples" / "dummy_solver.py"
+        text = solver_path.read_text(encoding="utf-8")
+        solver_path.write_text(text.replace("10 + args.seed", "9 + args.seed"), encoding="utf-8")
+        proposal_path = output_dir / "proposal.json"
+        proposal_path.write_text(
+            json.dumps(
+                {
+                    "summary": "Change the solver without explaining the operator.",
+                    "strategy_intent": "This should be rejected in incremental iteration mode.",
+                    "rule_operator_hypotheses": [],
+                    "changes": [{"path": "examples/dummy_solver.py", "action": "text_replace"}],
+                    "context_usage": {"used_project_intake": False, "referenced_files": ["examples/dummy_solver.py"]},
+                    "quick_test_plan": "python -m compileall examples/dummy_solver.py",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return WorkerResult(
+            status="applied",
+            changed_files=["examples/dummy_solver.py"],
+            summary="Changed code without rule/operator hypothesis.",
+            artifacts={"proposal": str(proposal_path)},
+        )
+
+
 class PromotingProposalWorker:
     """Worker that improves the dummy solver and emits an auditable hypothesis."""
 
@@ -565,6 +607,32 @@ class WorkerLoopTests(unittest.TestCase):
 
             round_001_delta = json.loads((tmp_path / "loop" / "round_001" / "worker_worktree_delta.json").read_text(encoding="utf-8"))
             self.assertEqual(0, round_001_delta["counts"]["total_changed"])
+
+    def test_refreshed_context_carries_failure_memory_and_next_round_guidance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+
+            run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=PartialApplyRejectionWorker(),
+                experiment_id="test_failure_memory",
+                iterations=2,
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+            )
+
+            round_001_context = json.loads((tmp_path / "loop" / "round_001" / "context_packet.json").read_text(encoding="utf-8"))
+            feedback = round_001_context["loop_feedback"]
+            self.assertEqual("available", feedback["failure_memory"]["status"])
+            self.assertIn("proposal_apply_rejections", feedback["failure_memory"]["must_avoid"])
+            self.assertIn("proposal_apply_rejections", feedback["next_round_guidance"]["avoid"])
+            self.assertTrue(feedback["next_round_guidance"]["must_do"])
 
     def test_promoted_hypotheses_become_protected_facts_in_next_round(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -950,6 +1018,31 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertIn("protected_promoted_fact_regression", result.agentic_judgment.issues)
             regressions = result.agentic_judgment.checks["protected_promoted_fact_regressions"]
             self.assertIn("normalization", regressions[0])
+
+    def test_code_judgment_rejects_incremental_edit_without_rule_hypothesis(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+            context = json.loads(context_path.read_text(encoding="utf-8"))
+            context["iteration_edit_contract"] = {"mode": "incremental_after_baseline"}
+            context_path.write_text(json.dumps(context, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+            result = run_worker_cycle(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "cycle",
+                context_packet_path=context_path,
+                worker=MissingHypothesisEditWorker(),
+                experiment_id="test_missing_hypothesis",
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+            )
+
+            self.assertFalse(result.agentic_judgment.accepted)
+            self.assertIn("missing_rule_operator_hypotheses", result.agentic_judgment.issues)
+            self.assertFalse(result.full_evaluation_started)
 
     def test_code_judgment_rejects_empty_slot_proposal_without_risk_note(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

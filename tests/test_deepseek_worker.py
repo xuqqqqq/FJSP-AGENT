@@ -356,6 +356,38 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
             self.assertEqual("examples/agent_generated_fjsp_solver.py", normalized["rejected_changes"][0]["path"])
             self.assertIn("forbids create_or_replace", normalized["rejected_changes"][0]["reason"])
 
+    def test_normalization_rejects_top_level_helper_inserted_after_def_line(self) -> None:
+        worker = DeepSeekWorker()
+        context = _context_packet_with_intake()
+
+        normalized = worker._normalize_code_edit_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "summary": "Add a helper in the wrong place.",
+                "strategy_intent": "Simulate the dangling def syntax failure pattern.",
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "unsafe_helper_insert",
+                        "type": "repair_rule",
+                        "target_files": ["examples/standard_fjsp_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "path": "examples/standard_fjsp_solver.py",
+                        "action": "insert_after",
+                        "anchor": "def main():",
+                        "content": "def new_top_level_helper():\n    return 1\n",
+                    }
+                ],
+                "quick_test_plan": "python -m compileall examples",
+            },
+            context,
+        )
+
+        self.assertEqual([], normalized["changes"])
+        self.assertEqual("examples/standard_fjsp_solver.py", normalized["rejected_changes"][0]["path"])
+        self.assertIn("insert_after a def/class line", normalized["rejected_changes"][0]["reason"])
+
     def test_iteration_contract_allows_full_solver_rewrite_when_incumbent_is_invalid(self) -> None:
         worker = DeepSeekWorker()
         with TemporaryDirectory() as tmp:

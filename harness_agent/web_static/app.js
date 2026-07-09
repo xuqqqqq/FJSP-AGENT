@@ -4,15 +4,15 @@ const state = {
   deepseekStatus: null,
   lastRenderedStatus: null,
   previewArtifactName: null,
-  slotManifest: null,
+  autoPreviewKey: null,
 };
 const DEFAULT_STANDARD_SEEDS = "0,1,2,3,4,5,6,7,8,9";
 const DEFAULT_CHAT_ACTIONS = [
   {label: "载入示例", command: "载入示例"},
-  {label: "代码槽", command: "代码槽"},
-  {label: "确认代码槽", command: "确认代码槽"},
+  {label: "自由代码", command: "自由代码"},
   {label: "策略层", command: "策略层"},
   {label: "本地兜底", command: "template"},
+  {label: "历史任务", command: "历史任务"},
   {label: "启动", command: "启动"},
 ];
 
@@ -48,10 +48,8 @@ async function loadDemo(options = {}) {
   $("seeds").value = demo.config.seeds;
   $("solver").value = demo.config.solver;
   $("baseline-source").value = demo.config.baseline_source || "current_project";
-  $("evolution-mode").value = demo.config.evolution_mode;
+  $("evolution-mode").value = demo.config.evolution_mode === "slot" ? "code" : demo.config.evolution_mode;
   $("profile-mode").value = demo.config.profile_mode;
-  $("selected-slot-id").value = "agent_auto";
-  $("slot-user-confirmed").checked = false;
   $("strategy-candidates").value = demo.config.strategy_candidates;
   $("awls-zi-candidates").value = demo.config.awls_zi_candidates || 2;
   $("portfolio-size").value = demo.config.portfolio_size;
@@ -131,12 +129,70 @@ function shortPath(path) {
   return `...${text.slice(-69)}`;
 }
 
-async function loadSlotManifest() {
-  const response = await fetch("/api/slot-manifest");
-  const manifest = await response.json();
-  state.slotManifest = manifest;
-  renderSlotCards(manifest.slots || []);
-  updateContractSummary();
+async function loadJobHistory(options = {}) {
+  const response = await fetch("/api/jobs");
+  const payload = await response.json();
+  const jobs = payload.jobs || [];
+  renderJobHistory(jobs);
+  if (options.restoreLatest && !state.currentJobId && jobs.length) {
+    await selectHistoryJob(jobs[0].id, {loadReport: true});
+  }
+  return jobs;
+}
+
+function renderJobHistory(jobs) {
+  const container = $("history-list");
+  if (!container) return;
+  container.innerHTML = "";
+  if (!jobs.length) {
+    const empty = document.createElement("div");
+    empty.className = "history-empty";
+    empty.textContent = "暂无历史任务";
+    container.appendChild(empty);
+    return;
+  }
+  for (const job of jobs.slice(0, 12)) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `history-item ${job.id === state.currentJobId ? "active" : ""}`;
+    const summary = job.summary?.worker_summary || {};
+    const makespan = summary.final_makespan ?? summary.best_makespan_so_far ?? job.summary?.last_summary?.best_metrics?.makespan;
+    button.innerHTML = `
+      <strong>${escapeHtml(job.title || job.id)}</strong>
+      <span>${escapeHtml(statusLabel(job.status))} · ${escapeHtml(formatShortTime(job.updated_at || job.created_at))}</span>
+      <small>${makespan === undefined || makespan === null ? "makespan -" : `makespan ${escapeHtml(formatMetric(makespan))}`}</small>
+    `;
+    button.addEventListener("click", () => selectHistoryJob(job.id, {loadReport: true}));
+    container.appendChild(button);
+  }
+}
+
+async function selectHistoryJob(jobId, options = {}) {
+  const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
+  const job = await response.json();
+  if (!response.ok) {
+    $("artifact-preview").textContent = job.error || "历史任务读取失败";
+    return;
+  }
+  state.currentJobId = job.id;
+  state.lastRenderedStatus = null;
+  if (options.loadReport) {
+    state.previewArtifactName = null;
+    state.autoPreviewKey = null;
+  }
+  renderJob(job);
+  await loadJobHistory({restoreLatest: false});
+  if (["queued", "running"].includes(job.status)) {
+    startPolling();
+  } else {
+    await handleTerminalJob(job);
+  }
+}
+
+function formatShortTime(value) {
+  const text = String(value || "");
+  if (!text) return "-";
+  return text.replace("T", " ").replace("Z", "").slice(0, 16);
 }
 
 function buildPayload() {
@@ -163,9 +219,9 @@ function buildPayload() {
     seeds: $("seeds").value || DEFAULT_STANDARD_SEEDS,
     solver: $("solver").value,
     baseline_source: $("baseline-source").value,
-    evolution_mode: $("evolution-mode").value,
-    selected_slot_id: $("selected-slot-id").value || "agent_auto",
-    slot_user_confirmed: $("slot-user-confirmed").checked,
+    evolution_mode: $("evolution-mode").value === "slot" ? "code" : $("evolution-mode").value,
+    selected_slot_id: "agent_auto",
+    slot_user_confirmed: false,
     profile_mode: $("profile-mode").value,
     strategy_candidates: Number($("strategy-candidates").value || 2),
     awls_zi_candidates: Number($("awls-zi-candidates").value || 2),
@@ -191,7 +247,7 @@ function buildPayload() {
 }
 
 function updateContractSummary() {
-  const target = $("slot-contract-summary");
+  const target = $("edit-scope-summary");
   if (!target) return;
   const runMode = $("run-mode").value;
   const evolutionMode = $("evolution-mode").value;
@@ -199,14 +255,6 @@ function updateContractSummary() {
   const profileMode = $("profile-mode").value;
   if (runMode === "awls_zi") {
     target.textContent = "AWLS-ZI 参数/规则搜索";
-    return;
-  }
-  if (evolutionMode === "slot") {
-    const slot = selectedSlot();
-    const status = $("slot-user-confirmed").checked ? "已确认" : "待确认";
-    const label = $("selected-slot-id").value === "agent_auto" ? "agent 自动选槽" : (slot?.slot_id || "code slot");
-    target.textContent = `${label} · ${status} · 基线=${baselineSource === "agent_generated" ? "agent自写" : "当前工程"}`;
-    updateSlotConfirmationState();
     return;
   }
   if (evolutionMode === "code") {
@@ -225,180 +273,6 @@ function syncBaselineControls(changedId) {
     $("solver").value = "agent-generated";
     $("evolution-mode").value = "code";
   }
-  if (changedId === "evolution-mode" && $("evolution-mode").value === "slot" && $("baseline-source").value === "agent_generated") {
-    $("baseline-source").value = "current_project";
-    if ($("solver").value === "agent-generated") {
-      $("solver").value = "awls";
-    }
-  }
-}
-
-function selectedSlot() {
-  const selectedId = $("selected-slot-id")?.value || "agent_auto";
-  if (selectedId === "agent_auto") return null;
-  return (state.slotManifest?.slots || []).find((slot) => slot.slot_id === selectedId) || null;
-}
-
-function updateSlotConfirmationState() {
-  const stateBadge = $("slot-confirmation-state");
-  if (!stateBadge) return;
-  const confirmed = $("slot-user-confirmed").checked;
-  const selectedId = $("selected-slot-id").value || "agent_auto";
-  const label = selectedId === "agent_auto" ? "agent 自动选槽" : selectedId;
-  stateBadge.textContent = confirmed ? `已确认 · ${label}` : `未确认 · ${label}`;
-  stateBadge.className = `status-pill ${confirmed ? "confirmed" : "unconfirmed"}`;
-  updateSlotFlow();
-}
-
-function updateSlotFlow() {
-  const flow = document.querySelectorAll(".slot-flow span");
-  if (!flow.length) return;
-  const hasSlot = Boolean(selectedSlot());
-  const confirmed = $("slot-user-confirmed").checked;
-  flow.forEach((item, index) => {
-    const active =
-      index === 0 ||
-      (hasSlot && index <= 2) ||
-      (confirmed && index <= 4);
-    item.className = active ? "active" : "";
-  });
-}
-
-function renderSlotCards(slots) {
-  const container = $("slot-cards");
-  if (!container) return;
-  container.innerHTML = "";
-  const selectedId = $("selected-slot-id").value || "agent_auto";
-  const autoCard = document.createElement("button");
-  autoCard.type = "button";
-  autoCard.className = `slot-card ${selectedId === "agent_auto" ? "active" : ""}`;
-  autoCard.innerHTML = `
-    <span>agent 自动 · 已接入 · 推荐</span>
-    <strong>Agent 自动选择代码槽</strong>
-    <small>根据需求文档、IO、算例特征和 slot 契约选择本轮最该修改的功能分区。</small>
-    <em>启动后写入事件流和 slot_manifest</em>
-  `;
-  autoCard.addEventListener("click", () => selectSlot("agent_auto"));
-  container.appendChild(autoCard);
-  for (const slot of slots) {
-    const card = document.createElement("button");
-    card.type = "button";
-    card.className = `slot-card ${slot.slot_id === selectedId ? "active" : ""}`;
-    const workerStatus = slot.advisor?.worker_support_label || (slot.advisor?.worker_support === "available" ? "已接入" : "待接入");
-    const significance = slot.advisor?.significance_label ? `重要性 ${slot.advisor.significance_label}` : "重要性待评估";
-    const lineRange =
-      slot.line_start && slot.line_end ? `${slot.target_file}:${slot.line_start}-${slot.line_end}` : slot.target_file;
-    card.innerHTML = `
-      <span>${escapeHtml(slot.slot_id)} · ${escapeHtml(workerStatus)} · ${escapeHtml(significance)}</span>
-      <strong>${escapeHtml(slot.title || slot.slot_id)}</strong>
-      <small>${escapeHtml(slot.purpose || "")}</small>
-      <em>${escapeHtml(lineRange || "")}</em>
-    `;
-    card.addEventListener("click", () => selectSlot(slot.slot_id));
-    container.appendChild(card);
-  }
-  renderSelectedSlotDetail();
-  updateSlotConfirmationState();
-}
-
-function selectSlot(slotId) {
-  $("selected-slot-id").value = slotId;
-  $("slot-user-confirmed").checked = false;
-  renderSlotCards(state.slotManifest?.slots || []);
-  updateContractSummary();
-  const slot = selectedSlot();
-  const title = slotId === "agent_auto" ? "Agent 自动选择" : (slot?.title || slotId);
-  appendChatMessage("assistant", `已选择代码槽策略：${title}。启动代码槽演进前还需要确认 IO 和评测器不变。`);
-}
-
-function renderSelectedSlotDetail() {
-  const detail = $("slot-detail");
-  if (!detail) return;
-  if (($("selected-slot-id")?.value || "") === "agent_auto") {
-    detail.innerHTML = `
-      <div class="slot-detail-header">
-        <div>
-          <span>agent_auto · Python marked slots · fixed evaluator</span>
-          <strong>Agent 自动选择代码槽</strong>
-        </div>
-        <span class="status-pill confirmed">已接入</span>
-      </div>
-      <div class="slot-tag-row">
-        <span>自动选择</span>
-        <span>可行性：可执行</span>
-        <span>重要性：按算例与需求判断</span>
-        <span>启动后解析</span>
-      </div>
-      <p>平台会先根据需求文档、IO 文档、算例是否含 SDST setup matrix、求解器和代码槽契约选择一个具体 slot，然后只确认并修改该 slot。</p>
-      <section class="slot-advisor-note">
-        <h4>顾问结论</h4>
-        <p>用户不需要猜该改 zi、邻域、tabu 还是初始化；agent 负责选择，Core evaluator 负责验收。</p>
-      </section>
-    `;
-    return;
-  }
-  const slot = selectedSlot();
-  if (!slot) {
-    detail.textContent = "正在读取代码槽契约。";
-    return;
-  }
-  const advisor = slot.advisor || {};
-  const ioSummary = [
-    ["输入", slot.inputs || []],
-    ["输出", slot.outputs || []],
-    ["不变量", slot.invariants || []],
-    ["禁止修改", slot.forbidden_edits || []],
-  ]
-    .map(([label, values]) => `<section><h4>${label}</h4><ul>${listItems(values)}</ul></section>`)
-    .join("");
-  const validation = listItems(slot.validation_commands || []);
-  const allowed = listItems(slot.allowed_edits || []);
-  const concerns = listItems(advisor.concerns || []);
-  const suggestions = listItems(advisor.suggestions || []);
-  const preview = String(slot.original_content || "").slice(0, 1800);
-  detail.innerHTML = `
-    <div class="slot-detail-header">
-      <div>
-        <span>${escapeHtml(slot.slot_kind || "marked_block")} · ${escapeHtml(slot.language || "plaintext")} · ${escapeHtml(slot.target_file || "")}</span>
-        <strong>${escapeHtml(slot.title || slot.slot_id)}</strong>
-      </div>
-      <span class="status-pill ${advisor.worker_support === "available" ? "confirmed" : "unconfirmed"}">
-        ${escapeHtml(advisor.worker_support_label || "未知")}
-      </span>
-    </div>
-    <div class="slot-tag-row">
-      <span>${escapeHtml(advisor.advisor_mode || "本地顾问初筛")}</span>
-      <span>可行性：${escapeHtml(advisor.feasibility_label || advisor.feasibility || "-")}</span>
-      <span>重要性：${escapeHtml(advisor.significance_label || advisor.significance || "-")}</span>
-      <span>${escapeHtml(slot.line_start && slot.line_end ? `第 ${slot.line_start}-${slot.line_end} 行` : "行号待解析")}</span>
-    </div>
-    <p>${escapeHtml(advisor.feasibility_reason || "")}</p>
-    <section class="slot-advisor-note">
-      <h4>顾问结论</h4>
-      <p>${escapeHtml(advisor.rationale || advisor.block_summary || "")}</p>
-    </section>
-    <section>
-      <h4>可改范围</h4>
-      <ul>${allowed}</ul>
-    </section>
-    <div class="slot-io-grid">${ioSummary}</div>
-    <section>
-      <h4>验证命令</h4>
-      <ul>${validation}</ul>
-    </section>
-    <section class="slot-advisor-columns">
-      <div><h4>主要风险</h4><ul>${concerns}</ul></div>
-      <div><h4>操作建议</h4><ul>${suggestions}</ul></div>
-    </section>
-    <h4>代码片段</h4>
-    <pre class="slot-preview">${escapeHtml(preview || "源码块暂不可读。")}</pre>
-  `;
-}
-
-function listItems(values) {
-  const items = Array.isArray(values) ? values : [];
-  if (!items.length) return "<li>-</li>";
-  return items.map((value) => `<li>${escapeHtml(value)}</li>`).join("");
 }
 
 async function submitJob(event) {
@@ -415,14 +289,8 @@ async function submitCurrentJob() {
   }
   const needsDeepSeek =
     payload.run_mode === "awls_zi" ||
-    payload.evolution_mode === "slot" ||
     payload.evolution_mode === "code" ||
     payload.profile_mode === "deepseek";
-  if (payload.evolution_mode === "slot" && !payload.slot_user_confirmed) {
-    $("artifact-preview").textContent = "代码槽模式需要先确认选中的代码槽契约。";
-    appendChatMessage("assistant", "请先勾选确认，或在对话里说“确认代码槽”。");
-    return;
-  }
   if (needsDeepSeek && state.deepseekStatus && !state.deepseekStatus.configured) {
     $("artifact-preview").textContent =
       "当前选择需要 DeepSeek API，但本地没有检测到 DEEPSEEK_API_KEY / DEEPSEEK_API_KEY_FILE。若只想跑通流程，可把策略来源切到本地兜底；若要 DeepSeek 写策略或写代码，请先配置本地密钥。";
@@ -446,6 +314,7 @@ async function submitCurrentJob() {
   state.lastRenderedStatus = null;
   state.previewArtifactName = null;
   renderJob(job);
+  await loadJobHistory({restoreLatest: false});
   $("artifact-preview").textContent =
     "任务已启动，进度会持续刷新到右侧事件流。完成后会自动载入报告预览。";
   startPolling();
@@ -453,7 +322,7 @@ async function submitCurrentJob() {
 
 function initializeChat() {
   $("chat-thread").innerHTML = "";
-  appendChatMessage("assistant", "我们从一个可验证的 FJSP 任务开始。你可以载入示例、切换代码槽或策略层，然后启动循环。");
+  appendChatMessage("assistant", "我们从一个可验证的 FJSP 任务开始。你可以载入示例、切换策略层或自由代码层，然后启动循环。");
   renderChatActions(DEFAULT_CHAT_ACTIONS);
 }
 
@@ -500,33 +369,12 @@ async function handleChatCommand(message, options = {}) {
     await loadDemo();
     return;
   }
-  if (["确认代码槽", "确认slot", "确认 slot", "confirm slot"].some((token) => normalized.includes(token))) {
-    $("slot-user-confirmed").checked = true;
-    updateContractSummary();
-    const label = $("selected-slot-id").value === "agent_auto" ? "agent 自动选择" : $("selected-slot-id").value;
-    appendChatMessage("assistant", `已确认代码槽策略：${label}。本轮会锁住 IO、解析器和评测器。`);
-    return;
-  }
-  if (["代码槽", "slot", "zi"].some((token) => normalized.includes(token))) {
-    $("run-mode").value = "standard_loop";
-    $("solver").value = "awls";
-    $("baseline-source").value = "current_project";
-    $("evolution-mode").value = "slot";
-    $("selected-slot-id").value = "agent_auto";
-    $("profile-mode").value = "deepseek";
-    $("slot-user-confirmed").checked = false;
-    $("worker-max-steps").value = Math.max(4, Number($("worker-max-steps").value || 4));
-    updateContractSummary();
-    appendChatMessage("assistant", "已切到代码槽模式，默认由 agent 自动选择槽。请说“确认代码槽”锁住 IO 和评测器。");
-    return;
-  }
   if (["自由代码", "自写", "agent baseline", "agent自写"].some((token) => normalized.includes(token))) {
     $("run-mode").value = "standard_loop";
     $("solver").value = "agent-generated";
     $("baseline-source").value = "agent_generated";
     $("evolution-mode").value = "code";
     $("profile-mode").value = "deepseek";
-    $("slot-user-confirmed").checked = false;
     updateContractSummary();
     appendChatMessage("assistant", "已切到 Agent 自写 baseline：先生成初始 solver，再由 Core 评测。");
     return;
@@ -535,16 +383,13 @@ async function handleChatCommand(message, options = {}) {
     $("run-mode").value = "standard_loop";
     $("evolution-mode").value = "strategy";
     $("profile-mode").value = "deepseek";
-    $("slot-user-confirmed").checked = false;
     updateContractSummary();
     appendChatMessage("assistant", "已切到策略层：生成策略参数，不直接改源码。");
     return;
   }
   if (["template", "本地", "兜底"].some((token) => normalized.includes(token))) {
     $("profile-mode").value = "template";
-    if ($("evolution-mode").value !== "slot") {
-      $("evolution-mode").value = "strategy";
-    }
+    $("evolution-mode").value = "strategy";
     updateContractSummary();
     appendChatMessage("assistant", "已切到本地兜底流程，可以在没有 DeepSeek 密钥时跑通。");
     return;
@@ -568,7 +413,14 @@ async function handleChatCommand(message, options = {}) {
   }
   if (["刷新", "状态", "status"].some((token) => normalized.includes(token))) {
     await refreshJob();
+    await loadJobHistory({restoreLatest: false});
     appendChatMessage("assistant", state.currentJobId ? "状态已刷新。" : "当前还没有运行任务。");
+    return;
+  }
+  if (["历史", "历史任务", "history"].some((token) => normalized.includes(token))) {
+    await loadJobHistory({restoreLatest: false});
+    $("history-list").scrollIntoView({behavior: "smooth", block: "nearest"});
+    appendChatMessage("assistant", "历史任务已刷新，可以在右侧点击任意一次运行查看报告。");
     return;
   }
   if (["参数", "配置", "config"].some((token) => normalized.includes(token))) {
@@ -576,7 +428,7 @@ async function handleChatCommand(message, options = {}) {
     appendChatMessage("assistant", "配置区已经定位到左侧下方。");
     return;
   }
-  appendChatMessage("assistant", "我可以处理：载入示例、代码槽、策略层、template、DeepSeek、AWLS、启动、刷新。");
+  appendChatMessage("assistant", "我可以处理：载入示例、自由代码、策略层、template、DeepSeek、AWLS、历史任务、启动、刷新。");
 }
 
 function startPolling() {
@@ -592,6 +444,11 @@ async function refreshJob() {
     if (payload.jobs?.length) {
       state.currentJobId = payload.jobs[0].id;
       renderJob(payload.jobs[0]);
+      if (["queued", "running"].includes(payload.jobs[0].status)) {
+        startPolling();
+      } else {
+        await handleTerminalJob(payload.jobs[0]);
+      }
     }
     return;
   }
@@ -599,14 +456,22 @@ async function refreshJob() {
   const job = await response.json();
   if (response.ok) {
     renderJob(job);
-    if (!["queued", "running"].includes(job.status) && state.pollTimer) {
-      clearInterval(state.pollTimer);
-      state.pollTimer = null;
-      const preferredReport = preferredArtifactName(job);
-      if (preferredReport && (!state.previewArtifactName || state.previewArtifactName === "status")) {
-        loadArtifact(preferredReport);
-      }
-    }
+    await handleTerminalJob(job);
+  }
+}
+
+async function handleTerminalJob(job) {
+  if (["queued", "running"].includes(job.status)) return;
+  if (state.pollTimer) {
+    clearInterval(state.pollTimer);
+    state.pollTimer = null;
+  }
+  const preferredReport = preferredArtifactName(job);
+  const autoPreviewKey = `${job.id}:${job.updated_at || job.status}:${preferredReport || "none"}`;
+  const previewIsTransient = !state.previewArtifactName || state.previewArtifactName === "status";
+  if (preferredReport && previewIsTransient && state.autoPreviewKey !== autoPreviewKey) {
+    state.autoPreviewKey = autoPreviewKey;
+    await loadArtifact(preferredReport);
   }
 }
 
@@ -648,7 +513,11 @@ function renderJob(job) {
     ziSummary.best_valid_instance_count !== undefined
       ? `${ziSummary.best_valid_instance_count}/${ziSummary.selected_instance_count}`
       : workerSummary.promoted_rounds !== undefined
-        ? `最终 ${workerSummary.final_valid ?? workerSummary.latest_valid ?? "-"}/${workerSummary.final_total ?? workerSummary.latest_total ?? "-"} · 提升 ${workerSummary.promoted_rounds}/${workerSummary.round_count}`
+        ? [
+            `最终 ${workerSummary.final_valid ?? workerSummary.latest_valid ?? "-"}/${workerSummary.final_total ?? workerSummary.latest_total ?? "-"}`,
+            `提升 ${workerSummary.promoted_rounds}/${workerSummary.round_count}`,
+            workerSummary.rejected_before_eval !== undefined ? `预检拒绝 ${workerSummary.rejected_before_eval}` : null,
+          ].filter(Boolean).join(" · ")
         : workerSummary.best_valid_so_far !== undefined || workerSummary.latest_valid !== undefined
         ? [
             workerSummary.best_valid_so_far !== undefined
@@ -656,6 +525,10 @@ function renderJob(job) {
               : null,
             workerSummary.latest_valid !== undefined
               ? `最新 ${workerSummary.latest_valid}/${workerSummary.latest_total ?? "-"}`
+              : null,
+            workerSummary.rejected_before_eval !== undefined ? `预检拒绝 ${workerSummary.rejected_before_eval}` : null,
+            workerSummary.promoted_rounds !== undefined && workerSummary.round_count !== undefined
+              ? `提升 ${workerSummary.promoted_rounds}/${workerSummary.round_count}`
               : null,
           ].filter(Boolean).join(" · ")
         : summary.valid ?? benchmark.valid_experiments ?? "-";
@@ -694,7 +567,7 @@ function labelForArtifact(name) {
     standard_agent_report: "Agent 报告",
     zi_evolution_summary: "AWLS-ZI 摘要",
     zi_evolution_report: "AWLS-ZI 报告",
-    slot_manifest: "代码槽契约",
+    slot_manifest: "内部配置",
     hypothesis_graph: "假设图谱",
     exception: "异常追踪",
   };
@@ -755,9 +628,15 @@ setupFileMirror("best-file", "best-text");
 $("load-demo").addEventListener("click", loadDemo);
 $("job-form").addEventListener("submit", submitJob);
 $("refresh").addEventListener("click", refreshJob);
+$("refresh-history").addEventListener("click", () => loadJobHistory({restoreLatest: false}));
 $("chat-form").addEventListener("submit", handleChatSubmit);
 $("reset-chat").addEventListener("click", initializeChat);
-$("slot-user-confirmed").addEventListener("change", updateContractSummary);
+window.addEventListener("focus", () => {
+  refreshJob().catch(() => {});
+});
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshJob().catch(() => {});
+});
 for (const id of ["run-mode", "evolution-mode", "profile-mode", "baseline-source", "solver"]) {
   $(id).addEventListener("change", () => {
     syncBaselineControls(id);
@@ -770,9 +649,8 @@ loadDeepSeekStatus().catch(() => {
   $("deepseek-status").textContent = "DeepSeek API：状态读取失败";
   $("deepseek-status").className = "api-status missing";
 });
-loadSlotManifest().catch(() => {
-  $("artifact-preview").textContent = "代码槽清单读取失败，代码槽模式暂不可用。";
-});
 loadDemo({silent: true}).catch(() => {
   $("artifact-preview").textContent = "内置示例读取失败，但仍可手动粘贴文档和算例。";
+}).finally(() => {
+  loadJobHistory({restoreLatest: true}).catch(() => {});
 });

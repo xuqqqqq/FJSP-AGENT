@@ -606,6 +606,17 @@ Context packet:
                 if not isinstance(content, str) or not content:
                     rejected_changes.append({"path": path, "reason": f"{action} requires non-empty content"})
                     continue
+                if action == "insert_after" and inserts_top_level_code_after_definition(anchor, content):
+                    rejected_changes.append(
+                        {
+                            "path": path,
+                            "reason": (
+                                "insert_after a def/class line with top-level helper code is unsafe; "
+                                "use insert_before on the next top-level definition instead"
+                            ),
+                        }
+                    )
+                    continue
                 normalized_changes.append(
                     {
                         "path": normalized_path,
@@ -712,6 +723,18 @@ def priority_worker_context(context: dict[str, Any]) -> str:
         ),
         "incumbent_code_context": compact_incumbent_code_context(context.get("incumbent_code_context") or {}),
         "loop_feedback": compact_loop_feedback_for_prompt(context.get("loop_feedback") or {}),
+        "round_learning_contract": {
+            "must_do": [
+                "Preserve the current promoted incumbent and make one accepted incremental edit.",
+                "Use failure_memory.must_avoid as hard negative memory.",
+                "Do not submit a no-op proposal during improvement rounds.",
+                "Do not repeat a legal-but-not-better tie-break tweak; change the neighborhood, decoder, or insertion/regret mechanism materially.",
+            ],
+            "quality_target": (
+                "The next proposal should be both legal and attributable: one explicit rule/operator hypothesis, "
+                "one bounded code mutation, fixed parser/evaluator semantics, and Core evaluator evidence only."
+            ),
+        },
         "candidate_feasibility_guard": {
             "rule": (
                 "For local search, neighborhood, decoder, destroy-repair, or post-processing changes, "
@@ -790,14 +813,26 @@ def compact_loop_feedback_for_prompt(loop_feedback: dict[str, Any]) -> dict[str,
                 "decision": item.get("decision"),
                 "candidate_key": item.get("candidate_key"),
                 "incumbent_key_after": item.get("incumbent_key_after"),
+                "worker_status": item.get("worker_status"),
+                "changed_files": item.get("worker_changed_files") or [],
                 "summary": diagnostics.get("summary"),
                 "strategy_intent": diagnostics.get("strategy_intent"),
+                "rule_operator_hypotheses": (diagnostics.get("rule_operator_hypotheses") or [])[:4],
                 "rejected_change_count": ((diagnostics.get("proposal_audit") or {}).get("rejected_change_count")),
+                "proposal_warnings": ((diagnostics.get("proposal_audit") or {}).get("warnings") or [])[:6],
                 "smoke_gate": {
                     "passed": smoke_gate.get("passed"),
                     "full_evaluation_started": smoke_gate.get("full_evaluation_started"),
                     "errors": (((smoke_gate.get("summary") or {}).get("validation_summary") or {}).get("top_errors") or [])[:2],
                 },
+                "judgment_issues": (
+                    ((candidate_summary.get("validation_summary") or {}).get("agentic_judgment") or {}).get("issues")
+                    or []
+                )[:6],
+                "judgment_suggestions": (
+                    ((candidate_summary.get("validation_summary") or {}).get("agentic_judgment") or {}).get("suggestions")
+                    or []
+                )[:4],
                 "validation_errors": ((candidate_summary.get("validation_summary") or {}).get("top_errors") or [])[:2],
             }
         )
@@ -810,6 +845,8 @@ def compact_loop_feedback_for_prompt(loop_feedback: dict[str, Any]) -> dict[str,
         "baseline_best_candidate_metrics": baseline_summary.get("best_candidate_metrics"),
         "baseline_validation_summary": baseline_summary.get("validation_summary"),
         "protected_promoted_facts": loop_feedback.get("protected_promoted_facts") or [],
+        "failure_memory": loop_feedback.get("failure_memory") or {},
+        "next_round_guidance": loop_feedback.get("next_round_guidance") or {},
         "previous_rounds": compact_previous,
         "instructions": loop_feedback.get("instructions"),
     }
@@ -1424,6 +1461,19 @@ def normalize_relative_path(value: str) -> str:
     normalized = value.replace("\\", "/").strip().lstrip("/")
     parts = [part for part in normalized.split("/") if part not in {"", "."}]
     return "/".join(parts)
+
+
+def inserts_top_level_code_after_definition(anchor: str, content: str) -> bool:
+    """Detect the common patch shape that leaves a function/class with no body."""
+
+    anchor_tail = anchor.strip().splitlines()[-1] if anchor.strip() else ""
+    if not re.match(r"^(async\s+def|def|class)\s+.+:\s*(#.*)?$", anchor_tail):
+        return False
+    for line in content.splitlines():
+        if not line.strip():
+            continue
+        return not line[0].isspace() and bool(re.match(r"^(@|async\s+def|def|class|import|from)\b", line))
+    return False
 
 
 def create_or_replace_forbidden(path_value: str, context: dict[str, Any]) -> bool:

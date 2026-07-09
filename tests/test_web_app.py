@@ -11,6 +11,7 @@ from harness_agent.slot_manifest import write_selected_slot_manifest
 from harness_agent.standard_worker_loop import SDST_ZI_FEATURES_CONSUMER_FORMULA
 from harness_agent.web_app import (
     _JOBS,
+    browser_safe_json,
     create_job,
     deepseek_status_payload,
     make_demo_examples,
@@ -35,6 +36,17 @@ class WebAppTests(unittest.TestCase):
             os.environ.pop(key, None)
             if value is not None:
                 os.environ[key] = value
+
+    def test_browser_safe_json_replaces_non_finite_numbers(self) -> None:
+        payload = {
+            "baseline_key": [float("-inf"), 1.0],
+            "nested": {"bad": float("inf"), "ok": 2},
+        }
+
+        safe = browser_safe_json(payload)
+
+        self.assertEqual({"baseline_key": [None, 1.0], "nested": {"bad": None, "ok": 2}}, safe)
+        json.dumps(safe, allow_nan=False)
 
     def test_deepseek_status_reports_template_env_is_not_loaded(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

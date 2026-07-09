@@ -126,6 +126,20 @@ def public_job(job: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def browser_safe_json(value: Any) -> Any:
+    """Return a standards-compliant JSON value for browser `response.json()`."""
+
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {str(key): browser_safe_json(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [browser_safe_json(item) for item in value]
+    if isinstance(value, tuple):
+        return [browser_safe_json(item) for item in value]
+    return value
+
+
 def write_job_status(job: dict[str, Any]) -> None:
     job["updated_at"] = utc_timestamp()
     status_path = Path(job["job_dir"]) / "web_job_status.json"
@@ -1683,7 +1697,7 @@ class AlgoForgeWebHandler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _json(self, status: int, payload: dict[str, Any]) -> None:
-        data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+        data = json.dumps(browser_safe_json(payload), ensure_ascii=False, indent=2, allow_nan=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))

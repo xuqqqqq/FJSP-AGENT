@@ -13,12 +13,12 @@
           <span class="brand-mark">AF</span>
           <div>
             <strong>AlgoForge FJSP Agent</strong>
-            <span>面向调度算法的代码槽受控演进</span>
+            <span>面向调度算法的自演进评测平台</span>
           </div>
         </div>
         <div class="topbar-status">
           <span>标准 FJSP</span>
-          <span>代码槽契约</span>
+          <span>Agent 自演进</span>
           <span>评测器锁定</span>
         </div>
       </nav>
@@ -27,11 +27,11 @@
         <div>
           <p class="eyebrow">AlgoForge / FJSP Agent</p>
           <h1>FJSP 演进控制台</h1>
-          <p class="hero-copy">通过对话完成问题族选择、代码槽确认、演进策略设定和评测器验证。LLM 只能在被确认的功能分区内演化，输入输出契约默认锁定。</p>
+          <p class="hero-copy">通过对话完成问题族选择、算例配置、Agent 编码演进和固定评测器验证。输入输出、解析器和评测器默认锁定。</p>
         </div>
         <div class="hero-card">
           <span class="hero-card-label">运行环境</span>
-          <strong>问题族 → 代码槽契约 → 固定评测器</strong>
+          <strong>文档 + 算例 → Agent 候选代码 → 固定评测器</strong>
           <small id="deepseek-status">DeepSeek API：检查中...</small>
         </div>
       </section>
@@ -49,7 +49,7 @@
             <div id="chat-thread" class="chat-thread" aria-live="polite"></div>
             <div id="chat-actions" class="chat-actions"></div>
             <form id="chat-form" class="chat-input-row">
-              <input id="chat-input" autocomplete="off" placeholder="例如：载入示例、代码槽、template、启动" />
+              <input id="chat-input" autocomplete="off" placeholder="例如：载入示例、策略层、template、启动、历史任务" />
               <button class="primary compact-button" type="submit">发送</button>
             </form>
           </section>
@@ -70,37 +70,13 @@
               </div>
               <div>
                 <span>可编辑范围</span>
-                <strong id="slot-contract-summary">策略参数层</strong>
+                <strong id="edit-scope-summary">Agent 候选代码</strong>
               </div>
               <div>
                 <span>保护约束</span>
                 <strong>固定 IO + 固定评测器</strong>
               </div>
             </div>
-
-            <section class="slot-review">
-              <div class="slot-review-heading">
-                <div>
-                  <span class="section-kicker">代码槽</span>
-                  <h3>可演进功能分区</h3>
-                </div>
-                <span id="slot-confirmation-state" class="status-pill">未确认</span>
-              </div>
-              <div class="slot-flow" aria-label="代码槽确认流程">
-                <span class="active">1 选择代码槽</span>
-                <span>2 展示代码片段</span>
-                <span>3 核对输入输出</span>
-                <span>4 确认约束</span>
-                <span>5 开始演化</span>
-              </div>
-              <div id="slot-cards" class="slot-card-grid"></div>
-              <div id="slot-detail" class="slot-detail"></div>
-              <input id="selected-slot-id" type="hidden" value="agent_auto" />
-              <label class="field checkbox-field slot-confirm-field">
-                <input id="slot-user-confirmed" type="checkbox" />
-                <span>我确认本轮只允许修改 agent 选定或我手动选定的代码槽；输入、输出、解析器和评测器保持不变。</span>
-              </label>
-            </section>
 
             <label class="field">
               <span>任务名称</span>
@@ -169,7 +145,6 @@
                 <span>演进层级</span>
                 <select id="evolution-mode">
                   <option value="strategy">策略层：DeepSeek 生成策略，不改源码</option>
-                  <option value="slot">代码槽：DeepSeek 只改 EVOLVE 标记函数</option>
                   <option value="code" selected>自由代码层：DeepSeek 代码 worker 改候选代码</option>
                 </select>
               </label>
@@ -290,7 +265,7 @@
             </details>
 
             <button class="primary" type="submit">启动循环迭代</button>
-            <p class="hint">配置会同步到上方对话；启动前评测器、IO 和代码槽契约保持固定。</p>
+            <p class="hint">配置会同步到上方对话；启动前评测器、IO 和解析器保持固定。</p>
           </form>
         </div>
 
@@ -307,6 +282,14 @@
             <strong>还没有运行任务</strong>
             <span>载入示例并启动后，这里会显示事件流、指标和报告。</span>
           </div>
+
+          <section class="history-section">
+            <div class="history-heading">
+              <h3>历史任务</h3>
+              <button class="ghost compact-button" type="button" id="refresh-history">刷新历史</button>
+            </div>
+            <div id="history-list" class="history-list"></div>
+          </section>
 
           <div id="job-view" class="job-view hidden">
             <div class="status-strip">
@@ -356,6 +339,6 @@
         <pre id="artifact-preview">选择一个报告后会在这里展示。</pre>
       </section>
     </main>
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=20260709-history"></script>
   </body>
 </html>

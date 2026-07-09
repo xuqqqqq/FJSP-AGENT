@@ -70,6 +70,11 @@ def judge_worker_result(
     proposal_audit = proposal.get("proposal_audit") if isinstance(proposal, dict) else {}
     if not isinstance(proposal_audit, dict):
         proposal_audit = {}
+    iteration_contract = context.get("iteration_edit_contract") if isinstance(context, dict) else {}
+    is_incremental_iteration = bool(
+        isinstance(iteration_contract, dict)
+        and iteration_contract.get("mode") == "incremental_after_baseline"
+    )
 
     issues: list[str] = []
     suggestions: list[str] = []
@@ -106,7 +111,13 @@ def judge_worker_result(
 
         hypotheses = proposal.get("rule_operator_hypotheses") or []
         if worker_result.changed_files and not hypotheses:
-            warnings.append("changed_code_without_rule_operator_hypothesis")
+            if is_incremental_iteration:
+                issues.append("missing_rule_operator_hypotheses")
+                suggestions.append(
+                    "Every improvement-round code change must declare a concrete rule/operator hypothesis before editing."
+                )
+            else:
+                warnings.append("changed_code_without_rule_operator_hypothesis")
 
         audit_warnings = proposal_audit.get("warnings") or []
         if isinstance(audit_warnings, list):

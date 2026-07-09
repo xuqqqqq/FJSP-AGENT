@@ -358,189 +358,6 @@ h3 {
   font-size: 14px;
 }
 
-.slot-review {
-  margin-bottom: 16px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fbfcfe;
-}
-
-.slot-review-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.slot-flow {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.slot-flow span,
-.slot-tag-row span {
-  padding: 7px 9px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted);
-  background: var(--surface);
-  font-size: 11px;
-  font-weight: 900;
-  text-align: center;
-}
-
-.slot-flow span.active {
-  color: #fff;
-  border-color: var(--accent);
-  background: var(--accent);
-}
-
-.slot-card-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.slot-card {
-  display: grid;
-  gap: 7px;
-  min-height: 150px;
-  padding: 12px;
-  text-align: left;
-  color: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-}
-
-.slot-card.active {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
-}
-
-.slot-card span {
-  color: var(--accent-strong);
-  font-size: 11px;
-  font-weight: 900;
-}
-
-.slot-card strong {
-  font-size: 14px;
-}
-
-.slot-card small {
-  color: var(--muted);
-  line-height: 1.5;
-}
-
-.slot-card em {
-  align-self: end;
-  color: var(--muted);
-  font-size: 11px;
-  font-style: normal;
-}
-
-.slot-confirm-field {
-  margin: 12px 0 0;
-}
-
-.slot-detail {
-  margin-top: 12px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-}
-
-.slot-detail-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.slot-detail-header span,
-.slot-detail h4 {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.slot-detail-header strong {
-  display: block;
-  margin-top: 4px;
-  font-size: 15px;
-}
-
-.slot-detail p {
-  margin: 0 0 12px;
-  color: var(--muted);
-  line-height: 1.6;
-}
-
-.slot-tag-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin-bottom: 10px;
-}
-
-.slot-tag-row span {
-  color: var(--accent-strong);
-  background: #eef4fb;
-  text-align: left;
-}
-
-.slot-io-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.slot-io-grid section,
-.slot-advisor-note,
-.slot-advisor-columns > div {
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface-muted);
-}
-
-.slot-advisor-columns {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.slot-detail h4 {
-  margin: 0 0 6px;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.slot-detail ul {
-  display: grid;
-  gap: 5px;
-  margin: 0 0 12px;
-  padding-left: 18px;
-  color: var(--ink);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.slot-preview {
-  min-height: 120px;
-  max-height: 320px;
-  margin-top: 4px;
-  font-size: 12px;
-}
-
 .status-pill.confirmed {
   color: #fff;
   border-color: var(--teal);
@@ -786,6 +603,73 @@ button {
   border-left-color: var(--danger);
 }
 
+.history-section {
+  margin: 16px 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.history-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.history-heading h3 {
+  margin: 0;
+}
+
+.history-list {
+  display: grid;
+  gap: 8px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.history-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.history-item:hover,
+.history-item.active {
+  border-color: var(--accent);
+  background: #f2f7fc;
+}
+
+.history-item strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item span,
+.history-item small,
+.history-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.history-item small {
+  justify-self: end;
+}
+
+.history-empty {
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+}
+
 .artifact-list {
   display: flex;
   flex-wrap: wrap;
@@ -856,11 +740,7 @@ pre {
   .doc-grid,
   .metric-grid,
   .config-grid,
-  .contract-strip,
-  .slot-card-grid,
-  .slot-io-grid,
-  .slot-advisor-columns,
-  .slot-flow {
+  .contract-strip {
     grid-template-columns: 1fr;
   }
 
