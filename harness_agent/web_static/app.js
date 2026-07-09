@@ -516,7 +516,7 @@ function renderJob(job) {
         ? [
             `最终 ${workerSummary.final_valid ?? workerSummary.latest_valid ?? "-"}/${workerSummary.final_total ?? workerSummary.latest_total ?? "-"}`,
             `提升 ${workerSummary.promoted_rounds}/${workerSummary.round_count}`,
-            workerSummary.rejected_before_eval !== undefined ? `预检拒绝 ${workerSummary.rejected_before_eval}` : null,
+            workerRepairText(workerSummary),
           ].filter(Boolean).join(" · ")
         : workerSummary.best_valid_so_far !== undefined || workerSummary.latest_valid !== undefined
         ? [
@@ -526,7 +526,7 @@ function renderJob(job) {
             workerSummary.latest_valid !== undefined
               ? `最新 ${workerSummary.latest_valid}/${workerSummary.latest_total ?? "-"}`
               : null,
-            workerSummary.rejected_before_eval !== undefined ? `预检拒绝 ${workerSummary.rejected_before_eval}` : null,
+            workerRepairText(workerSummary),
             workerSummary.promoted_rounds !== undefined && workerSummary.round_count !== undefined
               ? `提升 ${workerSummary.promoted_rounds}/${workerSummary.round_count}`
               : null,
@@ -558,6 +558,18 @@ function renderJob(job) {
     button.addEventListener("click", () => loadArtifact(name));
     artifactList.appendChild(button);
   }
+}
+
+function workerRepairText(workerSummary) {
+  const repair = workerSummary.in_round_repair || {};
+  const parts = [];
+  if (repair.repair_attempt_count) {
+    parts.push(`修补 ${repair.recovered_round_count || 0}/${repair.repair_round_count || 0}`);
+  }
+  if (workerSummary.rejected_before_eval !== undefined) {
+    parts.push(`预检未修复 ${workerSummary.rejected_before_eval}`);
+  }
+  return parts.join(" · ") || null;
 }
 
 function labelForArtifact(name) {

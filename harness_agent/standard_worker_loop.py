@@ -6,7 +6,14 @@ from pathlib import Path
 from typing import Any
 
 from .context_packet import ContextPacketRequest, write_context_packet
-from .loop_runner import WorkerLoopResult, compact_promotion_check, compact_proposal_audit, run_worker_loop, summary_payload
+from .loop_runner import (
+    DEFAULT_IN_ROUND_REPAIR_ATTEMPTS,
+    WorkerLoopResult,
+    compact_promotion_check,
+    compact_proposal_audit,
+    run_worker_loop,
+    summary_payload,
+)
 from .loop_runner import normalize_baseline_source
 from .models import TaskContract
 from .slot_manifest import load_slot_manifest
@@ -62,6 +69,7 @@ class StandardWorkerLoopRequest:
     max_runtime_seconds: int = 120
     apply_worker_changes: bool = False
     promotion_repeats: int = 1
+    in_round_repair_attempts: int = DEFAULT_IN_ROUND_REPAIR_ATTEMPTS
     baseline_source: str = "current_project"
     agent_generated_solver_path: str = "examples/agent_generated_fjsp_solver.py"
     experiment_id: str = "standard_worker_loop"
@@ -111,6 +119,7 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
         apply_worker_changes=bool(request.apply_worker_changes),
         promotion_repeats=max(1, request.promotion_repeats),
         baseline_source=request.baseline_source,
+        in_round_repair_attempts=max(0, request.in_round_repair_attempts),
     )
     manifest = standard_worker_manifest(
         request=request,
@@ -289,6 +298,7 @@ def standard_worker_manifest(
         if loop_result.rounds
         else summary_payload(loop_result.baseline_summary)
     )
+    repair_stats = worker_loop_repair_stats(loop_result.rounds)
     return {
         "status": "ok",
         "request": {
@@ -306,6 +316,7 @@ def standard_worker_manifest(
             "iterations": max(0, request.iterations),
             "apply_worker_changes": bool(request.apply_worker_changes),
             "promotion_repeats": max(1, request.promotion_repeats),
+            "in_round_repair_attempts": max(0, request.in_round_repair_attempts),
             "awls_zi_policy": request.awls_zi_policy,
             "awls_critical_block_exhaustive_pct": max(0, min(100, request.awls_critical_block_exhaustive_pct)),
             "awls_same_machine_eval": request.awls_same_machine_eval,
@@ -319,6 +330,7 @@ def standard_worker_manifest(
         "improved": loop_result.final_key > loop_result.baseline_key,
         "round_count": len(loop_result.rounds),
         "promoted_rounds": promoted_rounds,
+        "in_round_repair": repair_stats,
         "final_worktree": str(loop_result.final_worktree),
         "baseline_summary": summary_payload(loop_result.baseline_summary),
         "final_summary": final_summary,
@@ -344,6 +356,36 @@ def standard_worker_manifest(
     }
 
 
+def worker_loop_repair_stats(rounds: list[Any]) -> dict[str, Any]:
+    repair_attempt_count = 0
+    repair_round_count = 0
+    recovered_round_count = 0
+    final_rejected_after_repair = 0
+    for item in rounds:
+        diagnostics = item.proposal_diagnostics if hasattr(item, "proposal_diagnostics") else {}
+        repair = diagnostics.get("in_round_repair") if isinstance(diagnostics, dict) else None
+        if not isinstance(repair, dict):
+            continue
+        attempts = int(repair.get("repair_attempt_count", 0) or 0)
+        if attempts <= 0:
+            continue
+        repair_round_count += 1
+        repair_attempt_count += attempts
+        if repair.get("recovered"):
+            recovered_round_count += 1
+        elif tuple(getattr(item, "candidate_key", ())) and all(
+            isinstance(value, (int, float)) and float(value) == float("-inf")
+            for value in getattr(item, "candidate_key", ())
+        ):
+            final_rejected_after_repair += 1
+    return {
+        "repair_round_count": repair_round_count,
+        "repair_attempt_count": repair_attempt_count,
+        "recovered_round_count": recovered_round_count,
+        "final_rejected_after_repair": final_rejected_after_repair,
+    }
+
+
 def render_standard_worker_report(manifest: dict[str, Any]) -> str:
     lines = [
         "# Standard FJSP Worker Loop Report",
@@ -355,6 +397,7 @@ def render_standard_worker_report(manifest: dict[str, Any]) -> str:
         f"- Improved: `{manifest.get('improved')}`",
         f"- Rounds: `{manifest.get('round_count')}`",
         f"- Promoted rounds: `{manifest.get('promoted_rounds')}`",
+        f"- In-round repair: `{json.dumps(manifest.get('in_round_repair') or {}, ensure_ascii=False)}`",
         f"- Final worktree: `{manifest.get('final_worktree')}`",
         "",
         "## Artifacts",

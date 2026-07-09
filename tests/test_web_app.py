@@ -124,6 +124,34 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(10, summary["final_valid"])
         self.assertEqual(1300.0, summary["latest_makespan"])
 
+    def test_worker_manifest_summary_reports_in_round_repair_stats(self) -> None:
+        summary = summarize_worker_manifest(
+            {
+                "baseline_key": [-1366.0],
+                "final_key": [-1277.0],
+                "round_count": 2,
+                "promoted_rounds": 1,
+                "improved": True,
+                "baseline_summary": {"total": 1, "valid": 1, "failed": 0},
+                "final_summary": {
+                    "total": 10,
+                    "valid": 10,
+                    "failed": 0,
+                    "best_metrics": {"makespan": 1277.0, "gap_pct": 28.08},
+                },
+                "in_round_repair": {
+                    "repair_round_count": 1,
+                    "repair_attempt_count": 2,
+                    "recovered_round_count": 1,
+                    "final_rejected_after_repair": 0,
+                },
+                "rounds": [],
+            }
+        )
+
+        self.assertEqual(2, summary["in_round_repair"]["repair_attempt_count"])
+        self.assertEqual(1, summary["in_round_repair"]["recovered_round_count"])
+
     def test_deepseek_status_loads_explicit_env_file_without_returning_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             env_file = Path(tmp) / "agent.env"

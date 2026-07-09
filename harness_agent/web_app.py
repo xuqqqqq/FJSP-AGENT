@@ -1174,6 +1174,9 @@ def summarize_worker_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     decision_counts = status_counts([str(item.get("decision") or "unknown") for item in rounds])
     worker_status_counts = status_counts([str(item.get("worker_status") or "unknown") for item in rounds])
     rejected_before_eval = sum(1 for item in rounds if list(item.get("candidate_key") or []) and all(value == float("-inf") for value in item.get("candidate_key") or []))
+    in_round_repair = manifest.get("in_round_repair")
+    if not isinstance(in_round_repair, dict):
+        in_round_repair = summarize_in_round_repair(rounds)
     final_metrics = summary_metrics(final_summary)
     latest_metrics = summary_metrics(latest_summary)
     return {
@@ -1200,7 +1203,38 @@ def summarize_worker_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         "decision_counts": decision_counts,
         "worker_status_counts": worker_status_counts,
         "rejected_before_eval": rejected_before_eval,
+        "in_round_repair": in_round_repair,
         "round_dirs": round_dirs,
+    }
+
+
+def summarize_in_round_repair(rounds: list[Any]) -> dict[str, Any]:
+    repair_attempt_count = 0
+    repair_round_count = 0
+    recovered_round_count = 0
+    final_rejected_after_repair = 0
+    for item in rounds:
+        diagnostics = item.get("proposal_diagnostics") if isinstance(item, dict) else {}
+        repair = diagnostics.get("in_round_repair") if isinstance(diagnostics, dict) else None
+        if not isinstance(repair, dict):
+            continue
+        attempts = int(repair.get("repair_attempt_count", 0) or 0)
+        if attempts <= 0:
+            continue
+        repair_round_count += 1
+        repair_attempt_count += attempts
+        if repair.get("recovered"):
+            recovered_round_count += 1
+        elif list(item.get("candidate_key") or []) and all(
+            isinstance(value, (int, float)) and float(value) == float("-inf")
+            for value in item.get("candidate_key") or []
+        ):
+            final_rejected_after_repair += 1
+    return {
+        "repair_round_count": repair_round_count,
+        "repair_attempt_count": repair_attempt_count,
+        "recovered_round_count": recovered_round_count,
+        "final_rejected_after_repair": final_rejected_after_repair,
     }
 
 

@@ -309,6 +309,108 @@ class MissingHypothesisEditWorker:
         )
 
 
+class InRoundRepairWorker:
+    """Worker that repairs a JA-rejected first attempt when same-round feedback is present."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.saw_repair_feedback = False
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="in-round-repair",
+            supports_code_generation=True,
+            supports_repair=True,
+            supports_structured_output=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        self.calls += 1
+        context = json.loads(Path(spec.context_packet_path).read_text(encoding="utf-8"))
+        repair_feedback = (context.get("loop_feedback") or {}).get("current_round_repair")
+        output_dir = Path(spec.output_dir or spec.worktree_path)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        proposal_path = output_dir / "proposal.json"
+        solver_path = Path(spec.worktree_path) / "examples" / "dummy_solver.py"
+
+        if not repair_feedback:
+            helper_path = Path(spec.worktree_path) / "examples" / "new_helper.py"
+            helper_path.write_text("VALUE = 1\n", encoding="utf-8")
+            proposal_path.write_text(
+                json.dumps(
+                    {
+                        "summary": "First attempt changes a helper but misses the entrypoint anchor.",
+                        "strategy_intent": "Trigger same-round repair by producing apply_rejections.",
+                        "rule_operator_hypotheses": [
+                            {
+                                "name": "bad_anchor_probe",
+                                "type": "repair_rule",
+                                "target_files": ["examples/dummy_solver.py"],
+                            }
+                        ],
+                        "changes": [
+                            {
+                                "path": "examples/new_helper.py",
+                                "action": "create_or_replace",
+                                "content": "VALUE = 1\n",
+                            }
+                        ],
+                        "apply_rejections": [
+                            {"path": "examples/dummy_solver.py", "reason": "old text not found"}
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            return WorkerResult(
+                status="applied",
+                changed_files=["examples/new_helper.py"],
+                summary="Bad first attempt.",
+                artifacts={"proposal": str(proposal_path)},
+            )
+
+        self.saw_repair_feedback = True
+        text = solver_path.read_text(encoding="utf-8")
+        solver_path.write_text(text.replace("10 + args.seed", "8 + args.seed"), encoding="utf-8")
+        proposal_path.write_text(
+            json.dumps(
+                {
+                    "summary": "Repair the rejected anchor by editing the known solver expression directly.",
+                    "strategy_intent": "Use current_round_repair feedback to avoid the failed helper-only change.",
+                    "rule_operator_hypotheses": [
+                        {
+                            "name": "repair_dummy_finish_shift",
+                            "type": "repair_rule",
+                            "novelty": "Repairs the rejected anchor by making the actual entrypoint edit.",
+                            "expected_effect": "Improve the dummy objective while passing JA.",
+                            "evidence_used": ["loop_feedback.current_round_repair"],
+                            "target_files": ["examples/dummy_solver.py"],
+                        }
+                    ],
+                    "changes": [{"path": "examples/dummy_solver.py", "action": "text_replace"}],
+                    "context_usage": {
+                        "used_project_intake": False,
+                        "referenced_files": ["examples/dummy_solver.py"],
+                    },
+                    "quick_test_plan": "python -m compileall examples/dummy_solver.py",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return WorkerResult(
+            status="applied",
+            changed_files=["examples/dummy_solver.py"],
+            summary="Repaired first attempt using same-round feedback.",
+            artifacts={"proposal": str(proposal_path)},
+        )
+
+
 class PromotingProposalWorker:
     """Worker that improves the dummy solver and emits an auditable hypothesis."""
 
@@ -658,6 +760,47 @@ class WorkerLoopTests(unittest.TestCase):
             protected = round_001_context["loop_feedback"]["protected_promoted_facts"]
             self.assertEqual("dummy_finish_shift", protected[0]["name"])
             self.assertIn("examples/dummy_solver.py", protected[0]["target_files"])
+
+    def test_in_round_repair_rechecks_repaired_proposal_before_spending_next_round(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+            worker = InRoundRepairWorker()
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=worker,
+                experiment_id="test_in_round_repair",
+                iterations=1,
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+                in_round_repair_attempts=1,
+            )
+
+            self.assertEqual(2, worker.calls)
+            self.assertTrue(worker.saw_repair_feedback)
+            self.assertEqual(["promoted"], [item.decision for item in result.rounds])
+            self.assertEqual((992.0, -0.01), result.final_key)
+
+            repair = result.rounds[0].proposal_diagnostics["in_round_repair"]
+            self.assertEqual(2, repair["attempt_count"])
+            self.assertEqual(1, repair["repair_attempt_count"])
+            self.assertTrue(repair["recovered"])
+            self.assertIn("proposal_apply_rejections", repair["attempts"][0]["failure_signatures"])
+
+            repair_context = json.loads(
+                (tmp_path / "loop" / "round_000" / "repair_001" / "context_packet.json").read_text(encoding="utf-8")
+            )
+            current_repair = repair_context["loop_feedback"]["current_round_repair"]
+            self.assertEqual("repair_required", current_repair["status"])
+            self.assertEqual(1, current_repair["attempt_index"])
+            self.assertIn("proposal_apply_rejections", current_repair["avoid"])
+            self.assertIn("repair current_round_repair.previous_attempts", repair_context["loop_feedback"]["instructions"][0])
 
     def test_agent_generated_baseline_is_written_before_first_measurement(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

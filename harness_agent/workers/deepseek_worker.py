@@ -455,6 +455,10 @@ Rules:
 - If previous_pipeline_memory.operator_guidance is present, use its must_do,
   preserve, mutate, and avoid lists when forming rule_operator_hypotheses and
   novelty statements.
+- If Priority context contains loop_feedback.current_round_repair, this is an
+  in-round repair attempt after Core rejected the previous proposal. First fix
+  the listed JA/evaluator issues; do not repeat rejected anchors, unsupported
+  actions, protected-fact regressions, no-op proposals, or syntax errors.
 - Read Priority context before the full Context packet.  If
   priority_knowledge_cards are present, cite `knowledge_cards` in
   evidence_used when they shape the proposal, and either follow any
@@ -847,8 +851,54 @@ def compact_loop_feedback_for_prompt(loop_feedback: dict[str, Any]) -> dict[str,
         "protected_promoted_facts": loop_feedback.get("protected_promoted_facts") or [],
         "failure_memory": loop_feedback.get("failure_memory") or {},
         "next_round_guidance": loop_feedback.get("next_round_guidance") or {},
+        "current_round_repair": compact_current_round_repair(loop_feedback.get("current_round_repair") or {}),
         "previous_rounds": compact_previous,
         "instructions": loop_feedback.get("instructions"),
+    }
+
+
+def compact_current_round_repair(value: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, dict) or not value:
+        return {}
+    attempts = value.get("previous_attempts")
+    if not isinstance(attempts, list):
+        attempts = []
+    compact_attempts = []
+    for attempt in attempts[-3:]:
+        if not isinstance(attempt, dict):
+            continue
+        judgment = attempt.get("agentic_judgment") if isinstance(attempt.get("agentic_judgment"), dict) else {}
+        error_analysis = (
+            attempt.get("agentic_error_analysis") if isinstance(attempt.get("agentic_error_analysis"), dict) else {}
+        )
+        diagnostics = (
+            attempt.get("proposal_diagnostics") if isinstance(attempt.get("proposal_diagnostics"), dict) else {}
+        )
+        audit = diagnostics.get("proposal_audit") if isinstance(diagnostics.get("proposal_audit"), dict) else {}
+        compact_attempts.append(
+            {
+                "attempt_index": attempt.get("attempt_index"),
+                "worker_status": attempt.get("worker_status"),
+                "changed_files": (attempt.get("changed_files") or [])[:8],
+                "failure_signatures": (attempt.get("failure_signatures") or [])[:10],
+                "judgment_issues": (judgment.get("issues") or [])[:10],
+                "judgment_suggestions": (judgment.get("suggestions") or [])[:6],
+                "error_diagnosis": (error_analysis.get("diagnosis") or [])[:6],
+                "error_suggestions": (error_analysis.get("suggestions") or [])[:6],
+                "proposal_summary": diagnostics.get("summary"),
+                "proposal_strategy": diagnostics.get("strategy_intent"),
+                "accepted_change_paths": (audit.get("accepted_change_paths") or [])[:8],
+                "rejected_change_count": audit.get("rejected_change_count"),
+                "warnings": (audit.get("warnings") or [])[:10],
+            }
+        )
+    return {
+        "status": value.get("status"),
+        "attempt_index": value.get("attempt_index"),
+        "max_repair_attempts": value.get("max_repair_attempts"),
+        "must_do": value.get("must_do") or [],
+        "avoid": value.get("avoid") or [],
+        "previous_attempts": compact_attempts,
     }
 
 

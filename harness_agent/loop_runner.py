@@ -27,6 +27,8 @@ AGENT_GENERATED_BASELINE_HIDDEN_INCUMBENT_FILES = (
     "examples/awls_evolved_slots.py",
 )
 
+DEFAULT_IN_ROUND_REPAIR_ATTEMPTS = 2
+
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -79,6 +81,7 @@ def run_worker_loop(
     promotion_repeats: int = 1,
     baseline_source: str = "current_project",
     baseline_worker: CodingWorker | None = None,
+    in_round_repair_attempts: int = DEFAULT_IN_ROUND_REPAIR_ATTEMPTS,
 ) -> WorkerLoopResult:
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -110,36 +113,30 @@ def run_worker_loop(
         )
     incumbent_key = summary_objective_key(baseline_summary, contract.objectives)
     incumbent_worktree = baseline_worktree
+    effective_repair_attempts = worker_loop_repair_attempt_budget(worker, in_round_repair_attempts)
 
     round_records: list[LoopRoundRecord] = []
     seen_proposal_fingerprints: set[str] = set()
     for round_index in range(max(0, iterations)):
         cycle_dir = output_dir / f"round_{round_index:03d}"
-        round_context_packet_path = write_refreshed_context_packet(
-            base_context_packet_path=context_packet_path,
-            output_path=cycle_dir / "context_packet.json",
-            loop_feedback=loop_feedback_payload(
-                round_index=round_index,
-                contract=contract,
-                baseline_summary=baseline_summary,
-                baseline_key=summary_objective_key(baseline_summary, contract.objectives),
-                incumbent_key_before=incumbent_key,
-                incumbent_worktree=incumbent_worktree,
-                previous_rounds=round_records,
-            ),
-            project_root=incumbent_worktree,
-        )
+        round_context_packet_path = cycle_dir / "context_packet.json"
+        in_round_attempts: list[dict[str, Any]] = []
         try:
-            cycle = run_worker_cycle(
+            cycle, round_context_packet_path, in_round_attempts = run_worker_cycle_with_in_round_repairs(
                 contract=contract,
                 project_root=incumbent_worktree,
-                output_dir=cycle_dir,
-                context_packet_path=round_context_packet_path,
                 worker=worker,
-                experiment_id=f"{experiment_id}_round_{round_index:03d}",
+                output_dir=cycle_dir,
+                base_context_packet_path=context_packet_path,
+                round_index=round_index,
+                experiment_id=experiment_id,
                 max_steps=max_steps,
                 max_runtime_seconds=max_runtime_seconds,
                 apply_worker_changes=apply_worker_changes,
+                baseline_summary=baseline_summary,
+                incumbent_key=incumbent_key,
+                previous_rounds=round_records,
+                repair_attempts=effective_repair_attempts,
             )
         except Exception as exc:  # noqa: BLE001 - failed worker rounds are feedback, not loop-ending failures.
             exception_path = cycle_dir / "cycle_exception.txt"
@@ -214,6 +211,9 @@ def run_worker_loop(
         duplicate_proposal = proposal_fingerprint in seen_proposal_fingerprints
         seen_proposal_fingerprints.add(proposal_fingerprint)
         proposal_diagnostics = worker_proposal_diagnostics(cycle.worker_result)
+        repair_summary = in_round_repair_summary(in_round_attempts)
+        if repair_summary["repair_attempt_count"]:
+            proposal_diagnostics["in_round_repair"] = repair_summary
         candidate_key = summary_objective_key(cycle.summary, contract.objectives)
         promotion_check = evaluate_promotion_check(
             contract=contract,
@@ -261,6 +261,221 @@ def run_worker_loop(
     )
     write_loop_report(output_dir=output_dir, result=result)
     return result
+
+
+def run_worker_cycle_with_in_round_repairs(
+    *,
+    contract: TaskContract,
+    project_root: Path,
+    output_dir: Path,
+    base_context_packet_path: Path,
+    round_index: int,
+    worker: CodingWorker,
+    experiment_id: str,
+    max_steps: int,
+    max_runtime_seconds: int,
+    apply_worker_changes: bool,
+    baseline_summary: RunSummary,
+    incumbent_key: tuple[float, ...],
+    previous_rounds: list[LoopRoundRecord],
+    repair_attempts: int,
+) -> tuple[Any, Path, list[dict[str, Any]]]:
+    """Run one round, retrying repairable illegal candidates inside the same round."""
+
+    max_repair_attempts = max(0, int(repair_attempts))
+    attempts: list[dict[str, Any]] = []
+    last_cycle: Any | None = None
+    last_context_packet_path = output_dir / "context_packet.json"
+    for attempt_index in range(max_repair_attempts + 1):
+        attempt_dir = output_dir if attempt_index == 0 else output_dir / f"repair_{attempt_index:03d}"
+        repair_feedback = (
+            current_round_repair_feedback(
+                attempt_index=attempt_index,
+                max_repair_attempts=max_repair_attempts,
+                previous_attempts=attempts,
+            )
+            if attempt_index > 0
+            else None
+        )
+        last_context_packet_path = write_refreshed_context_packet(
+            base_context_packet_path=base_context_packet_path,
+            output_path=attempt_dir / "context_packet.json",
+            loop_feedback=loop_feedback_payload(
+                round_index=round_index,
+                contract=contract,
+                baseline_summary=baseline_summary,
+                baseline_key=summary_objective_key(baseline_summary, contract.objectives),
+                incumbent_key_before=incumbent_key,
+                incumbent_worktree=project_root,
+                previous_rounds=previous_rounds,
+                current_round_repair=repair_feedback,
+            ),
+            project_root=project_root,
+        )
+        last_cycle = run_worker_cycle(
+            contract=contract,
+            project_root=project_root,
+            output_dir=attempt_dir,
+            context_packet_path=last_context_packet_path,
+            worker=worker,
+            experiment_id=f"{experiment_id}_round_{round_index:03d}_attempt_{attempt_index:02d}",
+            max_steps=max_steps,
+            max_runtime_seconds=max_runtime_seconds,
+            apply_worker_changes=apply_worker_changes,
+        )
+        attempts.append(round_attempt_payload(last_cycle, attempt_index=attempt_index, context_packet_path=last_context_packet_path))
+        if attempt_index >= max_repair_attempts or not should_attempt_in_round_repair(last_cycle):
+            break
+
+    if last_cycle is None:
+        raise RuntimeError("worker cycle did not produce an attempt")
+    return last_cycle, last_context_packet_path, attempts
+
+
+def worker_loop_repair_attempt_budget(worker: CodingWorker, requested_attempts: int) -> int:
+    requested = max(0, int(requested_attempts))
+    if requested == 0:
+        return 0
+    try:
+        capabilities = worker.capabilities()
+    except Exception:  # noqa: BLE001 - missing capabilities should disable optional repair retries.
+        return 0
+    if not capabilities.supports_repair:
+        return 0
+    return requested
+
+
+def should_attempt_in_round_repair(cycle: Any) -> bool:
+    """Return whether a failed candidate should be repaired before spending a new round."""
+
+    judgment = getattr(cycle, "agentic_judgment", None)
+    if judgment is not None and not bool(getattr(judgment, "accepted", False)):
+        return True
+    summary = getattr(cycle, "summary", None)
+    if summary is None:
+        return False
+    total = int(getattr(summary, "total", 0) or 0)
+    valid = int(getattr(summary, "valid", 0) or 0)
+    failed = int(getattr(summary, "failed", 0) or 0)
+    if total == 0:
+        return False
+    return failed > 0 or valid < total
+
+
+def current_round_repair_feedback(
+    *,
+    attempt_index: int,
+    max_repair_attempts: int,
+    previous_attempts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    recent = previous_attempts[-3:]
+    return {
+        "status": "repair_required",
+        "attempt_index": attempt_index,
+        "max_repair_attempts": max_repair_attempts,
+        "previous_attempts": recent,
+        "must_do": [
+            "Treat the previous attempt as rejected inside this same round; do not repeat its anchors, unsafe actions, or protected-fact regressions.",
+            "Repair the listed JA/evaluator issues before introducing a new objective-improvement idea.",
+            "Preserve the incumbent worktree and promoted mechanisms; make one bounded legal edit that can pass JA and smoke before Core scoring.",
+        ],
+        "avoid": sorted(
+            {
+                signature
+                for attempt in recent
+                for signature in (attempt.get("failure_signatures") or [])
+                if isinstance(signature, str)
+            }
+        ),
+    }
+
+
+def round_attempt_payload(cycle: Any, *, attempt_index: int, context_packet_path: Path) -> dict[str, Any]:
+    judgment = getattr(cycle, "agentic_judgment", None)
+    analysis = getattr(cycle, "agentic_error_analysis", None)
+    summary = getattr(cycle, "summary", None)
+    worker_result = getattr(cycle, "worker_result", None)
+    diagnostics = worker_proposal_diagnostics(worker_result) if worker_result is not None else {"status": "missing"}
+    payload = {
+        "attempt_index": attempt_index,
+        "context_packet_path": str(context_packet_path),
+        "worker_status": getattr(worker_result, "status", None),
+        "changed_files": list(getattr(worker_result, "changed_files", []) or []),
+        "candidate_key": list(_summary_objective_key_from_cycle(cycle)),
+        "summary": compact_attempt_summary(summary),
+        "agentic_judgment": judgment.to_payload() if judgment else None,
+        "agentic_error_analysis": analysis.to_payload() if analysis else None,
+        "proposal_diagnostics": diagnostics,
+        "failure_signatures": attempt_failure_signatures(cycle, diagnostics),
+        "patch_path": str(getattr(cycle, "patch_path", "")),
+        "delta_path": str(getattr(cycle, "delta_path", "")),
+    }
+    return payload
+
+
+def _summary_objective_key_from_cycle(cycle: Any) -> tuple[float, ...]:
+    summary = getattr(cycle, "summary", None)
+    if summary is None:
+        return ()
+    best_metrics = getattr(summary, "best_metrics", None)
+    if not best_metrics:
+        return ()
+    makespan = best_metrics.get("makespan") if isinstance(best_metrics, dict) else None
+    if isinstance(makespan, (int, float)):
+        return (-float(makespan),)
+    return ()
+
+
+def compact_attempt_summary(summary: RunSummary | None) -> dict[str, Any] | None:
+    if summary is None:
+        return None
+    return {
+        "total": summary.total,
+        "valid": summary.valid,
+        "failed": summary.failed,
+        "best_experiment_id": summary.best_experiment_id,
+        "best_metrics": summary.best_metrics,
+        "best_candidate_id": summary.best_candidate_id,
+        "best_candidate_metrics": summary.best_candidate_metrics,
+        "validation_summary": summary.validation_summary or {},
+    }
+
+
+def attempt_failure_signatures(cycle: Any, diagnostics: dict[str, Any]) -> list[str]:
+    signatures: list[str] = []
+    judgment = getattr(cycle, "agentic_judgment", None)
+    if judgment is not None and not bool(getattr(judgment, "accepted", False)):
+        signatures.extend(str(item) for item in (getattr(judgment, "issues", []) or []) if item)
+    summary = getattr(cycle, "summary", None)
+    if summary is not None:
+        total = int(getattr(summary, "total", 0) or 0)
+        valid = int(getattr(summary, "valid", 0) or 0)
+        failed = int(getattr(summary, "failed", 0) or 0)
+        if total > 0 and (failed > 0 or valid < total):
+            signatures.append("evaluator_invalid_candidate")
+    audit = diagnostics.get("proposal_audit") if isinstance(diagnostics, dict) else None
+    if isinstance(audit, dict):
+        signatures.extend(str(item) for item in (audit.get("warnings") or []) if item)
+        if audit.get("rejected_change_count"):
+            signatures.append("proposal_changes_rejected")
+    return _dedupe([_normalize_failure_token(item) for item in signatures if item])
+
+
+def in_round_repair_summary(attempts: list[dict[str, Any]]) -> dict[str, Any]:
+    repair_attempt_count = max(0, len(attempts) - 1)
+    final_attempt = attempts[-1] if attempts else {}
+    final_judgment = final_attempt.get("agentic_judgment") if isinstance(final_attempt, dict) else {}
+    final_summary = final_attempt.get("summary") if isinstance(final_attempt, dict) else {}
+    final_accepted = bool(isinstance(final_judgment, dict) and final_judgment.get("accepted"))
+    final_total = int((final_summary or {}).get("total", 0) or 0) if isinstance(final_summary, dict) else 0
+    final_valid = int((final_summary or {}).get("valid", 0) or 0) if isinstance(final_summary, dict) else 0
+    return {
+        "attempt_count": len(attempts),
+        "repair_attempt_count": repair_attempt_count,
+        "recovered": bool(repair_attempt_count and final_accepted and (final_total == 0 or final_valid == final_total)),
+        "final_attempt_index": final_attempt.get("attempt_index"),
+        "attempts": attempts,
+    }
 
 
 def normalize_baseline_source(value: str) -> str:
@@ -614,9 +829,10 @@ def loop_feedback_payload(
     incumbent_key_before: tuple[float, ...],
     incumbent_worktree: Path,
     previous_rounds: list[LoopRoundRecord],
+    current_round_repair: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     ordered_objectives = sorted(contract.objectives, key=lambda item: item.priority)
-    return {
+    payload = {
         "purpose": "Provide evaluator-backed history for the next coding-worker proposal.",
         "round_index": round_index,
         "objective_key_order": [
@@ -648,6 +864,13 @@ def loop_feedback_payload(
             "Prefer small, reversible solver changes whose effect can be attributed in the next evaluator run.",
         ],
     }
+    if current_round_repair:
+        payload["current_round_repair"] = current_round_repair
+        payload["instructions"].insert(
+            0,
+            "This is an in-round repair attempt. First repair current_round_repair.previous_attempts before trying a new optimization idea.",
+        )
+    return payload
 
 
 def round_record_payload(item: LoopRoundRecord) -> dict[str, Any]:
