@@ -183,6 +183,7 @@ def judge_worker_result(
     protected_fact_regressions = _detect_protected_promoted_fact_regressions(
         context,
         proposal if isinstance(proposal, dict) else None,
+        worktree_path,
         worker_result.changed_files,
     )
     if protected_fact_regressions:
@@ -417,6 +418,7 @@ def _detect_agent_generated_runtime_import_risks(
 def _detect_protected_promoted_fact_regressions(
     context: dict[str, Any],
     proposal: dict[str, Any] | None,
+    worktree_path: Path,
     changed_files: list[str],
 ) -> list[str]:
     if not isinstance(proposal, dict):
@@ -438,6 +440,13 @@ def _detect_protected_promoted_fact_regressions(
         }
         if target_files and changed and not (target_files & changed):
             continue
+        if _is_feasibility_protection_fact(fact):
+            risks = _detect_incomplete_solution_acceptance_risks(worktree_path, list(changed))
+            if risks:
+                regressions.append(
+                    f"{fact.get('name') or 'promoted_fact'}: proposal reintroduces incomplete-solution risk"
+                )
+            continue
         keywords = _protected_fact_keywords(fact)
         for keyword in keywords:
             if _proposal_removes_keyword(proposal_text, keyword):
@@ -446,6 +455,17 @@ def _detect_protected_promoted_fact_regressions(
                 )
                 break
     return regressions
+
+
+def _is_feasibility_protection_fact(fact: dict[str, Any]) -> bool:
+    text = " ".join(
+        str(fact.get(key) or "")
+        for key in ("name", "novelty", "expected_effect", "protection_rule")
+    ).replace("_", " ").lower()
+    signals = ("incomplete", "partial", "empty", "coverage", "zero")
+    return ("schedule" in text or "solution" in text or "operation" in text) and any(
+        signal in text for signal in signals
+    )
 
 
 def _proposal_text_for_guard(proposal: dict[str, Any]) -> str:
@@ -491,6 +511,23 @@ def _protected_fact_keywords(fact: dict[str, Any]) -> list[str]:
         "rule",
         "dispatch",
         "policy",
+        "schedule",
+        "schedules",
+        "greedy",
+        "operation",
+        "operations",
+        "machine",
+        "machines",
+        "candidate",
+        "conditional",
+        "fallback",
+        "previous",
+        "attempt",
+        "directly",
+        "scored",
+        "zero",
+        "evaluation",
+        "preserve",
     }
     keywords: list[str] = []
     for token in re.findall(r"[a-zA-Z][a-zA-Z0-9-]{5,}", text.lower()):

@@ -166,8 +166,23 @@ def load_persisted_jobs(output_root: Path, *, limit: int = 30) -> None:
 
 def refresh_persisted_worker_summary(job: dict[str, Any]) -> None:
     artifacts = job.get("artifacts") if isinstance(job.get("artifacts"), dict) else {}
-    manifest_path = Path(str(artifacts.get("manifest") or ""))
-    if not manifest_path.exists():
+    manifest_value = str(artifacts.get("manifest") or "").strip()
+    manifest_path = Path(manifest_value) if manifest_value else None
+    if manifest_path is None or not manifest_path.exists():
+        worker_root = Path(str(job.get("job_dir") or "")) / "run" / "standard_worker_loop" / "worker_loop"
+        progress = summarize_code_evolution_progress(worker_root)
+        if progress:
+            summary = dict(job.get("summary") or {})
+            worker_summary = dict(summary.get("worker_summary") or {})
+            worker_summary.update(progress)
+            summary["worker_summary"] = worker_summary
+            summary["round_summary"] = {
+                "completed_round_count": progress.get("completed_round_count", 0),
+                "reflection_count": progress.get("completed_round_count", 0),
+                "harness_report_count": progress.get("evaluated_round_count", 0),
+                "round_dirs": progress.get("round_dirs", []),
+            }
+            job["summary"] = summary
         return
     manifest = read_json_file(manifest_path)
     if not manifest:
@@ -1337,16 +1352,21 @@ def scan_code_evolution_progress(job: dict[str, Any], worker_root: Path, seen: s
         record_progress_event(job, seen, "baseline-report", "基线 evaluator 已完成，开始进入 DeepSeek 代码演进轮次。")
 
     for round_dir in sorted(path for path in worker_root.glob("round_*") if path.is_dir()):
-        label = round_dir.name
-        if (round_dir / "context_packet.json").exists():
+        for attempt_dir, label in worker_attempt_dirs(round_dir):
+            scan_code_attempt_progress(job, seen, attempt_dir, label)
+    record_code_evolution_progress_summary(job, worker_root)
+
+
+def scan_code_attempt_progress(job: dict[str, Any], seen: set[str], attempt_dir: Path, label: str) -> None:
+        if (attempt_dir / "context_packet.json").exists():
             record_progress_event(job, seen, f"{label}:context", f"{label} 已生成上下文包，等待 DeepSeek CodingWorker 返回方案。")
-        raw_response = round_dir / "worker" / "deepseek_code_edit_raw.json"
+        raw_response = attempt_dir / "worker" / "deepseek_code_edit_raw.json"
         if raw_response.exists():
             record_progress_event(job, seen, f"{label}:raw", f"{label} DeepSeek 已返回原始代码修改响应。")
-        proposal = round_dir / "worker" / "proposal.md"
+        proposal = attempt_dir / "worker" / "proposal.md"
         if proposal.exists():
             record_progress_event(job, seen, f"{label}:proposal", f"{label} 已生成结构化代码修改 proposal。")
-        judgment = round_dir / "agentic_judgment.json"
+        judgment = attempt_dir / "agentic_judgment.json"
         if judgment.exists():
             judgment_payload = read_json_file(judgment)
             accepted = judgment_payload.get("accepted")
@@ -1358,7 +1378,7 @@ def scan_code_evolution_progress(job: dict[str, Any], worker_root: Path, seen: s
                 message = f"{label} JA 代码判断未通过，已阻止 evaluator：{summarize_list(issues)}"
                 level = "error"
             record_progress_event(job, seen, f"{label}:agentic-judgment", message, level=level)
-        error_analysis = round_dir / "agentic_error_analysis.json"
+        error_analysis = attempt_dir / "agentic_error_analysis.json"
         if error_analysis.exists():
             analysis_payload = read_json_file(error_analysis)
             diagnosis = analysis_payload.get("diagnosis") or []
@@ -1369,7 +1389,7 @@ def scan_code_evolution_progress(job: dict[str, Any], worker_root: Path, seen: s
                 f"{label} EAA 已生成错误分析：{summarize_list(diagnosis)}",
                 level="error" if diagnosis else "info",
             )
-        exception = round_dir / "cycle_exception.txt"
+        exception = attempt_dir / "cycle_exception.txt"
         if exception.exists():
             record_progress_event(
                 job,
@@ -1378,7 +1398,7 @@ def scan_code_evolution_progress(job: dict[str, Any], worker_root: Path, seen: s
                 f"{label} 执行异常，已作为下一轮反馈：{summarize_exception(exception)}",
                 level="error",
             )
-        cycle_result = round_dir / "cycle_result.json"
+        cycle_result = attempt_dir / "cycle_result.json"
         if cycle_result.exists():
             payload = read_json_file(cycle_result)
             worker = payload.get("worker", {}) if isinstance(payload, dict) else {}
@@ -1394,10 +1414,25 @@ def scan_code_evolution_progress(job: dict[str, Any], worker_root: Path, seen: s
                     f"valid={summary.get('valid', '-')}，makespan={format_progress_value(makespan)}。"
                 ),
             )
-        patch = round_dir / "worker_changes.patch"
+        patch = attempt_dir / "worker_changes.patch"
         if patch.exists() and patch.stat().st_size > 0:
             record_progress_event(job, seen, f"{label}:patch", f"{label} 产生候选代码 patch，等待提升判定。")
-    record_code_evolution_progress_summary(job, worker_root)
+
+
+def worker_attempt_dirs(round_dir: Path) -> list[tuple[Path, str]]:
+    attempts: list[tuple[Path, str]] = [(round_dir, round_dir.name)]
+    for repair_dir in sorted(path for path in round_dir.glob("repair_*") if path.is_dir()):
+        suffix = repair_dir.name.replace("repair_", "修补 ")
+        attempts.append((repair_dir, f"{round_dir.name} {suffix}"))
+    return attempts
+
+
+def final_worker_attempt_dir(round_dir: Path) -> Path:
+    final_dir = round_dir
+    for attempt_dir, _label in worker_attempt_dirs(round_dir):
+        if (attempt_dir / "cycle_result.json").exists():
+            final_dir = attempt_dir
+    return final_dir
 
 
 def monitor_awls_zi_progress(job: dict[str, Any], evolution_root: Path, stop_event: threading.Event) -> None:
@@ -1538,7 +1573,8 @@ def summarize_code_evolution_progress(worker_root: Path) -> dict[str, Any]:
         return {}
     evaluated_rounds: list[dict[str, Any]] = []
     for round_dir in round_dirs:
-        cycle_result = read_json_file(round_dir / "cycle_result.json")
+        final_dir = final_worker_attempt_dir(round_dir)
+        cycle_result = read_json_file(final_dir / "cycle_result.json")
         summary = cycle_result.get("harness") if isinstance(cycle_result.get("harness"), dict) else {}
         if summary:
             evaluated_rounds.append(summary)
@@ -1561,6 +1597,37 @@ def summarize_code_evolution_progress(worker_root: Path) -> dict[str, Any]:
         "latest_valid": int(latest_summary.get("valid", 0) or 0),
         "latest_failed": int(latest_summary.get("failed", 0) or 0),
         "round_dirs": [str(path.resolve()) for path in round_dirs],
+        "in_round_repair": summarize_progress_repair_dirs(round_dirs),
+    }
+
+
+def summarize_progress_repair_dirs(round_dirs: list[Path]) -> dict[str, Any]:
+    repair_round_count = 0
+    repair_attempt_count = 0
+    recovered_round_count = 0
+    final_rejected_after_repair = 0
+    for round_dir in round_dirs:
+        repair_dirs = [path for path in round_dir.glob("repair_*") if path.is_dir()]
+        if not repair_dirs:
+            continue
+        repair_round_count += 1
+        repair_attempt_count += len(repair_dirs)
+        final_dir = final_worker_attempt_dir(round_dir)
+        cycle_result = read_json_file(final_dir / "cycle_result.json")
+        judgment = cycle_result.get("agentic_judgment") if isinstance(cycle_result.get("agentic_judgment"), dict) else {}
+        summary = cycle_result.get("harness") if isinstance(cycle_result.get("harness"), dict) else {}
+        accepted = bool(judgment.get("accepted"))
+        total = int(summary.get("total", 0) or 0)
+        valid = int(summary.get("valid", 0) or 0)
+        if accepted and (total == 0 or valid == total):
+            recovered_round_count += 1
+        elif total == 0 and not accepted:
+            final_rejected_after_repair += 1
+    return {
+        "repair_round_count": repair_round_count,
+        "repair_attempt_count": repair_attempt_count,
+        "recovered_round_count": recovered_round_count,
+        "final_rejected_after_repair": final_rejected_after_repair,
     }
 
 

@@ -89,15 +89,20 @@ def run_worker_loop(
     normalized_baseline_source = normalize_baseline_source(baseline_source)
     baseline_generation: dict[str, Any] | None = None
     if normalized_baseline_source == "agent_generated":
+        baseline_worker_for_generation = baseline_worker or worker
         baseline_summary, baseline_worktree, baseline_generation = run_agent_generated_baseline(
             contract=contract,
             project_root=project_root,
             output_dir=output_dir,
             context_packet_path=context_packet_path,
-            worker=baseline_worker or worker,
+            worker=baseline_worker_for_generation,
             experiment_id=experiment_id,
             max_steps=max_steps,
             max_runtime_seconds=max_runtime_seconds,
+            repair_attempts=worker_loop_repair_attempt_budget(
+                baseline_worker_for_generation,
+                in_round_repair_attempts,
+            ),
         )
     else:
         baseline_worktree = output_dir / "baseline_worktree"
@@ -495,6 +500,7 @@ def run_agent_generated_baseline(
     experiment_id: str,
     max_steps: int,
     max_runtime_seconds: int,
+    repair_attempts: int = DEFAULT_IN_ROUND_REPAIR_ATTEMPTS,
 ) -> tuple[RunSummary, Path, dict[str, Any]]:
     """Ask the worker to create the initial solver before measuring baseline.
 
@@ -511,27 +517,56 @@ def run_agent_generated_baseline(
         contract=contract,
         output_dir=baseline_dir,
     )
-    baseline_context_path = write_baseline_generation_context_packet(
-        base_context_packet_path=context_packet_path,
-        output_path=baseline_dir / "context_packet.json",
-        hidden_incumbent_files=hidden_incumbent_files,
-    )
+    max_repair_attempts = max(0, int(repair_attempts))
+    baseline_context_path = baseline_dir / "context_packet.json"
+    attempts: list[dict[str, Any]] = []
     try:
-        cycle = run_worker_cycle(
-            contract=contract,
-            project_root=source_project,
-            output_dir=baseline_dir,
-            context_packet_path=baseline_context_path,
-            worker=worker,
-            experiment_id=f"{experiment_id}_agent_generated_baseline",
-            max_steps=max_steps,
-            max_runtime_seconds=max_runtime_seconds,
-            apply_worker_changes=True,
-        )
+        cycle: Any | None = None
+        for attempt_index in range(max_repair_attempts + 1):
+            attempt_dir = baseline_dir if attempt_index == 0 else baseline_dir / f"repair_{attempt_index:03d}"
+            repair_feedback = (
+                current_round_repair_feedback(
+                    attempt_index=attempt_index,
+                    max_repair_attempts=max_repair_attempts,
+                    previous_attempts=attempts,
+                )
+                if attempt_index > 0
+                else None
+            )
+            baseline_context_path = write_baseline_generation_context_packet(
+                base_context_packet_path=context_packet_path,
+                output_path=attempt_dir / "context_packet.json",
+                hidden_incumbent_files=hidden_incumbent_files,
+                current_round_repair=repair_feedback,
+            )
+            cycle = run_worker_cycle(
+                contract=contract,
+                project_root=source_project,
+                output_dir=attempt_dir,
+                context_packet_path=baseline_context_path,
+                worker=worker,
+                experiment_id=f"{experiment_id}_agent_generated_baseline_attempt_{attempt_index:02d}",
+                max_steps=max_steps,
+                max_runtime_seconds=max_runtime_seconds,
+                apply_worker_changes=True,
+            )
+            attempts.append(
+                round_attempt_payload(
+                    cycle,
+                    attempt_index=attempt_index,
+                    context_packet_path=baseline_context_path,
+                )
+            )
+            if attempt_index >= max_repair_attempts or not should_attempt_in_round_repair(cycle):
+                break
+        if cycle is None:
+            raise RuntimeError("agent-generated baseline did not produce a candidate")
+        repair_summary = in_round_repair_summary(attempts)
         generation_payload = {
             "status": "ok",
             "source": "agent_generated",
             "cycle_dir": str(baseline_dir),
+            "final_cycle_dir": str(Path(cycle.patch_path).parent),
             "context_packet_path": str(baseline_context_path),
             "source_project": str(source_project),
             "hidden_incumbent_files": hidden_incumbent_files,
@@ -539,6 +574,7 @@ def run_agent_generated_baseline(
             "worker_status": cycle.worker_result.status,
             "worker_changed_files": cycle.worker_result.changed_files,
             "proposal_diagnostics": worker_proposal_diagnostics(cycle.worker_result),
+            "in_round_repair": repair_summary,
             "summary": summary_payload(cycle.summary),
             "agentic_judgment": cycle.agentic_judgment.to_payload(),
             "agentic_error_analysis": cycle.agentic_error_analysis.to_payload()
@@ -627,6 +663,7 @@ def write_baseline_generation_context_packet(
     base_context_packet_path: Path,
     output_path: Path,
     hidden_incumbent_files: list[str] | None = None,
+    current_round_repair: dict[str, Any] | None = None,
 ) -> Path:
     packet = json.loads(base_context_packet_path.read_text(encoding="utf-8-sig"))
     parent_hash = packet.get("packet_hash") or _hash_text(json.dumps(packet, ensure_ascii=False, sort_keys=True))
@@ -649,6 +686,15 @@ def write_baseline_generation_context_packet(
         ],
         "hidden_incumbent_files": hidden_incumbent_files or [],
     }
+    if current_round_repair:
+        refreshed["loop_feedback"] = {
+            "round_index": "agent_generated_baseline",
+            "current_round_repair": current_round_repair,
+            "instructions": [
+                "This is an in-baseline repair attempt. Repair the previous baseline-generation proposal before Core measures baseline.",
+                "Keep this as baseline generation, not incumbent improvement: create a complete legal solver entrypoint from docs/IO.",
+            ],
+        }
     worker_instruction = dict(refreshed.get("worker_instruction") or {})
     required_order = list(worker_instruction.get("required_order") or [])
     generation_step = (

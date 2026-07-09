@@ -152,6 +152,46 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(2, summary["in_round_repair"]["repair_attempt_count"])
         self.assertEqual(1, summary["in_round_repair"]["recovered_round_count"])
 
+    def test_code_evolution_progress_uses_final_repair_attempt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            round_dir = root / "round_000"
+            repair_dir = round_dir / "repair_001"
+            round_dir.mkdir(parents=True)
+            repair_dir.mkdir(parents=True)
+            (round_dir / "cycle_result.json").write_text(
+                json.dumps(
+                    {
+                        "agentic_judgment": {"accepted": False},
+                        "harness": {"total": 0, "valid": 0, "failed": 0, "best_metrics": {}},
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (repair_dir / "cycle_result.json").write_text(
+                json.dumps(
+                    {
+                        "agentic_judgment": {"accepted": True},
+                        "harness": {
+                            "total": 10,
+                            "valid": 10,
+                            "failed": 0,
+                            "best_metrics": {"makespan": 1277.0, "gap_pct": 28.08},
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            summary = summarize_code_evolution_progress(root)
+
+        self.assertEqual(10, summary["latest_valid"])
+        self.assertEqual(1277.0, summary["latest_makespan"])
+        self.assertEqual(1, summary["in_round_repair"]["repair_attempt_count"])
+        self.assertEqual(1, summary["in_round_repair"]["recovered_round_count"])
+
     def test_deepseek_status_loads_explicit_env_file_without_returning_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             env_file = Path(tmp) / "agent.env"

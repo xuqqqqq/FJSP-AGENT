@@ -670,6 +670,56 @@ class ProtectedFactRegressionWorker:
         )
 
 
+class SafeFeasibilityProtectedEditWorker:
+    """Worker that edits a solver under an empty-schedule protected fact without reintroducing the risk."""
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="safe-feasibility-protected-edit",
+            supports_code_generation=True,
+            supports_repair=False,
+            supports_structured_output=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        output_dir = Path(spec.output_dir or spec.worktree_path)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        solver_path = Path(spec.worktree_path) / "examples" / "dummy_solver.py"
+        text = solver_path.read_text(encoding="utf-8")
+        solver_path.write_text(text.replace("10 + args.seed", "9 + args.seed"), encoding="utf-8")
+        proposal_path = output_dir / "proposal.json"
+        proposal_path.write_text(
+            json.dumps(
+                {
+                    "summary": "Remove the pure greedy schedule tie while preserving complete solution output.",
+                    "strategy_intent": "Safely tune the dispatch expression without touching feasibility guards.",
+                    "rule_operator_hypotheses": [
+                        {
+                            "name": "safe_dispatch_shift",
+                            "type": "dispatch_rule",
+                            "novelty": "Changes objective expression while preserving the promoted empty-schedule repair.",
+                            "expected_effect": "Improve dummy score under fixed evaluator.",
+                            "target_files": ["examples/dummy_solver.py"],
+                        }
+                    ],
+                    "changes": [{"path": "examples/dummy_solver.py", "action": "text_replace"}],
+                    "context_usage": {"used_project_intake": False, "referenced_files": ["examples/dummy_solver.py"]},
+                    "quick_test_plan": "python -m compileall examples/dummy_solver.py",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return WorkerResult(
+            status="applied",
+            changed_files=["examples/dummy_solver.py"],
+            summary="Safe edit under feasibility protected fact.",
+            artifacts={"proposal": str(proposal_path)},
+        )
+
+
 class WorkerLoopTests(unittest.TestCase):
     def test_refreshed_context_records_previous_round_and_duplicate_proposal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1161,6 +1211,44 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertIn("protected_promoted_fact_regression", result.agentic_judgment.issues)
             regressions = result.agentic_judgment.checks["protected_promoted_fact_regressions"]
             self.assertIn("normalization", regressions[0])
+
+    def test_feasibility_protected_fact_allows_safe_dispatch_edit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+            context = json.loads(context_path.read_text(encoding="utf-8"))
+            context["loop_feedback"] = {
+                "protected_promoted_facts": [
+                    {
+                        "round_index": 0,
+                        "name": "repair_empty_schedule_acceptance_risk",
+                        "type": "dispatch_rule",
+                        "target_files": ["examples/dummy_solver.py"],
+                        "novelty": (
+                            "This repair directly removes the conditional so that an empty schedule cannot be "
+                            "scored as zero."
+                        ),
+                        "expected_effect": "Eliminates incomplete_solution_acceptance_risk.",
+                    }
+                ]
+            }
+            context_path.write_text(json.dumps(context, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+            result = run_worker_cycle(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "cycle",
+                context_packet_path=context_path,
+                worker=SafeFeasibilityProtectedEditWorker(),
+                experiment_id="test_safe_feasibility_protected_edit",
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+            )
+
+            self.assertTrue(result.agentic_judgment.accepted)
+            self.assertEqual([], result.agentic_judgment.checks["protected_promoted_fact_regressions"])
 
     def test_code_judgment_rejects_incremental_edit_without_rule_hypothesis(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
