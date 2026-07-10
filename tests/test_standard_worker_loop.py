@@ -5,6 +5,7 @@ import unittest
 import json
 from pathlib import Path
 
+from harness_agent.cli import build_parser
 from harness_agent.project_intake import ProjectIntakeRequest, write_project_intake
 from harness_agent.slot_manifest import write_default_slot_manifest
 from harness_agent.standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop, standard_solver_command
@@ -68,6 +69,9 @@ class StandardWorkerLoopTests(unittest.TestCase):
             self.assertIn("latest_candidate_summary", manifest)
             self.assertEqual("rolled_back", manifest["rounds"][0]["decision"])
             self.assertEqual("missing", manifest["rounds"][0]["proposal_diagnostics"]["status"])
+            self.assertIn("agent_generated_quality", manifest)
+            self.assertFalse(manifest["agent_generated_quality"]["baseline"]["enabled"])
+            self.assertEqual(1, manifest["agent_generated_quality"]["round_count"])
             self.assertEqual(str(slot_manifest), manifest["request"]["slot_manifest"])
             self.assertEqual(str(Path(intake["artifacts"]["manifest"])), manifest["request"]["project_intake_manifest"])
             self.assertEqual(str(previous_memory), manifest["request"]["previous_pipeline_memory"])
@@ -106,6 +110,24 @@ class StandardWorkerLoopTests(unittest.TestCase):
         self.assertIn("--input {instance}", command)
         self.assertIn("--output {solution}", command)
         self.assertIn("--seed {seed}", command)
+
+    def test_standard_worker_cli_accepts_agent_generated_baseline_options(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "run-standard-worker-loop",
+                "--instance-dir",
+                "examples",
+                "--output-dir",
+                "outputs/test",
+                "--baseline-source",
+                "agent_generated",
+                "--agent-generated-solver-path",
+                "examples/custom_agent_generated.py",
+            ]
+        )
+
+        self.assertEqual("agent_generated", args.baseline_source)
+        self.assertEqual("examples/custom_agent_generated.py", args.agent_generated_solver_path)
 
 
 def _write_previous_memory(tmp_path: Path) -> Path:

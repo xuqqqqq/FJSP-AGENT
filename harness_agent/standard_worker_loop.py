@@ -316,6 +316,7 @@ def standard_worker_manifest(
         else summary_payload(loop_result.baseline_summary)
     )
     repair_stats = worker_loop_repair_stats(loop_result.rounds)
+    agent_quality = worker_loop_agent_quality_summary(loop_result)
     return {
         "status": "ok",
         "request": {
@@ -355,6 +356,7 @@ def standard_worker_manifest(
         "experience_memory": experience_memory,
         "skill_usage_records": skill_usage_records,
         "in_round_repair": repair_stats,
+        "agent_generated_quality": agent_quality,
         "final_worktree": str(loop_result.final_worktree),
         "baseline_summary": summary_payload(loop_result.baseline_summary),
         "final_summary": final_summary,
@@ -394,6 +396,89 @@ def worker_loop_repair_stats(rounds: list[Any]) -> dict[str, Any]:
     }
 
 
+def worker_loop_agent_quality_summary(loop_result: WorkerLoopResult) -> dict[str, Any]:
+    """Summarize generated-solver quality gates for operator-facing reports."""
+
+    baseline = loop_result.baseline_generation or {}
+    baseline_judgment = baseline.get("agentic_judgment") if isinstance(baseline, dict) else {}
+    baseline_checks = baseline_judgment.get("checks") if isinstance(baseline_judgment, dict) else {}
+    baseline_repair = baseline.get("in_round_repair") if isinstance(baseline, dict) else {}
+    round_summaries: list[dict[str, Any]] = []
+    ja_rejected_rounds = 0
+    quality_rejected_rounds = 0
+    self_check_rejected_rounds = 0
+    evaluator_valid_rounds = 0
+    for item in loop_result.rounds:
+        candidate_summary = item.candidate_summary or {}
+        validation = candidate_summary.get("validation_summary") if isinstance(candidate_summary, dict) else {}
+        judgment = validation.get("agentic_judgment") if isinstance(validation, dict) else {}
+        issues = judgment.get("issues") if isinstance(judgment, dict) else []
+        accepted = bool(judgment.get("accepted")) if isinstance(judgment, dict) else None
+        if accepted is False:
+            ja_rejected_rounds += 1
+        if isinstance(issues, list) and "agent_generated_solver_quality_contract_missing" in issues:
+            quality_rejected_rounds += 1
+        if isinstance(issues, list) and "agent_generated_solver_self_check_incomplete" in issues:
+            self_check_rejected_rounds += 1
+        total = int(candidate_summary.get("total", 0) or 0) if isinstance(candidate_summary, dict) else 0
+        valid = int(candidate_summary.get("valid", 0) or 0) if isinstance(candidate_summary, dict) else 0
+        if total > 0 and valid == total:
+            evaluator_valid_rounds += 1
+        round_summaries.append(
+            {
+                "round_index": item.round_index,
+                "decision": item.decision,
+                "ja_accepted": accepted,
+                "issues": issues if isinstance(issues, list) else [],
+                "quality_risk_count": _quality_risk_count_from_judgment(judgment, "agent_generated_solver_quality_risks"),
+                "self_check_risk_count": _quality_risk_count_from_judgment(
+                    judgment,
+                    "agent_generated_solver_self_check_risks",
+                ),
+                "evaluator_valid": bool(total > 0 and valid == total),
+                "candidate_key": list(item.candidate_key),
+            }
+        )
+    baseline_summary = {
+        "enabled": loop_result.baseline_source == "agent_generated",
+        "status": baseline.get("status") if isinstance(baseline, dict) else None,
+        "ja_accepted": bool(baseline_judgment.get("accepted")) if isinstance(baseline_judgment, dict) else None,
+        "quality_risk_count": _quality_risk_count_from_checks(baseline_checks, "agent_generated_solver_quality_risks"),
+        "self_check_risk_count": _quality_risk_count_from_checks(
+            baseline_checks,
+            "agent_generated_solver_self_check_risks",
+        ),
+        "repair_attempt_count": int((baseline_repair or {}).get("repair_attempt_count", 0) or 0)
+        if isinstance(baseline_repair, dict)
+        else 0,
+        "repair_recovered": bool((baseline_repair or {}).get("recovered")) if isinstance(baseline_repair, dict) else False,
+    }
+    return {
+        "baseline": baseline_summary,
+        "round_count": len(loop_result.rounds),
+        "ja_rejected_rounds": ja_rejected_rounds,
+        "quality_rejected_rounds": quality_rejected_rounds,
+        "self_check_rejected_rounds": self_check_rejected_rounds,
+        "evaluator_valid_rounds": evaluator_valid_rounds,
+        "promoted_rounds": sum(1 for item in loop_result.rounds if item.decision == "promoted"),
+        "rounds": round_summaries,
+    }
+
+
+def _quality_risk_count_from_judgment(judgment: Any, key: str) -> int:
+    if not isinstance(judgment, dict):
+        return 0
+    checks = judgment.get("checks")
+    return _quality_risk_count_from_checks(checks, key)
+
+
+def _quality_risk_count_from_checks(checks: Any, key: str) -> int:
+    if not isinstance(checks, dict):
+        return 0
+    value = checks.get(key)
+    return len(value) if isinstance(value, list) else 0
+
+
 def render_standard_worker_report(manifest: dict[str, Any]) -> str:
     lines = [
         "# Standard FJSP Worker Loop Report",
@@ -408,6 +493,7 @@ def render_standard_worker_report(manifest: dict[str, Any]) -> str:
         f"- Direction graph: `{json.dumps((manifest.get('hypothesis_graph') or {}).get('status_counts') or {}, ensure_ascii=False)}`",
         f"- Candidate lessons: `{len(((manifest.get('experience_memory') or {}).get('memory_tiers') or {}).get('candidate_lessons') or [])}`",
         f"- In-round repair: `{json.dumps(manifest.get('in_round_repair') or {}, ensure_ascii=False)}`",
+        f"- Agent quality: `{json.dumps(manifest.get('agent_generated_quality') or {}, ensure_ascii=False)}`",
         f"- Final worktree: `{manifest.get('final_worktree')}`",
         "",
         "## Artifacts",

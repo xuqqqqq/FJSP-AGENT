@@ -16,7 +16,10 @@ Use this skill to keep FJSP-variant support platform-first and contract-gated.
    `knowledge/papers/fjsp_agent_current_capability_20260704.md`.
 4. If the request concerns agent-generated FJSP-SDST solver evolution rather
    than AWLS slot adaptation, read
-   `knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md`.
+   `knowledge/papers/awls_sdst_agent_generated_transfer_notes.md` and
+   `knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md`,
+   then use `$fjsp-agent-generated-solver` for standalone-solver legality and
+   neighborhood guidance.
 5. If the request introduces industrial or non-standard constraints, read
    `knowledge/papers/fjsp_scene_survey_2025_10_17.md`.
 6. Identify variant constraints before proposing code: setup, lag/no-wait,
@@ -34,6 +37,9 @@ Use this skill to keep FJSP-variant support platform-first and contract-gated.
 - Keep generic backend code limited to loading contracts, diagnostics,
   domain-pack metadata, selected slots, knowledge-card snippets, and benchmark
   reports.
+- For standalone agent-generated solvers, keep decoder and neighborhood
+  patterns in skills or knowledge references. Do not put reusable solver code
+  in generic backend orchestration.
 - Do not hardcode SDST, no-wait, batching, transport, or other variant
   heuristics into generic orchestration.
 - Do not change parser/evaluator semantics unless the user confirms a new IO

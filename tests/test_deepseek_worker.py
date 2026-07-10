@@ -503,6 +503,15 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                 "status": "repair_required",
                 "attempt_index": 1,
                 "max_repair_attempts": 2,
+                "repair_targets": {
+                    "agent_generated_solver_quality_risks": [
+                        "agent_generated_solver: missing base capabilities: stable_operation_identity"
+                    ],
+                    "agent_generated_solver_expected_contract": {
+                        "active_features": ["alternative_machines"],
+                        "capabilities": ["stable_operation_identity"],
+                    },
+                },
                 "previous_attempts": [
                     {
                         "attempt_index": 0,
@@ -535,6 +544,8 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
 
         self.assertIn("old text not found", prompt_context)
         self.assertIn("best_schedule, best_makespan = local_search_insertion(best_schedule)", prompt_context)
+        self.assertIn("repair_targets", prompt_context)
+        self.assertIn("stable_operation_identity", prompt_context)
 
     def test_priority_worker_context_keeps_incumbent_before_large_rag_cards(self) -> None:
         context = _context_packet_with_intake()
@@ -787,6 +798,165 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         for forbidden_value in ("1096", "1102", "1138", "1131", "3817"):
             self.assertNotIn(forbidden_value, text)
 
+    def test_priority_worker_context_includes_variant_quality_contract(self) -> None:
+        context = _context_packet_with_intake()
+        context["task"] = {
+            "problem_family": "FJSP",
+            "description": "Generate an agent-generated FJSP-SDST solver from IO documents.",
+        }
+        context["evaluator_protocol"] = {
+            "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance} --output {solution} --seed {seed}",
+            "evaluator_command_template": "python examples/standard_fjsp_evaluator.py --instance {instance} --solution {solution} --metrics {metrics}",
+        }
+        context["instance_diagnostics"] = {
+            "status": "available",
+            "summary": {
+                "sdst_instance_count": 1,
+                "setup_time_kinds": ["job_pair"],
+            },
+        }
+
+        prompt_context = priority_worker_context(context)
+
+        self.assertIn("agent_generated_solver_quality_contract", prompt_context)
+        self.assertIn('"enabled": true', prompt_context)
+        self.assertIn("sequence_dependent_setup", prompt_context)
+        self.assertIn("complete_schedule_coverage_guard", prompt_context)
+        self.assertIn("capability_playbook", prompt_context)
+        self.assertIn("Cite the parser function", prompt_context)
+        self.assertIn("active_io_parser_rule", prompt_context)
+        self.assertIn("hardcoding", prompt_context)
+        self.assertIn("constructive_baseline_rule", prompt_context)
+        self.assertIn("operation-level ready list", prompt_context)
+        self.assertIn("solver_quality_playbook_rule", prompt_context)
+
+    def test_priority_worker_context_includes_agent_quality_memory(self) -> None:
+        context = _agent_generated_sdst_context()
+        context["loop_feedback"] = {
+            "experience_memory": {
+                "schema_version": 1,
+                "memory_tiers": {"candidate_lessons": []},
+                "agent_generated_quality_memory": {
+                    "attempt_count": 2,
+                    "rejected_attempt_count": 1,
+                    "recovered_direction_count": 1,
+                    "recurring_quality_risks": [
+                        {
+                            "text": "agent_generated_solver: missing base capabilities: active_io_parser, operation_level_ready_list_constructor",
+                            "count": 1,
+                        }
+                    ],
+                    "recurring_self_check_risks": [
+                        {
+                            "text": "solver_contract_self_check missing implemented capabilities: active_io_parser",
+                            "count": 1,
+                        }
+                    ],
+                    "next_prompt_rule": "Resolve recurring agent-generated quality gaps before objective tuning.",
+                },
+            }
+        }
+
+        prompt_context = priority_worker_context(context)
+
+        self.assertIn("agent_generated_quality_memory", prompt_context)
+        self.assertIn("operation_level_ready_list_constructor", prompt_context)
+        self.assertIn("experience_quality_memory_rule", prompt_context)
+        self.assertIn("before objective tuning", prompt_context)
+
+    def test_proposal_audit_requires_solver_contract_self_check_for_generated_solver(self) -> None:
+        worker = DeepSeekWorker()
+        context = _agent_generated_sdst_context()
+
+        missing = worker._normalize_code_edit_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "summary": "Create a generated solver without a self-check.",
+                "strategy_intent": "Write a standalone solver.",
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "operation_level_dispatch",
+                        "type": "dispatch_rule",
+                        "target_files": ["examples/agent_generated_fjsp_solver.py"],
+                    }
+                ],
+                "changes": [
+                    {
+                        "path": "examples/agent_generated_fjsp_solver.py",
+                        "action": "create_or_replace",
+                        "content": "print('solver')\n",
+                    }
+                ],
+            },
+            context,
+        )
+
+        self.assertIn(
+            "agent_generated_solver_self_check_missing",
+            missing["proposal_audit"]["warnings"],
+        )
+
+        complete = worker._normalize_code_edit_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "summary": "Create a generated solver with a self-check.",
+                "strategy_intent": "Write a standalone solver from the IO contract.",
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "operation_level_dispatch",
+                        "type": "dispatch_rule",
+                        "target_files": ["examples/agent_generated_fjsp_solver.py"],
+                    }
+                ],
+                "solver_contract_self_check": _complete_solver_self_check(),
+                "changes": [
+                    {
+                        "path": "examples/agent_generated_fjsp_solver.py",
+                        "action": "create_or_replace",
+                        "content": "print('solver')\n",
+                    }
+                ],
+            },
+            context,
+        )
+
+        audit = complete["proposal_audit"]["solver_contract_self_check"]
+        self.assertTrue(audit["required"])
+        self.assertTrue(audit["present"])
+        self.assertEqual([], audit["missing_capabilities"])
+        self.assertNotIn("agent_generated_solver_self_check_missing", complete["proposal_audit"]["warnings"])
+
+    def test_proposal_audit_warns_on_vague_solver_contract_evidence(self) -> None:
+        worker = DeepSeekWorker()
+        context = _agent_generated_sdst_context()
+        self_check = _complete_solver_self_check()
+        self_check["capabilities"][0]["evidence"] = "implemented"
+
+        normalized = worker._normalize_code_edit_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "summary": "Create a generated solver with vague self-check evidence.",
+                "strategy_intent": "Write a standalone solver from the IO contract.",
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "operation_level_dispatch",
+                        "type": "dispatch_rule",
+                        "target_files": ["examples/agent_generated_fjsp_solver.py"],
+                    }
+                ],
+                "solver_contract_self_check": self_check,
+                "changes": [
+                    {
+                        "path": "examples/agent_generated_fjsp_solver.py",
+                        "action": "create_or_replace",
+                        "content": "print('solver')\n",
+                    }
+                ],
+            },
+            context,
+        )
+
+        audit = normalized["proposal_audit"]["solver_contract_self_check"]
+        self.assertIn("agent_generated_solver_self_check_vague_evidence", audit["warnings"])
+        self.assertIn("standalone_cli_interface", audit["capabilities_with_vague_evidence"])
+
     def test_priority_worker_context_frontloads_relevant_knowledge_cards(self) -> None:
         context = _context_packet_with_intake()
         context["task"] = {
@@ -1020,6 +1190,68 @@ def _context_packet_with_iteration_contract(
         "whole_file_rewrite_policy": "Do not rewrite existing solver files during improvement rounds.",
     }
     return context
+
+
+def _agent_generated_sdst_context() -> dict[str, object]:
+    context = _context_packet_with_intake()
+    context["task"] = {
+        "problem_family": "FJSP",
+        "description": "Generate an agent-generated FJSP-SDST solver from IO documents.",
+    }
+    context["evaluator_protocol"] = {
+        "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance} --output {solution} --seed {seed}",
+        "evaluator_command_template": "python examples/standard_fjsp_evaluator.py --instance {instance} --solution {solution} --metrics {metrics}",
+    }
+    context["instance_diagnostics"] = {
+        "status": "available",
+        "summary": {
+            "sdst_instance_count": 1,
+            "setup_time_kinds": ["job_pair"],
+        },
+    }
+    return context
+
+
+def _complete_solver_self_check() -> dict[str, object]:
+    capabilities = [
+        "standalone_cli_interface",
+        "active_io_parser",
+        "declared_output_schema",
+        "stable_operation_identity",
+        "operation_level_ready_list_constructor",
+        "complete_schedule_coverage_guard",
+        "machine_eligibility_guard",
+        "processing_duration_guard",
+        "job_precedence_guard",
+        "machine_non_overlap_guard",
+        "bounded_runtime_or_iteration_guard",
+        "incumbent_preservation_on_failed_candidate",
+        "setup_aware_machine_arc_timing",
+        "setup_aware_full_decoder_for_sequence_moves",
+    ]
+    return {
+        "active_features": [
+            "alternative_machines",
+            "operation_precedence",
+            "machine_capacity",
+            "makespan_objective",
+            "sequence_dependent_setup",
+        ],
+        "capabilities": [
+            {
+                "name": name,
+                "status": "implemented",
+                "evidence": f"{name} is implemented in parse_instance/decode_schedule/improve.",
+            }
+            for name in capabilities
+        ],
+        "representation": "op_info uses (job_id, op_id), assignment maps op keys to machines, machine_sequences maps machines to op keys.",
+        "decoder": "decode_schedule rebuilds all starts/ends and returns None on duplicates, missing ops, deadlocks, or ineligible machines.",
+        "variant_handling": ["sequence_dependent_setup is applied between adjacent operations on each machine."],
+        "runtime_bounds": "max_restarts, max_iterations, and deadline bound all loops.",
+        "incumbent_preservation": "failed decode returns None and improve keeps best_schedule unless candidate_makespan is lower.",
+        "remaining_gaps": [],
+    }
 
 
 if __name__ == "__main__":

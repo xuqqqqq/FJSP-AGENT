@@ -1,0 +1,4 @@
+interface:
+  display_name: "FJSP Agent Solver"
+  short_description: "Guide agent-written FJSP solvers"
+  default_prompt: "Use $fjsp-agent-generated-solver when generating or evolving a standalone FJSP or FJSP-SDST solver from IO and requirement docs."

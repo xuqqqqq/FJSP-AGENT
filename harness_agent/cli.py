@@ -530,6 +530,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_awls_arguments(standard_worker, default_time_limit=10.0, include_worker_loop_controls=True)
     standard_worker.add_argument("--worker", choices=["null", "deepseek", "opencode"], default="null")
+    standard_worker.add_argument(
+        "--baseline-source",
+        choices=["current_project", "agent_generated"],
+        default="current_project",
+        help=(
+            "Use current_project to measure the existing solver first, or agent_generated "
+            "to ask the coding worker to create the initial solver before baseline measurement."
+        ),
+    )
+    standard_worker.add_argument(
+        "--agent-generated-solver-path",
+        default="examples/agent_generated_fjsp_solver.py",
+        help="Standalone solver entrypoint path used when --baseline-source agent_generated.",
+    )
     standard_worker.add_argument("--iterations", type=int, default=1)
     standard_worker.add_argument("--max-steps", type=int, default=4)
     standard_worker.add_argument("--max-runtime-seconds", type=int, default=120)
@@ -1369,6 +1383,8 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
             max_runtime_seconds=args.max_runtime_seconds,
             apply_worker_changes=bool(args.apply_worker),
             promotion_repeats=max(1, args.promotion_repeats),
+            baseline_source=args.baseline_source,
+            agent_generated_solver_path=args.agent_generated_solver_path,
             experiment_id=args.experiment_id,
             hypothesis=args.hypothesis
             or "Improve the standard FJSP solver under the fixed evaluator. State the rule-level idea before editing code.",
@@ -1379,6 +1395,7 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
             {
                 "status": manifest["status"],
                 "baseline_key": manifest["baseline_key"],
+                "baseline_source": manifest["baseline_source"],
                 "final_key": manifest["final_key"],
                 "improved": manifest["improved"],
                 "round_count": manifest["round_count"],

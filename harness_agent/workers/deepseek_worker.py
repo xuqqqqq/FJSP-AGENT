@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..deepseek_client import DeepSeekClient, DeepSeekUnavailable, is_deepseek_configured
+from ..solver_quality_contract import build_agent_generated_solver_quality_contract
 from ..slot_contract import extract_marked_block, replace_marked_block, validate_slot_manifest_gate
 from ..worker import CodingWorker, ExperimentSpec, WorkerCapabilities, WorkerResult
 
@@ -351,6 +352,22 @@ Return JSON only with this schema:
       "ablation_plan": "how Core can isolate this rule/operator effect in a later run"
     }}
   ],
+  "solver_contract_self_check": {{
+    "active_features": ["alternative_machines", "operation_precedence", "machine_capacity"],
+    "capabilities": [
+      {{
+        "name": "stable_operation_identity",
+        "status": "implemented",
+        "evidence": "op_info uses (job_id, op_id) keys; schedule output preserves job_id/op_id"
+      }}
+    ],
+    "representation": "which operation identity, assignment, and machine sequence structures the code uses",
+    "decoder": "which function rebuilds a complete schedule and how it rejects infeasible candidates",
+    "variant_handling": ["sequence_dependent_setup is applied on same-machine arcs inside decode_schedule"],
+    "runtime_bounds": "where restarts/iterations/windows/deadlines are capped",
+    "incumbent_preservation": "how failed candidates keep the incumbent schedule",
+    "remaining_gaps": []
+  }},
   "changes": [
     {{
       "path": "relative/path.py",
@@ -439,12 +456,49 @@ Rules:
   the task contract explicitly asks to implement those surfaces.  For standard
   FJSP runs, prefer importing the existing parser/evaluator helpers instead of
   reimplementing machine-index or duration parsing.
+- For agent-generated FJSP/FJSP-variant solvers, derive active features from
+  the requirement document, IO contract, evaluator protocol, and
+  instance_diagnostics before choosing an algorithm.  Do not assume the variant
+  is SDST; only implement setup, no-wait, lag, calendar, batching, transport,
+  release-date, due-date, or multi-objective logic when those features are
+  present in the active context.
+- If Priority context contains `agent_generated_solver_quality_contract.enabled
+  = true`, the code must satisfy its required_code_capabilities before
+  optimizing makespan: standalone --input/--output/--seed CLI, active IO
+  parser, declared JSON schedule schema, stable operation identity,
+  operation-level ready-list construction, complete schedule coverage, machine
+  eligibility, processing duration equality, precedence, machine non-overlap,
+  bounded runtime, and incumbent preservation when a candidate cannot be fully
+  decoded.
+- Active IO parser means the solver loops over the parsed jobs, operations,
+  candidate machines, processing times, and active variant data from the input
+  file.  A parser that calls read_text/split/json.load and then hardcodes
+  `op_info = {{(0, 0): ...}}`, a fixed `machine_sequences`, or a fixed schedule
+  is not an active parser and will be rejected.
+- When agent_generated_solver_quality_contract.enabled is true and you edit an
+  agent-generated solver, fill `solver_contract_self_check` before the changes:
+  list the active_features you detected from IO/requirements/diagnostics, mark
+  each required and variant_required capability as implemented/missing/not_applicable,
+  and cite concrete function names or guards as evidence.  Do not mark a
+  capability implemented unless the proposed code contains the evidence.
 - If evaluator_protocol.solver_command_template runs an agent-generated solver
   under `examples/agent_generated*.py`, treat generated solver/helper files as
   standalone example scripts. Do not import `harness_agent.*` from those files;
   keep small setup/decoder utilities self-contained or reuse helpers already
   present in the incumbent generated solver. Core will reject backend-package
   imports in that runtime.
+- During agent-generated baseline creation, first build a runnable standalone
+  solver from the IO contract: parser, one stable operation-key representation
+  (prefer `(job_id, op_id)`), operation-level ready-list constructor,
+  assignment/machine sequence or equivalent schedule representation, complete
+  decode/build path, JSON output schema, and self-checks for every active
+  constraint.  A fixed job-by-job greedy that does not compare ready operations
+  and eligible machines is not a sufficient generated baseline.
+- During agent-generated improvement rounds, preserve the promoted incumbent
+  parser and valid skeleton.  If the incumbent lacks a required contract
+  capability, repair that missing capability first; otherwise mutate exactly
+  one bounded rule/operator around the incumbent instead of writing a new
+  unrelated solver.
 - If project_intake is present, use it to identify entry files, core solver
   files, evaluator/validator files, and test commands before choosing edits.
 - In context_usage, explicitly list the project_intake files or commands that
@@ -475,6 +529,11 @@ Rules:
   makespan or score is computed; deadlocked/partial/empty schedules must be
   skipped or treated as infeasible, never as makespan 0; only replace the
   incumbent schedule after verifying identical operation coverage.
+- If active features include sequence-dependent setup, setup time is a machine
+  sequencing effect: candidate start times must include setup between adjacent
+  operations on the same machine, and any sequence/neighborhood move must be
+  full-decoded under setup before it can replace the incumbent.  If the active
+  context does not include setup, do not add SDST-specific assumptions.
 - If the task contract requires human confirmation, say so in risk_notes and
   avoid claiming formal success.
 - Do not include Markdown fences or commentary outside JSON.
@@ -503,7 +562,7 @@ Context packet:
                         "The following AlgoForge code-edit proposal was invalid JSON. "
                         "Repair only the JSON structure. Preserve the proposed strategy and code content as much as possible, "
                         "but if full file content is truncated or impossible to repair, return an empty changes list and explain the risk. "
-                        "Use exactly these top-level keys: summary, strategy_intent, rule_operator_hypotheses, changes, context_usage, quick_test_plan, risk_notes. "
+                        "Use exactly these top-level keys: summary, strategy_intent, rule_operator_hypotheses, solver_contract_self_check, changes, context_usage, quick_test_plan, risk_notes. "
                         "Each change must use one supported action: "
                         "replace_slot_block(path, slot_id, content), create_or_replace(path, content), text_replace(path, old, new), "
                         "insert_before(path, anchor, content), or insert_after(path, anchor, content). Return JSON only.\n\n"
@@ -646,6 +705,10 @@ Context packet:
             "rule_operator_hypotheses": normalize_rule_operator_hypotheses(
                 proposal.get("rule_operator_hypotheses")
             ),
+            "solver_contract_self_check": normalize_solver_contract_self_check(
+                proposal.get("solver_contract_self_check"),
+                context,
+            ),
             "changes": normalized_changes,
             "rejected_changes": rejected_changes,
             "context_usage": normalize_context_usage(proposal.get("context_usage")),
@@ -716,9 +779,11 @@ def normalize_strategy_profile(profile: dict[str, Any]) -> dict[str, Any]:
 
 
 def priority_worker_context(context: dict[str, Any]) -> str:
+    quality_contract = build_agent_generated_solver_quality_contract(context)
     payload = {
         "round_type": "improvement_round" if context.get("iteration_edit_contract") else "baseline_or_single_round",
         "iteration_edit_contract": context.get("iteration_edit_contract") or {},
+        "agent_generated_solver_quality_contract": quality_contract,
         "incumbent_requires_legality_repair": incumbent_requires_legality_repair(context),
         "legality_repair_rule": (
             "If incumbent_requires_legality_repair is true, the current incumbent is not a valid solver. "
@@ -757,6 +822,28 @@ def priority_worker_context(context: dict[str, Any]) -> str:
                 "cannot decode all operations, reject that neighbor and keep the incumbent schedule."
             ),
         },
+        "variant_feature_rule": (
+            "Use agent_generated_solver_quality_contract.active_features to decide which constraints must appear "
+            "in generated code. Standard FJSP needs coverage, eligibility, precedence, non-overlap, objective, "
+            "and bounded runtime guards. Add setup/no-wait/lag/calendar/batching/transport/release/due-date "
+            "logic only when the active context identifies those features."
+        ),
+        "active_io_parser_rule": (
+            "The active_io_parser capability requires deriving every job/operation/candidate machine and duration "
+            "from the active input file. Do not satisfy parser checks by reading the file and then hardcoding "
+            "op_info, assignment, machine_sequences, or a fixed one-operation schedule."
+        ),
+        "constructive_baseline_rule": (
+            "For an agent-generated baseline, use an operation-level ready list: keep one next operation per "
+            "unfinished job, evaluate eligible machines for each ready operation using job_ready/machine_ready "
+            "and active variant timing, then commit one operation with a seeded tie-break or restart policy. "
+            "Do not submit a fixed job-by-job sweep as the initial solver."
+        ),
+        "solver_quality_playbook_rule": (
+            "For each item in agent_generated_solver_quality_contract.capability_playbook, either implement the "
+            "capability and cite concrete code evidence in solver_contract_self_check.capabilities, or mark it "
+            "missing with a repair note. Do not claim a capability is implemented from strategy text alone."
+        ),
         "candidate_runtime_import_rule": (
             "When the solver command is an agent-generated examples/agent_generated*.py entrypoint, "
             "the entrypoint and helper modules under examples must run as standalone example scripts. "
@@ -780,6 +867,13 @@ def priority_worker_context(context: dict[str, Any]) -> str:
             "or failure mode, explain whether the proposal preserves, recovers, avoids, or intentionally "
             "ablates that mechanism. Do not treat prior instance scores as solver inputs. Cite "
             "knowledge_cards in evidence_used when it shapes the proposal."
+        ),
+        "experience_quality_memory_rule": (
+            "If loop_feedback.experience_memory.agent_generated_quality_memory reports recurring quality or "
+            "self-check risks, address those structural gaps first in the proposal summary, rule/operator "
+            "hypothesis, code evidence, and solver_contract_self_check. Do not spend a new heuristic idea "
+            "while the generated solver still lacks parser, representation, constructor, decoder, or active "
+            "variant evidence from the prior memory."
         ),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)[:priority_context_max_chars()]
@@ -929,9 +1023,26 @@ def compact_experience_memory_for_prompt(value: dict[str, Any]) -> dict[str, Any
         "schema_version": value.get("schema_version"),
         "write_policy": value.get("write_policy") or {},
         "candidate_lessons": compact_lessons,
+        "agent_generated_quality_memory": compact_agent_generated_quality_memory(
+            value.get("agent_generated_quality_memory") or {}
+        ),
         "skill_usage_summary": value.get("skill_usage_summary") or {},
         "self_evolution_metrics": value.get("self_evolution_metrics") or {},
         "next_context_guidance": (value.get("next_context_guidance") or [])[:6],
+    }
+
+
+def compact_agent_generated_quality_memory(value: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, dict) or not value:
+        return {}
+    return {
+        "attempt_count": value.get("attempt_count"),
+        "rejected_attempt_count": value.get("rejected_attempt_count"),
+        "recovered_direction_count": value.get("recovered_direction_count"),
+        "recurring_quality_risks": (value.get("recurring_quality_risks") or [])[:5],
+        "recurring_self_check_risks": (value.get("recurring_self_check_risks") or [])[:5],
+        "recurring_runtime_import_risks": (value.get("recurring_runtime_import_risks") or [])[:5],
+        "next_prompt_rule": str(value.get("next_prompt_rule") or "")[:1000],
     }
 
 
@@ -980,8 +1091,31 @@ def compact_current_round_repair(value: dict[str, Any]) -> dict[str, Any]:
         "max_repair_attempts": value.get("max_repair_attempts"),
         "must_do": value.get("must_do") or [],
         "avoid": value.get("avoid") or [],
+        "repair_targets": compact_repair_targets_for_prompt(value.get("repair_targets") or {}),
         "previous_attempts": compact_attempts,
     }
+
+
+def compact_repair_targets_for_prompt(value: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    compact: dict[str, Any] = {}
+    list_keys = [
+        "agent_generated_solver_quality_risks",
+        "agent_generated_solver_self_check_risks",
+        "incomplete_solution_acceptance_risks",
+        "protected_promoted_fact_regressions",
+        "apply_rejections",
+    ]
+    for key in list_keys:
+        items = value.get(key)
+        if isinstance(items, list) and items:
+            compact[key] = items[:8]
+    for key in ("python_compile_errors", "agent_generated_solver_expected_contract"):
+        item = value.get(key)
+        if isinstance(item, dict) and item:
+            compact[key] = item
+    return compact
 
 
 def compact_incumbent_code_context(incumbent_code_context: dict[str, Any]) -> dict[str, Any]:
@@ -1113,8 +1247,16 @@ def compact_priority_knowledge_cards(
         agent_generated_card = (
             "agent_generated" in haystack or "agent-generated" in haystack or "generated solver" in haystack
         )
+        awls_transfer_card = (
+            "agent-generated-transfer" in haystack
+            or "agent_generated_transfer" in haystack
+            or "method-transfer" in haystack
+            or "method transfer" in haystack
+        ) and "awls" in haystack
         if agent_generated_mode and agent_generated_card:
             score += 220
+        if agent_generated_mode and awls_transfer_card:
+            score += 140
         if agent_generated_mode and "fjsp_sdst_agent_generated_search_memory" in haystack:
             score += 80
         if agent_generated_mode and "fjsp_variant_domain_pack_rag" in haystack:
@@ -1194,6 +1336,12 @@ def compact_knowledge_card_snippet(snippet: str, *, query_terms: set[str], max_c
         "multi-start",
         "critical-block",
         "critical path",
+        "method transfer",
+        "agent-generated-transfer",
+        "awls-sdst method transfer",
+        "head/tail",
+        "rk/lk",
+        "aspiration",
         "anchor text",
         "old text",
         "regret",
@@ -1377,6 +1525,113 @@ def normalize_context_usage(value: Any) -> dict[str, Any]:
     }
 
 
+def normalize_solver_contract_self_check(value: Any, context: dict[str, Any]) -> dict[str, Any]:
+    quality_contract = build_agent_generated_solver_quality_contract(context)
+    if not isinstance(value, dict):
+        return {
+            "present": False,
+            "active_features": [],
+            "capabilities": [],
+            "representation": "",
+            "decoder": "",
+            "variant_handling": [],
+            "runtime_bounds": "",
+            "incumbent_preservation": "",
+            "remaining_gaps": [],
+            "expected_active_features": quality_contract.get("active_features", []),
+            "expected_capabilities": _quality_contract_capabilities(quality_contract),
+        }
+
+    active_features = _normalize_string_list(value.get("active_features"), limit=30, max_chars=80)
+    capabilities = normalize_solver_capability_records(value.get("capabilities"))
+    return {
+        "present": True,
+        "active_features": active_features,
+        "capabilities": capabilities,
+        "implemented_capabilities": sorted(
+            {
+                item["name"]
+                for item in capabilities
+                if item.get("status") == "implemented"
+            }
+        ),
+        "representation": str(value.get("representation", ""))[:1200],
+        "decoder": str(value.get("decoder", ""))[:1200],
+        "variant_handling": _normalize_string_list(value.get("variant_handling"), limit=20, max_chars=400),
+        "runtime_bounds": str(value.get("runtime_bounds", ""))[:1000],
+        "incumbent_preservation": str(value.get("incumbent_preservation", ""))[:1000],
+        "remaining_gaps": _normalize_string_list(value.get("remaining_gaps"), limit=20, max_chars=400),
+        "expected_active_features": quality_contract.get("active_features", []),
+        "expected_capabilities": _quality_contract_capabilities(quality_contract),
+    }
+
+
+def normalize_solver_capability_records(value: Any) -> list[dict[str, str]]:
+    if isinstance(value, dict):
+        raw_items: list[Any] = [
+            {"name": key, **(item if isinstance(item, dict) else {"evidence": item})}
+            for key, item in value.items()
+        ]
+    elif isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = []
+    records: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        if isinstance(item, str):
+            raw_name = item
+            status = "implemented"
+            evidence = ""
+        elif isinstance(item, dict):
+            raw_name = str(item.get("name") or item.get("capability") or "")
+            status = str(item.get("status") or "").strip().lower()
+            evidence = str(item.get("evidence") or item.get("where") or item.get("implementation") or "")
+        else:
+            continue
+        name = re.sub(r"[^A-Za-z0-9_.-]+", "_", raw_name.strip())[:96]
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        if status not in {"implemented", "missing", "not_applicable", "planned"}:
+            status = "implemented" if evidence else "missing"
+        records.append({"name": name, "status": status, "evidence": evidence[:1200]})
+        if len(records) >= 60:
+            break
+    return records
+
+
+def _normalize_string_list(value: Any, *, limit: int, max_chars: int) -> list[str]:
+    if isinstance(value, str):
+        raw_items: list[Any] = [value]
+    elif isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        text = str(item).strip()[:max_chars]
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _quality_contract_capabilities(quality_contract: dict[str, Any]) -> list[str]:
+    if not quality_contract.get("enabled"):
+        return []
+    capabilities: list[str] = []
+    for key in ("required_code_capabilities", "variant_required_code_capabilities"):
+        for item in quality_contract.get(key) or []:
+            if isinstance(item, str) and item not in capabilities:
+                capabilities.append(item)
+    return capabilities
+
+
 def normalize_rule_operator_hypotheses(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
@@ -1473,6 +1728,12 @@ def build_proposal_audit(proposal: dict[str, Any], context: dict[str, Any]) -> d
     )
     priority_knowledge = compact_priority_knowledge_cards(context, limit=5, max_chars_per_card=400)
     knowledge_referenced = _proposal_references_knowledge(proposal, priority_knowledge)
+    quality_contract = build_agent_generated_solver_quality_contract(context)
+    solver_self_check_audit = build_solver_contract_self_check_audit(
+        proposal.get("solver_contract_self_check") or {},
+        quality_contract=quality_contract,
+        accepted_paths=accepted_paths,
+    )
 
     warnings = []
     if project_intake and not (declared_usage.get("used_project_intake") or referenced_paths or touched_intake_paths):
@@ -1487,6 +1748,7 @@ def build_proposal_audit(proposal: dict[str, Any], context: dict[str, Any]) -> d
         warnings.append("quick_test_plan_does_not_reference_intake_test_command")
     if accepted_paths and priority_knowledge and not knowledge_referenced:
         warnings.append("priority_knowledge_cards_not_referenced")
+    warnings.extend(solver_self_check_audit["warnings"])
 
     return {
         "project_intake_present": bool(project_intake),
@@ -1504,6 +1766,7 @@ def build_proposal_audit(proposal: dict[str, Any], context: dict[str, Any]) -> d
         "referenced_test_commands": referenced_test_commands,
         "priority_knowledge_paths": [str(card.get("path") or "") for card in priority_knowledge],
         "declared_knowledge_used": knowledge_referenced,
+        "solver_contract_self_check": solver_self_check_audit,
         "project_intake_risk_codes": risk_codes,
         "operator_lineage": {
             "hypothesis_count": len(hypotheses),
@@ -1515,6 +1778,101 @@ def build_proposal_audit(proposal: dict[str, Any], context: dict[str, Any]) -> d
         },
         "warnings": warnings,
     }
+
+
+def build_solver_contract_self_check_audit(
+    self_check: dict[str, Any],
+    *,
+    quality_contract: dict[str, Any],
+    accepted_paths: list[str],
+) -> dict[str, Any]:
+    warnings: list[str] = []
+    changed_agent_generated_solver = any(_looks_like_agent_generated_solver_path(path) for path in accepted_paths)
+    if not quality_contract.get("enabled") or not changed_agent_generated_solver:
+        return {
+            "required": False,
+            "present": bool(self_check.get("present")),
+            "changed_agent_generated_solver": changed_agent_generated_solver,
+            "missing_active_features": [],
+            "missing_capabilities": [],
+            "capabilities_without_evidence": [],
+            "warnings": warnings,
+        }
+
+    if not self_check.get("present"):
+        warnings.append("agent_generated_solver_self_check_missing")
+        return {
+            "required": True,
+            "present": False,
+            "changed_agent_generated_solver": changed_agent_generated_solver,
+            "missing_active_features": quality_contract.get("active_features", []),
+            "missing_capabilities": _quality_contract_capabilities(quality_contract),
+            "capabilities_without_evidence": [],
+            "warnings": warnings,
+        }
+
+    declared_features = {str(item) for item in self_check.get("active_features") or []}
+    expected_features = {str(item) for item in quality_contract.get("active_features") or []}
+    missing_features = sorted(expected_features - declared_features)
+    if missing_features:
+        warnings.append("agent_generated_solver_self_check_missing_active_features")
+
+    implemented = {
+        str(item.get("name"))
+        for item in self_check.get("capabilities") or []
+        if isinstance(item, dict) and item.get("status") == "implemented"
+    }
+    expected_capabilities = set(_quality_contract_capabilities(quality_contract))
+    missing_capabilities = sorted(expected_capabilities - implemented)
+    if missing_capabilities:
+        warnings.append("agent_generated_solver_self_check_missing_required_capabilities")
+
+    capabilities_without_evidence = sorted(
+        str(item.get("name"))
+        for item in self_check.get("capabilities") or []
+        if isinstance(item, dict)
+        and item.get("status") == "implemented"
+        and not str(item.get("evidence") or "").strip()
+    )
+    if capabilities_without_evidence:
+        warnings.append("agent_generated_solver_self_check_missing_evidence")
+    vague_capability_evidence = sorted(
+        str(item.get("name"))
+        for item in self_check.get("capabilities") or []
+        if isinstance(item, dict)
+        and item.get("status") == "implemented"
+        and _solver_capability_evidence_is_vague(str(item.get("evidence") or ""))
+    )
+    if vague_capability_evidence:
+        warnings.append("agent_generated_solver_self_check_vague_evidence")
+
+    return {
+        "required": True,
+        "present": True,
+        "changed_agent_generated_solver": changed_agent_generated_solver,
+        "missing_active_features": missing_features,
+        "missing_capabilities": missing_capabilities,
+        "capabilities_without_evidence": capabilities_without_evidence,
+        "capabilities_with_vague_evidence": vague_capability_evidence,
+        "warnings": warnings,
+    }
+
+
+def _solver_capability_evidence_is_vague(evidence: str) -> bool:
+    stripped = evidence.strip().lower()
+    if not stripped:
+        return False
+    vague_values = {"done", "implemented", "yes", "ok", "handled", "supported", "complete"}
+    if stripped in vague_values:
+        return True
+    return len(stripped) < 20 and not any(token in stripped for token in ("def ", "parse", "decode", "guard", "check", "main"))
+
+
+def _looks_like_agent_generated_solver_path(path: str) -> bool:
+    normalized = normalize_relative_path(path).lower()
+    if not normalized.startswith("examples/") or not normalized.endswith(".py"):
+        return False
+    return "agent_generated" in normalized or "generated_fjsp" in normalized
 
 
 def _proposal_references_knowledge(proposal: dict[str, Any], priority_knowledge: list[dict[str, Any]]) -> bool:
@@ -1558,6 +1916,22 @@ def proposal_search_text(proposal: dict[str, Any]) -> str:
         str(proposal.get("quick_test_plan", "")),
         str((proposal.get("context_usage") or {}).get("notes", "")),
     ]
+    self_check = proposal.get("solver_contract_self_check") or {}
+    if isinstance(self_check, dict):
+        parts.extend(
+            [
+                " ".join(str(value) for value in self_check.get("active_features") or []),
+                str(self_check.get("representation") or ""),
+                str(self_check.get("decoder") or ""),
+                " ".join(str(value) for value in self_check.get("variant_handling") or []),
+                str(self_check.get("runtime_bounds") or ""),
+                str(self_check.get("incumbent_preservation") or ""),
+                " ".join(str(value) for value in self_check.get("remaining_gaps") or []),
+            ]
+        )
+        for item in self_check.get("capabilities") or []:
+            if isinstance(item, dict):
+                parts.extend([str(item.get("name") or ""), str(item.get("status") or ""), str(item.get("evidence") or "")])
     for item in proposal.get("rule_operator_hypotheses", []):
         if not isinstance(item, dict):
             continue
@@ -1884,6 +2258,36 @@ def render_code_edit_markdown(proposal: dict[str, Any]) -> str:
             ]
         )
     context_usage = proposal.get("context_usage") or {}
+    self_check = proposal.get("solver_contract_self_check") or {}
+    if self_check:
+        lines.extend(
+            [
+                "",
+                "## Solver Contract Self-Check",
+                "",
+                f"- present: `{self_check.get('present')}`",
+                f"- active_features: `{json.dumps(self_check.get('active_features') or [], ensure_ascii=False)}`",
+                f"- implemented_capabilities: `{json.dumps(self_check.get('implemented_capabilities') or [], ensure_ascii=False)}`",
+                f"- representation: {self_check.get('representation') or 'N/A'}",
+                f"- decoder: {self_check.get('decoder') or 'N/A'}",
+                f"- variant_handling: `{json.dumps(self_check.get('variant_handling') or [], ensure_ascii=False)}`",
+                f"- runtime_bounds: {self_check.get('runtime_bounds') or 'N/A'}",
+                f"- incumbent_preservation: {self_check.get('incumbent_preservation') or 'N/A'}",
+                f"- remaining_gaps: `{json.dumps(self_check.get('remaining_gaps') or [], ensure_ascii=False)}`",
+                "",
+            ]
+        )
+        capabilities = self_check.get("capabilities") or []
+        if capabilities:
+            lines.append("### Capability Evidence")
+            lines.append("")
+            for item in capabilities:
+                if not isinstance(item, dict):
+                    continue
+                lines.append(
+                    f"- `{item.get('name')}` / `{item.get('status')}`: {item.get('evidence') or 'N/A'}"
+                )
+            lines.append("")
     lines.extend(
         [
             "",
@@ -1908,6 +2312,7 @@ def render_code_edit_markdown(proposal: dict[str, Any]) -> str:
                 f"- changed_core_algorithm_files: `{json.dumps(audit.get('changed_core_algorithm_files') or [], ensure_ascii=False)}`",
                 f"- changed_validator_files: `{json.dumps(audit.get('changed_validator_files') or [], ensure_ascii=False)}`",
                 f"- referenced_test_commands: `{json.dumps(audit.get('referenced_test_commands') or [], ensure_ascii=False)}`",
+                f"- solver_contract_self_check: `{json.dumps(audit.get('solver_contract_self_check') or {}, ensure_ascii=False)}`",
                 f"- warnings: `{json.dumps(audit.get('warnings') or [], ensure_ascii=False)}`",
             ]
         )

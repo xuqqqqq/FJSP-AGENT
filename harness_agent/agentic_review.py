@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from .runner import RunSummary
+from .solver_quality_contract import build_agent_generated_solver_quality_contract
+from .solver_quality_contract import is_agent_generated_solver_context as _contract_agent_generated_context
 from .worker import WorkerResult
 
 
@@ -180,6 +182,43 @@ def judge_worker_result(
             "Keep small setup/decoder helpers self-contained or move the change back into the existing generated solver file."
         )
 
+    agent_generated_quality_contract = build_agent_generated_solver_quality_contract(context)
+    agent_generated_quality_risks = _detect_agent_generated_solver_quality_risks(
+        context=context,
+        worktree_path=worktree_path,
+        changed_files=worker_result.changed_files,
+        quality_contract=agent_generated_quality_contract,
+    )
+    if agent_generated_quality_risks:
+        issues.append("agent_generated_solver_quality_contract_missing")
+        suggestions.append(
+            "Repair the generated solver structure before evaluator execution: derive active variant features from "
+            "the IO/requirement context, keep one stable operation identity, and add complete coverage, eligibility, "
+            "precedence, non-overlap, and bounded-runtime guards."
+        )
+        if "sequence_dependent_setup" in agent_generated_quality_contract.get("active_features", []):
+            suggestions.append(
+                "For setup-aware instances, include setup on same-machine arcs and full-decode sequence/neighborhood "
+                "candidates before comparing makespan."
+            )
+        suggestions.append(
+            "If this is an improvement round, preserve the incumbent parser/skeleton and patch the missing capability "
+            "rather than replacing the solver with an unrelated implementation."
+        )
+
+    agent_generated_self_check_risks = _detect_agent_generated_solver_self_check_risks(
+        proposal=proposal if isinstance(proposal, dict) else None,
+        changed_files=worker_result.changed_files,
+        quality_contract=agent_generated_quality_contract,
+    )
+    if agent_generated_self_check_risks:
+        issues.append("agent_generated_solver_self_check_incomplete")
+        suggestions.append(
+            "Before editing an agent-generated FJSP solver, fill solver_contract_self_check with active features, "
+            "implemented required capabilities, concrete code evidence, runtime bounds, decoder evidence, and "
+            "incumbent-preservation evidence."
+        )
+
     protected_fact_regressions = _detect_protected_promoted_fact_regressions(
         context,
         proposal if isinstance(proposal, dict) else None,
@@ -205,6 +244,9 @@ def judge_worker_result(
         "parser_rewrite_files": parser_rewrite_files,
         "incomplete_solution_acceptance_risks": incomplete_solution_risks,
         "agent_generated_runtime_import_risks": agent_generated_import_risks,
+        "agent_generated_solver_quality_contract": agent_generated_quality_contract,
+        "agent_generated_solver_quality_risks": agent_generated_quality_risks,
+        "agent_generated_solver_self_check_risks": agent_generated_self_check_risks,
         "protected_promoted_fact_regressions": protected_fact_regressions,
     }
     judgment = AgenticJudgment(
@@ -220,17 +262,60 @@ def judge_worker_result(
 
 
 def analyze_rejected_judgment(*, judgment: AgenticJudgment, output_dir: Path) -> ErrorAnalysis:
+    detailed_diagnosis = _rejected_judgment_detail_lines(judgment)
     analysis = ErrorAnalysis(
         needed=True,
         source="code_judgment",
         diagnosis=[
             "The candidate was rejected before evaluator execution because the code judgment found blocking issues.",
             *judgment.issues,
+            *detailed_diagnosis,
         ],
         suggestions=judgment.suggestions,
     )
     write_error_analysis_artifacts(output_dir=output_dir, analysis=analysis)
     return analysis
+
+
+def _rejected_judgment_detail_lines(judgment: AgenticJudgment) -> list[str]:
+    checks = judgment.checks or {}
+    detail_specs = [
+        ("agent_generated_solver_quality_risks", "Agent-generated solver quality risks"),
+        ("agent_generated_solver_self_check_risks", "Agent-generated solver self-check risks"),
+        ("incomplete_solution_acceptance_risks", "Incomplete solution acceptance risks"),
+        ("python_compile_errors", "Python compile errors"),
+        ("apply_rejections", "Proposal apply rejections"),
+        ("protected_promoted_fact_regressions", "Protected promoted fact regressions"),
+    ]
+    details: list[str] = []
+    for key, label in detail_specs:
+        value = checks.get(key)
+        if value:
+            details.append(f"{label}: {_compact_json_for_diagnosis(value)}")
+    quality_contract = checks.get("agent_generated_solver_quality_contract")
+    if isinstance(quality_contract, dict) and quality_contract.get("enabled"):
+        capabilities = []
+        for key in ("required_code_capabilities", "variant_required_code_capabilities"):
+            for item in quality_contract.get(key) or []:
+                if isinstance(item, str) and item not in capabilities:
+                    capabilities.append(item)
+        details.append(
+            "Expected agent-generated solver contract: "
+            + _compact_json_for_diagnosis(
+                {
+                    "active_features": quality_contract.get("active_features") or [],
+                    "capabilities": capabilities,
+                }
+            )
+        )
+    return details
+
+
+def _compact_json_for_diagnosis(value: Any, *, limit: int = 1800) -> str:
+    text = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
 
 
 def analyze_run_summary(*, summary: RunSummary, output_dir: Path) -> ErrorAnalysis | None:
@@ -415,6 +500,460 @@ def _detect_agent_generated_runtime_import_risks(
     return risky
 
 
+def _detect_agent_generated_solver_quality_risks(
+    *,
+    context: dict[str, Any],
+    worktree_path: Path,
+    changed_files: list[str],
+    quality_contract: dict[str, Any],
+) -> list[str]:
+    if not quality_contract.get("enabled"):
+        return []
+    changed = [item.replace("\\", "/") for item in changed_files]
+    if not any(_is_agent_generated_example_path(path) for path in changed):
+        return []
+
+    sources = _agent_generated_solver_sources(worktree_path, changed)
+    if not sources:
+        return ["agent_generated_solver: no generated solver source was available for quality review"]
+
+    combined_text = "\n\n".join(f"# FILE {path}\n{text}" for path, text in sources.items())
+    combined_lower = combined_text.lower()
+    risks: list[str] = []
+    hardcoded_parser_risks = _detect_hardcoded_agent_generated_parser_risks(combined_text)
+    risks.extend(hardcoded_parser_risks)
+    missing = _missing_agent_generated_base_capabilities(combined_text)
+    if missing:
+        risks.append(f"agent_generated_solver: missing base capabilities: {', '.join(missing)}")
+
+    active_features = set(quality_contract.get("active_features") or [])
+    if "sequence_dependent_setup" in active_features:
+        setup_missing = _missing_setup_aware_capabilities(combined_text)
+        if setup_missing:
+            risks.append(f"agent_generated_solver: missing setup-aware capabilities: {', '.join(setup_missing)}")
+
+    sequence_move_terms = (
+        "local_search",
+        "neighborhood",
+        "relocate",
+        "relocation",
+        "insert",
+        "insertion",
+        "swap",
+        "destroy",
+        "repair",
+        "machine_sequence",
+        "machine_sequences",
+    )
+    if any(term in combined_lower for term in sequence_move_terms):
+        move_missing = _missing_sequence_move_capabilities(combined_text)
+        if move_missing:
+            risks.append(f"agent_generated_solver: sequence/neighborhood move lacks: {', '.join(move_missing)}")
+
+    for feature, terms in _VARIANT_FEATURE_CODE_TERMS.items():
+        if feature not in active_features:
+            continue
+        if not any(term in combined_lower for term in terms):
+            risks.append(f"agent_generated_solver: active feature `{feature}` is not reflected in solver code")
+    return risks
+
+
+def _detect_agent_generated_solver_self_check_risks(
+    *,
+    proposal: dict[str, Any] | None,
+    changed_files: list[str],
+    quality_contract: dict[str, Any],
+) -> list[str]:
+    if not proposal or not quality_contract.get("enabled"):
+        return []
+    changed = [item.replace("\\", "/") for item in changed_files]
+    if not any(_is_agent_generated_example_path(path) for path in changed):
+        return []
+
+    self_check = proposal.get("solver_contract_self_check")
+    if not isinstance(self_check, dict) or not self_check.get("present"):
+        return ["solver_contract_self_check is missing for an agent-generated FJSP solver edit"]
+
+    risks: list[str] = []
+    expected_features = {str(item) for item in quality_contract.get("active_features") or []}
+    declared_features = {str(item) for item in self_check.get("active_features") or []}
+    missing_features = sorted(expected_features - declared_features)
+    if missing_features:
+        risks.append(f"solver_contract_self_check missing active_features: {', '.join(missing_features)}")
+
+    expected_capabilities = set(_quality_contract_capabilities_for_review(quality_contract))
+    implemented = {
+        str(item.get("name"))
+        for item in self_check.get("capabilities") or []
+        if isinstance(item, dict) and item.get("status") == "implemented"
+    }
+    missing_capabilities = sorted(expected_capabilities - implemented)
+    if missing_capabilities:
+        risks.append(
+            "solver_contract_self_check missing implemented capabilities: "
+            + ", ".join(missing_capabilities)
+        )
+
+    evidence_missing = sorted(
+        str(item.get("name"))
+        for item in self_check.get("capabilities") or []
+        if isinstance(item, dict)
+        and item.get("status") == "implemented"
+        and str(item.get("name")) in expected_capabilities
+        and not str(item.get("evidence") or "").strip()
+    )
+    if evidence_missing:
+        risks.append("solver_contract_self_check missing evidence for: " + ", ".join(evidence_missing))
+
+    narrative_fields = [
+        ("representation", "representation evidence is missing"),
+        ("decoder", "decoder evidence is missing"),
+        ("runtime_bounds", "runtime bound evidence is missing"),
+        ("incumbent_preservation", "incumbent preservation evidence is missing"),
+    ]
+    for field, message in narrative_fields:
+        if not str(self_check.get(field) or "").strip():
+            risks.append(f"solver_contract_self_check {message}")
+
+    if "sequence_dependent_setup" in expected_features and not self_check.get("variant_handling"):
+        risks.append("solver_contract_self_check missing variant_handling for sequence_dependent_setup")
+    return risks
+
+
+def _quality_contract_capabilities_for_review(quality_contract: dict[str, Any]) -> list[str]:
+    result: list[str] = []
+    for key in ("required_code_capabilities", "variant_required_code_capabilities"):
+        for item in quality_contract.get(key) or []:
+            if isinstance(item, str) and item not in result:
+                result.append(item)
+    return result
+
+
+def _is_agent_generated_example_path(path: str) -> bool:
+    normalized = path.replace("\\", "/").lower()
+    if not (normalized.startswith("examples/") and normalized.endswith(".py")):
+        return False
+    return "agent_generated" in normalized or "generated_fjsp" in normalized
+
+
+def _agent_generated_solver_sources(worktree_path: Path, changed_files: list[str]) -> dict[str, str]:
+    candidates: set[str] = {
+        path
+        for path in changed_files
+        if path.replace("\\", "/").startswith("examples/") and path.endswith(".py")
+    }
+    examples_dir = worktree_path / "examples"
+    if examples_dir.exists():
+        for path in examples_dir.glob("agent_generated*.py"):
+            candidates.add(path.relative_to(worktree_path).as_posix())
+        for path in examples_dir.glob("*generated*fjsp*.py"):
+            candidates.add(path.relative_to(worktree_path).as_posix())
+    sources: dict[str, str] = {}
+    for relative in sorted(candidates):
+        path = worktree_path / relative
+        try:
+            sources[relative.replace("\\", "/")] = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+    return sources
+
+
+def _missing_agent_generated_base_capabilities(text: str) -> list[str]:
+    return [
+        name
+        for name, detector in [
+            ("standalone_cli_interface", _has_standalone_cli_interface),
+            ("active_io_parser", _has_active_io_parser),
+            ("declared_output_schema", _has_declared_output_schema),
+            ("stable_operation_identity", _has_stable_operation_identity),
+            ("operation_level_ready_list_constructor", _has_operation_level_ready_list_constructor),
+            ("complete_schedule_coverage_guard", _has_operation_coverage_guard),
+            ("machine_eligibility_guard", _has_machine_eligibility_guard),
+            ("processing_duration_guard", _has_processing_duration_guard),
+            ("job_precedence_guard", _has_job_precedence_guard),
+            ("machine_non_overlap_guard", _has_machine_non_overlap_guard),
+            ("bounded_runtime_or_iteration_guard", _has_bounded_runtime_or_iteration_guard),
+            ("incumbent_preservation_on_failed_candidate", _has_incumbent_preservation_guard),
+        ]
+        if not detector(text)
+    ]
+
+
+def _has_standalone_cli_interface(text: str) -> bool:
+    lowered = text.lower()
+    return (
+        "argparse" in lowered
+        and "--input" in lowered
+        and "--output" in lowered
+        and "--seed" in lowered
+        and ("if __name__" in lowered or "def main" in lowered)
+    )
+
+
+def _has_active_io_parser(text: str) -> bool:
+    lowered = text.lower()
+    parser_terms = ["def parse", "parse_instance", "read_instance", "load_instance"]
+    read_terms = ["read_text", "open(", ".read(", "json.load", "split()"]
+    if not (any(term in lowered for term in parser_terms) and any(term in lowered for term in read_terms)):
+        return False
+    if _detect_hardcoded_agent_generated_parser_risks(text):
+        return False
+    derived_operation_terms = [
+        "for job_id in range(job_count",
+        "for job_id, job in enumerate",
+        "for job in jobs",
+        "for op_id in range(op_count",
+        "for op_id, op in enumerate",
+        "candidate_count",
+        "candidates.append",
+        "eligible = {",
+        "op_info[op_key]",
+        "op_info[(job_id, op_id)]",
+    ]
+    return sum(1 for term in derived_operation_terms if term in lowered) >= 3
+
+
+def _detect_hardcoded_agent_generated_parser_risks(text: str) -> list[str]:
+    """Detect parser-shaped code that reads the file but ignores it for ops.
+
+    Generated solvers sometimes satisfy shallow lexical checks by calling
+    `read_text().split()` and then constructing a fixed one-operation
+    `op_info`.  That is not an active IO parser; it will pass tiny smoke tests
+    only by accident and cannot generalize to the actual instance.
+    """
+
+    risks: list[str] = []
+    hardcoded_patterns = [
+        r"\bop_info\s*=\s*\{\s*\(\s*\d+\s*,\s*\d+\s*\)\s*:",
+        r"\bassignment\s*=\s*\{\s*\(\s*\d+\s*,\s*\d+\s*\)\s*:",
+        r"\bmachine_sequences?\s*=\s*\{\s*\d+\s*:\s*\[\s*\(\s*\d+\s*,\s*\d+\s*\)",
+        r"\bschedule\s*=\s*\[\s*\{\s*['\"]job_id['\"]\s*:\s*\d+",
+    ]
+    if any(re.search(pattern, text, re.I | re.S) for pattern in hardcoded_patterns):
+        risks.append(
+            "agent_generated_solver: parser appears to hardcode toy operation metadata instead of deriving all jobs/operations/candidates from active IO"
+        )
+    return risks
+
+
+def _has_declared_output_schema(text: str) -> bool:
+    lowered = text.lower()
+    schema_terms = ["standard_fjsp_schedule_v1", '"schedule"', "'schedule'", "schedule:"]
+    field_terms = ["job_id", "op_id", "machine_id", "start", "end"]
+    write_terms = ["write_text", "json.dump", "json.dumps", "--output"]
+    return (
+        any(term in lowered for term in schema_terms)
+        and all(term in lowered for term in field_terms)
+        and any(term in lowered for term in write_terms)
+    )
+
+
+def _missing_setup_aware_capabilities(text: str) -> list[str]:
+    missing: list[str] = []
+    if not re.search(r"\bsetup(?:_time)?\b", text, re.I):
+        missing.append("setup_time_logic")
+    if not re.search(r"\bdecode\w*\s*\(", text, re.I):
+        missing.append("setup_aware_decoder")
+    setup_arc_terms = [
+        r"prev(?:ious)?_.*setup",
+        r"setup.*prev(?:ious)?_",
+        r"last_.*setup",
+        r"setup.*last_",
+        r"machine_sequences?",
+    ]
+    if not any(re.search(pattern, text, re.I | re.S) for pattern in setup_arc_terms):
+        missing.append("same_machine_setup_arc")
+    return missing
+
+
+def _missing_sequence_move_capabilities(text: str) -> list[str]:
+    missing: list[str] = []
+    if not re.search(r"\bassignment\b", text, re.I):
+        missing.append("operation_to_machine_assignment")
+    if not re.search(r"\bmachine_sequences?\b", text, re.I):
+        missing.append("machine_sequences")
+    if not re.search(r"\bdecode\w*\s*\(", text, re.I):
+        missing.append("full_decoder")
+    if not _has_operation_coverage_guard(text):
+        missing.append("post_move_coverage_guard")
+    if not _has_incumbent_preservation_guard(text):
+        missing.append("keep_incumbent_on_failed_move")
+    return missing
+
+
+def _has_stable_operation_identity(text: str) -> bool:
+    lowered = text.lower()
+    pair_like = (
+        "(job_id, op_id)" in lowered
+        or "(job, op)" in lowered
+        or "op_key" in lowered
+        or "operation_key" in lowered
+    )
+    return pair_like and ("op_info" in lowered or "operations" in lowered or "all_ops" in lowered)
+
+
+def _has_operation_level_ready_list_constructor(text: str) -> bool:
+    lowered = text.lower()
+    ready_terms = [
+        "ready_ops",
+        "ready_operations",
+        "ready_candidates",
+        "ready_choices",
+        "next_op_by_job",
+        "next_operation",
+        "job_next",
+        "remaining_jobs",
+    ]
+    next_operation_terms = [
+        "next_op_by_job[job_id]",
+        "job_next[job_id]",
+        "next_operation[job_id]",
+        "op_id = next",
+        "op_id == next",
+        "op_id > 0",
+    ]
+    eligible_machine_terms = [
+        "for machine_id, duration in eligible.items()",
+        "for machine_id, processing_time in eligible.items()",
+        "for machine_id, proc_time in eligible.items()",
+        "for machine_id in eligible",
+        "for machine_id, duration in candidates",
+        "for machine_id, processing_time in candidates",
+    ]
+    selection_terms = [
+        "best_choice",
+        "best_candidate",
+        "min(",
+        "sort(",
+        ".sort(",
+        "rng.choice",
+        "random.choice",
+        "shuffle(",
+        "seed",
+        "multi_start",
+        "restarts",
+    ]
+    state_terms = ["job_ready", "machine_ready", "assignment", "machine_sequences", "schedule.append"]
+    return (
+        any(term in lowered for term in ready_terms)
+        and any(term in lowered for term in next_operation_terms)
+        and any(term in lowered for term in eligible_machine_terms)
+        and any(term in lowered for term in selection_terms)
+        and sum(1 for term in state_terms if term in lowered) >= 3
+    )
+
+
+def _has_operation_coverage_guard(text: str) -> bool:
+    lowered = text.lower()
+    coverage_terms = [
+        "expected_ops",
+        "total_ops",
+        "operation_count",
+        "all_ops",
+        "required_ops",
+        "seen_ops",
+        "missing_ops",
+    ]
+    duplicate_terms = ["duplicate", "seen_ops", "seen.add", "set(schedule", "len(set("]
+    schedule_terms = ["len(schedule)", "len(result)", "len(decoded)", "len(best_schedule)", "len(candidate_schedule)"]
+    return (
+        any(term in lowered for term in coverage_terms)
+        and any(term in lowered for term in schedule_terms)
+        and any(term in lowered for term in duplicate_terms)
+    )
+
+
+def _has_machine_eligibility_guard(text: str) -> bool:
+    lowered = text.lower()
+    eligibility_terms = ["eligible", "candidates", "machine_options", "options", "candidate_machines"]
+    machine_terms = ["machine_id", "machine"]
+    rejection_terms = ["not in", "continue", "return none", "raise valueerror", "infeasible"]
+    return (
+        any(term in lowered for term in eligibility_terms)
+        and any(term in lowered for term in machine_terms)
+        and any(term in lowered for term in rejection_terms)
+    )
+
+
+def _has_processing_duration_guard(text: str) -> bool:
+    lowered = text.lower()
+    duration_terms = ["duration", "processing_time", "proc_time", "eligible[machine_id]", "options[machine_id]"]
+    interval_terms = ["end - start", "start + duration", "start + processing", "start + proc"]
+    rejection_terms = ["return none", "raise valueerror", "continue", "assert", "!="]
+    return (
+        any(term in lowered for term in duration_terms)
+        and any(term in lowered for term in interval_terms)
+        and any(term in lowered for term in rejection_terms)
+    )
+
+
+def _has_job_precedence_guard(text: str) -> bool:
+    lowered = text.lower()
+    return (
+        ("job_ready" in lowered or "job_end" in lowered or "predecessor" in lowered or "prev_op" in lowered)
+        and ("start" in lowered and "end" in lowered)
+    )
+
+
+def _has_machine_non_overlap_guard(text: str) -> bool:
+    lowered = text.lower()
+    return (
+        ("machine_ready" in lowered or "machine_end" in lowered or "machine_available" in lowered or "prev_end" in lowered)
+        and ("start" in lowered and "end" in lowered)
+    )
+
+
+def _has_bounded_runtime_or_iteration_guard(text: str) -> bool:
+    lowered = text.lower()
+    return any(
+        term in lowered
+        for term in [
+            "deadline",
+            "time_limit",
+            "perf_counter",
+            "max_iterations",
+            "max_iter",
+            "max_trials",
+            "max_restarts",
+            "restart_count",
+            "range(restarts",
+        ]
+    )
+
+
+def _has_incumbent_preservation_guard(text: str) -> bool:
+    lowered = text.lower()
+    keep_terms = [
+        "best_schedule",
+        "incumbent",
+        "current_best",
+        "best_candidate",
+    ]
+    reject_terms = [
+        "return none",
+        "continue",
+        "if candidate is none",
+        "if decoded is none",
+        "keep",
+        "strictly improves",
+        "< best_makespan",
+        "candidate_makespan <",
+    ]
+    return any(term in lowered for term in keep_terms) and any(term in lowered for term in reject_terms)
+
+
+_VARIANT_FEATURE_CODE_TERMS = {
+    "no_wait": ["no_wait", "no-wait"],
+    "time_lag": ["time_lag", "time lag", "lag_min", "lag_max"],
+    "machine_calendar": ["calendar", "availability", "unavailable"],
+    "batching": ["batch", "capacity"],
+    "transportation": ["transport", "travel"],
+    "release_dates": ["release", "release_time"],
+    "due_dates": ["due", "tardiness", "lateness"],
+    "multi_objective": ["objective", "priority", "weighted"],
+}
+
+
 def _detect_protected_promoted_fact_regressions(
     context: dict[str, Any],
     proposal: dict[str, Any] | None,
@@ -555,15 +1094,7 @@ def _proposal_removes_keyword(proposal_text: str, keyword: str) -> bool:
 
 
 def _is_agent_generated_solver_context(context: dict[str, Any]) -> bool:
-    protocol = context.get("evaluator_protocol") if isinstance(context.get("evaluator_protocol"), dict) else {}
-    solver_command = str(protocol.get("solver_command_template") or "")
-    if "agent_generated" in solver_command.replace("\\", "/"):
-        return True
-    generation = context.get("baseline_generation") if isinstance(context.get("baseline_generation"), dict) else {}
-    if str(generation.get("source") or "") == "agent_generated":
-        return True
-    instruction_text = json.dumps(context.get("worker_instruction") or {}, ensure_ascii=False)
-    return "agent-generated" in instruction_text or "agent_generated" in instruction_text
+    return _contract_agent_generated_context(context)
 
 
 def _incomplete_solution_risk_reasons(text: str) -> list[str]:

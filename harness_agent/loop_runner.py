@@ -402,20 +402,28 @@ def current_round_repair_feedback(
         if isinstance(attempt, dict)
     )
     status = "refinement_required" if legal_no_improvement else "repair_required"
+    repair_targets = collect_current_round_repair_targets(recent)
+    must_do = [
+        "Treat the previous attempt as rejected inside this same direction; do not repeat its anchors, unsafe actions, or protected-fact regressions.",
+        (
+            "If the previous attempt was legal but not strictly better, keep the same direction and make a material refinement "
+            "to the rule/operator mechanism before trying a new direction."
+        ),
+        "Repair the listed JA/evaluator issues before introducing an unrelated objective-improvement idea.",
+        "Preserve the incumbent worktree and promoted mechanisms; make one bounded legal edit that can pass JA and smoke before Core scoring.",
+    ]
+    if repair_targets:
+        must_do.append(
+            "Repair every item in repair_targets explicitly. If agent-generated solver quality/self-check targets are present, "
+            "update solver_contract_self_check and the actual code evidence in the same proposal before changing the optimization idea."
+        )
     return {
         "status": status,
         "attempt_index": attempt_index,
         "max_repair_attempts": max_repair_attempts,
         "previous_attempts": recent,
-        "must_do": [
-            "Treat the previous attempt as rejected inside this same direction; do not repeat its anchors, unsafe actions, or protected-fact regressions.",
-            (
-                "If the previous attempt was legal but not strictly better, keep the same direction and make a material refinement "
-                "to the rule/operator mechanism before trying a new direction."
-            ),
-            "Repair the listed JA/evaluator issues before introducing an unrelated objective-improvement idea.",
-            "Preserve the incumbent worktree and promoted mechanisms; make one bounded legal edit that can pass JA and smoke before Core scoring.",
-        ],
+        "repair_targets": repair_targets,
+        "must_do": must_do,
         "avoid": sorted(
             {
                 signature
@@ -425,6 +433,63 @@ def current_round_repair_feedback(
             }
         ),
     }
+
+
+def collect_current_round_repair_targets(attempts: list[dict[str, Any]]) -> dict[str, Any]:
+    targets: dict[str, Any] = {}
+
+    def add_list(key: str, value: Any, *, limit: int = 8) -> None:
+        if not isinstance(value, list) or not value:
+            return
+        existing = targets.setdefault(key, [])
+        if not isinstance(existing, list):
+            existing = []
+            targets[key] = existing
+        for item in value:
+            if item not in existing:
+                existing.append(item)
+            if len(existing) >= limit:
+                break
+
+    def add_dict(key: str, value: Any, *, limit: int = 8) -> None:
+        if not isinstance(value, dict) or not value:
+            return
+        existing = targets.setdefault(key, {})
+        if not isinstance(existing, dict):
+            existing = {}
+            targets[key] = existing
+        for index, (item_key, item_value) in enumerate(value.items()):
+            if index >= limit:
+                break
+            existing[str(item_key)] = item_value
+
+    for attempt in attempts:
+        if not isinstance(attempt, dict):
+            continue
+        judgment = attempt.get("agentic_judgment") if isinstance(attempt.get("agentic_judgment"), dict) else {}
+        checks = judgment.get("checks") if isinstance(judgment.get("checks"), dict) else {}
+        add_list("agent_generated_solver_quality_risks", checks.get("agent_generated_solver_quality_risks"))
+        add_list("agent_generated_solver_self_check_risks", checks.get("agent_generated_solver_self_check_risks"))
+        add_list("incomplete_solution_acceptance_risks", checks.get("incomplete_solution_acceptance_risks"))
+        add_list("protected_promoted_fact_regressions", checks.get("protected_promoted_fact_regressions"))
+        add_dict("python_compile_errors", checks.get("python_compile_errors"))
+        apply_rejections = checks.get("apply_rejections")
+        if isinstance(apply_rejections, list):
+            add_list("apply_rejections", apply_rejections)
+
+        quality_contract = checks.get("agent_generated_solver_quality_contract")
+        if isinstance(quality_contract, dict) and quality_contract.get("enabled"):
+            expected_capabilities: list[str] = []
+            for key in ("required_code_capabilities", "variant_required_code_capabilities"):
+                for item in quality_contract.get(key) or []:
+                    if isinstance(item, str) and item not in expected_capabilities:
+                        expected_capabilities.append(item)
+            targets["agent_generated_solver_expected_contract"] = {
+                "active_features": (quality_contract.get("active_features") or [])[:16],
+                "capabilities": expected_capabilities[:24],
+                "capability_playbook": (quality_contract.get("capability_playbook") or [])[:24],
+            }
+    return targets
 
 
 def round_attempt_payload(

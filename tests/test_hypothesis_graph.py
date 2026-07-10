@@ -75,6 +75,29 @@ class HypothesisGraphTests(unittest.TestCase):
                                 "changed_files": ["examples/helper.py"],
                                 "candidate_key": [float("-inf")],
                                 "failure_signatures": ["proposal_apply_rejections"],
+                                "agentic_judgment": {
+                                    "accepted": False,
+                                    "issues": [
+                                        "agent_generated_solver_quality_contract_missing",
+                                        "agent_generated_solver_self_check_incomplete",
+                                    ],
+                                    "checks": {
+                                        "agent_generated_solver_quality_risks": [
+                                            "agent_generated_solver: missing base capabilities: active_io_parser, operation_level_ready_list_constructor",
+                                        ],
+                                        "agent_generated_solver_self_check_risks": [
+                                            "solver_contract_self_check missing implemented capabilities: active_io_parser",
+                                        ],
+                                        "agent_generated_solver_quality_contract": {
+                                            "active_features": ["alternative_machines"],
+                                            "required_code_capabilities": [
+                                                "active_io_parser",
+                                                "operation_level_ready_list_constructor",
+                                            ],
+                                            "variant_required_code_capabilities": [],
+                                        },
+                                    },
+                                },
                             },
                             {
                                 "attempt_index": 1,
@@ -103,7 +126,14 @@ class HypothesisGraphTests(unittest.TestCase):
         lessons = memory["memory_tiers"]["candidate_lessons"]
         self.assertTrue(any(item["lesson_type"] == "successful_strategy" for item in lessons))
         self.assertTrue(any(item["lesson_type"] == "repair_recovery" for item in lessons))
+        self.assertTrue(any(item["lesson_type"] == "agent_generated_quality_gap" for item in lessons))
         self.assertTrue(memory["write_policy"]["no_instance_score_as_method"])
+        quality_memory = memory["agent_generated_quality_memory"]
+        self.assertEqual(1, quality_memory["rejected_attempt_count"])
+        self.assertEqual(1, quality_memory["recovered_direction_count"])
+        self.assertIn("active_io_parser", quality_memory["recurring_quality_risks"][0]["text"])
+        self.assertIn("parser/representation/constructor", quality_memory["next_prompt_rule"])
+        self.assertEqual(1, memory["self_evolution_metrics"]["agent_quality_rejected_attempt_count"])
         self.assertGreaterEqual(memory["skill_usage_summary"]["promoted_usage_count"], 1)
 
 

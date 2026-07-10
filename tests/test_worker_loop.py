@@ -6,8 +6,9 @@ import unittest
 from pathlib import Path
 
 from harness_agent.context_packet import ContextPacketRequest, write_context_packet
-from harness_agent.loop_runner import run_worker_loop
+from harness_agent.loop_runner import current_round_repair_feedback, run_worker_loop
 from harness_agent.models import TaskContract
+from harness_agent.standard_worker_loop import worker_loop_agent_quality_summary
 from harness_agent.worker import NullWorker, WorkerCapabilities, WorkerResult
 from harness_agent.worker_cycle import render_worktree_patch, run_worker_cycle
 
@@ -673,6 +674,106 @@ class AgentBaselineWorker:
         )
 
 
+class AgentBaselineRepairWorker:
+    """Worker that repairs an agent-generated baseline after quality-contract feedback."""
+
+    def __init__(self) -> None:
+        self.saw_quality_repair_targets = False
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="agent-baseline-repair",
+            supports_code_generation=True,
+            supports_repair=True,
+            supports_structured_output=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        context = json.loads(Path(spec.context_packet_path).read_text(encoding="utf-8"))
+        repair_feedback = (context.get("loop_feedback") or {}).get("current_round_repair")
+        output_dir = Path(spec.output_dir or spec.worktree_path)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        solver_path = Path(spec.worktree_path) / "examples" / "agent_generated_fjsp_solver.py"
+        proposal_path = output_dir / "proposal.json"
+        if not repair_feedback:
+            solver_path.write_text("def solve():\n    return []\n", encoding="utf-8")
+            proposal_path.write_text(
+                json.dumps(
+                    {
+                        "summary": "Create an intentionally weak generated solver.",
+                        "strategy_intent": "Trigger the quality contract repair path.",
+                        "rule_operator_hypotheses": [
+                            {
+                                "name": "weak_generated_baseline",
+                                "type": "baseline_constructor",
+                                "target_files": ["examples/agent_generated_fjsp_solver.py"],
+                            }
+                        ],
+                        "changes": [
+                            {
+                                "path": "examples/agent_generated_fjsp_solver.py",
+                                "action": "create_or_replace",
+                                "content": solver_path.read_text(encoding="utf-8"),
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            return WorkerResult(
+                status="ok",
+                changed_files=["examples/agent_generated_fjsp_solver.py"],
+                summary="Weak baseline proposal should be rejected before evaluator execution.",
+                artifacts={"proposal": str(proposal_path)},
+            )
+
+        targets = repair_feedback.get("repair_targets") or {}
+        self.saw_quality_repair_targets = bool(
+            targets.get("agent_generated_solver_quality_risks")
+            and targets.get("agent_generated_solver_self_check_risks")
+            and targets.get("agent_generated_solver_expected_contract")
+        )
+        solver_source = _standard_agent_generated_solver_source()
+        solver_path.write_text(solver_source, encoding="utf-8")
+        proposal_path.write_text(
+            json.dumps(
+                {
+                    "summary": "Repair the generated solver to satisfy the quality contract.",
+                    "strategy_intent": "Use current_round_repair targets to add parser, stable op identity, decoder guards, and self-check.",
+                    "rule_operator_hypotheses": [
+                        {
+                            "name": "repair_contract_complete_constructor",
+                            "type": "baseline_constructor_repair",
+                            "target_files": ["examples/agent_generated_fjsp_solver.py"],
+                            "evidence_used": ["loop_feedback.current_round_repair.repair_targets"],
+                        }
+                    ],
+                    "solver_contract_self_check": _standard_agent_generated_self_check(),
+                    "changes": [
+                        {
+                            "path": "examples/agent_generated_fjsp_solver.py",
+                            "action": "create_or_replace",
+                            "content": solver_source,
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return WorkerResult(
+            status="ok",
+            changed_files=["examples/agent_generated_fjsp_solver.py"],
+            summary="Repaired generated baseline using same-round quality targets.",
+            artifacts={"proposal": str(proposal_path)},
+        )
+
+
 class AgentGeneratedBackendImportWorker:
     """Worker that writes a helper import unsafe for standalone generated solvers."""
 
@@ -1028,6 +1129,55 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual(2, loop_result["hypothesis_graph"]["attempt_count"])
             self.assertTrue(loop_result["experience_memory"]["memory_tiers"]["candidate_lessons"])
 
+    def test_current_round_repair_feedback_carries_quality_targets(self) -> None:
+        feedback = current_round_repair_feedback(
+            attempt_index=1,
+            max_repair_attempts=2,
+            previous_attempts=[
+                {
+                    "attempt_index": 0,
+                    "agentic_judgment": {
+                        "accepted": False,
+                        "issues": ["agent_generated_solver_quality_contract_missing"],
+                        "checks": {
+                            "agent_generated_solver_quality_risks": [
+                                "agent_generated_solver: missing base capabilities: stable_operation_identity"
+                            ],
+                            "agent_generated_solver_self_check_risks": [
+                                "solver_contract_self_check missing implemented capabilities: stable_operation_identity"
+                            ],
+                            "agent_generated_solver_quality_contract": {
+                                "enabled": True,
+                                "active_features": ["alternative_machines", "sequence_dependent_setup"],
+                                "required_code_capabilities": ["stable_operation_identity"],
+                                "variant_required_code_capabilities": ["setup_aware_full_decoder_for_sequence_moves"],
+                                "capability_playbook": [
+                                    {
+                                        "name": "stable_operation_identity",
+                                        "evidence": "Cite operation-key representation.",
+                                        "repair": "Normalize operation identity first.",
+                                    }
+                                ],
+                            },
+                        },
+                    },
+                }
+            ],
+        )
+
+        targets = feedback["repair_targets"]
+        self.assertIn("stable_operation_identity", targets["agent_generated_solver_quality_risks"][0])
+        self.assertIn("stable_operation_identity", targets["agent_generated_solver_self_check_risks"][0])
+        self.assertEqual(
+            ["alternative_machines", "sequence_dependent_setup"],
+            targets["agent_generated_solver_expected_contract"]["active_features"],
+        )
+        self.assertEqual(
+            "stable_operation_identity",
+            targets["agent_generated_solver_expected_contract"]["capability_playbook"][0]["name"],
+        )
+        self.assertIn("repair_targets", feedback["must_do"][-1])
+
     def test_agent_generated_baseline_is_written_before_first_measurement(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -1067,6 +1217,60 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual("agent_generated_baseline", baseline_context["refresh_reason"])
             self.assertIn("baseline_generation_rule", baseline_context["worker_instruction"])
             self.assertIn("examples/standard_fjsp_awls_solver.py", baseline_context["baseline_generation"]["hidden_incumbent_files"])
+
+    def test_agent_generated_baseline_repairs_quality_contract_before_measurement(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract_path = _write_standard_agent_generated_contract(tmp_path)
+            contract = TaskContract.load(contract_path)
+            context_path = _write_test_context(tmp_path, contract_path=contract_path)
+            worker = AgentBaselineRepairWorker()
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=NullWorker(),
+                baseline_worker=worker,
+                baseline_source="agent_generated",
+                experiment_id="test_agent_generated_quality_repair",
+                iterations=0,
+                max_steps=2,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+                in_round_repair_attempts=1,
+            )
+
+            self.assertTrue(worker.saw_quality_repair_targets)
+            self.assertEqual("agent_generated", result.baseline_source)
+            self.assertIsNotNone(result.baseline_generation)
+            generation = result.baseline_generation or {}
+            self.assertEqual("ok", generation["status"])
+            self.assertEqual("code_generation", generation["agentic_judgment"]["stage"])
+            self.assertTrue(generation["agentic_judgment"]["accepted"], generation["agentic_judgment"]["issues"])
+            self.assertEqual(1, generation["summary"]["valid"])
+            self.assertEqual(2, generation["in_round_repair"]["attempt_count"])
+            self.assertEqual(1, generation["in_round_repair"]["repair_attempt_count"])
+            self.assertTrue(generation["in_round_repair"]["recovered"])
+            first_attempt = generation["in_round_repair"]["attempts"][0]
+            self.assertIn("agent_generated_solver_quality_contract_missing", first_attempt["failure_signatures"])
+            self.assertIn("agent_generated_solver_self_check_incomplete", first_attempt["failure_signatures"])
+            repair_context = json.loads(
+                (tmp_path / "loop" / "agent_generated_baseline" / "repair_001" / "context_packet.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            repair_targets = repair_context["loop_feedback"]["current_round_repair"]["repair_targets"]
+            self.assertIn("agent_generated_solver_expected_contract", repair_targets)
+            self.assertIn("stable_operation_identity", json.dumps(repair_targets, ensure_ascii=False))
+            self.assertLess(result.baseline_key[0], 0.0)
+            quality_summary = worker_loop_agent_quality_summary(result)
+            self.assertTrue(quality_summary["baseline"]["enabled"])
+            self.assertTrue(quality_summary["baseline"]["ja_accepted"])
+            self.assertEqual(1, quality_summary["baseline"]["repair_attempt_count"])
+            self.assertTrue(quality_summary["baseline"]["repair_recovered"])
+            self.assertEqual(0, quality_summary["round_count"])
 
     def test_loop_promotes_only_strict_objective_improvement(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1547,6 +1751,245 @@ def _write_agent_baseline_contract(tmp_path: Path) -> Path:
     output_path = tmp_path / "agent_baseline_contract.json"
     output_path.write_text(json.dumps(contract, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return output_path
+
+
+def _write_standard_agent_generated_contract(tmp_path: Path) -> Path:
+    contract = json.loads((ROOT / "configs" / "standard_fjsp_tiny.example.json").read_text(encoding="utf-8"))
+    contract["task_id"] = "standard_agent_generated_quality_contract"
+    contract["commands"] = {
+        **contract["commands"],
+        "solver": "python examples/agent_generated_fjsp_solver.py --input {instance} --output {solution} --seed {seed}",
+        "quick_test": "python -m py_compile examples/agent_generated_fjsp_solver.py examples/standard_fjsp_evaluator.py",
+    }
+    contract["budget"] = {
+        **contract["budget"],
+        "rounds": 1,
+        "seeds": [0],
+        "max_workers": 1,
+    }
+    output_path = tmp_path / "standard_agent_generated_contract.json"
+    output_path.write_text(json.dumps(contract, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return output_path
+
+
+def _standard_agent_generated_self_check() -> dict[str, object]:
+    capabilities = [
+        "standalone_cli_interface",
+        "active_io_parser",
+        "declared_output_schema",
+        "stable_operation_identity",
+        "operation_level_ready_list_constructor",
+        "complete_schedule_coverage_guard",
+        "machine_eligibility_guard",
+        "processing_duration_guard",
+        "job_precedence_guard",
+        "machine_non_overlap_guard",
+        "bounded_runtime_or_iteration_guard",
+        "incumbent_preservation_on_failed_candidate",
+    ]
+    return {
+        "present": True,
+        "active_features": [
+            "alternative_machines",
+            "machine_capacity",
+            "makespan_objective",
+            "operation_precedence",
+        ],
+        "capabilities": [
+            {
+                "name": name,
+                "status": "implemented",
+                "evidence": f"{name} is implemented in parse_instance/decode_schedule/solve/main.",
+            }
+            for name in capabilities
+        ],
+        "representation": "op_info uses (job_id, op_id); assignment and machine_sequences keep the same op_key.",
+        "decoder": "decode_schedule rebuilds all operations and rejects missing, duplicate, ineligible, or mistimed records.",
+        "runtime_bounds": "max_iterations bounds solve; decode rejects infeasible candidates without looping.",
+        "incumbent_preservation": "best_schedule is kept unless candidate_makespan strictly improves best_makespan.",
+        "variant_handling": [],
+        "remaining_gaps": [],
+    }
+
+
+def _standard_agent_generated_solver_source() -> str:
+    return "\n".join(
+        [
+            "from __future__ import annotations",
+            "import argparse",
+            "import json",
+            "import random",
+            "from pathlib import Path",
+            "",
+            "def parse_instance(path):",
+            "    numbers = [int(token) for token in Path(path).read_text(encoding='utf-8').split()]",
+            "    idx = 0",
+            "    job_count, machine_count, _max_candidates = numbers[idx:idx + 3]",
+            "    idx += 3",
+            "    raw_ops = []",
+            "    machine_ids = []",
+            "    for job_id in range(job_count):",
+            "        op_count = numbers[idx]",
+            "        idx += 1",
+            "        for op_id in range(op_count):",
+            "            candidate_count = numbers[idx]",
+            "            idx += 1",
+            "            candidates = []",
+            "            for _ in range(candidate_count):",
+            "                machine_id = numbers[idx]",
+            "                duration = numbers[idx + 1]",
+            "                idx += 2",
+            "                machine_ids.append(machine_id)",
+            "                candidates.append((machine_id, duration))",
+            "            raw_ops.append((job_id, op_id, candidates))",
+            "    machine_base = 0 if min(machine_ids) == 0 else 1",
+            "    op_info = {}",
+            "    for job_id, op_id, candidates in raw_ops:",
+            "        eligible = {machine_id - machine_base: duration for machine_id, duration in candidates}",
+            "        op_key = (job_id, op_id)",
+            "        machine_id = min(eligible, key=lambda item: (eligible[item], item))",
+            "        op_info[op_key] = {'eligible': eligible, 'processing_time': eligible[machine_id]}",
+            "    return {",
+            "        'name': Path(path).stem,",
+            "        'op_info': op_info,",
+            "        'machine_count': machine_count,",
+            "        'total_ops': len(op_info),",
+            "    }",
+            "",
+            "def construct_initial_solution(instance, seed=0, restart_count=2):",
+            "    rng = random.Random(seed)",
+            "    best_assignment = None",
+            "    best_machine_sequences = None",
+            "    best_makespan = None",
+            "    job_ids = sorted({job_id for job_id, _op_id in instance['op_info']})",
+            "    for _restart in range(max(1, restart_count)):",
+            "        next_op_by_job = {job_id: 0 for job_id in job_ids}",
+            "        job_ready = {job_id: 0 for job_id in job_ids}",
+            "        machine_ready = {machine_id: 0 for machine_id in range(instance['machine_count'])}",
+            "        assignment = {}",
+            "        machine_sequences = {machine_id: [] for machine_id in range(instance['machine_count'])}",
+            "        while len(assignment) < instance['total_ops']:",
+            "            ready_ops = []",
+            "            for job_id in job_ids:",
+            "                op_id = next_op_by_job[job_id]",
+            "                op_key = (job_id, op_id)",
+            "                if op_key not in instance['op_info']:",
+            "                    continue",
+            "                eligible = instance['op_info'][op_key]['eligible']",
+            "                for machine_id, duration in eligible.items():",
+            "                    start = max(job_ready[job_id], machine_ready[machine_id])",
+            "                    finish = start + duration",
+            "                    ready_ops.append((finish, start, duration, rng.random(), op_key, machine_id))",
+            "            if not ready_ops:",
+            "                return None, None",
+            "            best_choice = min(ready_ops)",
+            "            finish, _start, _duration, _tie, op_key, machine_id = best_choice",
+            "            assignment[op_key] = machine_id",
+            "            machine_sequences[machine_id].append(op_key)",
+            "            job_id, op_id = op_key",
+            "            next_op_by_job[job_id] = op_id + 1",
+            "            job_ready[job_id] = finish",
+            "            machine_ready[machine_id] = finish",
+            "        candidate = decode_schedule(dict(assignment), {m: list(v) for m, v in machine_sequences.items()}, instance['op_info'], instance['total_ops'])",
+            "        if candidate is None:",
+            "            continue",
+            "        candidate_makespan = max(item['end'] for item in candidate)",
+            "        if best_makespan is None or candidate_makespan < best_makespan:",
+            "            best_assignment = assignment",
+            "            best_machine_sequences = machine_sequences",
+            "            best_makespan = candidate_makespan",
+            "    return best_assignment, best_machine_sequences",
+            "",
+            "def decode_schedule(assignment, machine_sequences, op_info, total_ops):",
+            "    expected_ops = set(op_info)",
+            "    seen_ops = set()",
+            "    schedule = []",
+            "    job_ready = {}",
+            "    machine_ready = {}",
+            "    if set(assignment) != expected_ops:",
+            "        return None",
+            "    queues = {machine_id: list(sequence) for machine_id, sequence in machine_sequences.items()}",
+            "    while len(schedule) < total_ops:",
+            "        progressed = False",
+            "        for machine_id in sorted(queues):",
+            "            sequence = queues[machine_id]",
+            "            if not sequence:",
+            "                continue",
+            "            job_id, op_id = sequence[0]",
+            "            op_key = (job_id, op_id)",
+            "            if op_key in seen_ops:",
+            "                return None  # duplicate operation",
+            "            if op_id > 0 and (job_id, op_id - 1) not in seen_ops:",
+            "                continue",
+            "            eligible = op_info[op_key]['eligible']",
+            "            if machine_id not in eligible:",
+            "                return None",
+            "            duration = eligible[machine_id]",
+            "            start = max(job_ready.get(job_id, 0), machine_ready.get(machine_id, 0))",
+            "            end = start + duration",
+            "            if end - start != duration:",
+            "                return None",
+            "            schedule.append({'job_id': job_id, 'op_id': op_id, 'machine_id': machine_id, 'start': start, 'end': end})",
+            "            seen_ops.add(op_key)",
+            "            sequence.pop(0)",
+            "            job_ready[job_id] = end",
+            "            machine_ready[machine_id] = end",
+            "            progressed = True",
+            "        if not progressed:",
+            "            return None",
+            "    if len(schedule) != total_ops or seen_ops != expected_ops:",
+            "        return None",
+            "    return schedule",
+            "",
+            "def solve(input_path, seed=0, max_iterations=1):",
+            "    instance = parse_instance(input_path)",
+            "    assignment, machine_sequences = construct_initial_solution(instance, seed=seed)",
+            "    if assignment is None or machine_sequences is None:",
+            "        raise ValueError('infeasible generated schedule')",
+            "    best_schedule = decode_schedule(",
+            "        dict(assignment),",
+            "        {machine_id: list(sequence) for machine_id, sequence in machine_sequences.items()},",
+            "        instance['op_info'],",
+            "        instance['total_ops'],",
+            "    )",
+            "    if best_schedule is None:",
+            "        raise ValueError('infeasible generated schedule')",
+            "    best_makespan = max(item['end'] for item in best_schedule)",
+            "    for _iteration in range(max_iterations):",
+            "        candidate = decode_schedule(",
+            "            dict(assignment),",
+            "            {machine_id: list(sequence) for machine_id, sequence in machine_sequences.items()},",
+            "            instance['op_info'],",
+            "            instance['total_ops'],",
+            "        )",
+            "        if candidate is None:",
+            "            continue",
+            "        candidate_makespan = max(item['end'] for item in candidate)",
+            "        if candidate_makespan < best_makespan:",
+            "            best_schedule = candidate",
+            "            best_makespan = candidate_makespan",
+            "    return {",
+            "        'format': 'standard_fjsp_schedule_v1',",
+            "        'variant': 'standard_fjsp',",
+            "        'instance': instance['name'],",
+            "        'seed': seed,",
+            "        'schedule': best_schedule,",
+            "        'makespan': best_makespan,",
+            "    }",
+            "",
+            "def main():",
+            "    parser = argparse.ArgumentParser()",
+            "    parser.add_argument('--input', required=True)",
+            "    parser.add_argument('--output', required=True)",
+            "    parser.add_argument('--seed', type=int, default=0)",
+            "    args = parser.parse_args()",
+            "    solution = solve(args.input, seed=args.seed)",
+            "    Path(args.output).write_text(json.dumps(solution), encoding='utf-8')",
+            "",
+            "if __name__ == '__main__':",
+            "    raise SystemExit(main())",
+        ]
+    ) + "\n"
 
 
 if __name__ == "__main__":

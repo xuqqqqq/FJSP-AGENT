@@ -359,8 +359,15 @@ def build_experience_memory(
         repair_lesson = repair_lesson_from_direction(direction, problem_family=problem_family)
         if repair_lesson:
             candidate_lessons.append(repair_lesson)
+        quality_lesson = agent_generated_quality_lesson_from_direction(
+            direction,
+            problem_family=problem_family,
+        )
+        if quality_lesson:
+            candidate_lessons.append(quality_lesson)
 
     usage_records = skill_usage_records_from_directions(graph.get("directions") or [])
+    quality_memory = agent_generated_quality_memory_from_directions(graph.get("directions") or [])
     return {
         "schema_version": 1,
         "purpose": "Run-local learning memory for future context selection; not a curated long-term knowledge write.",
@@ -384,6 +391,7 @@ def build_experience_memory(
             "validated_lessons": [],
             "curated_skills": [],
         },
+        "agent_generated_quality_memory": quality_memory,
         "skill_usage_records": usage_records,
         "skill_usage_summary": summarize_skill_usage_records(usage_records),
         "self_evolution_metrics": {
@@ -397,8 +405,10 @@ def build_experience_memory(
                 for direction in graph.get("directions") or []
                 if isinstance(direction, dict) and direction_recovered(direction)
             ),
+            "agent_quality_rejected_attempt_count": quality_memory.get("rejected_attempt_count", 0),
+            "agent_quality_recovered_direction_count": quality_memory.get("recovered_direction_count", 0),
         },
-        "next_context_guidance": experience_guidance(candidate_lessons, usage_records),
+        "next_context_guidance": experience_guidance(candidate_lessons, usage_records, quality_memory),
     }
 
 
@@ -435,6 +445,7 @@ def render_direction_graph_markdown(summary: dict[str, Any]) -> str:
 def render_experience_memory_markdown(memory: dict[str, Any]) -> str:
     tiers = _dict(memory.get("memory_tiers"))
     lessons = _list(tiers.get("candidate_lessons"))
+    quality = _dict(memory.get("agent_generated_quality_memory"))
     lines = [
         "# Experience Memory",
         "",
@@ -454,6 +465,18 @@ def render_experience_memory_markdown(memory: dict[str, Any]) -> str:
             f"| `{item.get('lesson_id')}` | `{item.get('lesson_type')}` | `{item.get('confidence')}` | "
             f"{_md_cell(str(item.get('strategy') or ''))} | `{item.get('outcome')}` | "
             f"{_md_cell('; '.join(str(value) for value in _list(item.get('applicability'))[:3]))} |"
+        )
+    if quality:
+        lines.extend(
+            [
+                "",
+                "## Agent-Generated Quality Memory",
+                "",
+                f"- Rejected attempts: `{quality.get('rejected_attempt_count', 0)}`",
+                f"- Recovered directions: `{quality.get('recovered_direction_count', 0)}`",
+                f"- Recurring quality risks: `{json.dumps(quality.get('recurring_quality_risks') or [], ensure_ascii=False)}`",
+                f"- Recurring self-check risks: `{json.dumps(quality.get('recurring_self_check_risks') or [], ensure_ascii=False)}`",
+            ]
         )
     lines.extend(["", "## Next Context Guidance", ""])
     for item in _list(memory.get("next_context_guidance")):
@@ -527,6 +550,8 @@ def direction_attempts(round_record: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def compact_attempt_payload(attempt: dict[str, Any]) -> dict[str, Any]:
+    judgment = _dict(attempt.get("agentic_judgment"))
+    checks = _dict(judgment.get("checks"))
     return {
         "attempt_index": attempt.get("attempt_index"),
         "kind": attempt_kind(attempt),
@@ -534,10 +559,44 @@ def compact_attempt_payload(attempt: dict[str, Any]) -> dict[str, Any]:
         "changed_files": _bounded_strings(attempt.get("changed_files"), limit=12),
         "candidate_key_relation": attempt_key_relation(attempt),
         "failure_signatures": _bounded_strings(attempt.get("failure_signatures"), limit=16),
-        "agentic_accepted": _dict(attempt.get("agentic_judgment")).get("accepted"),
+        "agentic_accepted": judgment.get("accepted"),
+        "agent_generated_quality": compact_agent_generated_quality_gate(judgment, checks),
         "context_packet_path": attempt.get("context_packet_path"),
         "patch_path": attempt.get("patch_path"),
         "delta_path": attempt.get("delta_path"),
+    }
+
+
+def compact_agent_generated_quality_gate(
+    judgment: dict[str, Any],
+    checks: dict[str, Any],
+) -> dict[str, Any]:
+    """Keep quality-gate facts visible to later rounds without copying code."""
+
+    quality_risks = _bounded_strings(checks.get("agent_generated_solver_quality_risks"), limit=8)
+    self_check_risks = _bounded_strings(checks.get("agent_generated_solver_self_check_risks"), limit=8)
+    runtime_import_risks = _bounded_strings(checks.get("agent_generated_runtime_import_risks"), limit=8)
+    if not (quality_risks or self_check_risks or runtime_import_risks):
+        issues = _bounded_strings(judgment.get("issues"), limit=8)
+        if not any(str(item).startswith("agent_generated") for item in issues):
+            return {}
+    contract = _dict(checks.get("agent_generated_solver_quality_contract"))
+    return {
+        "accepted": judgment.get("accepted"),
+        "issues": [
+            item
+            for item in _bounded_strings(judgment.get("issues"), limit=8)
+            if item.startswith("agent_generated")
+        ],
+        "quality_risks": quality_risks,
+        "self_check_risks": self_check_risks,
+        "runtime_import_risks": runtime_import_risks,
+        "expected_active_features": _bounded_strings(contract.get("active_features"), limit=12),
+        "expected_capabilities": _bounded_strings(
+            (contract.get("required_code_capabilities") or [])
+            + (contract.get("variant_required_code_capabilities") or []),
+            limit=18,
+        ),
     }
 
 
@@ -678,6 +737,159 @@ def repair_lesson_from_direction(
     }
 
 
+def agent_generated_quality_lesson_from_direction(
+    direction: dict[str, Any],
+    *,
+    problem_family: str | None,
+) -> dict[str, Any] | None:
+    gates = [
+        _dict(attempt.get("agent_generated_quality"))
+        for attempt in _list(direction.get("attempts"))
+        if isinstance(attempt, dict) and _dict(attempt.get("agent_generated_quality"))
+    ]
+    if not gates:
+        return None
+    quality_risks = _dedupe_strings(
+        risk
+        for gate in gates
+        for risk in _bounded_strings(gate.get("quality_risks"), limit=8)
+    )
+    self_check_risks = _dedupe_strings(
+        risk
+        for gate in gates
+        for risk in _bounded_strings(gate.get("self_check_risks"), limit=8)
+    )
+    runtime_import_risks = _dedupe_strings(
+        risk
+        for gate in gates
+        for risk in _bounded_strings(gate.get("runtime_import_risks"), limit=8)
+    )
+    if not (quality_risks or self_check_risks or runtime_import_risks):
+        return None
+    recovered = direction_recovered(direction)
+    return {
+        "lesson_id": make_lesson_id(direction, "agent_generated_quality_gap"),
+        "lesson_type": "agent_generated_quality_gap",
+        "problem_family": problem_family,
+        "strategy": str(direction.get("title") or "")[:160],
+        "strategy_type": direction.get("strategy_type"),
+        "outcome": "recovered_after_quality_repair" if recovered else "blocked_by_quality_gate",
+        "applicability": [
+            "when an agent-generated solver is created or evolved from IO and requirement documents",
+            "when JA rejects a proposal before evaluator scoring",
+            "when the next prompt must repair structure before objective tuning",
+        ],
+        "contraindications": [
+            "do not switch to a new heuristic while parser/decoder/constructor/self-check gates are still missing",
+            "do not treat solver_contract_self_check text as a substitute for matching code evidence",
+        ],
+        "evidence": {
+            "direction_id": direction.get("direction_id"),
+            "round_index": direction.get("round_index"),
+            "quality_risks": quality_risks[:8],
+            "self_check_risks": self_check_risks[:8],
+            "runtime_import_risks": runtime_import_risks[:8],
+            "artifact_refs": direction.get("artifact_refs") or {},
+        },
+        "confidence": "candidate",
+        "recommended_skill_update": quality_gap_recommendation(
+            quality_risks=quality_risks,
+            self_check_risks=self_check_risks,
+            runtime_import_risks=runtime_import_risks,
+        ),
+    }
+
+
+def agent_generated_quality_memory_from_directions(directions: list[Any]) -> dict[str, Any]:
+    gates: list[dict[str, Any]] = []
+    recovered_direction_count = 0
+    for direction in directions:
+        if not isinstance(direction, dict):
+            continue
+        direction_gates = [
+            _dict(attempt.get("agent_generated_quality"))
+            for attempt in _list(direction.get("attempts"))
+            if isinstance(attempt, dict) and _dict(attempt.get("agent_generated_quality"))
+        ]
+        if not direction_gates:
+            continue
+        gates.extend(direction_gates)
+        if direction_recovered(direction):
+            recovered_direction_count += 1
+
+    if not gates:
+        return {}
+
+    quality_risks = [
+        risk
+        for gate in gates
+        for risk in _bounded_strings(gate.get("quality_risks"), limit=12)
+    ]
+    self_check_risks = [
+        risk
+        for gate in gates
+        for risk in _bounded_strings(gate.get("self_check_risks"), limit=12)
+    ]
+    runtime_import_risks = [
+        risk
+        for gate in gates
+        for risk in _bounded_strings(gate.get("runtime_import_risks"), limit=12)
+    ]
+    rejected_attempt_count = sum(1 for gate in gates if gate.get("accepted") is False)
+    return {
+        "schema_version": 1,
+        "purpose": (
+            "Agent-generated solver quality signals for the next prompt; "
+            "method-level gaps only, no solver implementation."
+        ),
+        "attempt_count": len(gates),
+        "rejected_attempt_count": rejected_attempt_count,
+        "recovered_direction_count": recovered_direction_count,
+        "recurring_quality_risks": counted_items(quality_risks, limit=8),
+        "recurring_self_check_risks": counted_items(self_check_risks, limit=8),
+        "recurring_runtime_import_risks": counted_items(runtime_import_risks, limit=8),
+        "next_prompt_rule": quality_memory_next_prompt_rule(
+            quality_risks=quality_risks,
+            self_check_risks=self_check_risks,
+            runtime_import_risks=runtime_import_risks,
+        ),
+    }
+
+
+def quality_gap_recommendation(
+    *,
+    quality_risks: list[str],
+    self_check_risks: list[str],
+    runtime_import_risks: list[str],
+) -> str:
+    if runtime_import_risks:
+        return "Strengthen standalone-runtime guidance; generated example solvers must not import backend harness modules."
+    joined_quality = " ".join(quality_risks).lower()
+    if "operation_level_ready_list_constructor" in joined_quality or "active_io_parser" in joined_quality:
+        return (
+            "Before local search, require active IO parsing and operation-level ready-list construction "
+            "with code evidence in solver_contract_self_check."
+        )
+    if self_check_risks:
+        return "Require solver_contract_self_check to map every expected capability to concrete code evidence."
+    return "Keep this as negative memory and repair the listed structural gaps before objective tuning."
+
+
+def quality_memory_next_prompt_rule(
+    *,
+    quality_risks: list[str],
+    self_check_risks: list[str],
+    runtime_import_risks: list[str],
+) -> str:
+    if not (quality_risks or self_check_risks or runtime_import_risks):
+        return ""
+    return (
+        "Before proposing another objective-improvement operator, explicitly resolve recurring "
+        "agent-generated quality gaps from this memory. Preserve any recovered parser/representation/"
+        "constructor/decoder mechanism and cite matching code evidence."
+    )
+
+
 def direction_recovered(direction: dict[str, Any]) -> bool:
     attempts = _list(direction.get("attempts"))
     if len(attempts) < 2:
@@ -797,7 +1009,11 @@ def direction_graph_guidance(directions: list[dict[str, Any]]) -> list[str]:
     return guidance
 
 
-def experience_guidance(lessons: list[dict[str, Any]], usage_records: list[dict[str, Any]]) -> list[str]:
+def experience_guidance(
+    lessons: list[dict[str, Any]],
+    usage_records: list[dict[str, Any]],
+    quality_memory: dict[str, Any] | None = None,
+) -> list[str]:
     guidance = [
         "Inject only candidate lessons whose applicability matches the current contract and problem family.",
         "Keep candidate lessons separate from curated skills until repeated success or human review.",
@@ -808,6 +1024,11 @@ def experience_guidance(lessons: list[dict[str, Any]], usage_records: list[dict[
         guidance.append("Recall repeated failure patterns as negative memory and require a material implementation difference.")
     if usage_records and not any(item.get("source_kind") == "knowledge_card" for item in usage_records):
         guidance.append("Future directions should explicitly cite relevant knowledge cards or explain why local evidence overrides them.")
+    quality_memory = quality_memory or {}
+    if int(quality_memory.get("rejected_attempt_count", 0) or 0) > 0:
+        guidance.append(
+            "Repair recurring agent-generated parser/representation/constructor/decoder/self-check gaps before spending another direction on objective tuning."
+        )
     return guidance
 
 
@@ -847,6 +1068,31 @@ def _bounded_strings(value: Any, *, limit: int) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item)[:500] for item in value[:limit] if item is not None]
+
+
+def _dedupe_strings(values: Any) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        text = str(value)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
+
+
+def counted_items(values: list[str], *, limit: int) -> list[dict[str, Any]]:
+    counts: dict[str, int] = {}
+    first_text: dict[str, str] = {}
+    for value in values:
+        key = value.strip()
+        if not key:
+            continue
+        counts[key] = counts.get(key, 0) + 1
+        first_text.setdefault(key, value)
+    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]
+    return [{"text": first_text[key], "count": count} for key, count in ordered]
 
 
 def _counts(values: Any) -> dict[str, int]:
