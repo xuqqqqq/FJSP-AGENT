@@ -127,6 +127,11 @@ Task:
   satisfy the listed parser, representation, decoder, coverage, eligibility,
   precedence, non-overlap, runtime-bound, and incumbent-preservation
   capabilities before optimizing objective value.
+- If priority context `round_type` is `baseline_or_single_round`, create or
+  replace the complete generated solver entrypoint when needed; do not preserve
+  a nonexistent incumbent. If `round_type` is `improvement_round`, preserve the
+  promoted incumbent skeleton unless the context says legality repair is
+  required.
 - For agent-generated baselines, stdout may include a short self-check, but the
   decisive evidence is the actual code diff. Cite real function/variable/guard
   names that exist in the file you changed.
