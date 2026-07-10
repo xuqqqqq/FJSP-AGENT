@@ -89,6 +89,9 @@ class OpenCodeWorkerTests(unittest.TestCase):
             prompt = (output_dir / "opencode_prompt.md").read_text(encoding="utf-8")
             self.assertIn("Priority context", prompt)
             self.assertIn("agent_generated_solver_quality_contract", prompt)
+            self.assertIn("standalone solver entrypoint", prompt)
+            self.assertIn("evaluator_protocol.solver_command_template", prompt)
+            self.assertIn("actual code diff", prompt)
             self.assertIn("operation_level_ready_list_constructor", prompt)
             self.assertIn("sequence_dependent_setup", prompt)
 

@@ -121,6 +121,15 @@ Task:
 - Do not claim benchmark success. The harness will snapshot the worktree, run
   the fixed evaluator, and decide whether this candidate is promoted.
 - Prefer a complete, reversible solver improvement over broad rewrites.
+- If the priority context says `agent_generated_solver_quality_contract.enabled`
+  is true, create or edit the standalone solver entrypoint referenced by the
+  context packet's `evaluator_protocol.solver_command_template`. The code must
+  satisfy the listed parser, representation, decoder, coverage, eligibility,
+  precedence, non-overlap, runtime-bound, and incumbent-preservation
+  capabilities before optimizing objective value.
+- For agent-generated baselines, stdout may include a short self-check, but the
+  decisive evidence is the actual code diff. Cite real function/variable/guard
+  names that exist in the file you changed.
 
 Priority context:
 ```json
