@@ -783,8 +783,9 @@ def normalize_strategy_profile(profile: dict[str, Any]) -> dict[str, Any]:
 
 def priority_worker_context(context: dict[str, Any]) -> str:
     quality_contract = build_agent_generated_solver_quality_contract(context)
+    is_improvement_round = bool(context.get("iteration_edit_contract"))
     payload = {
-        "round_type": "improvement_round" if context.get("iteration_edit_contract") else "baseline_or_single_round",
+        "round_type": "improvement_round" if is_improvement_round else "baseline_or_single_round",
         "iteration_edit_contract": context.get("iteration_edit_contract") or {},
         "agent_generated_solver_quality_contract": quality_contract,
         "incumbent_requires_legality_repair": incumbent_requires_legality_repair(context),
@@ -795,19 +796,7 @@ def priority_worker_context(context: dict[str, Any]) -> str:
         ),
         "incumbent_code_context": compact_incumbent_code_context(context.get("incumbent_code_context") or {}),
         "loop_feedback": compact_loop_feedback_for_prompt(context.get("loop_feedback") or {}),
-        "round_learning_contract": {
-            "must_do": [
-                "Preserve the current promoted incumbent and make one accepted incremental edit.",
-                "Treat the current outer round as one improvement direction. Repair or refine the same direction before switching ideas.",
-                "Use failure_memory.must_avoid as hard negative memory.",
-                "Do not submit a no-op proposal during improvement rounds.",
-                "Do not repeat a legal-but-not-better tie-break tweak; change the neighborhood, decoder, or insertion/regret mechanism materially.",
-            ],
-            "quality_target": (
-                "The next proposal should be both legal and attributable: one explicit rule/operator hypothesis, "
-                "one bounded code mutation, fixed parser/evaluator semantics, and Core evaluator evidence only."
-            ),
-        },
+        "round_learning_contract": round_learning_contract_for_worker(is_improvement_round=is_improvement_round),
         "candidate_feasibility_guard": {
             "rule": (
                 "For local search, neighborhood, decoder, destroy-repair, or post-processing changes, "
@@ -882,6 +871,37 @@ def priority_worker_context(context: dict[str, Any]) -> str:
         ),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)[:priority_context_max_chars()]
+
+
+def round_learning_contract_for_worker(*, is_improvement_round: bool) -> dict[str, Any]:
+    if not is_improvement_round:
+        return {
+            "must_do": [
+                "Create or repair a complete standalone generated solver before any objective-only tuning.",
+                "Use the active IO contract and instance diagnostics to implement parser, stable representation, decoder/build path, output schema, and self-check evidence.",
+                "Treat agent_generated_solver_quality_contract.required_code_capabilities and variant_required_code_capabilities as the acceptance checklist.",
+                "Do not preserve a nonexistent incumbent; create_or_replace of the solver entrypoint is allowed during baseline generation or legality repair.",
+                "Do not spend steps on local search until parser, constructor, decoder, and self-check capabilities can pass review.",
+            ],
+            "quality_target": (
+                "The baseline proposal should be runnable, legal, and attributable: one explicit construction "
+                "hypothesis, complete IO-derived schedule generation, fixed parser/evaluator semantics, and Core "
+                "evaluator evidence only."
+            ),
+        }
+    return {
+        "must_do": [
+            "Preserve the current promoted incumbent and make one accepted incremental edit.",
+            "Treat the current outer round as one improvement direction. Repair or refine the same direction before switching ideas.",
+            "Use failure_memory.must_avoid as hard negative memory.",
+            "Do not submit a no-op proposal during improvement rounds.",
+            "Do not repeat a legal-but-not-better tie-break tweak; change the neighborhood, decoder, or insertion/regret mechanism materially.",
+        ],
+        "quality_target": (
+            "The next proposal should be both legal and attributable: one explicit rule/operator hypothesis, "
+            "one bounded code mutation, fixed parser/evaluator semantics, and Core evaluator evidence only."
+        ),
+    }
 
 
 def priority_context_max_chars() -> int:

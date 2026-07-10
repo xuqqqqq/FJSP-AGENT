@@ -444,6 +444,8 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("improvement_round", prompt_context)
         self.assertIn("examples/agent_generated_fjsp_solver.py", prompt_context)
         self.assertIn("def schedule(): pass", prompt_context)
+        self.assertIn("Preserve the current promoted incumbent", prompt_context)
+        self.assertNotIn("Do not preserve a nonexistent incumbent", prompt_context)
 
     def test_priority_worker_context_keeps_full_generated_solver_edit_site(self) -> None:
         context = _context_packet_with_intake()
@@ -829,6 +831,9 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("constructive_baseline_rule", prompt_context)
         self.assertIn("operation-level ready list", prompt_context)
         self.assertIn("solver_quality_playbook_rule", prompt_context)
+        self.assertIn("baseline_or_single_round", prompt_context)
+        self.assertIn("Do not preserve a nonexistent incumbent", prompt_context)
+        self.assertNotIn("Preserve the current promoted incumbent", prompt_context)
 
     def test_priority_worker_context_includes_agent_quality_memory(self) -> None:
         context = _agent_generated_sdst_context()
