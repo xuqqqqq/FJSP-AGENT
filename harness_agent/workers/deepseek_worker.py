@@ -491,6 +491,10 @@ Rules:
   `variant_handling`, `runtime_bounds`, and `incumbent_preservation` must also
   cite source symbols that appear in the proposed code; do not use those fields
   for high-level strategy text that has no matching implementation anchor.
+- Any parser, decoder, schedule builder, or validation/self-check helper you
+  define must be called by the generated solver flow, such as `solve(...)`,
+  `improve(...)`, or `main(...)`, before writing output. Do not define
+  decorative helpers just to satisfy evidence checks.
 - If evaluator_protocol.solver_command_template runs an agent-generated solver
   under `examples/agent_generated*.py`, treat generated solver/helper files as
   standalone example scripts. Do not import `harness_agent.*` from those files;
@@ -847,6 +851,11 @@ def priority_worker_context(context: dict[str, Any]) -> str:
             "variant_handling, runtime_bounds, and incumbent_preservation must also cite submitted source "
             "symbols, not only describe the intended method."
         ),
+        "generated_solver_call_flow_rule": (
+            "Parser, decoder, schedule-builder, and validation/self-check helpers must be called by the runnable "
+            "generated solver flow before output is written. A helper that is only defined or cited in "
+            "solver_contract_self_check is not enough."
+        ),
         "candidate_runtime_import_rule": (
             "When the solver command is an agent-generated examples/agent_generated*.py entrypoint, "
             "the entrypoint and helper modules under examples must run as standalone example scripts. "
@@ -953,6 +962,9 @@ def compact_loop_feedback_for_prompt(loop_feedback: dict[str, Any]) -> dict[str,
                 "rule_operator_hypotheses": (diagnostics.get("rule_operator_hypotheses") or [])[:4],
                 "rejected_change_count": ((diagnostics.get("proposal_audit") or {}).get("rejected_change_count")),
                 "proposal_warnings": ((diagnostics.get("proposal_audit") or {}).get("warnings") or [])[:6],
+                "agent_generated_unwired_helpers": (
+                    ((diagnostics.get("proposal_audit") or {}).get("agent_generated_unwired_helpers") or [])[:8]
+                ),
                 "solver_contract_self_check_audit": compact_solver_contract_self_check_audit_for_prompt(
                     ((diagnostics.get("proposal_audit") or {}).get("solver_contract_self_check") or {})
                 ),
@@ -1139,6 +1151,7 @@ def compact_current_round_repair(value: dict[str, Any]) -> dict[str, Any]:
                 "accepted_change_paths": (audit.get("accepted_change_paths") or [])[:8],
                 "rejected_change_count": audit.get("rejected_change_count"),
                 "warnings": (audit.get("warnings") or [])[:10],
+                "agent_generated_unwired_helpers": (audit.get("agent_generated_unwired_helpers") or [])[:8],
                 "solver_contract_self_check_audit": compact_solver_contract_self_check_audit_for_prompt(
                     audit.get("solver_contract_self_check") or {}
                 ),
@@ -1827,6 +1840,11 @@ def build_proposal_audit(proposal: dict[str, Any], context: dict[str, Any]) -> d
         proposal=proposal,
         accepted_paths=accepted_paths,
     )
+    unwired_helpers = agent_generated_unwired_helper_warnings(
+        proposal,
+        quality_contract=quality_contract,
+        accepted_paths=accepted_paths,
+    )
 
     warnings = []
     if project_intake and not (declared_usage.get("used_project_intake") or referenced_paths or touched_intake_paths):
@@ -1841,6 +1859,8 @@ def build_proposal_audit(proposal: dict[str, Any], context: dict[str, Any]) -> d
         warnings.append("quick_test_plan_does_not_reference_intake_test_command")
     if accepted_paths and priority_knowledge and not knowledge_referenced:
         warnings.append("priority_knowledge_cards_not_referenced")
+    if unwired_helpers:
+        warnings.append("agent_generated_solver_unwired_helper")
     warnings.extend(solver_self_check_audit["warnings"])
 
     return {
@@ -1860,6 +1880,7 @@ def build_proposal_audit(proposal: dict[str, Any], context: dict[str, Any]) -> d
         "priority_knowledge_paths": [str(card.get("path") or "") for card in priority_knowledge],
         "declared_knowledge_used": knowledge_referenced,
         "solver_contract_self_check": solver_self_check_audit,
+        "agent_generated_unwired_helpers": unwired_helpers,
         "project_intake_risk_codes": risk_codes,
         "operator_lineage": {
             "hypothesis_count": len(hypotheses),
@@ -2011,6 +2032,69 @@ def build_solver_contract_self_check_audit(
         "narrative_with_source_mismatch": source_evidence["narrative_source_mismatch"],
         "warnings": warnings,
     }
+
+
+def agent_generated_unwired_helper_warnings(
+    proposal: dict[str, Any],
+    *,
+    quality_contract: dict[str, Any],
+    accepted_paths: list[str],
+) -> list[str]:
+    if not quality_contract.get("enabled"):
+        return []
+    if not any(_looks_like_agent_generated_solver_path(path) for path in accepted_paths):
+        return []
+    source_text = _agent_generated_full_file_source_text(proposal)
+    if not source_text.strip():
+        return []
+    return _unwired_generated_helper_warnings(source_text)
+
+
+def _agent_generated_full_file_source_text(proposal: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for change in proposal.get("changes") or []:
+        if not isinstance(change, dict):
+            continue
+        if str(change.get("action") or "") != "create_or_replace":
+            continue
+        if not _looks_like_agent_generated_solver_path(str(change.get("path") or "")):
+            continue
+        content = change.get("content")
+        if isinstance(content, str):
+            parts.append(content)
+    return "\n".join(parts)
+
+
+def _unwired_generated_helper_warnings(source_text: str) -> list[str]:
+    patterns = [
+        (
+            "parser",
+            r"^def\s+((?:parse|read|load)[A-Za-z0-9_]*(?:instance|problem|input)[A-Za-z0-9_]*)\s*\(",
+        ),
+        (
+            "decoder",
+            r"^def\s+((?:decode|build|construct)[A-Za-z0-9_]*(?:schedule|solution)[A-Za-z0-9_]*)\s*\(",
+        ),
+        (
+            "source-level self-check",
+            r"^def\s+((?:validate|self_check|check|assert)[A-Za-z0-9_]*(?:schedule|solution|feasible|valid)[A-Za-z0-9_]*)\s*\(",
+        ),
+    ]
+    warnings: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for label, pattern in patterns:
+        for name in re.findall(pattern, source_text, re.M):
+            key = (label, name)
+            if key in seen:
+                continue
+            seen.add(key)
+            if _proposal_function_call_count(source_text, name) < 2:
+                warnings.append(f"{label} `{name}` is defined but not called by the generated solver flow")
+    return warnings
+
+
+def _proposal_function_call_count(text: str, function_name: str) -> int:
+    return len(re.findall(rf"\b{re.escape(function_name)}\s*\(", text))
 
 
 def _solver_capability_evidence_is_vague(evidence: str) -> bool:
@@ -2616,6 +2700,7 @@ def render_code_edit_markdown(proposal: dict[str, Any]) -> str:
                 f"- changed_validator_files: `{json.dumps(audit.get('changed_validator_files') or [], ensure_ascii=False)}`",
                 f"- referenced_test_commands: `{json.dumps(audit.get('referenced_test_commands') or [], ensure_ascii=False)}`",
                 f"- solver_contract_self_check: `{json.dumps(audit.get('solver_contract_self_check') or {}, ensure_ascii=False)}`",
+                f"- agent_generated_unwired_helpers: `{json.dumps(audit.get('agent_generated_unwired_helpers') or [], ensure_ascii=False)}`",
                 f"- warnings: `{json.dumps(audit.get('warnings') or [], ensure_ascii=False)}`",
             ]
         )

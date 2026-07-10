@@ -1280,6 +1280,9 @@ class WorkerLoopTests(unittest.TestCase):
                         "summary": "Generated solver had unsupported self-check prose.",
                         "proposal_audit": {
                             "warnings": ["agent_generated_solver_self_check_narrative_source_mismatch"],
+                            "agent_generated_unwired_helpers": [
+                                "decoder `decode_schedule` is defined but not called by the generated solver flow"
+                            ],
                             "solver_contract_self_check": {
                                 "required": True,
                                 "present": True,
@@ -1307,6 +1310,10 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertEqual(["decoder"], audit["missing_narrative_fields"])
         self.assertEqual(["variant_handling"], audit["narrative_with_source_mismatch"])
         self.assertEqual(["active_io_parser"], audit["capabilities_with_source_mismatch"])
+        self.assertEqual(
+            ["decoder `decode_schedule` is defined but not called by the generated solver flow"],
+            diagnostics["proposal_audit"]["agent_generated_unwired_helpers"],
+        )
 
     def test_agent_generated_baseline_is_written_before_first_measurement(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

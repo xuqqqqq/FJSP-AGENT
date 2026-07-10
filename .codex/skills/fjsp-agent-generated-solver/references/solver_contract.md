@@ -101,6 +101,9 @@ submitted code.  The narrative fields must do the same:
   candidate-failure branch that keeps the incumbent.
 
 Do not use these fields for strategy prose that has no matching source anchor.
+Do not define evidence-only helpers: parser, decoder, schedule-builder, and
+validation/self-check helpers must be called by the runnable solver flow before
+the solution is written.
 
 ## Runtime Contract
 

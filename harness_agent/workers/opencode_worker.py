@@ -148,6 +148,9 @@ Task:
   such as `start >= prev_end + setup_time(...)`; no-wait requires successor
   starts to match predecessor completion; release dates require starts no
   earlier than the parsed release time.
+- Any parser, decoder, schedule builder, or validation/self-check helper you
+  define must be called by the runnable flow before the solution file is
+  written. Do not leave helper functions unused as evidence-only scaffolding.
 
 Priority context:
 ```json

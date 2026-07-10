@@ -570,6 +570,9 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                             "rejected_change_count": 0,
                             "warnings": audit["warnings"],
                             "solver_contract_self_check": audit,
+                            "agent_generated_unwired_helpers": [
+                                "decoder `decode_schedule` is defined but not called by the generated solver flow"
+                            ],
                         },
                     },
                 }
@@ -582,6 +585,9 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                             "proposal_audit": {
                                 "warnings": audit["warnings"],
                                 "solver_contract_self_check": audit,
+                                "agent_generated_unwired_helpers": [
+                                    "source-level self-check `validate_schedule` is defined but not called by the generated solver flow"
+                                ],
                             },
                         },
                     }
@@ -594,10 +600,18 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         previous_audit = compact["previous_rounds"][0]["solver_contract_self_check_audit"]
         self.assertEqual(["decoder"], previous_audit["missing_narrative_fields"])
         self.assertEqual(["variant_handling"], previous_audit["narrative_with_source_mismatch"])
+        self.assertEqual(
+            ["decoder `decode_schedule` is defined but not called by the generated solver flow"],
+            compact["previous_rounds"][0]["agent_generated_unwired_helpers"],
+        )
         repair_audit = compact["current_round_repair"]["previous_attempts"][0][
             "solver_contract_self_check_audit"
         ]
         self.assertEqual(["active_io_parser"], repair_audit["capabilities_with_source_mismatch"])
+        self.assertEqual(
+            ["source-level self-check `validate_schedule` is defined but not called by the generated solver flow"],
+            compact["current_round_repair"]["previous_attempts"][0]["agent_generated_unwired_helpers"],
+        )
 
     def test_priority_worker_context_keeps_incumbent_before_large_rag_cards(self) -> None:
         context = _context_packet_with_intake()
@@ -883,6 +897,8 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("solver_quality_playbook_rule", prompt_context)
         self.assertIn("narrative fields representation, decoder", prompt_context)
         self.assertIn("cite submitted source symbols", prompt_context)
+        self.assertIn("generated_solver_call_flow_rule", prompt_context)
+        self.assertIn("A helper that is only defined or cited", prompt_context)
         self.assertIn("baseline_or_single_round", prompt_context)
         self.assertIn("Do not preserve a nonexistent incumbent", prompt_context)
         self.assertNotIn("Preserve the current promoted incumbent", prompt_context)
@@ -901,6 +917,8 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("concrete function/variable/guard symbols from submitted code", prompt)
         self.assertIn("cite source symbols that appear in the proposed code", prompt)
         self.assertIn("no matching implementation anchor", prompt)
+        self.assertIn("decorative helpers", prompt)
+        self.assertIn("called by the generated solver flow", prompt)
         self.assertIn("current-project standard FJSP solver files", prompt)
         self.assertIn("does not apply to standalone agent-generated", prompt)
         self.assertIn("use [] when none are active", prompt)
@@ -1208,6 +1226,63 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         audit = normalized["proposal_audit"]["solver_contract_self_check"]
         self.assertIn("agent_generated_solver_self_check_missing_narrative_evidence", audit["warnings"])
         self.assertIn("decoder", audit["missing_narrative_fields"])
+
+    def test_proposal_audit_warns_when_generated_helper_is_not_wired(self) -> None:
+        worker = DeepSeekWorker()
+        context = _agent_generated_sdst_context()
+        source = "\n".join(
+            [
+                "def parse_instance(path):",
+                "    return {'op_info': {}}",
+                "",
+                "def decode_schedule(instance):",
+                "    return []",
+                "",
+                "def validate_schedule(instance, schedule):",
+                "    return True",
+                "",
+                "def improve(instance):",
+                "    return []",
+            ]
+        )
+
+        normalized = worker._normalize_code_edit_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "summary": "Create a generated solver with evidence-only helper functions.",
+                "strategy_intent": "Write a standalone solver from the IO contract.",
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "operation_level_dispatch",
+                        "type": "dispatch_rule",
+                        "target_files": ["examples/agent_generated_fjsp_solver.py"],
+                    }
+                ],
+                "solver_contract_self_check": _complete_solver_self_check(),
+                "changes": [
+                    {
+                        "path": "examples/agent_generated_fjsp_solver.py",
+                        "action": "create_or_replace",
+                        "content": source,
+                    }
+                ],
+            },
+            context,
+        )
+
+        audit = normalized["proposal_audit"]
+        self.assertIn("agent_generated_solver_unwired_helper", audit["warnings"])
+        self.assertIn(
+            "parser `parse_instance` is defined but not called by the generated solver flow",
+            audit["agent_generated_unwired_helpers"],
+        )
+        self.assertIn(
+            "decoder `decode_schedule` is defined but not called by the generated solver flow",
+            audit["agent_generated_unwired_helpers"],
+        )
+        self.assertIn(
+            "source-level self-check `validate_schedule` is defined but not called by the generated solver flow",
+            audit["agent_generated_unwired_helpers"],
+        )
 
     def test_priority_worker_context_frontloads_relevant_knowledge_cards(self) -> None:
         context = _context_packet_with_intake()

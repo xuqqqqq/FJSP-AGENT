@@ -1580,6 +1580,10 @@ def worker_proposal_diagnostics(worker_result: WorkerResult) -> dict[str, Any]:
             "solver_contract_self_check": compact_solver_contract_self_check_audit(
                 audit.get("solver_contract_self_check")
             ),
+            "agent_generated_unwired_helpers": _bounded_list(
+                audit.get("agent_generated_unwired_helpers"),
+                limit=12,
+            ),
             "warnings": _bounded_list(audit.get("warnings"), limit=20),
         },
     }
@@ -1807,6 +1811,7 @@ def compact_proposal_audit(diagnostics: dict[str, Any]) -> dict[str, Any]:
         "rolled_back_round_count": audit.get("rolled_back_round_count"),
         "changed_core": audit.get("changed_core_algorithm_files") or [],
         "changed_validators": audit.get("changed_validator_files") or [],
+        "agent_generated_unwired_helpers": audit.get("agent_generated_unwired_helpers") or [],
         "warnings": audit.get("warnings") or [],
     }
 

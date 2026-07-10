@@ -106,6 +106,8 @@ class OpenCodeWorkerTests(unittest.TestCase):
             self.assertIn("validate_schedule", prompt)
             self.assertIn("decoder, variant handling", prompt)
             self.assertIn("anchor each claim to source symbols", prompt)
+            self.assertIn("before the solution file is", prompt)
+            self.assertIn("evidence-only scaffolding", prompt)
             self.assertIn("variant_required_code_capabilities", prompt)
             self.assertIn("setup-aware same-machine arcs", prompt)
             self.assertIn("release dates require starts", prompt)
