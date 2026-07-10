@@ -139,6 +139,35 @@ class AgenticReviewQualityContractTests(unittest.TestCase):
             self.assertTrue(judgment.accepted, judgment.issues)
             self.assertEqual([], judgment.checks["agent_generated_solver_self_check_risks"])
 
+    def test_agent_generated_self_check_evidence_must_match_source_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            solver = root / "examples" / "agent_generated_fjsp_solver.py"
+            solver.parent.mkdir(parents=True)
+            solver.write_text(_strong_agent_generated_solver_source(), encoding="utf-8")
+            context_path = _write_context(root, sdst=True)
+            self_check = json.loads(json.dumps(_complete_solver_self_check()))
+            self_check["capabilities"][0]["evidence"] = "imaginary_decoder_hook proves this capability."
+            proposal_path = _write_proposal(root, solver_contract_self_check=self_check)
+
+            judgment = judge_worker_result(
+                worker_result=WorkerResult(
+                    status="ok",
+                    changed_files=["examples/agent_generated_fjsp_solver.py"],
+                    summary="Structured generated solver skeleton with unsupported self-check evidence.",
+                    artifacts={"proposal": str(proposal_path)},
+                ),
+                worktree_path=root,
+                context_packet_path=context_path,
+                output_dir=root / "review",
+                apply_worker_changes=False,
+            )
+
+            self.assertFalse(judgment.accepted)
+            self.assertIn("agent_generated_solver_self_check_incomplete", judgment.issues)
+            risks = judgment.checks["agent_generated_solver_self_check_risks"]
+            self.assertTrue(any("does not match generated source symbols" in item for item in risks))
+
     def test_agent_generated_solver_with_hardcoded_toy_parser_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -479,8 +479,11 @@ Rules:
   agent-generated solver, fill `solver_contract_self_check` before the changes:
   list the active_features you detected from IO/requirements/diagnostics, mark
   each required and variant_required capability as implemented/missing/not_applicable,
-  and cite concrete function names or guards as evidence.  Do not mark a
-  capability implemented unless the proposed code contains the evidence.
+  and cite concrete function names, variables, or guards as evidence. Evidence
+  must name symbols that appear verbatim in the proposed code, such as
+  `parse_instance`, `op_info`, `decode_schedule`, `expected_ops`, `deadline`, or
+  `best_schedule`. Do not mark a capability implemented unless the proposed code
+  contains the cited evidence.
 - If evaluator_protocol.solver_command_template runs an agent-generated solver
   under `examples/agent_generated*.py`, treat generated solver/helper files as
   standalone example scripts. Do not import `harness_agent.*` from those files;
@@ -842,7 +845,9 @@ def priority_worker_context(context: dict[str, Any]) -> str:
         "solver_quality_playbook_rule": (
             "For each item in agent_generated_solver_quality_contract.capability_playbook, either implement the "
             "capability and cite concrete code evidence in solver_contract_self_check.capabilities, or mark it "
-            "missing with a repair note. Do not claim a capability is implemented from strategy text alone."
+            "missing with a repair note. Evidence must name function/variable/guard symbols that appear verbatim "
+            "in the submitted code; do not claim a capability is implemented from strategy text or imaginary "
+            "helper names alone."
         ),
         "candidate_runtime_import_rule": (
             "When the solver command is an agent-generated examples/agent_generated*.py entrypoint, "
@@ -1755,6 +1760,7 @@ def build_proposal_audit(proposal: dict[str, Any], context: dict[str, Any]) -> d
     solver_self_check_audit = build_solver_contract_self_check_audit(
         proposal.get("solver_contract_self_check") or {},
         quality_contract=quality_contract,
+        proposal=proposal,
         accepted_paths=accepted_paths,
     )
 
@@ -1807,6 +1813,7 @@ def build_solver_contract_self_check_audit(
     self_check: dict[str, Any],
     *,
     quality_contract: dict[str, Any],
+    proposal: dict[str, Any],
     accepted_paths: list[str],
 ) -> dict[str, Any]:
     warnings: list[str] = []
@@ -1819,6 +1826,8 @@ def build_solver_contract_self_check_audit(
             "missing_active_features": [],
             "missing_capabilities": [],
             "capabilities_without_evidence": [],
+            "capabilities_without_concrete_source_evidence": [],
+            "capabilities_with_source_mismatch": [],
             "warnings": warnings,
         }
 
@@ -1831,6 +1840,8 @@ def build_solver_contract_self_check_audit(
             "missing_active_features": quality_contract.get("active_features", []),
             "missing_capabilities": _quality_contract_capabilities(quality_contract),
             "capabilities_without_evidence": [],
+            "capabilities_without_concrete_source_evidence": [],
+            "capabilities_with_source_mismatch": [],
             "warnings": warnings,
         }
 
@@ -1869,6 +1880,17 @@ def build_solver_contract_self_check_audit(
     if vague_capability_evidence:
         warnings.append("agent_generated_solver_self_check_vague_evidence")
 
+    change_source_text = _agent_generated_change_source_text(proposal)
+    source_evidence = _self_check_source_evidence_audit(
+        self_check,
+        expected_capabilities=expected_capabilities,
+        source_text=change_source_text,
+    )
+    if source_evidence["without_concrete_source_evidence"]:
+        warnings.append("agent_generated_solver_self_check_no_concrete_source_evidence")
+    if source_evidence["source_mismatch"]:
+        warnings.append("agent_generated_solver_self_check_source_mismatch")
+
     return {
         "required": True,
         "present": True,
@@ -1877,6 +1899,10 @@ def build_solver_contract_self_check_audit(
         "missing_capabilities": missing_capabilities,
         "capabilities_without_evidence": capabilities_without_evidence,
         "capabilities_with_vague_evidence": vague_capability_evidence,
+        "capabilities_without_concrete_source_evidence": source_evidence[
+            "without_concrete_source_evidence"
+        ],
+        "capabilities_with_source_mismatch": source_evidence["source_mismatch"],
         "warnings": warnings,
     }
 
@@ -1889,6 +1915,111 @@ def _solver_capability_evidence_is_vague(evidence: str) -> bool:
     if stripped in vague_values:
         return True
     return len(stripped) < 20 and not any(token in stripped for token in ("def ", "parse", "decode", "guard", "check", "main"))
+
+
+def _self_check_source_evidence_audit(
+    self_check: dict[str, Any],
+    *,
+    expected_capabilities: set[str],
+    source_text: str,
+) -> dict[str, list[str]]:
+    if not source_text.strip():
+        return {
+            "without_concrete_source_evidence": [],
+            "source_mismatch": [],
+        }
+    source_lower = source_text.lower()
+    without_concrete: list[str] = []
+    source_mismatch: list[str] = []
+    for item in self_check.get("capabilities") or []:
+        if not isinstance(item, dict) or item.get("status") != "implemented":
+            continue
+        capability = str(item.get("name") or "")
+        if capability not in expected_capabilities:
+            continue
+        evidence = str(item.get("evidence") or "")
+        tokens = [
+            token
+            for token in _solver_capability_evidence_tokens(evidence)
+            if token != capability and token not in expected_capabilities
+        ]
+        if not tokens:
+            without_concrete.append(capability)
+            continue
+        missing = [token for token in tokens if token.lower() not in source_lower]
+        if len(missing) == len(tokens):
+            source_mismatch.append(capability)
+    return {
+        "without_concrete_source_evidence": without_concrete,
+        "source_mismatch": source_mismatch,
+    }
+
+
+def _solver_capability_evidence_tokens(evidence: str) -> list[str]:
+    raw_tokens = re.findall(r"`([^`]+)`|([A-Za-z_][A-Za-z0-9_]{2,})", evidence)
+    tokens = [first or second for first, second in raw_tokens]
+    generic = {
+        "implemented",
+        "implementation",
+        "capability",
+        "capabilities",
+        "function",
+        "functions",
+        "guard",
+        "guards",
+        "logic",
+        "solver",
+        "schedule",
+        "schedules",
+        "source",
+        "code",
+        "uses",
+        "used",
+        "with",
+        "where",
+        "evidence",
+        "active",
+        "variant",
+        "feature",
+        "features",
+        "this",
+        "that",
+        "every",
+        "each",
+        "path",
+        "paths",
+        "handled",
+        "supported",
+        "complete",
+    }
+    result: list[str] = []
+    for token in tokens:
+        for part in re.split(r"[/.,:;()\[\]\s]+", token):
+            stripped = part.strip("_")
+            if len(stripped) < 3:
+                continue
+            lowered = stripped.lower()
+            if lowered in generic:
+                continue
+            if stripped not in result:
+                result.append(stripped)
+            if len(result) >= 8:
+                return result
+    return result
+
+
+def _agent_generated_change_source_text(proposal: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for change in proposal.get("changes") or []:
+        if not isinstance(change, dict):
+            continue
+        if not _looks_like_agent_generated_solver_path(str(change.get("path") or "")):
+            continue
+        for key in ("content", "new"):
+            value = change.get(key)
+            if isinstance(value, str):
+                parts.append(value)
+    return "\n".join(parts)
 
 
 def _looks_like_agent_generated_solver_path(path: str) -> bool:

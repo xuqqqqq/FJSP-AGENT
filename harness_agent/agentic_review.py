@@ -208,6 +208,7 @@ def judge_worker_result(
 
     agent_generated_self_check_risks = _detect_agent_generated_solver_self_check_risks(
         proposal=proposal if isinstance(proposal, dict) else None,
+        worktree_path=worktree_path,
         changed_files=worker_result.changed_files,
         quality_contract=agent_generated_quality_contract,
     )
@@ -561,6 +562,7 @@ def _detect_agent_generated_solver_quality_risks(
 def _detect_agent_generated_solver_self_check_risks(
     *,
     proposal: dict[str, Any] | None,
+    worktree_path: Path,
     changed_files: list[str],
     quality_contract: dict[str, Any],
 ) -> list[str]:
@@ -617,7 +619,114 @@ def _detect_agent_generated_solver_self_check_risks(
 
     if "sequence_dependent_setup" in expected_features and not self_check.get("variant_handling"):
         risks.append("solver_contract_self_check missing variant_handling for sequence_dependent_setup")
+    source_evidence_risks = _detect_self_check_evidence_source_mismatches(
+        self_check=self_check,
+        worktree_path=worktree_path,
+        changed_files=changed,
+        expected_capabilities=expected_capabilities,
+    )
+    risks.extend(source_evidence_risks)
     return risks
+
+
+def _detect_self_check_evidence_source_mismatches(
+    *,
+    self_check: dict[str, Any],
+    worktree_path: Path,
+    changed_files: list[str],
+    expected_capabilities: set[str],
+) -> list[str]:
+    sources = _agent_generated_solver_sources(worktree_path, changed_files)
+    if not sources:
+        return []
+    source_text = "\n".join(sources.values()).lower()
+    risks: list[str] = []
+    for item in self_check.get("capabilities") or []:
+        if not isinstance(item, dict) or item.get("status") != "implemented":
+            continue
+        capability = str(item.get("name") or "")
+        if capability not in expected_capabilities:
+            continue
+        evidence = str(item.get("evidence") or "")
+        code_tokens = [
+            token
+            for token in _self_check_code_evidence_tokens(evidence)
+            if token != capability and token not in expected_capabilities
+        ]
+        if not code_tokens:
+            risks.append(
+                f"solver_contract_self_check evidence for {capability} does not cite a concrete code symbol"
+            )
+            continue
+        missing_tokens = [token for token in code_tokens if token.lower() not in source_text]
+        if len(missing_tokens) == len(code_tokens):
+            risks.append(
+                "solver_contract_self_check evidence for "
+                f"{capability} does not match generated source symbols: {', '.join(code_tokens[:4])}"
+            )
+    return risks
+
+
+def _self_check_code_evidence_tokens(evidence: str) -> list[str]:
+    """Extract likely code anchors from self-check prose.
+
+    The goal is not formal proof.  It prevents empty claims such as
+    "implemented" or references to imaginary helpers while allowing natural
+    evidence like `parse_instance/decode_schedule/improve`.
+    """
+
+    if not evidence.strip():
+        return []
+    raw_tokens = re.findall(r"`([^`]+)`|([A-Za-z_][A-Za-z0-9_]{2,})", evidence)
+    tokens = [first or second for first, second in raw_tokens]
+    generic = {
+        "implemented",
+        "implementation",
+        "capability",
+        "capabilities",
+        "function",
+        "functions",
+        "guard",
+        "guards",
+        "logic",
+        "solver",
+        "schedule",
+        "schedules",
+        "source",
+        "code",
+        "uses",
+        "used",
+        "with",
+        "where",
+        "evidence",
+        "active",
+        "variant",
+        "feature",
+        "features",
+        "this",
+        "that",
+        "every",
+        "each",
+        "path",
+        "paths",
+        "handled",
+        "supported",
+        "complete",
+    }
+    result: list[str] = []
+    for token in tokens:
+        for part in re.split(r"[/.,:;()\[\]\s]+", token):
+            stripped = part.strip("_")
+            if len(stripped) < 3:
+                continue
+            lowered = stripped.lower()
+            if lowered in generic:
+                continue
+            if stripped not in result:
+                result.append(stripped)
+            if len(result) >= 8:
+                return result
+    return result
 
 
 def _quality_contract_capabilities_for_review(quality_contract: dict[str, Any]) -> list[str]:
