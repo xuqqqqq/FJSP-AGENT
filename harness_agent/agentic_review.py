@@ -621,6 +621,11 @@ def _detect_agent_generated_solver_self_check_risks(
     if evidence_missing:
         risks.append("solver_contract_self_check missing evidence for: " + ", ".join(evidence_missing))
 
+    variant_required = [
+        item
+        for item in quality_contract.get("variant_required_code_capabilities") or []
+        if isinstance(item, str)
+    ]
     narrative_fields = [
         ("representation", "representation evidence is missing"),
         ("decoder", "decoder evidence is missing"),
@@ -631,21 +636,20 @@ def _detect_agent_generated_solver_self_check_risks(
         if not str(self_check.get(field) or "").strip():
             risks.append(f"solver_contract_self_check {message}")
 
-    variant_required = [
-        item
-        for item in quality_contract.get("variant_required_code_capabilities") or []
-        if isinstance(item, str)
-    ]
     if variant_required and not self_check.get("variant_handling"):
         risks.append(
             "solver_contract_self_check missing variant_handling for active variant capabilities: "
             + ", ".join(variant_required)
         )
+    required_narrative_fields = [field for field, _message in narrative_fields]
+    if variant_required:
+        required_narrative_fields.append("variant_handling")
     source_evidence_risks = _detect_self_check_evidence_source_mismatches(
         self_check=self_check,
         worktree_path=worktree_path,
         changed_files=changed,
         expected_capabilities=expected_capabilities,
+        required_narrative_fields=required_narrative_fields,
     )
     risks.extend(source_evidence_risks)
     return risks
@@ -799,6 +803,7 @@ def _detect_self_check_evidence_source_mismatches(
     worktree_path: Path,
     changed_files: list[str],
     expected_capabilities: set[str],
+    required_narrative_fields: list[str],
 ) -> list[str]:
     sources = _agent_generated_solver_sources(worktree_path, changed_files)
     if not sources:
@@ -828,7 +833,35 @@ def _detect_self_check_evidence_source_mismatches(
                 "solver_contract_self_check evidence for "
                 f"{capability} does not match generated source symbols: {', '.join(code_tokens[:4])}"
             )
+    for field in required_narrative_fields:
+        evidence = _self_check_narrative_text(self_check.get(field))
+        if not evidence.strip():
+            continue
+        code_tokens = [
+            token
+            for token in _self_check_code_evidence_tokens(evidence)
+            if token != field and token not in expected_capabilities
+        ]
+        if not code_tokens:
+            risks.append(
+                f"solver_contract_self_check narrative evidence for {field} does not cite a concrete code symbol"
+            )
+            continue
+        missing_tokens = [token for token in code_tokens if token.lower() not in source_text]
+        if len(missing_tokens) == len(code_tokens):
+            risks.append(
+                "solver_contract_self_check narrative evidence for "
+                f"{field} does not match generated source symbols: {', '.join(code_tokens[:4])}"
+            )
     return risks
+
+
+def _self_check_narrative_text(value: Any) -> str:
+    if isinstance(value, list):
+        return " ".join(str(item) for item in value)
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return str(value or "")
 
 
 def _self_check_code_evidence_tokens(evidence: str) -> list[str]:

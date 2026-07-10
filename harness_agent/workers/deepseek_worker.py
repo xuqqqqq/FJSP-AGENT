@@ -1850,9 +1850,12 @@ def build_solver_contract_self_check_audit(
             "missing_active_features": [],
             "missing_capabilities": [],
             "missing_variant_handling": [],
+            "missing_narrative_fields": [],
             "capabilities_without_evidence": [],
             "capabilities_without_concrete_source_evidence": [],
             "capabilities_with_source_mismatch": [],
+            "narrative_without_concrete_source_evidence": [],
+            "narrative_with_source_mismatch": [],
             "warnings": warnings,
         }
 
@@ -1865,9 +1868,15 @@ def build_solver_contract_self_check_audit(
             "missing_active_features": quality_contract.get("active_features", []),
             "missing_capabilities": _quality_contract_capabilities(quality_contract),
             "missing_variant_handling": quality_contract.get("variant_required_code_capabilities", []),
+            "missing_narrative_fields": _required_solver_self_check_narrative_fields(
+                quality_contract,
+                include_variant=True,
+            ),
             "capabilities_without_evidence": [],
             "capabilities_without_concrete_source_evidence": [],
             "capabilities_with_source_mismatch": [],
+            "narrative_without_concrete_source_evidence": [],
+            "narrative_with_source_mismatch": [],
             "warnings": warnings,
         }
 
@@ -1895,6 +1904,18 @@ def build_solver_contract_self_check_audit(
     missing_variant_handling = variant_required if variant_required and not self_check.get("variant_handling") else []
     if missing_variant_handling:
         warnings.append("agent_generated_solver_self_check_missing_variant_handling")
+
+    required_narrative_fields = _required_solver_self_check_narrative_fields(
+        quality_contract,
+        include_variant=bool(variant_required),
+    )
+    missing_narrative_fields = sorted(
+        field
+        for field in required_narrative_fields
+        if not _self_check_narrative_text(self_check.get(field)).strip()
+    )
+    if missing_narrative_fields:
+        warnings.append("agent_generated_solver_self_check_missing_narrative_evidence")
 
     capabilities_without_evidence = sorted(
         str(item.get("name"))
@@ -1925,6 +1946,10 @@ def build_solver_contract_self_check_audit(
         warnings.append("agent_generated_solver_self_check_no_concrete_source_evidence")
     if source_evidence["source_mismatch"]:
         warnings.append("agent_generated_solver_self_check_source_mismatch")
+    if source_evidence["narrative_without_concrete_source_evidence"]:
+        warnings.append("agent_generated_solver_self_check_narrative_no_concrete_source_evidence")
+    if source_evidence["narrative_source_mismatch"]:
+        warnings.append("agent_generated_solver_self_check_narrative_source_mismatch")
 
     return {
         "required": True,
@@ -1933,12 +1958,17 @@ def build_solver_contract_self_check_audit(
         "missing_active_features": missing_features,
         "missing_capabilities": missing_capabilities,
         "missing_variant_handling": missing_variant_handling,
+        "missing_narrative_fields": missing_narrative_fields,
         "capabilities_without_evidence": capabilities_without_evidence,
         "capabilities_with_vague_evidence": vague_capability_evidence,
         "capabilities_without_concrete_source_evidence": source_evidence[
             "without_concrete_source_evidence"
         ],
         "capabilities_with_source_mismatch": source_evidence["source_mismatch"],
+        "narrative_without_concrete_source_evidence": source_evidence[
+            "narrative_without_concrete_source_evidence"
+        ],
+        "narrative_with_source_mismatch": source_evidence["narrative_source_mismatch"],
         "warnings": warnings,
     }
 
@@ -1953,6 +1983,17 @@ def _solver_capability_evidence_is_vague(evidence: str) -> bool:
     return len(stripped) < 20 and not any(token in stripped for token in ("def ", "parse", "decode", "guard", "check", "main"))
 
 
+def _required_solver_self_check_narrative_fields(
+    quality_contract: dict[str, Any],
+    *,
+    include_variant: bool,
+) -> list[str]:
+    fields = ["representation", "decoder", "runtime_bounds", "incumbent_preservation"]
+    if include_variant and quality_contract.get("variant_required_code_capabilities"):
+        fields.append("variant_handling")
+    return fields
+
+
 def _self_check_source_evidence_audit(
     self_check: dict[str, Any],
     *,
@@ -1963,6 +2004,8 @@ def _self_check_source_evidence_audit(
         return {
             "without_concrete_source_evidence": [],
             "source_mismatch": [],
+            "narrative_without_concrete_source_evidence": [],
+            "narrative_source_mismatch": [],
         }
     source_lower = source_text.lower()
     without_concrete: list[str] = []
@@ -1985,10 +2028,40 @@ def _self_check_source_evidence_audit(
         missing = [token for token in tokens if token.lower() not in source_lower]
         if len(missing) == len(tokens):
             source_mismatch.append(capability)
+    narrative_without_concrete: list[str] = []
+    narrative_source_mismatch: list[str] = []
+    for field in _self_check_present_narrative_fields(self_check):
+        evidence = _self_check_narrative_text(self_check.get(field))
+        tokens = [
+            token
+            for token in _solver_capability_evidence_tokens(evidence)
+            if token != field and token not in expected_capabilities
+        ]
+        if not tokens:
+            narrative_without_concrete.append(field)
+            continue
+        missing = [token for token in tokens if token.lower() not in source_lower]
+        if len(missing) == len(tokens):
+            narrative_source_mismatch.append(field)
     return {
         "without_concrete_source_evidence": without_concrete,
         "source_mismatch": source_mismatch,
+        "narrative_without_concrete_source_evidence": narrative_without_concrete,
+        "narrative_source_mismatch": narrative_source_mismatch,
     }
+
+
+def _self_check_present_narrative_fields(self_check: dict[str, Any]) -> list[str]:
+    fields = ["representation", "decoder", "variant_handling", "runtime_bounds", "incumbent_preservation"]
+    return [field for field in fields if _self_check_narrative_text(self_check.get(field)).strip()]
+
+
+def _self_check_narrative_text(value: Any) -> str:
+    if isinstance(value, list):
+        return " ".join(str(item) for item in value)
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return str(value or "")
 
 
 def _solver_capability_evidence_tokens(evidence: str) -> list[str]:

@@ -972,7 +972,9 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertTrue(audit["present"])
         self.assertEqual([], audit["missing_capabilities"])
         self.assertEqual([], audit["missing_variant_handling"])
+        self.assertEqual([], audit["missing_narrative_fields"])
         self.assertEqual([], audit["capabilities_with_source_mismatch"])
+        self.assertEqual([], audit["narrative_with_source_mismatch"])
         self.assertNotIn("agent_generated_solver_self_check_missing", complete["proposal_audit"]["warnings"])
         self.assertNotIn("agent_generated_solver_self_check_source_mismatch", complete["proposal_audit"]["warnings"])
 
@@ -1086,6 +1088,72 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         audit = normalized["proposal_audit"]["solver_contract_self_check"]
         self.assertIn("agent_generated_solver_self_check_source_mismatch", audit["warnings"])
         self.assertIn("standalone_cli_interface", audit["capabilities_with_source_mismatch"])
+
+    def test_proposal_audit_warns_when_narrative_evidence_is_not_in_source(self) -> None:
+        worker = DeepSeekWorker()
+        context = _agent_generated_sdst_context()
+        self_check = _complete_solver_self_check()
+        self_check["decoder"] = "`phantom_evidence_anchor` proves decoder behavior."
+
+        normalized = worker._normalize_code_edit_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "summary": "Create a generated solver with imaginary narrative evidence.",
+                "strategy_intent": "Write a standalone solver from the IO contract.",
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "operation_level_dispatch",
+                        "type": "dispatch_rule",
+                        "target_files": ["examples/agent_generated_fjsp_solver.py"],
+                    }
+                ],
+                "solver_contract_self_check": self_check,
+                "changes": [
+                    {
+                        "path": "examples/agent_generated_fjsp_solver.py",
+                        "action": "create_or_replace",
+                        "content": _minimal_agent_generated_solver_symbols(),
+                    }
+                ],
+            },
+            context,
+        )
+
+        audit = normalized["proposal_audit"]["solver_contract_self_check"]
+        self.assertIn("agent_generated_solver_self_check_narrative_source_mismatch", audit["warnings"])
+        self.assertIn("decoder", audit["narrative_with_source_mismatch"])
+
+    def test_proposal_audit_warns_when_narrative_evidence_is_missing(self) -> None:
+        worker = DeepSeekWorker()
+        context = _agent_generated_sdst_context()
+        self_check = _complete_solver_self_check()
+        self_check["decoder"] = ""
+
+        normalized = worker._normalize_code_edit_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "summary": "Create a generated solver with missing decoder narrative evidence.",
+                "strategy_intent": "Write a standalone solver from the IO contract.",
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "operation_level_dispatch",
+                        "type": "dispatch_rule",
+                        "target_files": ["examples/agent_generated_fjsp_solver.py"],
+                    }
+                ],
+                "solver_contract_self_check": self_check,
+                "changes": [
+                    {
+                        "path": "examples/agent_generated_fjsp_solver.py",
+                        "action": "create_or_replace",
+                        "content": _minimal_agent_generated_solver_symbols(),
+                    }
+                ],
+            },
+            context,
+        )
+
+        audit = normalized["proposal_audit"]["solver_contract_self_check"]
+        self.assertIn("agent_generated_solver_self_check_missing_narrative_evidence", audit["warnings"])
+        self.assertIn("decoder", audit["missing_narrative_fields"])
 
     def test_priority_worker_context_frontloads_relevant_knowledge_cards(self) -> None:
         context = _context_packet_with_intake()
@@ -1377,8 +1445,8 @@ def _complete_solver_self_check() -> dict[str, object]:
         ],
         "representation": "op_info uses (job_id, op_id), assignment maps op keys to machines, machine_sequences maps machines to op keys.",
         "decoder": "decode_schedule rebuilds all starts/ends and returns None on duplicates, missing ops, deadlocks, or ineligible machines.",
-        "variant_handling": ["sequence_dependent_setup is applied between adjacent operations on each machine."],
-        "runtime_bounds": "max_restarts, max_iterations, and deadline bound all loops.",
+        "variant_handling": ["decode_schedule applies sequence_dependent_setup timing before candidate acceptance."],
+        "runtime_bounds": "max_iterations bounds the improve loop.",
         "incumbent_preservation": "failed decode returns None and improve keeps best_schedule unless candidate_makespan is lower.",
         "remaining_gaps": [],
     }
@@ -1394,8 +1462,11 @@ def _minimal_agent_generated_solver_symbols() -> str:
             "def decode_schedule(instance):",
             "    return []",
             "",
-            "def improve(instance):",
-            "    return decode_schedule(instance)",
+            "def improve(instance, max_iterations=1):",
+            "    best_schedule = decode_schedule(instance)",
+            "    for _iteration in range(max_iterations):",
+            "        candidate_makespan = 0",
+            "    return best_schedule",
         ]
     )
 
