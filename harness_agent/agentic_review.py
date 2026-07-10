@@ -9,6 +9,9 @@ from typing import Any
 from .runner import RunSummary
 from .solver_quality_contract import build_agent_generated_solver_quality_contract
 from .solver_quality_contract import is_agent_generated_solver_context as _contract_agent_generated_context
+from .source_reachability import function_call_count
+from .source_reachability import function_is_reachable_from_entry
+from .source_reachability import unreachable_defined_function_helpers
 from .worker import WorkerResult
 
 
@@ -673,7 +676,8 @@ def _detect_agent_generated_source_self_check_risks(
         ]
     name, block = self_check
     risks: list[str] = []
-    if _function_call_count(combined_text, name) < 2:
+    reachable = function_is_reachable_from_entry(combined_text, name)
+    if reachable is False or (reachable is None and function_call_count(combined_text, name) < 2):
         risks.append(f"source-level self-check `{name}` is defined but not called before output")
 
     expected_capabilities = set(_quality_contract_capabilities_for_review(quality_contract))
@@ -719,10 +723,6 @@ def _source_self_check_block(text: str) -> tuple[str, str] | None:
     return match.group(1), text[match.start() : end]
 
 
-def _function_call_count(text: str, function_name: str) -> int:
-    return len(re.findall(rf"\b{re.escape(function_name)}\s*\(", text))
-
-
 def _detect_agent_generated_dead_function_risks(text: str) -> list[str]:
     """Catch generated helpers that are cited/defined but not wired into flow.
 
@@ -745,19 +745,10 @@ def _detect_agent_generated_dead_function_risks(text: str) -> list[str]:
             r"^def\s+((?:validate|self_check|check|assert)[A-Za-z0-9_]*(?:schedule|solution|feasible|valid)[A-Za-z0-9_]*)\s*\(",
         ),
     ]
-    risks: list[str] = []
-    seen: set[tuple[str, str]] = set()
-    for label, pattern in patterns:
-        for name in re.findall(pattern, text, re.M):
-            key = (label, name)
-            if key in seen:
-                continue
-            seen.add(key)
-            if _function_call_count(text, name) < 2:
-                risks.append(
-                    f"agent_generated_solver: {label} `{name}` is defined but not called by the generated solver flow"
-                )
-    return risks
+    return [
+        f"agent_generated_solver: {label} `{name}` is defined but not reachable from generated solver entry flow"
+        for label, name in unreachable_defined_function_helpers(text, patterns)
+    ]
 
 
 def _has_setup_aware_source_self_check_guard(text: str) -> bool:

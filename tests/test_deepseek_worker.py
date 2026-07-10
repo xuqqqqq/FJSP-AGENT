@@ -571,7 +571,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                             "warnings": audit["warnings"],
                             "solver_contract_self_check": audit,
                             "agent_generated_unwired_helpers": [
-                                "decoder `decode_schedule` is defined but not called by the generated solver flow"
+                                "decoder `decode_schedule` is defined but not reachable from generated solver entry flow"
                             ],
                         },
                     },
@@ -586,7 +586,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                                 "warnings": audit["warnings"],
                                 "solver_contract_self_check": audit,
                                 "agent_generated_unwired_helpers": [
-                                    "source-level self-check `validate_schedule` is defined but not called by the generated solver flow"
+                                    "source-level self-check `validate_schedule` is defined but not reachable from generated solver entry flow"
                                 ],
                             },
                         },
@@ -601,7 +601,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertEqual(["decoder"], previous_audit["missing_narrative_fields"])
         self.assertEqual(["variant_handling"], previous_audit["narrative_with_source_mismatch"])
         self.assertEqual(
-            ["decoder `decode_schedule` is defined but not called by the generated solver flow"],
+            ["decoder `decode_schedule` is defined but not reachable from generated solver entry flow"],
             compact["previous_rounds"][0]["agent_generated_unwired_helpers"],
         )
         repair_audit = compact["current_round_repair"]["previous_attempts"][0][
@@ -609,7 +609,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         ]
         self.assertEqual(["active_io_parser"], repair_audit["capabilities_with_source_mismatch"])
         self.assertEqual(
-            ["source-level self-check `validate_schedule` is defined but not called by the generated solver flow"],
+            ["source-level self-check `validate_schedule` is defined but not reachable from generated solver entry flow"],
             compact["current_round_repair"]["previous_attempts"][0]["agent_generated_unwired_helpers"],
         )
 
@@ -1272,17 +1272,122 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         audit = normalized["proposal_audit"]
         self.assertIn("agent_generated_solver_unwired_helper", audit["warnings"])
         self.assertIn(
-            "parser `parse_instance` is defined but not called by the generated solver flow",
+            "parser `parse_instance` is defined but not reachable from generated solver entry flow",
             audit["agent_generated_unwired_helpers"],
         )
         self.assertIn(
-            "decoder `decode_schedule` is defined but not called by the generated solver flow",
+            "decoder `decode_schedule` is defined but not reachable from generated solver entry flow",
             audit["agent_generated_unwired_helpers"],
         )
         self.assertIn(
-            "source-level self-check `validate_schedule` is defined but not called by the generated solver flow",
+            "source-level self-check `validate_schedule` is defined but not reachable from generated solver entry flow",
             audit["agent_generated_unwired_helpers"],
         )
+
+    def test_proposal_audit_rejects_decoder_dead_function_island(self) -> None:
+        worker = DeepSeekWorker()
+        context = _agent_generated_sdst_context()
+        source = "\n".join(
+            [
+                "def parse_instance(path):",
+                "    return {'op_info': {}}",
+                "",
+                "def decode_schedule(instance):",
+                "    return []",
+                "",
+                "def evidence_only_helper(instance):",
+                "    return decode_schedule(instance)",
+                "",
+                "def solve(input_path):",
+                "    instance = parse_instance(input_path)",
+                "    return {'schedule': []}",
+                "",
+                "def main():",
+                "    return solve('case.fjs')",
+            ]
+        )
+
+        normalized = worker._normalize_code_edit_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "summary": "Create a generated solver with decoder evidence isolated from the entry flow.",
+                "strategy_intent": "Write a standalone solver from the IO contract.",
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "operation_level_dispatch",
+                        "type": "dispatch_rule",
+                        "target_files": ["examples/agent_generated_fjsp_solver.py"],
+                    }
+                ],
+                "solver_contract_self_check": _complete_solver_self_check(),
+                "changes": [
+                    {
+                        "path": "examples/agent_generated_fjsp_solver.py",
+                        "action": "create_or_replace",
+                        "content": source,
+                    }
+                ],
+            },
+            context,
+        )
+
+        audit = normalized["proposal_audit"]
+        self.assertIn("agent_generated_solver_unwired_helper", audit["warnings"])
+        self.assertIn(
+            "decoder `decode_schedule` is defined but not reachable from generated solver entry flow",
+            audit["agent_generated_unwired_helpers"],
+        )
+
+    def test_proposal_audit_accepts_helpers_reachable_from_solver_entry(self) -> None:
+        worker = DeepSeekWorker()
+        context = _agent_generated_sdst_context()
+        source = "\n".join(
+            [
+                "def parse_instance(path):",
+                "    return {'op_info': {}}",
+                "",
+                "def decode_schedule(instance):",
+                "    return []",
+                "",
+                "def validate_schedule(instance, schedule):",
+                "    return True",
+                "",
+                "def solve(input_path):",
+                "    instance = parse_instance(input_path)",
+                "    schedule = decode_schedule(instance)",
+                "    validate_schedule(instance, schedule)",
+                "    return {'schedule': schedule}",
+                "",
+                "def main():",
+                "    return solve('case.fjs')",
+            ]
+        )
+
+        normalized = worker._normalize_code_edit_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "summary": "Create a generated solver with reachable parser, decoder, and validation helpers.",
+                "strategy_intent": "Write a standalone solver from the IO contract.",
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "operation_level_dispatch",
+                        "type": "dispatch_rule",
+                        "target_files": ["examples/agent_generated_fjsp_solver.py"],
+                    }
+                ],
+                "solver_contract_self_check": _complete_solver_self_check(),
+                "changes": [
+                    {
+                        "path": "examples/agent_generated_fjsp_solver.py",
+                        "action": "create_or_replace",
+                        "content": source,
+                    }
+                ],
+            },
+            context,
+        )
+
+        audit = normalized["proposal_audit"]
+        self.assertNotIn("agent_generated_solver_unwired_helper", audit["warnings"])
+        self.assertEqual([], audit["agent_generated_unwired_helpers"])
 
     def test_priority_worker_context_frontloads_relevant_knowledge_cards(self) -> None:
         context = _context_packet_with_intake()

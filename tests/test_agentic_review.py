@@ -168,7 +168,7 @@ class AgenticReviewQualityContractTests(unittest.TestCase):
             self.assertFalse(judgment.accepted)
             self.assertIn("agent_generated_solver_quality_contract_missing", judgment.issues)
             risks = judgment.checks["agent_generated_solver_quality_risks"]
-            self.assertTrue(any("source-level self-check `validate_schedule` is defined but not called" in item for item in risks))
+            self.assertTrue(any("source-level self-check `validate_schedule` is defined but not reachable" in item for item in risks))
 
     def test_agent_generated_structured_proposal_rejects_uncalled_decoder(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -199,7 +199,45 @@ class AgenticReviewQualityContractTests(unittest.TestCase):
             self.assertFalse(judgment.accepted)
             self.assertIn("agent_generated_solver_quality_contract_missing", judgment.issues)
             risks = judgment.checks["agent_generated_solver_quality_risks"]
-            self.assertTrue(any("decoder `decode_schedule` is defined but not called" in item for item in risks))
+            self.assertTrue(any("decoder `decode_schedule` is defined but not reachable" in item for item in risks))
+
+    def test_agent_generated_structured_proposal_rejects_decoder_dead_function_island(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            solver = root / "examples" / "agent_generated_fjsp_solver.py"
+            solver.parent.mkdir(parents=True)
+            source = _strong_agent_generated_solver_source().replace(
+                "decode_schedule(instance, dict(assignment), {m: list(v) for m, v in machine_sequences.items()})",
+                "[]",
+            )
+            source = source.replace(
+                "\ndef validate_schedule(instance, schedule):\n",
+                "\ndef evidence_only_decoder(instance, assignment, machine_sequences):\n"
+                "    return decode_schedule(instance, assignment, machine_sequences)\n"
+                "\n"
+                "def validate_schedule(instance, schedule):\n",
+            )
+            solver.write_text(source, encoding="utf-8")
+            context_path = _write_context(root, sdst=True)
+            proposal_path = _write_proposal(root, solver_contract_self_check=_complete_solver_self_check())
+
+            judgment = judge_worker_result(
+                worker_result=WorkerResult(
+                    status="ok",
+                    changed_files=["examples/agent_generated_fjsp_solver.py"],
+                    summary="Structured generated solver with a decoder called only by unreachable helper code.",
+                    artifacts={"proposal": str(proposal_path)},
+                ),
+                worktree_path=root,
+                context_packet_path=context_path,
+                output_dir=root / "review",
+                apply_worker_changes=False,
+            )
+
+            self.assertFalse(judgment.accepted)
+            self.assertIn("agent_generated_solver_quality_contract_missing", judgment.issues)
+            risks = judgment.checks["agent_generated_solver_quality_risks"]
+            self.assertTrue(any("decoder `decode_schedule` is defined but not reachable" in item for item in risks))
 
     def test_agent_generated_direct_edit_requires_source_level_self_check(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

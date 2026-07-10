@@ -1281,7 +1281,7 @@ class WorkerLoopTests(unittest.TestCase):
                         "proposal_audit": {
                             "warnings": ["agent_generated_solver_self_check_narrative_source_mismatch"],
                             "agent_generated_unwired_helpers": [
-                                "decoder `decode_schedule` is defined but not called by the generated solver flow"
+                                "decoder `decode_schedule` is defined but not reachable from generated solver entry flow"
                             ],
                             "solver_contract_self_check": {
                                 "required": True,
@@ -1311,7 +1311,7 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertEqual(["variant_handling"], audit["narrative_with_source_mismatch"])
         self.assertEqual(["active_io_parser"], audit["capabilities_with_source_mismatch"])
         self.assertEqual(
-            ["decoder `decode_schedule` is defined but not called by the generated solver flow"],
+            ["decoder `decode_schedule` is defined but not reachable from generated solver entry flow"],
             diagnostics["proposal_audit"]["agent_generated_unwired_helpers"],
         )
 

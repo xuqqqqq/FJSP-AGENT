@@ -10,6 +10,7 @@ from typing import Any
 from ..deepseek_client import DeepSeekClient, DeepSeekUnavailable, is_deepseek_configured
 from ..solver_quality_contract import build_agent_generated_solver_quality_contract
 from ..slot_contract import extract_marked_block, replace_marked_block, validate_slot_manifest_gate
+from ..source_reachability import unreachable_defined_function_helpers
 from ..worker import CodingWorker, ExperimentSpec, WorkerCapabilities, WorkerResult
 
 
@@ -2080,21 +2081,10 @@ def _unwired_generated_helper_warnings(source_text: str) -> list[str]:
             r"^def\s+((?:validate|self_check|check|assert)[A-Za-z0-9_]*(?:schedule|solution|feasible|valid)[A-Za-z0-9_]*)\s*\(",
         ),
     ]
-    warnings: list[str] = []
-    seen: set[tuple[str, str]] = set()
-    for label, pattern in patterns:
-        for name in re.findall(pattern, source_text, re.M):
-            key = (label, name)
-            if key in seen:
-                continue
-            seen.add(key)
-            if _proposal_function_call_count(source_text, name) < 2:
-                warnings.append(f"{label} `{name}` is defined but not called by the generated solver flow")
-    return warnings
-
-
-def _proposal_function_call_count(text: str, function_name: str) -> int:
-    return len(re.findall(rf"\b{re.escape(function_name)}\s*\(", text))
+    return [
+        f"{label} `{name}` is defined but not reachable from generated solver entry flow"
+        for label, name in unreachable_defined_function_helpers(source_text, patterns)
+    ]
 
 
 def _solver_capability_evidence_is_vague(evidence: str) -> bool:
