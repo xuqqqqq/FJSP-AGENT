@@ -135,9 +135,12 @@ Task:
   `validate_schedule(...)` or `self_check_solution(...)` in the generated solver
   and call it before writing output. It must reject missing/duplicate
   operations, ineligible machines, duration mismatches, precedence violations,
-  and machine overlaps. If sequence-dependent setup is active, the helper must
-  also verify setup-aware same-machine arcs, for example
-  `start >= prev_end + setup_time(...)` for adjacent operations on the machine.
+  and machine overlaps. It must also verify every active variant capability
+  listed under `agent_generated_solver_quality_contract.variant_required_code_capabilities`.
+  For example, sequence-dependent setup requires setup-aware same-machine arcs
+  such as `start >= prev_end + setup_time(...)`; no-wait requires successor
+  starts to match predecessor completion; release dates require starts no
+  earlier than the parsed release time.
 
 Priority context:
 ```json

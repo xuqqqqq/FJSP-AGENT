@@ -321,6 +321,122 @@ class AgenticReviewQualityContractTests(unittest.TestCase):
             contract = judgment.checks["agent_generated_solver_quality_contract"]
             self.assertNotIn("sequence_dependent_setup", contract["active_features"])
 
+    def test_agent_generated_direct_variant_edit_requires_active_variant_self_checks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            solver = root / "examples" / "agent_generated_fjsp_solver.py"
+            solver.parent.mkdir(parents=True)
+            solver.write_text(_standardized_strong_solver_source(), encoding="utf-8")
+            context_path = _write_context(root, sdst=False)
+            context = json.loads(context_path.read_text(encoding="utf-8"))
+            context["task"]["description"] += " Active variant: no-wait with release dates."
+            context_path.write_text(json.dumps(context, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+            judgment = judge_worker_result(
+                worker_result=WorkerResult(
+                    status="ok",
+                    changed_files=["examples/agent_generated_fjsp_solver.py"],
+                    summary="Direct generated no-wait/release-date solver edit without active variant self-checks.",
+                ),
+                worktree_path=root,
+                context_packet_path=context_path,
+                output_dir=root / "review",
+                apply_worker_changes=False,
+            )
+
+            self.assertFalse(judgment.accepted)
+            self.assertIn("agent_generated_solver_self_check_incomplete", judgment.issues)
+            risks = judgment.checks["agent_generated_solver_self_check_risks"]
+            self.assertTrue(any("no_wait_start_time_guard" in item for item in risks))
+            self.assertTrue(any("release_date_guard" in item for item in risks))
+
+    def test_agent_generated_direct_variant_edit_with_active_variant_self_checks_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            solver = root / "examples" / "agent_generated_fjsp_solver.py"
+            solver.parent.mkdir(parents=True)
+            source = _standardized_strong_solver_source().replace(
+                "        if start < job_ready.get(job_id, 0):\n"
+                "            raise ValueError('job precedence violation')\n",
+                "        release_time = instance.get('release_dates', {}).get(op_key, 0)\n"
+                "        if start < release_time:\n"
+                "            raise ValueError('release date violation')\n"
+                "        no_wait = instance.get('no_wait')\n"
+                "        if no_wait and op_id > 0 and start != job_ready.get(job_id, 0):\n"
+                "            raise ValueError('no_wait violation')\n"
+                "        if start < job_ready.get(job_id, 0):\n"
+                "            raise ValueError('job precedence violation')\n",
+            )
+            solver.write_text(source, encoding="utf-8")
+            context_path = _write_context(root, sdst=False)
+            context = json.loads(context_path.read_text(encoding="utf-8"))
+            context["task"]["description"] += " Active variant: no-wait with release dates."
+            context_path.write_text(json.dumps(context, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+            judgment = judge_worker_result(
+                worker_result=WorkerResult(
+                    status="ok",
+                    changed_files=["examples/agent_generated_fjsp_solver.py"],
+                    summary="Direct generated no-wait/release-date solver edit with active variant self-checks.",
+                ),
+                worktree_path=root,
+                context_packet_path=context_path,
+                output_dir=root / "review",
+                apply_worker_changes=False,
+            )
+
+            self.assertTrue(judgment.accepted, judgment.issues)
+            contract = judgment.checks["agent_generated_solver_quality_contract"]
+            self.assertIn("no_wait", contract["active_features"])
+            self.assertIn("release_dates", contract["active_features"])
+            playbook = {item["name"]: item for item in contract["capability_playbook"]}
+            self.assertIn("successor", playbook["no_wait_start_time_guard"]["evidence"])
+            self.assertIn("release", playbook["release_date_guard"]["evidence"])
+
+    def test_agent_generated_structured_variant_self_check_requires_variant_handling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            solver = root / "examples" / "agent_generated_fjsp_solver.py"
+            solver.parent.mkdir(parents=True)
+            source = _standardized_strong_solver_source().replace(
+                "        if start < job_ready.get(job_id, 0):\n"
+                "            raise ValueError('job precedence violation')\n",
+                "        release_time = instance.get('release_dates', {}).get(op_key, 0)\n"
+                "        if start < release_time:\n"
+                "            raise ValueError('release date violation')\n"
+                "        no_wait = instance.get('no_wait')\n"
+                "        if no_wait and op_id > 0 and start != job_ready.get(job_id, 0):\n"
+                "            raise ValueError('no_wait violation')\n"
+                "        if start < job_ready.get(job_id, 0):\n"
+                "            raise ValueError('job precedence violation')\n",
+            )
+            solver.write_text(source, encoding="utf-8")
+            context_path = _write_context(root, sdst=False)
+            context = json.loads(context_path.read_text(encoding="utf-8"))
+            context["task"]["description"] += " Active variant: no-wait with release dates."
+            context_path.write_text(json.dumps(context, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            self_check = _complete_no_wait_release_self_check()
+            self_check.pop("variant_handling", None)
+            proposal_path = _write_proposal(root, solver_contract_self_check=self_check, content=source)
+
+            judgment = judge_worker_result(
+                worker_result=WorkerResult(
+                    status="ok",
+                    changed_files=["examples/agent_generated_fjsp_solver.py"],
+                    summary="Structured generated no-wait/release-date solver edit without variant handling narrative.",
+                    artifacts={"proposal": str(proposal_path)},
+                ),
+                worktree_path=root,
+                context_packet_path=context_path,
+                output_dir=root / "review",
+                apply_worker_changes=False,
+            )
+
+            self.assertFalse(judgment.accepted)
+            self.assertIn("agent_generated_solver_self_check_incomplete", judgment.issues)
+            risks = judgment.checks["agent_generated_solver_self_check_risks"]
+            self.assertTrue(any("missing variant_handling for active variant capabilities" in item for item in risks))
+
     def test_instance_diagnostics_prevent_generic_variant_false_positives(self) -> None:
         context = {
             "task": {
@@ -474,6 +590,50 @@ def _complete_solver_self_check() -> dict[str, object]:
         "representation": "op_info uses (job_id, op_id), assignment maps op keys to machines, machine_sequences maps machines to op keys.",
         "decoder": "decode_schedule rebuilds all starts/ends and returns None on duplicates, missing ops, deadlocks, or ineligible machines.",
         "variant_handling": ["sequence_dependent_setup is applied between adjacent operations on each machine."],
+        "runtime_bounds": "time_limit/deadline and max_iterations bound decoding and improvement.",
+        "incumbent_preservation": "candidate None is skipped and best_schedule changes only when candidate_makespan < best_makespan.",
+        "remaining_gaps": [],
+    }
+
+
+def _complete_no_wait_release_self_check() -> dict[str, object]:
+    capabilities = [
+        "standalone_cli_interface",
+        "active_io_parser",
+        "declared_output_schema",
+        "stable_operation_identity",
+        "operation_level_ready_list_constructor",
+        "complete_schedule_coverage_guard",
+        "machine_eligibility_guard",
+        "processing_duration_guard",
+        "job_precedence_guard",
+        "machine_non_overlap_guard",
+        "bounded_runtime_or_iteration_guard",
+        "incumbent_preservation_on_failed_candidate",
+        "no_wait_start_time_guard",
+        "release_date_guard",
+    ]
+    return {
+        "present": True,
+        "active_features": [
+            "alternative_machines",
+            "machine_capacity",
+            "makespan_objective",
+            "no_wait",
+            "operation_precedence",
+            "release_dates",
+        ],
+        "capabilities": [
+            {
+                "name": name,
+                "status": "implemented",
+                "evidence": f"{name} is implemented in op_info/decode_schedule/improve/validate_schedule/release_time/no_wait.",
+            }
+            for name in capabilities
+        ],
+        "representation": "op_info uses (job_id, op_id), assignment maps op keys to machines, machine_sequences maps machines to op keys.",
+        "decoder": "decode_schedule rebuilds all starts/ends and returns None on duplicates, missing ops, deadlocks, or ineligible machines.",
+        "variant_handling": ["release_time and no_wait guards are checked in validate_schedule."],
         "runtime_bounds": "time_limit/deadline and max_iterations bound decoding and improvement.",
         "incumbent_preservation": "candidate None is skipped and best_schedule changes only when candidate_makespan < best_makespan.",
         "remaining_gaps": [],
@@ -722,6 +882,11 @@ def _strong_agent_generated_solver_source() -> str:
             "    raise SystemExit(main())",
         ]
     ) + "\n"
+
+
+def _standardized_strong_solver_source() -> str:
+    source = _strong_agent_generated_solver_source().replace("setup_time", "transition_gap")
+    return source.replace("setup = transition_gap(machine_id, prev_key, op_key)", "setup = 0")
 
 
 def _hardcoded_toy_parser_source() -> str:

@@ -166,6 +166,38 @@ _CAPABILITY_PLAYBOOK = {
         "evidence": "Cite the decoder that rebuilds all start/end times from assignment and machine sequences under setup constraints.",
         "repair": "Run every sequence/neighborhood candidate through the setup-aware full decoder before comparing makespan.",
     },
+    "no_wait_start_time_guard": {
+        "evidence": "Cite the guard that forces each no-wait successor to start exactly when its job predecessor finishes.",
+        "repair": "Add no-wait predecessor timing checks to construction, decode, and output self-check before scoring candidates.",
+    },
+    "time_lag_precedence_guard": {
+        "evidence": "Cite the min/max lag checks that bound successor start times relative to predecessor completion.",
+        "repair": "Parse lag data from the active IO contract and enforce it during decode and schedule validation.",
+    },
+    "machine_calendar_availability_guard": {
+        "evidence": "Cite the check that scheduled intervals fit machine availability and do not overlap unavailable calendar windows.",
+        "repair": "Decode with machine calendars/unavailability windows and reject intervals outside available time.",
+    },
+    "batch_capacity_guard": {
+        "evidence": "Cite the check that every batch respects capacity, family/compatibility, and operation coverage constraints.",
+        "repair": "Track batch membership and capacity during construction/decode; reject over-capacity or incompatible batches.",
+    },
+    "transport_time_guard": {
+        "evidence": "Cite the transport/travel-time transition added between consecutive operations when machines or locations change.",
+        "repair": "Parse transport data and add it to job readiness before scheduling the successor operation.",
+    },
+    "release_date_guard": {
+        "evidence": "Cite the guard that prevents an operation or job from starting before its parsed release time/date.",
+        "repair": "Initialize readiness from release dates and validate every output start against the parsed release constraint.",
+    },
+    "due_date_or_tardiness_objective_guard": {
+        "evidence": "Cite the due-date/tardiness calculation and where it enters validation or objective scoring.",
+        "repair": "Parse due dates and compute the declared lateness/tardiness term instead of optimizing makespan alone.",
+    },
+    "declared_objective_priority_guard": {
+        "evidence": "Cite the objective-comparison code that applies the declared weights, priority order, or Pareto rule.",
+        "repair": "Compare candidates by the IO/requirement objective definition; do not silently fall back to makespan-only scoring.",
+    },
 }
 
 

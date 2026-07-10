@@ -631,8 +631,16 @@ def _detect_agent_generated_solver_self_check_risks(
         if not str(self_check.get(field) or "").strip():
             risks.append(f"solver_contract_self_check {message}")
 
-    if "sequence_dependent_setup" in expected_features and not self_check.get("variant_handling"):
-        risks.append("solver_contract_self_check missing variant_handling for sequence_dependent_setup")
+    variant_required = [
+        item
+        for item in quality_contract.get("variant_required_code_capabilities") or []
+        if isinstance(item, str)
+    ]
+    if variant_required and not self_check.get("variant_handling"):
+        risks.append(
+            "solver_contract_self_check missing variant_handling for active variant capabilities: "
+            + ", ".join(variant_required)
+        )
     source_evidence_risks = _detect_self_check_evidence_source_mismatches(
         self_check=self_check,
         worktree_path=worktree_path,
@@ -671,6 +679,14 @@ def _detect_agent_generated_source_self_check_risks(
         ("job_precedence_guard", _has_job_precedence_guard),
         ("machine_non_overlap_guard", _has_machine_non_overlap_guard),
         ("setup_aware_machine_arc_timing", _has_setup_aware_source_self_check_guard),
+        ("no_wait_start_time_guard", _has_no_wait_source_self_check_guard),
+        ("time_lag_precedence_guard", _has_time_lag_source_self_check_guard),
+        ("machine_calendar_availability_guard", _has_machine_calendar_source_self_check_guard),
+        ("batch_capacity_guard", _has_batch_capacity_source_self_check_guard),
+        ("transport_time_guard", _has_transport_time_source_self_check_guard),
+        ("release_date_guard", _has_release_date_source_self_check_guard),
+        ("due_date_or_tardiness_objective_guard", _has_due_date_source_self_check_guard),
+        ("declared_objective_priority_guard", _has_multi_objective_source_self_check_guard),
     ]
     missing = [
         capability
@@ -712,6 +728,68 @@ def _has_setup_aware_source_self_check_guard(text: str) -> bool:
         and any(term in lowered for term in previous_terms)
         and any(term in lowered for term in timing_terms)
         and "machine" in lowered
+    )
+
+
+def _has_no_wait_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    return (
+        ("no_wait" in lowered or "no-wait" in lowered)
+        and ("start !=" in lowered or "start ==" in lowered or "same start" in lowered)
+        and ("job_ready" in lowered or "predecessor" in lowered or "prev_end" in lowered)
+    )
+
+
+def _has_time_lag_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    lag_terms = ["time_lag", "time lag", "lag_min", "lag_max", "min_lag", "max_lag"]
+    return any(term in lowered for term in lag_terms) and "start" in lowered and (
+        "predecessor" in lowered or "prev_end" in lowered or "job_ready" in lowered
+    )
+
+
+def _has_machine_calendar_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    return (
+        any(term in lowered for term in ["calendar", "availability", "unavailable"])
+        and "machine" in lowered
+        and "start" in lowered
+        and "end" in lowered
+    )
+
+
+def _has_batch_capacity_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    return "batch" in lowered and "capacity" in lowered
+
+
+def _has_transport_time_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    return (
+        any(term in lowered for term in ["transport", "travel"])
+        and any(term in lowered for term in ["+ transport", "+ travel", "transport_time", "travel_time"])
+    )
+
+
+def _has_release_date_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    return (
+        any(term in lowered for term in ["release_date", "release_time", "release"])
+        and "start <" in lowered
+    )
+
+
+def _has_due_date_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    return any(term in lowered for term in ["due_date", "due time", "tardiness", "lateness"]) and (
+        "objective" in lowered or "max(" in lowered or "end" in lowered
+    )
+
+
+def _has_multi_objective_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    return "objective" in lowered and any(
+        term in lowered for term in ["priority", "weight", "lexicographic", "pareto"]
     )
 
 
