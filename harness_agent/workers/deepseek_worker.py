@@ -1825,6 +1825,7 @@ def build_solver_contract_self_check_audit(
             "changed_agent_generated_solver": changed_agent_generated_solver,
             "missing_active_features": [],
             "missing_capabilities": [],
+            "missing_variant_handling": [],
             "capabilities_without_evidence": [],
             "capabilities_without_concrete_source_evidence": [],
             "capabilities_with_source_mismatch": [],
@@ -1839,6 +1840,7 @@ def build_solver_contract_self_check_audit(
             "changed_agent_generated_solver": changed_agent_generated_solver,
             "missing_active_features": quality_contract.get("active_features", []),
             "missing_capabilities": _quality_contract_capabilities(quality_contract),
+            "missing_variant_handling": quality_contract.get("variant_required_code_capabilities", []),
             "capabilities_without_evidence": [],
             "capabilities_without_concrete_source_evidence": [],
             "capabilities_with_source_mismatch": [],
@@ -1860,6 +1862,15 @@ def build_solver_contract_self_check_audit(
     missing_capabilities = sorted(expected_capabilities - implemented)
     if missing_capabilities:
         warnings.append("agent_generated_solver_self_check_missing_required_capabilities")
+
+    variant_required = [
+        str(item)
+        for item in quality_contract.get("variant_required_code_capabilities") or []
+        if isinstance(item, str)
+    ]
+    missing_variant_handling = variant_required if variant_required and not self_check.get("variant_handling") else []
+    if missing_variant_handling:
+        warnings.append("agent_generated_solver_self_check_missing_variant_handling")
 
     capabilities_without_evidence = sorted(
         str(item.get("name"))
@@ -1897,6 +1908,7 @@ def build_solver_contract_self_check_audit(
         "changed_agent_generated_solver": changed_agent_generated_solver,
         "missing_active_features": missing_features,
         "missing_capabilities": missing_capabilities,
+        "missing_variant_handling": missing_variant_handling,
         "capabilities_without_evidence": capabilities_without_evidence,
         "capabilities_with_vague_evidence": vague_capability_evidence,
         "capabilities_without_concrete_source_evidence": source_evidence[

@@ -945,9 +945,47 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertTrue(audit["required"])
         self.assertTrue(audit["present"])
         self.assertEqual([], audit["missing_capabilities"])
+        self.assertEqual([], audit["missing_variant_handling"])
         self.assertEqual([], audit["capabilities_with_source_mismatch"])
         self.assertNotIn("agent_generated_solver_self_check_missing", complete["proposal_audit"]["warnings"])
         self.assertNotIn("agent_generated_solver_self_check_source_mismatch", complete["proposal_audit"]["warnings"])
+
+    def test_proposal_audit_warns_when_variant_handling_is_missing(self) -> None:
+        worker = DeepSeekWorker()
+        context = _agent_generated_sdst_context()
+        self_check = _complete_solver_self_check()
+        self_check.pop("variant_handling", None)
+
+        normalized = worker._normalize_code_edit_proposal(  # noqa: SLF001 - regression-tests worker normalization.
+            {
+                "summary": "Create a generated setup-aware solver without variant handling notes.",
+                "strategy_intent": "Write a standalone solver from the IO contract.",
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "operation_level_dispatch",
+                        "type": "dispatch_rule",
+                        "target_files": ["examples/agent_generated_fjsp_solver.py"],
+                    }
+                ],
+                "solver_contract_self_check": self_check,
+                "changes": [
+                    {
+                        "path": "examples/agent_generated_fjsp_solver.py",
+                        "action": "create_or_replace",
+                        "content": _minimal_agent_generated_solver_symbols(),
+                    }
+                ],
+            },
+            context,
+        )
+
+        audit = normalized["proposal_audit"]["solver_contract_self_check"]
+        self.assertIn("agent_generated_solver_self_check_missing_variant_handling", audit["warnings"])
+        self.assertIn("setup_aware_machine_arc_timing", audit["missing_variant_handling"])
+        self.assertIn(
+            "agent_generated_solver_self_check_missing_variant_handling",
+            normalized["proposal_audit"]["warnings"],
+        )
 
     def test_proposal_audit_warns_on_vague_solver_contract_evidence(self) -> None:
         worker = DeepSeekWorker()
