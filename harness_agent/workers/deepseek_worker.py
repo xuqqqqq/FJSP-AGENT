@@ -1354,7 +1354,7 @@ def compact_priority_knowledge_cards(
         if agent_generated_mode and "fjsp_variant_domain_pack_rag" in haystack:
             score += 30
         if agent_generated_mode and "fjsp_agent_current_capability" in haystack:
-            score += 20
+            score -= 80
         if agent_generated_mode and "awls_sdst_" in path and not agent_generated_card:
             score -= 260
         elif agent_generated_mode and "awls" in haystack and not agent_generated_card:

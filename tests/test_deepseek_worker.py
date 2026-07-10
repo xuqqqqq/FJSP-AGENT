@@ -1298,6 +1298,49 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertNotIn("awls_sdst_initialization_notes.md", selected_names)
         self.assertNotIn("awls_sdst_tabu_memory_notes.md", selected_names)
 
+    def test_agent_generated_priority_cards_deprioritize_score_reports(self) -> None:
+        context = _context_packet_with_intake()
+        context["task"] = {
+            "problem_family": "fjsp_sdst",
+            "description": "Improve an agent_generated FJSP-SDST solver from IO documents.",
+        }
+        context["evaluator_protocol"] = {
+            "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance}",
+        }
+        context["problem_family_capability"] = {
+            "knowledge_tags": ["fjsp", "sdst", "sequence_dependent_setup"],
+        }
+        context["knowledge_cards"] = [
+            {
+                "path": "knowledge/papers/fjsp_agent_current_capability_20260704.md",
+                "chars": 12000,
+                "truncated": False,
+                "snippet": "FJSP-SDST makespan 1010 UB gap 6.81 current capability report " * 80,
+            },
+            {
+                "path": "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "chars": 5400,
+                "truncated": False,
+                "snippet": (
+                    "Use this card for agent-generated FJSP-SDST solver improvement. "
+                    "Recover operation-level list scheduler and setup-aware decoder coverage checks."
+                ),
+            },
+            {
+                "path": "knowledge/principles/agent_generated_variant_quality_contracts.md",
+                "chars": 4200,
+                "truncated": False,
+                "snippet": "Agent-generated FJSP variant quality contract with source-symbol evidence.",
+            },
+        ]
+
+        selected = compact_priority_knowledge_cards(context, limit=2, max_chars_per_card=400)
+        selected_names = [Path(card["path"]).name for card in selected]
+
+        self.assertIn("fjsp_sdst_agent_generated_search_memory_20260707.md", selected_names)
+        self.assertIn("agent_generated_variant_quality_contracts.md", selected_names)
+        self.assertNotIn("fjsp_agent_current_capability_20260704.md", selected_names)
+
     def test_proposal_audit_warns_when_priority_knowledge_is_ignored(self) -> None:
         worker = DeepSeekWorker()
         context = _context_packet_with_intake()
