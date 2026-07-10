@@ -16,21 +16,24 @@ strong legality and search-quality guardrails.
    dependent setup, time lags, no-wait, calendars, batching, transport, release
    dates, due dates, or objective changes.
 3. Read `references/solver_contract.md` for the invariant contract.
-4. For FJSP-SDST agent-generated solver work, read
+4. For any active FJSP variant beyond standard alternative-machine precedence,
+   read `knowledge/principles/agent_generated_variant_quality_contracts.md`
+   when it is present in the project.
+5. For FJSP-SDST agent-generated solver work, read
    `knowledge/papers/awls_sdst_agent_generated_transfer_notes.md` when it is
    present in the project. Treat it as AWLS-derived method transfer, not source
    code to copy.
-5. For FJSP-SDST or any variant with setup-aware sequencing, read
+6. For FJSP-SDST or any variant with setup-aware sequencing, read
    `references/decoder_neighborhood.md`.
-6. Propose one natural-language rule/operator hypothesis before writing code.
-7. Generate solver code from the IO contract. Do not import backend solver
+7. Propose one natural-language rule/operator hypothesis before writing code.
+8. Generate solver code from the IO contract. Do not import backend solver
    internals, evaluator code, or previous solution files.
-8. Self-check standalone CLI (`--input`, `--output`, `--seed`), active IO
+9. Self-check standalone CLI (`--input`, `--output`, `--seed`), active IO
    parsing, declared output schema, processing-time equality, full operation
    coverage, machine eligibility, precedence, non-overlap, variant constraints,
    incumbent preservation, and runtime before claiming a candidate is ready for
    Core evaluation.
-9. When loop feedback contains `agent_generated_quality_memory`, repair its
+10. When loop feedback contains `agent_generated_quality_memory`, repair its
    recurring parser, representation, constructor, decoder, variant-handling, or
    self-check gaps before proposing a new objective-improvement operator.
 

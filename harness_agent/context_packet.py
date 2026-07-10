@@ -68,9 +68,12 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         else None
     )
     problem_family_capability = get_problem_family(contract.problem_family).to_payload()
+    problem_family_tags = list(problem_family_capability.get("knowledge_tags") or [])
+    if _uses_agent_generated_solver(contract):
+        problem_family_tags.append("agent_generated_solver")
     auto_cards = auto_knowledge_cards(
         problem_family=contract.problem_family,
-        problem_family_tags=problem_family_capability.get("knowledge_tags") or [],
+        problem_family_tags=problem_family_tags,
         slot_manifest=slot_manifest,
     )
     knowledge_card_paths = _unique_paths([*request.knowledge_cards, *auto_cards])
@@ -349,6 +352,11 @@ def _source_payload(path: Path, max_chars: int) -> dict[str, Any]:
         "snippet": snippet,
         "error": error,
     }
+
+
+def _uses_agent_generated_solver(contract: TaskContract) -> bool:
+    solver = contract.commands.solver.replace("\\", "/").lower()
+    return "agent_generated" in solver or "generated_fjsp" in solver
 
 
 def _instance_diagnostics_payload(contract: TaskContract, *, project_root: Path | None) -> dict[str, Any]:

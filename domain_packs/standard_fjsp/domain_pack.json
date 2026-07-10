@@ -180,6 +180,7 @@
         "knowledge/papers/awls_sdst_literature_direction_notes.md"
       ],
       "agent_generated_solver": [
+        "knowledge/principles/agent_generated_variant_quality_contracts.md",
         "knowledge/papers/awls_sdst_agent_generated_transfer_notes.md",
         ".codex/skills/fjsp-agent-generated-solver/references/solver_contract.md",
         ".codex/skills/fjsp-agent-generated-solver/references/decoder_neighborhood.md",

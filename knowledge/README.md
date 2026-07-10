@@ -47,8 +47,10 @@ and reporting, not solver scoring.
 For new FJSP variants or industrial constraints, retrieve:
 
 1. `principles/fjsp_variant_domain_pack_rag.md`
-2. `papers/fjsp_scene_survey_2025_10_17.md`
-3. the active IO/evaluator contract and only the selected slot notes
+2. `principles/agent_generated_variant_quality_contracts.md` when the worker is
+   creating or evolving an agent-generated solver
+3. `papers/fjsp_scene_survey_2025_10_17.md`
+4. the active IO/evaluator contract and only the selected slot notes
 
 Do not put variant algorithms in backend orchestration code.  Put them in
 domain packs, knowledge cards, skills, slot manifests, or worker context.

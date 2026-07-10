@@ -201,6 +201,48 @@ class DomainPackTests(unittest.TestCase):
         self.assertIn("fjsp_sdst_agent_generated_search_memory_20260707.md", auto_cards)
         self.assertIn("awls_sdst_hudata20_baseline_notes.md", auto_cards)
 
+    def test_context_packet_adds_agent_generated_solver_quality_cards(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = tmp_path / "contract.json"
+            instance = tmp_path / "tiny.fjs"
+            instance.write_text((ROOT / "examples" / "standard_fjsp_tiny.fjs").read_text(encoding="utf-8"), encoding="utf-8")
+            contract.write_text(
+                json.dumps(
+                    {
+                        "task_id": "agent_generated_context",
+                        "problem_family": "FJSP",
+                        "description": "agent-generated solver context smoke",
+                        "instances": [{"id": "tiny", "path": str(instance)}],
+                        "objectives": [{"name": "makespan", "direction": "minimize"}],
+                        "commands": {
+                            "solver": "python examples/agent_generated_fjsp_solver.py --input {instance} --output {solution} --seed {seed}",
+                            "evaluator": "python examples/standard_fjsp_evaluator.py --instance {instance} --solution {solution} --metrics {metrics}",
+                            "quick_test": "python -m py_compile examples/agent_generated_fjsp_solver.py",
+                        },
+                        "budget": {"rounds": 1, "seeds": [0]},
+                        "paths": {"allowed_paths": ["examples"], "forbidden_paths": [".git"]},
+                        "review": {"status": "confirmed"},
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=contract,
+                    output_path=tmp_path / "context_packet.json",
+                    hypothesis="Agent-generated context smoke.",
+                )
+            )
+            packet = json.loads(output.read_text(encoding="utf-8"))
+
+        auto_cards = {Path(path).name for path in packet["auto_knowledge_cards"]}
+        self.assertIn("agent_generated_variant_quality_contracts.md", auto_cards)
+        self.assertIn("solver_contract.md", auto_cards)
+
 
 if __name__ == "__main__":
     unittest.main()
