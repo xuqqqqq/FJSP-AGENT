@@ -146,6 +146,7 @@ def run_worker_loop(
                 apply_worker_changes=apply_worker_changes,
                 baseline_summary=baseline_summary,
                 incumbent_key=incumbent_key,
+                baseline_generation=baseline_generation,
                 previous_rounds=round_records,
                 repair_attempts=effective_repair_attempts,
             )
@@ -288,6 +289,7 @@ def run_worker_cycle_with_in_round_repairs(
     apply_worker_changes: bool,
     baseline_summary: RunSummary,
     incumbent_key: tuple[float, ...],
+    baseline_generation: dict[str, Any] | None,
     previous_rounds: list[LoopRoundRecord],
     repair_attempts: int,
 ) -> tuple[Any, Path, list[dict[str, Any]]]:
@@ -318,6 +320,7 @@ def run_worker_cycle_with_in_round_repairs(
                 baseline_key=summary_objective_key(baseline_summary, contract.objectives),
                 incumbent_key_before=incumbent_key,
                 incumbent_worktree=project_root,
+                baseline_generation=baseline_generation,
                 previous_rounds=previous_rounds,
                 current_round_repair=repair_feedback,
             ),
@@ -993,15 +996,25 @@ def loop_feedback_payload(
     incumbent_key_before: tuple[float, ...],
     incumbent_worktree: Path,
     previous_rounds: list[LoopRoundRecord],
+    baseline_generation: dict[str, Any] | None = None,
     current_round_repair: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     ordered_objectives = sorted(contract.objectives, key=lambda item: item.priority)
     previous_round_payloads = [round_record_payload(item) for item in previous_rounds]
-    direction_graph = summarize_direction_graph(previous_round_payloads)
+    baseline_memory = agent_generated_baseline_memory_payload(
+        baseline_generation,
+        baseline_key=baseline_key,
+    )
+    baseline_round_payload = baseline_memory.get("round_payload") if isinstance(baseline_memory, dict) else None
+    history_round_payloads = (
+        [baseline_round_payload] if isinstance(baseline_round_payload, dict) else []
+    ) + previous_round_payloads
+    direction_graph = summarize_direction_graph(history_round_payloads)
     experience_memory = build_experience_memory(
-        previous_round_payloads,
+        history_round_payloads,
         problem_family=contract.problem_family,
     )
+    protected_facts = protected_baseline_generation_facts(baseline_memory) + protected_promoted_facts(previous_rounds)
     payload = {
         "purpose": "Provide evaluator-backed history for the next coding-worker proposal.",
         "round_semantics": {
@@ -1032,17 +1045,22 @@ def loop_feedback_payload(
         "incumbent_key_before": list(incumbent_key_before),
         "incumbent_worktree": str(incumbent_worktree),
         "baseline_summary": summary_payload(baseline_summary),
+        "agent_generated_baseline_memory": baseline_memory,
         "previous_rounds": previous_round_payloads,
         "direction_graph": direction_graph,
         "experience_memory": experience_memory,
         "skill_usage_summary": experience_memory.get("skill_usage_summary") or {},
-        "protected_promoted_facts": protected_promoted_facts(previous_rounds),
+        "protected_promoted_facts": protected_facts[-8:],
         "failure_memory": round_failure_memory(previous_rounds),
-        "next_round_guidance": next_round_guidance(previous_rounds),
+        "next_round_guidance": next_round_guidance(
+            previous_rounds,
+            has_agent_generated_baseline=bool(baseline_memory.get("accepted_as_incumbent")),
+        ),
         "instructions": [
             "Use only Core evaluator metrics as promotion evidence.",
             "Treat the outer loop index as a direction lifecycle, not a single blind patch.",
             "Preserve successful ideas from promoted rounds unless a better alternative is justified.",
+            "If agent_generated_baseline_memory is present, treat its recovered baseline mechanisms as incumbent structure to preserve before adding a new heuristic.",
             "Treat protected_promoted_facts as mechanisms to preserve; do not remove or disable them in the next proposal unless the proposal explicitly ablates them with a legality-preserving fallback.",
             "Treat failure_memory.must_avoid as hard negative memory for the next proposal, not as optional report text.",
             "Use direction_graph and experience_memory to choose whether to preserve, mutate, or prune prior directions.",
@@ -1060,6 +1078,142 @@ def loop_feedback_payload(
             "This is an in-round repair attempt. First repair current_round_repair.previous_attempts before trying a new optimization idea.",
         )
     return payload
+
+
+def agent_generated_baseline_memory_payload(
+    baseline_generation: dict[str, Any] | None,
+    *,
+    baseline_key: tuple[float, ...],
+) -> dict[str, Any]:
+    """Return prompt-safe memory from agent-generated baseline creation.
+
+    Baseline generation is not a normal improvement round, but its repair
+    attempts often contain the most important parser/representation/decoder
+    lessons for the first true improvement round. Keep only method-level
+    diagnostics and artifact paths; never copy solver source into memory.
+    """
+
+    if not isinstance(baseline_generation, dict) or baseline_generation.get("source") != "agent_generated":
+        return {}
+    summary = baseline_generation.get("summary") if isinstance(baseline_generation.get("summary"), dict) else {}
+    repair = (
+        baseline_generation.get("in_round_repair")
+        if isinstance(baseline_generation.get("in_round_repair"), dict)
+        else {}
+    )
+    diagnostics = (
+        baseline_generation.get("proposal_diagnostics")
+        if isinstance(baseline_generation.get("proposal_diagnostics"), dict)
+        else {}
+    )
+    agentic_judgment = (
+        baseline_generation.get("agentic_judgment")
+        if isinstance(baseline_generation.get("agentic_judgment"), dict)
+        else {}
+    )
+    final_key = list(baseline_key)
+    valid = int(summary.get("valid", 0) or 0)
+    total = int(summary.get("total", 0) or 0)
+    accepted_as_incumbent = (
+        baseline_generation.get("status") == "ok"
+        and bool(agentic_judgment.get("accepted"))
+        and total > 0
+        and valid == total
+        and not _all_negative_infinity(final_key)
+    )
+    round_payload = {
+        "round_index": -1,
+        "decision": "baseline_incumbent" if accepted_as_incumbent else "rolled_back",
+        "candidate_key": final_key,
+        "incumbent_key_after": final_key,
+        "worker_status": baseline_generation.get("worker_status"),
+        "worker_changed_files": baseline_generation.get("worker_changed_files") or [],
+        "proposal_fingerprint": _hash_json(diagnostics) if diagnostics else "",
+        "duplicate_proposal": False,
+        "proposal_diagnostics": {
+            **diagnostics,
+            "summary": diagnostics.get("summary") or "Agent-generated baseline creation.",
+            "in_round_repair": repair,
+        },
+        "candidate_summary": summary,
+        "smoke_gate": {
+            "enabled": total > 0,
+            "passed": bool(total > 0 and valid == total),
+            "full_evaluation_started": bool(total > 0 and valid == total),
+            "summary": summary,
+        },
+        "promotion_check": {
+            "status": "baseline_generation",
+            "reason": "accepted_as_initial_incumbent" if accepted_as_incumbent else "baseline_not_valid",
+            "promoted": False,
+        },
+        "cycle_dir": baseline_generation.get("cycle_dir"),
+        "context_packet_path": baseline_generation.get("context_packet_path"),
+        "delta_path": "",
+        "patch_path": "",
+        "promoted_worktree": baseline_generation.get("worktree") if accepted_as_incumbent else None,
+    }
+    return {
+        "status": baseline_generation.get("status"),
+        "accepted_as_incumbent": accepted_as_incumbent,
+        "baseline_key": final_key,
+        "worker_status": baseline_generation.get("worker_status"),
+        "worker_changed_files": baseline_generation.get("worker_changed_files") or [],
+        "repair_attempt_count": int(repair.get("repair_attempt_count", 0) or 0),
+        "repair_recovered": bool(repair.get("recovered")),
+        "agentic_accepted": agentic_judgment.get("accepted"),
+        "agentic_issues": (agentic_judgment.get("issues") or [])[:8],
+        "proposal_summary": diagnostics.get("summary"),
+        "strategy_intent": diagnostics.get("strategy_intent"),
+        "rule_operator_hypotheses": (diagnostics.get("rule_operator_hypotheses") or [])[:6],
+        "round_payload": round_payload,
+        "protection_rule": (
+            "This generated baseline is the measured incumbent. Preserve its parser, operation representation, "
+            "constructor, decoder, output schema, and active variant repairs unless loop feedback identifies them "
+            "as the direct failure source."
+        ),
+    }
+
+
+def protected_baseline_generation_facts(baseline_memory: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(baseline_memory, dict) or not baseline_memory.get("accepted_as_incumbent"):
+        return []
+    facts: list[dict[str, Any]] = []
+    hypotheses = baseline_memory.get("rule_operator_hypotheses") or []
+    for hypothesis in hypotheses:
+        if not isinstance(hypothesis, dict):
+            continue
+        name = str(hypothesis.get("name") or "").strip()
+        if not name:
+            continue
+        facts.append(
+            {
+                "round_index": -1,
+                "name": name[:160],
+                "type": str(hypothesis.get("type") or "agent_generated_baseline")[:80],
+                "target_files": [
+                    str(path).replace("\\", "/")
+                    for path in (hypothesis.get("target_files") or [])
+                    if isinstance(path, str) and path.strip()
+                ][:8],
+                "novelty": str(hypothesis.get("novelty") or "")[:500],
+                "expected_effect": str(hypothesis.get("expected_effect") or "")[:500],
+                "protection_rule": baseline_memory.get("protection_rule"),
+            }
+        )
+    if not facts:
+        facts.append(
+            {
+                "round_index": -1,
+                "name": "agent_generated_baseline_incumbent",
+                "type": "baseline_constructor",
+                "target_files": baseline_memory.get("worker_changed_files") or [],
+                "novelty": "Initial solver generated from IO, requirements, diagnostics, and knowledge cards.",
+                "expected_effect": "Provide the legal incumbent skeleton for subsequent incremental improvement.",
+                "protection_rule": baseline_memory.get("protection_rule"),
+            }
+        )
+    return facts
 
 
 def round_record_payload(item: LoopRoundRecord) -> dict[str, Any]:
@@ -1163,7 +1317,11 @@ def round_failure_memory(previous_rounds: list[LoopRoundRecord], *, limit: int =
     }
 
 
-def next_round_guidance(previous_rounds: list[LoopRoundRecord]) -> dict[str, Any]:
+def next_round_guidance(
+    previous_rounds: list[LoopRoundRecord],
+    *,
+    has_agent_generated_baseline: bool = False,
+) -> dict[str, Any]:
     """Convert loop history into compact mandatory guidance for the next worker call."""
 
     promoted = [item for item in previous_rounds if item.decision == "promoted"]
@@ -1187,6 +1345,10 @@ def next_round_guidance(previous_rounds: list[LoopRoundRecord]) -> dict[str, Any
     ]
     if promoted:
         must_do.append("Preserve promoted mechanisms unless the proposal explicitly provides a legal fallback.")
+    if has_agent_generated_baseline:
+        must_do.append(
+            "Preserve the agent-generated baseline's parser, operation representation, constructor, decoder, output schema, and active variant repairs; improve by adding one bounded rule/operator around that skeleton."
+        )
     if any("no_changed_files_after_apply" in item for item in recent_signatures):
         must_do.append("Submit an actual accepted edit; an empty or fully rejected proposal is not a useful iteration.")
     if any("python_syntax_error" in item for item in recent_signatures):

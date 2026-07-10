@@ -833,6 +833,26 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
     def test_priority_worker_context_includes_agent_quality_memory(self) -> None:
         context = _agent_generated_sdst_context()
         context["loop_feedback"] = {
+            "agent_generated_baseline_memory": {
+                "status": "ok",
+                "accepted_as_incumbent": True,
+                "baseline_key": [-120.0],
+                "worker_status": "ok",
+                "worker_changed_files": ["examples/agent_generated_fjsp_solver.py"],
+                "repair_attempt_count": 1,
+                "repair_recovered": True,
+                "agentic_accepted": True,
+                "proposal_summary": "Repair generated baseline parser and constructor.",
+                "strategy_intent": "Preserve parser/decoder skeleton before adding local search.",
+                "rule_operator_hypotheses": [
+                    {
+                        "name": "repair_contract_complete_constructor",
+                        "type": "baseline_constructor_repair",
+                        "target_files": ["examples/agent_generated_fjsp_solver.py"],
+                    }
+                ],
+                "protection_rule": "Preserve generated baseline parser, constructor, and decoder.",
+            },
             "experience_memory": {
                 "schema_version": 1,
                 "memory_tiers": {"candidate_lessons": []},
@@ -860,6 +880,9 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         prompt_context = priority_worker_context(context)
 
         self.assertIn("agent_generated_quality_memory", prompt_context)
+        self.assertIn("agent_generated_baseline_memory", prompt_context)
+        self.assertIn("repair_contract_complete_constructor", prompt_context)
+        self.assertIn("Preserve generated baseline parser", prompt_context)
         self.assertIn("operation_level_ready_list_constructor", prompt_context)
         self.assertIn("experience_quality_memory_rule", prompt_context)
         self.assertIn("before objective tuning", prompt_context)

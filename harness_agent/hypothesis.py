@@ -511,6 +511,11 @@ def direction_title(round_record: dict[str, Any], primary: dict[str, Any]) -> st
 
 
 def direction_status(round_record: dict[str, Any]) -> str:
+    if round_record.get("decision") == "baseline_incumbent":
+        candidate_key = _number_list(round_record.get("candidate_key"))
+        if candidate_key and not all(value == float("-inf") for value in candidate_key):
+            return "validated_baseline"
+        return "strategy_infeasible"
     if round_record.get("decision") == "promoted":
         return "validated_success"
     candidate_key = _number_list(round_record.get("candidate_key"))
@@ -627,6 +632,8 @@ def objective_relation(round_record: dict[str, Any]) -> str:
         return "not_measured"
     if all(value == float("-inf") for value in candidate):
         return "invalid_or_rejected"
+    if round_record.get("decision") == "baseline_incumbent":
+        return "accepted_as_agent_generated_baseline"
     if round_record.get("decision") == "promoted":
         return "improved_and_promoted"
     promotion = _dict(round_record.get("promotion_check"))
@@ -660,9 +667,13 @@ def candidate_lesson_from_direction(
     if not strategy:
         return None
     status = str(direction.get("status") or "")
-    if status == "validated_success":
+    if status in {"validated_success", "validated_baseline"}:
         lesson_type = "successful_strategy"
-        outcome = "promoted_by_core_evaluator"
+        outcome = (
+            "accepted_as_agent_generated_baseline"
+            if status == "validated_baseline"
+            else "promoted_by_core_evaluator"
+        )
         applicability = [
             "when the same problem-family features and edit contract are present",
             "when the incumbent mechanism can be preserved and mutated incrementally",
@@ -896,6 +907,7 @@ def direction_recovered(direction: dict[str, Any]) -> bool:
         return False
     return direction.get("decision") == "promoted" or direction.get("status") in {
         "validated_success",
+        "validated_baseline",
         "no_improvement",
         "unstable_or_noisy_improvement",
     }

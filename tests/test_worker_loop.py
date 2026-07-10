@@ -1272,6 +1272,61 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertTrue(quality_summary["baseline"]["repair_recovered"])
             self.assertEqual(0, quality_summary["round_count"])
 
+    def test_agent_generated_baseline_memory_reaches_first_improvement_round(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract_path = _write_standard_agent_generated_contract(tmp_path)
+            contract = TaskContract.load(contract_path)
+            context_path = _write_test_context(tmp_path, contract_path=contract_path)
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=NullWorker(),
+                baseline_worker=AgentBaselineRepairWorker(),
+                baseline_source="agent_generated",
+                experiment_id="test_agent_generated_baseline_memory",
+                iterations=1,
+                max_steps=2,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+                in_round_repair_attempts=1,
+            )
+
+            self.assertEqual("agent_generated", result.baseline_source)
+            round_context = json.loads(
+                (tmp_path / "loop" / "round_000" / "context_packet.json").read_text(encoding="utf-8")
+            )
+            feedback = round_context["loop_feedback"]
+            baseline_memory = feedback["agent_generated_baseline_memory"]
+            self.assertTrue(baseline_memory["accepted_as_incumbent"])
+            self.assertTrue(baseline_memory["repair_recovered"])
+            self.assertEqual(1, baseline_memory["repair_attempt_count"])
+            self.assertEqual("baseline_incumbent", baseline_memory["round_payload"]["decision"])
+            self.assertEqual("validated_baseline", feedback["direction_graph"]["directions"][0]["status"])
+            self.assertIn("agent_generated_quality_memory", feedback["experience_memory"])
+            quality_memory = feedback["experience_memory"]["agent_generated_quality_memory"]
+            self.assertEqual(1, quality_memory["rejected_attempt_count"])
+            self.assertEqual(1, quality_memory["recovered_direction_count"])
+            self.assertTrue(
+                any(
+                    (
+                        fact.get("round_index") == -1
+                        and "agent_generated" in str(fact.get("name") or "")
+                    )
+                    or fact.get("type") == "baseline_constructor_repair"
+                    for fact in feedback["protected_promoted_facts"]
+                )
+            )
+            self.assertTrue(
+                any(
+                    "Preserve the agent-generated baseline" in item
+                    for item in feedback["next_round_guidance"]["must_do"]
+                )
+            )
+
     def test_loop_promotes_only_strict_objective_improvement(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

@@ -46,7 +46,7 @@ class OpenCodeWorker(CodingWorker):
         stderr_path = output_dir / "opencode.stderr.txt"
         command_path = output_dir / "opencode_command.json"
         prompt_path.write_text(prompt, encoding="utf-8")
-        command = self._command(prompt)
+        command = self._command(prompt_path)
         command_path.write_text(json_dumps(command), encoding="utf-8")
 
         try:
@@ -92,16 +92,18 @@ class OpenCodeWorker(CodingWorker):
             },
         )
 
-    def _command(self, prompt: str) -> list[str]:
+    def _command(self, prompt_path: Path) -> list[str]:
         command = [str(self.executable_path)]
         if self.run_command:
             command.extend(shlex.split(self.run_command, posix=False))
         if self.model:
             command.extend(["--model", self.model])
+        prompt = f"Read and follow the worker instructions in this file: {prompt_path}"
         command.append(prompt)
         return command
 
     def _prompt(self, spec: ExperimentSpec) -> str:
+        priority_context = self._priority_context(spec)
         return f"""
 You are running inside an AlgoForge worker cycle.
 
@@ -120,9 +122,26 @@ Task:
   the fixed evaluator, and decide whether this candidate is promoted.
 - Prefer a complete, reversible solver improvement over broad rewrites.
 
+Priority context:
+```json
+{priority_context}
+```
+
 If no safe edit is possible, leave the worktree unchanged and explain why in
 stdout.  The harness will record your stdout/stderr and the worktree delta.
 """.strip()
+
+    def _priority_context(self, spec: ExperimentSpec) -> str:
+        try:
+            context = json.loads(Path(spec.context_packet_path).read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            return "{}"
+        try:
+            from .deepseek_worker import priority_worker_context
+
+            return priority_worker_context(context)
+        except Exception as exc:  # noqa: BLE001 - OpenCode can still read the raw context packet.
+            return json_dumps({"status": "unavailable", "reason": str(exc)}).strip()
 
 
 def json_dumps(value: object) -> str:

@@ -44,6 +44,54 @@ class OpenCodeWorkerTests(unittest.TestCase):
             self.assertIn("fake/model", (output_dir / "opencode_command.json").read_text(encoding="utf-8"))
             self.assertIn("fake opencode executed", (output_dir / "opencode.stdout.txt").read_text(encoding="utf-8"))
 
+    def test_opencode_prompt_includes_agent_generated_priority_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            worktree = tmp_path / "worktree"
+            output_dir = tmp_path / "worker"
+            worktree.mkdir()
+            context_packet = tmp_path / "context_packet.json"
+            context_packet.write_text(
+                "\n".join(
+                    [
+                        "{",
+                        '  "task": {"problem_family": "FJSP", "description": "agent_generated FJSP-SDST run"},',
+                        '  "evaluator_protocol": {',
+                        '    "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance} --output {solution} --seed {seed}",',
+                        '    "evaluator_command_template": "python examples/standard_fjsp_evaluator.py --instance {instance} --solution {solution} --metrics {metrics}"',
+                        "  },",
+                        '  "instance_diagnostics": {',
+                        '    "status": "available",',
+                        '    "summary": {"sdst_instance_count": 1, "setup_time_kinds": ["job_pair"]}',
+                        "  },",
+                        '  "edit_policy": {"allowed_paths": ["examples"], "forbidden_paths": [".git", "outputs"]}',
+                        "}",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            fake_executable = _write_fake_opencode(tmp_path)
+
+            result = OpenCodeWorker(executable=str(fake_executable)).run_experiment(
+                ExperimentSpec(
+                    task_id="test",
+                    experiment_id="fake_opencode_quality",
+                    context_packet_path=str(context_packet),
+                    worktree_path=str(worktree),
+                    max_steps=2,
+                    max_runtime_seconds=30,
+                    output_dir=str(output_dir),
+                    apply_changes=False,
+                )
+            )
+
+            self.assertEqual("completed", result.status)
+            prompt = (output_dir / "opencode_prompt.md").read_text(encoding="utf-8")
+            self.assertIn("Priority context", prompt)
+            self.assertIn("agent_generated_solver_quality_contract", prompt)
+            self.assertIn("operation_level_ready_list_constructor", prompt)
+            self.assertIn("sequence_dependent_setup", prompt)
+
 
 def _write_fake_opencode(tmp_path: Path) -> Path:
     script = tmp_path / "fake_opencode.py"
@@ -63,7 +111,7 @@ def _write_fake_opencode(tmp_path: Path) -> Path:
     )
     if os.name == "nt":
         wrapper = tmp_path / "fake_opencode.cmd"
-        wrapper.write_text(f'@echo off\n"{sys.executable}" "{script}" %*\n', encoding="utf-8")
+        wrapper.write_text(f'@echo off\n"{sys.executable}" "{script}"\n', encoding="utf-8")
     else:
         wrapper = tmp_path / "fake_opencode"
         wrapper.write_text(f'#!/bin/sh\n"{sys.executable}" "{script}" "$@"\n', encoding="utf-8")

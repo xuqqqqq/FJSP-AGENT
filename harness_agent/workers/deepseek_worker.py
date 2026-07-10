@@ -943,6 +943,9 @@ def compact_loop_feedback_for_prompt(loop_feedback: dict[str, Any]) -> dict[str,
         "baseline_best_metrics": baseline_summary.get("best_metrics"),
         "baseline_best_candidate_metrics": baseline_summary.get("best_candidate_metrics"),
         "baseline_validation_summary": baseline_summary.get("validation_summary"),
+        "agent_generated_baseline_memory": compact_agent_generated_baseline_memory(
+            loop_feedback.get("agent_generated_baseline_memory") or {}
+        ),
         "round_semantics": loop_feedback.get("round_semantics") or {},
         "current_direction": loop_feedback.get("current_direction") or {},
         "direction_graph": compact_direction_graph_for_prompt(loop_feedback.get("direction_graph") or {}),
@@ -954,6 +957,26 @@ def compact_loop_feedback_for_prompt(loop_feedback: dict[str, Any]) -> dict[str,
         "current_round_repair": compact_current_round_repair(loop_feedback.get("current_round_repair") or {}),
         "previous_rounds": compact_previous,
         "instructions": loop_feedback.get("instructions"),
+    }
+
+
+def compact_agent_generated_baseline_memory(value: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, dict) or not value:
+        return {}
+    return {
+        "status": value.get("status"),
+        "accepted_as_incumbent": value.get("accepted_as_incumbent"),
+        "baseline_key": value.get("baseline_key"),
+        "worker_status": value.get("worker_status"),
+        "worker_changed_files": (value.get("worker_changed_files") or [])[:8],
+        "repair_attempt_count": value.get("repair_attempt_count"),
+        "repair_recovered": value.get("repair_recovered"),
+        "agentic_accepted": value.get("agentic_accepted"),
+        "agentic_issues": (value.get("agentic_issues") or [])[:8],
+        "proposal_summary": str(value.get("proposal_summary") or "")[:500],
+        "strategy_intent": str(value.get("strategy_intent") or "")[:800],
+        "rule_operator_hypotheses": (value.get("rule_operator_hypotheses") or [])[:4],
+        "protection_rule": str(value.get("protection_rule") or "")[:800],
     }
 
 
