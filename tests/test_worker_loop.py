@@ -63,6 +63,25 @@ class DiffOnlyWorker:
         )
 
 
+class InfrastructureFailureWorker:
+    """Test worker that fails before producing a proposal or code diff."""
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="infrastructure-failure",
+            supports_code_generation=True,
+            supports_repair=True,
+            supports_structured_output=False,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        return WorkerResult(
+            status="authorization_required",
+            changed_files=[],
+            summary="Authorization Required",
+        )
+
+
 class UnstableImproveWorker:
     """Test worker whose first run improves but repeated runs regress."""
 
@@ -1001,6 +1020,34 @@ class WorkerLoopTests(unittest.TestCase):
             delta = json.loads(result.delta_path.read_text(encoding="utf-8"))
             self.assertEqual(1, delta["counts"]["total_changed"])
             self.assertEqual(["examples/dummy_solver.py"], [item["path"] for item in delta["modified"]])
+
+    def test_infrastructure_worker_failure_does_not_spend_repair_attempts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=InfrastructureFailureWorker(),
+                experiment_id="test_infra_failure_no_repair",
+                iterations=1,
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=True,
+                in_round_repair_attempts=2,
+            )
+
+            self.assertEqual(1, len(result.rounds))
+            round_record = result.rounds[0]
+            self.assertEqual("authorization_required", round_record.worker_status)
+            self.assertNotIn("in_round_repair", round_record.proposal_diagnostics)
+            self.assertFalse((tmp_path / "loop" / "round_000" / "repair_001").exists())
+            issues = round_record.candidate_summary["validation_summary"]["agentic_judgment"]["issues"]
+            self.assertIn("worker_status_not_usable: authorization_required", issues)
 
     def test_refreshed_context_records_previous_round_and_duplicate_proposal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

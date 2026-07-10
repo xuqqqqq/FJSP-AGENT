@@ -372,6 +372,9 @@ def worker_loop_repair_attempt_budget(worker: CodingWorker, requested_attempts: 
 def should_attempt_in_round_repair(cycle: Any, *, incumbent_key: tuple[float, ...] | None = None) -> bool:
     """Return whether the same direction should spend another bounded attempt."""
 
+    if is_nonrepairable_worker_failure(cycle):
+        return False
+
     judgment = getattr(cycle, "agentic_judgment", None)
     if judgment is not None and not bool(getattr(judgment, "accepted", False)):
         return True
@@ -390,6 +393,19 @@ def should_attempt_in_round_repair(cycle: Any, *, incumbent_key: tuple[float, ..
         if candidate_key and not _all_negative_infinity(candidate_key) and candidate_key <= incumbent_key:
             return True
     return False
+
+
+def is_nonrepairable_worker_failure(cycle: Any) -> bool:
+    worker_result = getattr(cycle, "worker_result", None)
+    if worker_result is None:
+        return False
+    status = str(getattr(worker_result, "status", "") or "")
+    if status not in {"unavailable", "timeout", "failed_runtime", "authorization_required", "skipped"}:
+        return False
+    if getattr(worker_result, "changed_files", None):
+        return False
+    artifacts = getattr(worker_result, "artifacts", None) or {}
+    return not bool(artifacts.get("proposal"))
 
 
 def current_round_repair_feedback(
@@ -559,6 +575,8 @@ def attempt_failure_signatures(
     incumbent_key: tuple[float, ...] | None = None,
 ) -> list[str]:
     signatures: list[str] = []
+    if is_nonrepairable_worker_failure(cycle):
+        signatures.append("worker_infrastructure_failure")
     judgment = getattr(cycle, "agentic_judgment", None)
     if judgment is not None and not bool(getattr(judgment, "accepted", False)):
         signatures.extend(str(item) for item in (getattr(judgment, "issues", []) or []) if item)

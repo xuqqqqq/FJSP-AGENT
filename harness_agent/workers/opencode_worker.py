@@ -76,7 +76,7 @@ class OpenCodeWorker(CodingWorker):
 
         stdout_path.write_text(completed.stdout, encoding="utf-8")
         stderr_path.write_text(completed.stderr, encoding="utf-8")
-        status = "completed" if completed.returncode == 0 else "failed_runtime"
+        status = opencode_status(completed.returncode, completed.stdout, completed.stderr)
         summary = f"OpenCode exited with code {completed.returncode}. Harness diff/evaluator artifacts decide acceptance."
         return WorkerResult(
             status=status,
@@ -161,3 +161,20 @@ stdout.  The harness will record your stdout/stderr and the worktree delta.
 
 def json_dumps(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2) + "\n"
+
+
+def opencode_status(returncode: int, stdout: str, stderr: str) -> str:
+    if returncode == 0:
+        return "completed"
+    combined = f"{stdout}\n{stderr}".lower()
+    auth_terms = [
+        "authorization required",
+        "authentication required",
+        "not authenticated",
+        "unauthorized",
+        "api key",
+        "insufficient balance",
+    ]
+    if any(term in combined for term in auth_terms):
+        return "authorization_required"
+    return "failed_runtime"

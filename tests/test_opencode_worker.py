@@ -8,10 +8,17 @@ import unittest
 from pathlib import Path
 
 from harness_agent.worker import ExperimentSpec
-from harness_agent.workers.opencode_worker import OpenCodeWorker
+from harness_agent.workers.opencode_worker import OpenCodeWorker, opencode_status
 
 
 class OpenCodeWorkerTests(unittest.TestCase):
+    def test_opencode_status_classifies_authorization_failures(self) -> None:
+        self.assertEqual(
+            "authorization_required",
+            opencode_status(1, "", "Error: Authorization Required"),
+        )
+        self.assertEqual("failed_runtime", opencode_status(1, "", "Error: command failed"))
+
     def test_fake_opencode_executable_runs_against_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

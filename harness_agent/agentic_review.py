@@ -82,7 +82,15 @@ def judge_worker_result(
     suggestions: list[str] = []
     warnings: list[str] = []
 
-    if worker_result.status in {"unavailable", "skipped", "failed"}:
+    unusable_worker_statuses = {
+        "unavailable",
+        "skipped",
+        "failed",
+        "failed_runtime",
+        "timeout",
+        "authorization_required",
+    }
+    if worker_result.status in unusable_worker_statuses:
         issues.append(f"worker_status_not_usable: {worker_result.status}")
         suggestions.append("Configure or repair the coding worker before running evaluator-backed evolution.")
 
