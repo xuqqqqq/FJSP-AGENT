@@ -563,8 +563,23 @@ function renderJob(job) {
 function workerRepairText(workerSummary) {
   const repair = workerSummary.in_round_repair || {};
   const parts = [];
+  if (workerSummary.direction_count !== undefined) {
+    parts.push(`方向 ${workerSummary.direction_count}`);
+  }
+  if (
+    workerSummary.attempt_count !== undefined &&
+    workerSummary.attempt_count !== workerSummary.direction_count
+  ) {
+    parts.push(`尝试 ${workerSummary.attempt_count}`);
+  }
   if (repair.repair_attempt_count) {
     parts.push(`修补 ${repair.recovered_round_count || 0}/${repair.repair_round_count || 0}`);
+  }
+  if (workerSummary.candidate_lesson_count) {
+    parts.push(`经验 ${workerSummary.candidate_lesson_count}`);
+  }
+  if (workerSummary.skill_usage_record_count) {
+    parts.push(`知识 ${workerSummary.skill_usage_record_count}`);
   }
   if (workerSummary.rejected_before_eval !== undefined) {
     parts.push(`预检未修复 ${workerSummary.rejected_before_eval}`);
@@ -581,6 +596,10 @@ function labelForArtifact(name) {
     zi_evolution_report: "AWLS-ZI 报告",
     slot_manifest: "内部配置",
     hypothesis_graph: "假设图谱",
+    hypothesis_graph_report: "假设图谱报告",
+    experience_memory: "经验记忆",
+    experience_memory_report: "经验报告",
+    skill_usage_records: "知识使用记录",
     exception: "异常追踪",
   };
   return labels[name] || name;

@@ -588,6 +588,10 @@ def standard_pipeline_manifest(
             "improved": worker_manifest.get("improved") if worker_manifest else None,
             "round_count": worker_manifest.get("round_count", 0) if worker_manifest else 0,
             "promoted_rounds": worker_manifest.get("promoted_rounds", 0) if worker_manifest else 0,
+            "round_semantics": worker_manifest.get("round_semantics") if worker_manifest else {},
+            "hypothesis_graph": worker_manifest.get("hypothesis_graph") if worker_manifest else {},
+            "experience_memory": worker_manifest.get("experience_memory") if worker_manifest else {},
+            "skill_usage_records": worker_manifest.get("skill_usage_records") if worker_manifest else [],
             "rounds": worker_manifest.get("rounds", []) if worker_manifest else [],
             "artifacts": worker_manifest.get("artifacts") if worker_manifest else {},
         },
@@ -1074,6 +1078,11 @@ def standard_pipeline_memory(manifest: dict[str, Any]) -> dict[str, Any]:
             "rounds": rounds,
         },
         "operator_lineage_signal": operator_lineage,
+        "direction_graph_signal": compact_direction_graph_signal(worker.get("hypothesis_graph") or {}),
+        "experience_memory_signal": compact_experience_memory_signal(worker.get("experience_memory") or {}),
+        "skill_usage_signal": compact_skill_usage_signal(
+            worker.get("skill_usage_records") or (worker.get("experience_memory") or {}).get("skill_usage_records") or []
+        ),
         "evidence_signal": {
             "entry_count": evidence.get("entry_count"),
             "summary": evidence.get("summary") or {},
@@ -1100,6 +1109,86 @@ def standard_pipeline_memory(manifest: dict[str, Any]) -> dict[str, Any]:
         },
     }
     return memory
+
+
+def compact_direction_graph_signal(graph: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(graph, dict) or not graph:
+        return {}
+    directions = graph.get("directions")
+    if not isinstance(directions, list):
+        directions = []
+    return {
+        "schema_version": graph.get("schema_version"),
+        "round_semantics": graph.get("round_semantics"),
+        "direction_count": graph.get("direction_count", 0),
+        "attempt_count": graph.get("attempt_count", 0),
+        "status_counts": graph.get("status_counts") or {},
+        "decision_counts": graph.get("decision_counts") or {},
+        "promoted_direction_ids": (graph.get("promoted_direction_ids") or [])[:8],
+        "recent_directions": [
+            {
+                "direction_id": item.get("direction_id"),
+                "round_index": item.get("round_index"),
+                "title": item.get("title"),
+                "status": item.get("status"),
+                "decision": item.get("decision"),
+                "strategy_type": item.get("strategy_type"),
+                "attempt_count": item.get("attempt_count"),
+            }
+            for item in directions[-8:]
+            if isinstance(item, dict)
+        ],
+        "guidance": (graph.get("guidance") or [])[:8],
+    }
+
+
+def compact_experience_memory_signal(memory: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(memory, dict) or not memory:
+        return {}
+    tiers = memory.get("memory_tiers")
+    if not isinstance(tiers, dict):
+        tiers = {}
+    lessons = tiers.get("candidate_lessons")
+    if not isinstance(lessons, list):
+        lessons = []
+    return {
+        "schema_version": memory.get("schema_version"),
+        "write_policy": memory.get("write_policy") or {},
+        "candidate_lesson_count": len(lessons),
+        "candidate_lessons": [
+            {
+                "lesson_id": item.get("lesson_id"),
+                "lesson_type": item.get("lesson_type"),
+                "strategy": item.get("strategy"),
+                "strategy_type": item.get("strategy_type"),
+                "outcome": item.get("outcome"),
+                "confidence": item.get("confidence"),
+            }
+            for item in lessons[-10:]
+            if isinstance(item, dict)
+        ],
+        "self_evolution_metrics": memory.get("self_evolution_metrics") or {},
+        "next_context_guidance": (memory.get("next_context_guidance") or [])[:8],
+    }
+
+
+def compact_skill_usage_signal(records: list[Any]) -> dict[str, Any]:
+    if not isinstance(records, list):
+        return {}
+    by_kind: dict[str, int] = {}
+    promoted = 0
+    for item in records:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("source_kind") or "unknown")
+        by_kind[kind] = by_kind.get(kind, 0) + 1
+        if item.get("effect") == "associated_with_promotion":
+            promoted += 1
+    return {
+        "record_count": len([item for item in records if isinstance(item, dict)]),
+        "by_source_kind": by_kind,
+        "promoted_usage_count": promoted,
+    }
 
 
 def compact_benchmark_signal(benchmark: dict[str, Any]) -> dict[str, Any]:

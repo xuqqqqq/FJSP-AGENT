@@ -103,6 +103,16 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
                 2,
                 "Apply previous_pipeline_memory.operator_guidance when choosing rule/operator hypotheses.",
             )
+        if previous_pipeline_memory.get("direction_graph_signal"):
+            required_order.insert(
+                2,
+                "Use previous_pipeline_memory.direction_graph_signal to preserve, mutate, or prune prior improvement directions.",
+            )
+        if previous_pipeline_memory.get("experience_memory_signal"):
+            required_order.insert(
+                2,
+                "Use previous_pipeline_memory.experience_memory_signal as candidate lessons only; do not treat them as curated skills.",
+            )
     packet = {
         "packet_type": "algoforge_context_packet",
         "schema_version": 1,
@@ -870,12 +880,85 @@ def _pipeline_memory_payload(path: Path) -> dict[str, Any]:
         "benchmark_signal": memory.get("benchmark_signal") or {},
         "worker_signal": _compact_worker_signal(memory.get("worker_signal") or {}),
         "operator_lineage_signal": _compact_operator_lineage_signal(memory.get("operator_lineage_signal") or {}),
+        "direction_graph_signal": _compact_direction_graph_signal(memory.get("direction_graph_signal") or {}),
+        "experience_memory_signal": _compact_experience_memory_signal(memory.get("experience_memory_signal") or {}),
+        "skill_usage_signal": memory.get("skill_usage_signal") or {},
         "operator_guidance": _operator_guidance_from_memory(memory),
         "evidence_signal": memory.get("evidence_signal") or {},
         "recommendations": (memory.get("recommendations") or [])[:20],
         "artifacts": memory.get("artifacts") or {},
         "error": error,
     }
+
+
+def _compact_direction_graph_signal(signal: dict[str, Any]) -> dict[str, Any]:
+    if not signal:
+        return {}
+    return {
+        "schema_version": signal.get("schema_version"),
+        "round_semantics": signal.get("round_semantics"),
+        "direction_count": signal.get("direction_count", 0),
+        "attempt_count": signal.get("attempt_count", 0),
+        "status_counts": signal.get("status_counts") or {},
+        "decision_counts": signal.get("decision_counts") or {},
+        "promoted_direction_ids": (signal.get("promoted_direction_ids") or [])[:8],
+        "recent_directions": _compact_direction_records(signal.get("recent_directions") or [], limit=8),
+        "guidance": (signal.get("guidance") or [])[:8],
+    }
+
+
+def _compact_experience_memory_signal(signal: dict[str, Any]) -> dict[str, Any]:
+    if not signal:
+        return {}
+    return {
+        "schema_version": signal.get("schema_version"),
+        "write_policy": signal.get("write_policy") or {},
+        "candidate_lesson_count": signal.get("candidate_lesson_count", 0),
+        "candidate_lessons": _compact_lesson_records(signal.get("candidate_lessons") or [], limit=10),
+        "self_evolution_metrics": signal.get("self_evolution_metrics") or {},
+        "next_context_guidance": (signal.get("next_context_guidance") or [])[:8],
+    }
+
+
+def _compact_direction_records(records: list[Any], *, limit: int) -> list[dict[str, Any]]:
+    compact: list[dict[str, Any]] = []
+    for item in records:
+        if not isinstance(item, dict):
+            continue
+        compact.append(
+            {
+                "direction_id": item.get("direction_id"),
+                "round_index": item.get("round_index"),
+                "title": str(item.get("title") or "")[:160],
+                "status": item.get("status"),
+                "decision": item.get("decision"),
+                "strategy_type": item.get("strategy_type"),
+                "attempt_count": item.get("attempt_count"),
+            }
+        )
+        if len(compact) >= limit:
+            break
+    return compact
+
+
+def _compact_lesson_records(records: list[Any], *, limit: int) -> list[dict[str, Any]]:
+    compact: list[dict[str, Any]] = []
+    for item in records:
+        if not isinstance(item, dict):
+            continue
+        compact.append(
+            {
+                "lesson_id": item.get("lesson_id"),
+                "lesson_type": item.get("lesson_type"),
+                "strategy": str(item.get("strategy") or "")[:160],
+                "strategy_type": item.get("strategy_type"),
+                "outcome": item.get("outcome"),
+                "confidence": item.get("confidence"),
+            }
+        )
+        if len(compact) >= limit:
+            break
+    return compact
 
 
 def _compact_operator_lineage_signal(signal: dict[str, Any]) -> dict[str, Any]:

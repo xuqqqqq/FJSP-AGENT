@@ -4,7 +4,9 @@ import unittest
 
 from harness_agent.hypothesis import (
     HypothesisRecord,
+    build_experience_memory,
     render_hypothesis_graph_markdown,
+    summarize_direction_graph,
     summarize_hypothesis_graph,
 )
 
@@ -40,6 +42,69 @@ class HypothesisGraphTests(unittest.TestCase):
         self.assertIn("Hypothesis Graph Summary", markdown)
         self.assertIn("h1", markdown)
         self.assertIn("promote", markdown)
+
+    def test_direction_graph_groups_attempts_and_method_level_lessons(self) -> None:
+        rounds = [
+            {
+                "round_index": 0,
+                "decision": "promoted",
+                "candidate_key": [-90.0],
+                "incumbent_key_after": [-90.0],
+                "worker_status": "applied",
+                "worker_changed_files": ["examples/solver.py"],
+                "context_packet_path": "round_000/context_packet.json",
+                "cycle_dir": "round_000",
+                "patch_path": "round_000/worker_changes.patch",
+                "delta_path": "round_000/worker_worktree_delta.json",
+                "proposal_diagnostics": {
+                    "summary": "Add bounded insertion search.",
+                    "strategy_intent": "Use knowledge_cards and loop_feedback to preserve the incumbent and add insertion.",
+                    "rule_operator_hypotheses": [
+                        {
+                            "name": "bounded_insertion",
+                            "type": "local_search_operator",
+                            "target_files": ["examples/solver.py"],
+                            "evidence_used": ["knowledge_cards", "loop_feedback"],
+                        }
+                    ],
+                    "in_round_repair": {
+                        "attempts": [
+                            {
+                                "attempt_index": 0,
+                                "worker_status": "applied",
+                                "changed_files": ["examples/helper.py"],
+                                "candidate_key": [float("-inf")],
+                                "failure_signatures": ["proposal_apply_rejections"],
+                            },
+                            {
+                                "attempt_index": 1,
+                                "worker_status": "applied",
+                                "changed_files": ["examples/solver.py"],
+                                "candidate_key": [-90.0],
+                                "failure_signatures": [],
+                            },
+                        ]
+                    },
+                },
+                "promotion_check": {"promoted": True},
+                "smoke_gate": {"passed": True},
+            }
+        ]
+
+        graph = summarize_direction_graph(rounds)
+        memory = build_experience_memory(rounds, problem_family="FJSP")
+
+        self.assertEqual("direction", graph["round_semantics"])
+        self.assertEqual(1, graph["direction_count"])
+        self.assertEqual(2, graph["attempt_count"])
+        self.assertEqual("validated_success", graph["directions"][0]["status"])
+        self.assertEqual("repair", graph["directions"][0]["attempts"][1]["kind"])
+
+        lessons = memory["memory_tiers"]["candidate_lessons"]
+        self.assertTrue(any(item["lesson_type"] == "successful_strategy" for item in lessons))
+        self.assertTrue(any(item["lesson_type"] == "repair_recovery" for item in lessons))
+        self.assertTrue(memory["write_policy"]["no_instance_score_as_method"])
+        self.assertGreaterEqual(memory["skill_usage_summary"]["promoted_usage_count"], 1)
 
 
 def _record(

@@ -417,6 +417,76 @@ class InRoundRepairWorker:
         )
 
 
+class SameDirectionRefinementWorker:
+    """Worker that refines a legal no-improvement attempt inside one direction."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.saw_refinement_feedback = False
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="same-direction-refinement",
+            supports_code_generation=True,
+            supports_repair=True,
+            supports_structured_output=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        self.calls += 1
+        context = json.loads(Path(spec.context_packet_path).read_text(encoding="utf-8"))
+        repair_feedback = (context.get("loop_feedback") or {}).get("current_round_repair")
+        output_dir = Path(spec.output_dir or spec.worktree_path)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        proposal_path = output_dir / "proposal.json"
+        solver_path = Path(spec.worktree_path) / "examples" / "dummy_solver.py"
+        text = solver_path.read_text(encoding="utf-8")
+
+        if repair_feedback and repair_feedback.get("status") == "refinement_required":
+            self.saw_refinement_feedback = True
+            solver_path.write_text(text.replace("10 + args.seed", "8 + args.seed"), encoding="utf-8")
+            summary = "Refine the same direction into a measured finish shift."
+            hypothesis_name = "same_direction_refined_finish_shift"
+            evidence = ["loop_feedback.current_round_repair"]
+        else:
+            solver_path.write_text(text + "\n# legal no-improvement probe\n", encoding="utf-8")
+            summary = "Make a legal but non-improving probe in the same direction."
+            hypothesis_name = "same_direction_comment_probe"
+            evidence = ["knowledge_cards"]
+
+        proposal_path.write_text(
+            json.dumps(
+                {
+                    "summary": summary,
+                    "strategy_intent": "Stay within one direction and refine if Core reports legal no improvement.",
+                    "rule_operator_hypotheses": [
+                        {
+                            "name": hypothesis_name,
+                            "type": "dispatch_rule",
+                            "novelty": "Uses same-direction feedback instead of starting a new unrelated idea.",
+                            "expected_effect": "Improve the dummy objective after a bounded refinement.",
+                            "evidence_used": evidence,
+                            "target_files": ["examples/dummy_solver.py"],
+                        }
+                    ],
+                    "changes": [{"path": "examples/dummy_solver.py", "action": "text_replace"}],
+                    "context_usage": {"used_project_intake": False, "referenced_files": ["examples/dummy_solver.py"]},
+                    "quick_test_plan": "python -m compileall examples/dummy_solver.py",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return WorkerResult(
+            status="applied",
+            changed_files=["examples/dummy_solver.py"],
+            summary=summary,
+            artifacts={"proposal": str(proposal_path)},
+        )
+
+
 class PromotingProposalWorker:
     """Worker that improves the dummy solver and emits an auditable hypothesis."""
 
@@ -921,6 +991,42 @@ class WorkerLoopTests(unittest.TestCase):
                 current_repair["previous_attempts"][0]["proposal_diagnostics"]["rejected_edits"][0]["old"],
             )
             self.assertIn("repair current_round_repair.previous_attempts", repair_context["loop_feedback"]["instructions"][0])
+
+    def test_legal_no_improvement_refines_inside_same_direction(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+            worker = SameDirectionRefinementWorker()
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=worker,
+                experiment_id="test_same_direction_refinement",
+                iterations=1,
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+                in_round_repair_attempts=1,
+            )
+
+            self.assertEqual(2, worker.calls)
+            self.assertTrue(worker.saw_refinement_feedback)
+            self.assertEqual(["promoted"], [item.decision for item in result.rounds])
+            repair = result.rounds[0].proposal_diagnostics["in_round_repair"]
+            self.assertIn("legal_but_not_strictly_better", repair["attempts"][0]["failure_signatures"])
+
+            repair_context = json.loads(
+                (tmp_path / "loop" / "round_000" / "repair_001" / "context_packet.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual("refinement_required", repair_context["loop_feedback"]["current_round_repair"]["status"])
+            loop_result = json.loads((tmp_path / "loop" / "loop_result.json").read_text(encoding="utf-8"))
+            self.assertEqual(1, loop_result["hypothesis_graph"]["direction_count"])
+            self.assertEqual(2, loop_result["hypothesis_graph"]["attempt_count"])
+            self.assertTrue(loop_result["experience_memory"]["memory_tiers"]["candidate_lessons"])
 
     def test_agent_generated_baseline_is_written_before_first_measurement(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

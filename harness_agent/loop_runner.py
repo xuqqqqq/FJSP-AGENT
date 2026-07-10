@@ -11,6 +11,12 @@ from typing import Any
 
 from .context_packet import write_refreshed_context_packet
 from .graph_runner import GraphHarnessRunner
+from .hypothesis import (
+    build_experience_memory,
+    render_direction_graph_markdown,
+    render_experience_memory_markdown,
+    summarize_direction_graph,
+)
 from .ledger import ExperimentRecord
 from .models import ObjectiveSpec, TaskContract
 from .runner import RunSummary
@@ -264,7 +270,7 @@ def run_worker_loop(
         baseline_source=normalized_baseline_source,
         baseline_generation=baseline_generation,
     )
-    write_loop_report(output_dir=output_dir, result=result)
+    write_loop_report(output_dir=output_dir, result=result, problem_family=contract.problem_family)
     return result
 
 
@@ -328,8 +334,18 @@ def run_worker_cycle_with_in_round_repairs(
             max_runtime_seconds=max_runtime_seconds,
             apply_worker_changes=apply_worker_changes,
         )
-        attempts.append(round_attempt_payload(last_cycle, attempt_index=attempt_index, context_packet_path=last_context_packet_path))
-        if attempt_index >= max_repair_attempts or not should_attempt_in_round_repair(last_cycle):
+        attempts.append(
+            round_attempt_payload(
+                last_cycle,
+                attempt_index=attempt_index,
+                context_packet_path=last_context_packet_path,
+                incumbent_key=incumbent_key,
+            )
+        )
+        if attempt_index >= max_repair_attempts or not should_attempt_in_round_repair(
+            last_cycle,
+            incumbent_key=incumbent_key,
+        ):
             break
 
     if last_cycle is None:
@@ -350,8 +366,8 @@ def worker_loop_repair_attempt_budget(worker: CodingWorker, requested_attempts: 
     return requested
 
 
-def should_attempt_in_round_repair(cycle: Any) -> bool:
-    """Return whether a failed candidate should be repaired before spending a new round."""
+def should_attempt_in_round_repair(cycle: Any, *, incumbent_key: tuple[float, ...] | None = None) -> bool:
+    """Return whether the same direction should spend another bounded attempt."""
 
     judgment = getattr(cycle, "agentic_judgment", None)
     if judgment is not None and not bool(getattr(judgment, "accepted", False)):
@@ -364,7 +380,13 @@ def should_attempt_in_round_repair(cycle: Any) -> bool:
     failed = int(getattr(summary, "failed", 0) or 0)
     if total == 0:
         return False
-    return failed > 0 or valid < total
+    if failed > 0 or valid < total:
+        return True
+    if incumbent_key is not None:
+        candidate_key = _summary_objective_key_from_cycle(cycle)
+        if candidate_key and not _all_negative_infinity(candidate_key) and candidate_key <= incumbent_key:
+            return True
+    return False
 
 
 def current_round_repair_feedback(
@@ -374,14 +396,24 @@ def current_round_repair_feedback(
     previous_attempts: list[dict[str, Any]],
 ) -> dict[str, Any]:
     recent = previous_attempts[-3:]
+    legal_no_improvement = any(
+        "legal_but_not_strictly_better" in (attempt.get("failure_signatures") or [])
+        for attempt in recent
+        if isinstance(attempt, dict)
+    )
+    status = "refinement_required" if legal_no_improvement else "repair_required"
     return {
-        "status": "repair_required",
+        "status": status,
         "attempt_index": attempt_index,
         "max_repair_attempts": max_repair_attempts,
         "previous_attempts": recent,
         "must_do": [
-            "Treat the previous attempt as rejected inside this same round; do not repeat its anchors, unsafe actions, or protected-fact regressions.",
-            "Repair the listed JA/evaluator issues before introducing a new objective-improvement idea.",
+            "Treat the previous attempt as rejected inside this same direction; do not repeat its anchors, unsafe actions, or protected-fact regressions.",
+            (
+                "If the previous attempt was legal but not strictly better, keep the same direction and make a material refinement "
+                "to the rule/operator mechanism before trying a new direction."
+            ),
+            "Repair the listed JA/evaluator issues before introducing an unrelated objective-improvement idea.",
             "Preserve the incumbent worktree and promoted mechanisms; make one bounded legal edit that can pass JA and smoke before Core scoring.",
         ],
         "avoid": sorted(
@@ -395,7 +427,13 @@ def current_round_repair_feedback(
     }
 
 
-def round_attempt_payload(cycle: Any, *, attempt_index: int, context_packet_path: Path) -> dict[str, Any]:
+def round_attempt_payload(
+    cycle: Any,
+    *,
+    attempt_index: int,
+    context_packet_path: Path,
+    incumbent_key: tuple[float, ...] | None = None,
+) -> dict[str, Any]:
     judgment = getattr(cycle, "agentic_judgment", None)
     analysis = getattr(cycle, "agentic_error_analysis", None)
     summary = getattr(cycle, "summary", None)
@@ -411,7 +449,7 @@ def round_attempt_payload(cycle: Any, *, attempt_index: int, context_packet_path
         "agentic_judgment": judgment.to_payload() if judgment else None,
         "agentic_error_analysis": analysis.to_payload() if analysis else None,
         "proposal_diagnostics": diagnostics,
-        "failure_signatures": attempt_failure_signatures(cycle, diagnostics),
+        "failure_signatures": attempt_failure_signatures(cycle, diagnostics, incumbent_key=incumbent_key),
         "patch_path": str(getattr(cycle, "patch_path", "")),
         "delta_path": str(getattr(cycle, "delta_path", "")),
     }
@@ -446,7 +484,12 @@ def compact_attempt_summary(summary: RunSummary | None) -> dict[str, Any] | None
     }
 
 
-def attempt_failure_signatures(cycle: Any, diagnostics: dict[str, Any]) -> list[str]:
+def attempt_failure_signatures(
+    cycle: Any,
+    diagnostics: dict[str, Any],
+    *,
+    incumbent_key: tuple[float, ...] | None = None,
+) -> list[str]:
     signatures: list[str] = []
     judgment = getattr(cycle, "agentic_judgment", None)
     if judgment is not None and not bool(getattr(judgment, "accepted", False)):
@@ -458,6 +501,16 @@ def attempt_failure_signatures(cycle: Any, diagnostics: dict[str, Any]) -> list[
         failed = int(getattr(summary, "failed", 0) or 0)
         if total > 0 and (failed > 0 or valid < total):
             signatures.append("evaluator_invalid_candidate")
+        candidate_key = _summary_objective_key_from_cycle(cycle)
+        if (
+            incumbent_key is not None
+            and total > 0
+            and valid == total
+            and candidate_key
+            and not _all_negative_infinity(candidate_key)
+            and candidate_key <= incumbent_key
+        ):
+            signatures.append("legal_but_not_strictly_better")
     audit = diagnostics.get("proposal_audit") if isinstance(diagnostics, dict) else None
     if isinstance(audit, dict):
         signatures.extend(str(item) for item in (audit.get("warnings") or []) if item)
@@ -878,9 +931,29 @@ def loop_feedback_payload(
     current_round_repair: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     ordered_objectives = sorted(contract.objectives, key=lambda item: item.priority)
+    previous_round_payloads = [round_record_payload(item) for item in previous_rounds]
+    direction_graph = summarize_direction_graph(previous_round_payloads)
+    experience_memory = build_experience_memory(
+        previous_round_payloads,
+        problem_family=contract.problem_family,
+    )
     payload = {
         "purpose": "Provide evaluator-backed history for the next coding-worker proposal.",
+        "round_semantics": {
+            "user_visible_round": "improvement_direction",
+            "core_atomic_unit": "worker_attempt",
+            "rule": (
+                "One outer loop round is one hypothesis direction. Same-direction repair/refinement attempts "
+                "must be consumed before switching to an unrelated direction."
+            ),
+        },
         "round_index": round_index,
+        "current_direction": {
+            "direction_id": f"d{round_index:03d}",
+            "attempt_budget": "bounded_by_in_round_repair_attempts",
+            "status": "planning",
+            "rule": "Propose one coherent method direction, then repair or refine it inside this direction before moving on.",
+        },
         "objective_key_order": [
             {
                 "name": objective.name,
@@ -894,15 +967,20 @@ def loop_feedback_payload(
         "incumbent_key_before": list(incumbent_key_before),
         "incumbent_worktree": str(incumbent_worktree),
         "baseline_summary": summary_payload(baseline_summary),
-        "previous_rounds": [round_record_payload(item) for item in previous_rounds],
+        "previous_rounds": previous_round_payloads,
+        "direction_graph": direction_graph,
+        "experience_memory": experience_memory,
+        "skill_usage_summary": experience_memory.get("skill_usage_summary") or {},
         "protected_promoted_facts": protected_promoted_facts(previous_rounds),
         "failure_memory": round_failure_memory(previous_rounds),
         "next_round_guidance": next_round_guidance(previous_rounds),
         "instructions": [
             "Use only Core evaluator metrics as promotion evidence.",
+            "Treat the outer loop index as a direction lifecycle, not a single blind patch.",
             "Preserve successful ideas from promoted rounds unless a better alternative is justified.",
             "Treat protected_promoted_facts as mechanisms to preserve; do not remove or disable them in the next proposal unless the proposal explicitly ablates them with a legality-preserving fallback.",
             "Treat failure_memory.must_avoid as hard negative memory for the next proposal, not as optional report text.",
+            "Use direction_graph and experience_memory to choose whether to preserve, mutate, or prune prior directions.",
             "Follow next_round_guidance.must_do before selecting a new code change.",
             "Do not repeat rolled-back edits unchanged; explain what is materially different if revisiting them.",
             "If promotion_check failed, treat the candidate as a noisy or unstable improvement and change the rule-level idea.",
@@ -1320,15 +1398,46 @@ def rejected_proposal_edits(
     return result[:limit]
 
 
-def write_loop_report(*, output_dir: Path, result: WorkerLoopResult) -> None:
+def write_loop_report(*, output_dir: Path, result: WorkerLoopResult, problem_family: str | None = None) -> None:
+    round_payloads = [round_record_payload(item) for item in result.rounds]
+    direction_graph = summarize_direction_graph(round_payloads)
+    experience_memory = build_experience_memory(round_payloads, problem_family=problem_family)
+    skill_usage_records = experience_memory.get("skill_usage_records") or []
     payload = {
         "baseline_key": list(result.baseline_key),
         "final_key": list(result.final_key),
         "final_worktree": str(result.final_worktree),
         "baseline_summary": summary_payload(result.baseline_summary),
-        "rounds": [round_record_payload(item) for item in result.rounds],
+        "round_semantics": {
+            "user_visible_round": "improvement_direction",
+            "core_atomic_unit": "worker_attempt",
+        },
+        "hypothesis_graph": direction_graph,
+        "experience_memory": experience_memory,
+        "skill_usage_records": skill_usage_records,
+        "rounds": round_payloads,
     }
     (output_dir / "loop_result.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (output_dir / "hypothesis_graph.json").write_text(
+        json.dumps(direction_graph, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (output_dir / "hypothesis_graph.md").write_text(
+        render_direction_graph_markdown(direction_graph),
+        encoding="utf-8",
+    )
+    (output_dir / "experience_memory.json").write_text(
+        json.dumps(experience_memory, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (output_dir / "experience_memory.md").write_text(
+        render_experience_memory_markdown(experience_memory),
+        encoding="utf-8",
+    )
+    (output_dir / "skill_usage_records.json").write_text(
+        json.dumps(skill_usage_records, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
     lines = [
         "# Worker Loop Report",
@@ -1336,6 +1445,10 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult) -> None:
         f"- Baseline key: `{json.dumps(result.baseline_key, ensure_ascii=False)}`",
         f"- Final key: `{json.dumps(result.final_key, ensure_ascii=False)}`",
         f"- Final worktree: `{result.final_worktree}`",
+        f"- Direction count: `{direction_graph.get('direction_count', 0)}`",
+        f"- Attempt count: `{direction_graph.get('attempt_count', 0)}`",
+        f"- Candidate lessons: `{len((experience_memory.get('memory_tiers') or {}).get('candidate_lessons') or [])}`",
+        f"- Skill usage records: `{len(skill_usage_records)}`",
         "",
         "## Baseline",
         "",
@@ -1368,6 +1481,22 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult) -> None:
             "Rolled-back rounds leave the incumbent worktree unchanged.",
             "Proposal audit fields are reflection inputs for later rounds; they are not promotion gates.",
             "Smoke Gate runs the first seed through the fixed evaluator before the full benchmark; failed smoke rounds skip the full evaluator run.",
+        ]
+    )
+    lines.extend(
+        [
+            "",
+            "## Direction Graph",
+            "",
+            f"- Direction decisions: `{json.dumps(direction_graph.get('decision_counts') or {}, ensure_ascii=False)}`",
+            f"- Direction statuses: `{json.dumps(direction_graph.get('status_counts') or {}, ensure_ascii=False)}`",
+            f"- Artifact: `{output_dir / 'hypothesis_graph.json'}`",
+            "",
+            "## Experience Memory",
+            "",
+            f"- Candidate lessons: `{len((experience_memory.get('memory_tiers') or {}).get('candidate_lessons') or [])}`",
+            f"- Skill usage summary: `{json.dumps(experience_memory.get('skill_usage_summary') or {}, ensure_ascii=False)}`",
+            f"- Artifact: `{output_dir / 'experience_memory.json'}`",
         ]
     )
     (output_dir / "loop_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")

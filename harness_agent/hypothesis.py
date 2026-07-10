@@ -271,3 +271,590 @@ def _decision_counts(decisions: list[dict[str, Any]]) -> dict[str, int]:
         decision = str(item.get("decision", "unknown"))
         counts[decision] = counts.get(decision, 0) + 1
     return dict(sorted(counts.items()))
+
+
+def summarize_direction_graph(rounds: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize worker-loop records as user-facing improvement directions.
+
+    A direction is the user-visible "round": one rule/operator idea plus all
+    same-direction attempts needed to repair or refine it.  The original round
+    records remain the evaluator-backed atomic facts.
+    """
+
+    directions: list[dict[str, Any]] = []
+    latest_promoted_id: str | None = None
+    previous_direction_id: str | None = None
+    for item in rounds:
+        if not isinstance(item, dict):
+            continue
+        diagnostics = _dict(item.get("proposal_diagnostics"))
+        hypotheses = _list(diagnostics.get("rule_operator_hypotheses"))
+        primary = _dict(hypotheses[0]) if hypotheses else {}
+        round_index = _int(item.get("round_index"), default=len(directions))
+        direction_id = make_direction_id(round_index, diagnostics)
+        decision = str(item.get("decision") or "unknown")
+        status = direction_status(item)
+        attempts = direction_attempts(item)
+        direction = {
+            "direction_id": direction_id,
+            "parent_id": latest_promoted_id or previous_direction_id,
+            "round_index": round_index,
+            "title": direction_title(item, primary),
+            "status": status,
+            "decision": decision,
+            "strategy_type": str(primary.get("type") or "unknown"),
+            "target_files": _bounded_strings(primary.get("target_files"), limit=12),
+            "strategy_intent": _bounded_text(diagnostics.get("strategy_intent"), limit=500),
+            "hypotheses": [compact_hypothesis_payload(value) for value in hypotheses[:6] if isinstance(value, dict)],
+            "attempt_count": len(attempts),
+            "attempts": attempts,
+            "score_relation": objective_relation(item),
+            "artifact_refs": {
+                "context_packet_path": item.get("context_packet_path"),
+                "cycle_dir": item.get("cycle_dir"),
+                "patch_path": item.get("patch_path"),
+                "delta_path": item.get("delta_path"),
+            },
+        }
+        directions.append(direction)
+        previous_direction_id = direction_id
+        if decision == "promoted":
+            latest_promoted_id = direction_id
+
+    return {
+        "schema_version": 2,
+        "round_semantics": "direction",
+        "attempt_semantics": "worker proposal attempts inside one direction",
+        "direction_count": len(directions),
+        "attempt_count": sum(int(item.get("attempt_count", 0) or 0) for item in directions),
+        "status_counts": _counts(str(item.get("status") or "unknown") for item in directions),
+        "decision_counts": _counts(str(item.get("decision") or "unknown") for item in directions),
+        "promoted_direction_ids": [item["direction_id"] for item in directions if item.get("decision") == "promoted"],
+        "active_parent_id": latest_promoted_id or previous_direction_id,
+        "directions": directions,
+        "guidance": direction_graph_guidance(directions),
+    }
+
+
+def build_experience_memory(
+    rounds: list[dict[str, Any]],
+    *,
+    problem_family: str | None = None,
+) -> dict[str, Any]:
+    """Build candidate lessons and usage signals from evaluator-backed rounds.
+
+    This is a run artifact, not a curated knowledge-card writer.  It preserves
+    method-level lessons with artifact references, while avoiding instance
+    score values as reusable knowledge.
+    """
+
+    graph = summarize_direction_graph(rounds)
+    candidate_lessons: list[dict[str, Any]] = []
+    for direction in graph.get("directions") or []:
+        if not isinstance(direction, dict):
+            continue
+        lesson = candidate_lesson_from_direction(direction, problem_family=problem_family)
+        if lesson:
+            candidate_lessons.append(lesson)
+        repair_lesson = repair_lesson_from_direction(direction, problem_family=problem_family)
+        if repair_lesson:
+            candidate_lessons.append(repair_lesson)
+
+    usage_records = skill_usage_records_from_directions(graph.get("directions") or [])
+    return {
+        "schema_version": 1,
+        "purpose": "Run-local learning memory for future context selection; not a curated long-term knowledge write.",
+        "write_policy": {
+            "raw_notes": "preserve as artifacts only",
+            "candidate_lessons": "may be recalled with source evidence",
+            "validated_lessons": "requires repeated success or human review",
+            "curated_skills": "requires explicit promotion outside the worker loop",
+            "no_instance_score_as_method": True,
+        },
+        "memory_tiers": {
+            "raw_notes": {
+                "status": "artifact_only",
+                "sources": [
+                    direction.get("artifact_refs", {})
+                    for direction in graph.get("directions") or []
+                    if isinstance(direction, dict)
+                ],
+            },
+            "candidate_lessons": candidate_lessons,
+            "validated_lessons": [],
+            "curated_skills": [],
+        },
+        "skill_usage_records": usage_records,
+        "skill_usage_summary": summarize_skill_usage_records(usage_records),
+        "self_evolution_metrics": {
+            "direction_count": graph.get("direction_count", 0),
+            "attempt_count": graph.get("attempt_count", 0),
+            "candidate_lesson_count": len(candidate_lessons),
+            "skill_usage_record_count": len(usage_records),
+            "promoted_direction_count": len(graph.get("promoted_direction_ids") or []),
+            "same_direction_recovery_count": sum(
+                1
+                for direction in graph.get("directions") or []
+                if isinstance(direction, dict) and direction_recovered(direction)
+            ),
+        },
+        "next_context_guidance": experience_guidance(candidate_lessons, usage_records),
+    }
+
+
+def render_direction_graph_markdown(summary: dict[str, Any]) -> str:
+    lines = [
+        "# Improvement Direction Graph",
+        "",
+        f"- Schema: `{summary.get('schema_version')}`",
+        f"- Direction count: `{summary.get('direction_count', 0)}`",
+        f"- Attempt count: `{summary.get('attempt_count', 0)}`",
+        f"- Decision counts: `{json.dumps(summary.get('decision_counts') or {}, ensure_ascii=False)}`",
+        f"- Status counts: `{json.dumps(summary.get('status_counts') or {}, ensure_ascii=False)}`",
+        "",
+        "## Directions",
+        "",
+        "| Direction | Parent | Round | Status | Decision | Attempts | Type | Title |",
+        "| --- | --- | ---: | --- | --- | ---: | --- | --- |",
+    ]
+    for item in summary.get("directions") or []:
+        if not isinstance(item, dict):
+            continue
+        lines.append(
+            f"| `{item.get('direction_id')}` | `{item.get('parent_id') or ''}` | "
+            f"`{item.get('round_index')}` | `{item.get('status')}` | `{item.get('decision')}` | "
+            f"`{item.get('attempt_count')}` | `{item.get('strategy_type')}` | "
+            f"{_md_cell(str(item.get('title') or ''))} |"
+        )
+    lines.extend(["", "## Guidance", ""])
+    for item in summary.get("guidance") or []:
+        lines.append(f"- {item}")
+    return "\n".join(lines).strip() + "\n"
+
+
+def render_experience_memory_markdown(memory: dict[str, Any]) -> str:
+    tiers = _dict(memory.get("memory_tiers"))
+    lessons = _list(tiers.get("candidate_lessons"))
+    lines = [
+        "# Experience Memory",
+        "",
+        f"- Candidate lessons: `{len(lessons)}`",
+        f"- Skill usage records: `{len(_list(memory.get('skill_usage_records')))}`",
+        f"- Self-evolution metrics: `{json.dumps(memory.get('self_evolution_metrics') or {}, ensure_ascii=False)}`",
+        "",
+        "## Candidate Lessons",
+        "",
+        "| Lesson | Type | Confidence | Strategy | Outcome | Applicability |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for item in lessons:
+        if not isinstance(item, dict):
+            continue
+        lines.append(
+            f"| `{item.get('lesson_id')}` | `{item.get('lesson_type')}` | `{item.get('confidence')}` | "
+            f"{_md_cell(str(item.get('strategy') or ''))} | `{item.get('outcome')}` | "
+            f"{_md_cell('; '.join(str(value) for value in _list(item.get('applicability'))[:3]))} |"
+        )
+    lines.extend(["", "## Next Context Guidance", ""])
+    for item in _list(memory.get("next_context_guidance")):
+        lines.append(f"- {item}")
+    return "\n".join(lines).strip() + "\n"
+
+
+def make_direction_id(round_index: int, diagnostics: dict[str, Any]) -> str:
+    digest = hashlib.sha1(
+        json.dumps(
+            {
+                "round_index": round_index,
+                "strategy_intent": diagnostics.get("strategy_intent"),
+                "rule_operator_hypotheses": diagnostics.get("rule_operator_hypotheses") or [],
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()[:10]
+    return f"d{round_index:03d}_{digest}"
+
+
+def direction_title(round_record: dict[str, Any], primary: dict[str, Any]) -> str:
+    name = str(primary.get("name") or "").strip()
+    if name:
+        return name[:160]
+    diagnostics = _dict(round_record.get("proposal_diagnostics"))
+    summary = _bounded_text(diagnostics.get("summary"), limit=160)
+    if summary:
+        return summary
+    return f"direction_{_int(round_record.get('round_index'), default=0):03d}"
+
+
+def direction_status(round_record: dict[str, Any]) -> str:
+    if round_record.get("decision") == "promoted":
+        return "validated_success"
+    candidate_key = _number_list(round_record.get("candidate_key"))
+    if candidate_key and all(value == float("-inf") for value in candidate_key):
+        return "strategy_infeasible"
+    smoke = _dict(round_record.get("smoke_gate"))
+    if smoke and smoke.get("passed") is False:
+        return "strategy_infeasible"
+    promotion = _dict(round_record.get("promotion_check"))
+    if promotion.get("reason") == "candidate_not_strictly_better":
+        return "no_improvement"
+    if promotion.get("reason") == "repeat_objective_not_strictly_better":
+        return "unstable_or_noisy_improvement"
+    if str(round_record.get("worker_status") or "").endswith("exception"):
+        return "worker_failed"
+    return "rolled_back"
+
+
+def direction_attempts(round_record: dict[str, Any]) -> list[dict[str, Any]]:
+    diagnostics = _dict(round_record.get("proposal_diagnostics"))
+    repair = _dict(diagnostics.get("in_round_repair"))
+    attempts = _list(repair.get("attempts"))
+    if attempts:
+        return [compact_attempt_payload(item) for item in attempts if isinstance(item, dict)]
+    return [
+        {
+            "attempt_index": 0,
+            "kind": "initial",
+            "worker_status": round_record.get("worker_status"),
+            "changed_files": _bounded_strings(round_record.get("worker_changed_files"), limit=12),
+            "candidate_key_relation": objective_relation(round_record),
+            "failure_signatures": [],
+            "context_packet_path": round_record.get("context_packet_path"),
+            "patch_path": round_record.get("patch_path"),
+        }
+    ]
+
+
+def compact_attempt_payload(attempt: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "attempt_index": attempt.get("attempt_index"),
+        "kind": attempt_kind(attempt),
+        "worker_status": attempt.get("worker_status"),
+        "changed_files": _bounded_strings(attempt.get("changed_files"), limit=12),
+        "candidate_key_relation": attempt_key_relation(attempt),
+        "failure_signatures": _bounded_strings(attempt.get("failure_signatures"), limit=16),
+        "agentic_accepted": _dict(attempt.get("agentic_judgment")).get("accepted"),
+        "context_packet_path": attempt.get("context_packet_path"),
+        "patch_path": attempt.get("patch_path"),
+        "delta_path": attempt.get("delta_path"),
+    }
+
+
+def attempt_kind(attempt: dict[str, Any]) -> str:
+    if _int(attempt.get("attempt_index"), default=0) == 0:
+        return "initial"
+    signatures = " ".join(_bounded_strings(attempt.get("failure_signatures"), limit=16))
+    if "legal_but_not_strictly_better" in signatures:
+        return "same_direction_refinement"
+    return "repair"
+
+
+def attempt_key_relation(attempt: dict[str, Any]) -> str:
+    key = _number_list(attempt.get("candidate_key"))
+    if not key:
+        return "not_measured"
+    if all(value == float("-inf") for value in key):
+        return "invalid_or_rejected"
+    if "legal_but_not_strictly_better" in _bounded_strings(attempt.get("failure_signatures"), limit=16):
+        return "legal_but_not_strictly_better"
+    return "measured"
+
+
+def objective_relation(round_record: dict[str, Any]) -> str:
+    candidate = _number_list(round_record.get("candidate_key"))
+    incumbent_after = _number_list(round_record.get("incumbent_key_after"))
+    if not candidate:
+        return "not_measured"
+    if all(value == float("-inf") for value in candidate):
+        return "invalid_or_rejected"
+    if round_record.get("decision") == "promoted":
+        return "improved_and_promoted"
+    promotion = _dict(round_record.get("promotion_check"))
+    if promotion.get("reason") == "repeat_objective_not_strictly_better":
+        return "initially_better_but_unstable"
+    if incumbent_after and candidate <= incumbent_after:
+        return "legal_but_not_strictly_better"
+    return "measured_but_rolled_back"
+
+
+def compact_hypothesis_payload(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "name": _bounded_text(item.get("name"), limit=120),
+        "type": _bounded_text(item.get("type"), limit=80),
+        "novelty": _bounded_text(item.get("novelty"), limit=240),
+        "expected_effect": _bounded_text(item.get("expected_effect"), limit=240),
+        "target_files": _bounded_strings(item.get("target_files"), limit=12),
+        "evidence_used": _bounded_strings(item.get("evidence_used"), limit=12),
+        "ablation_plan": _bounded_text(item.get("ablation_plan"), limit=240),
+    }
+
+
+def candidate_lesson_from_direction(
+    direction: dict[str, Any],
+    *,
+    problem_family: str | None,
+) -> dict[str, Any] | None:
+    hypotheses = _list(direction.get("hypotheses"))
+    primary = _dict(hypotheses[0]) if hypotheses else {}
+    strategy = str(primary.get("name") or direction.get("title") or "").strip()
+    if not strategy:
+        return None
+    status = str(direction.get("status") or "")
+    if status == "validated_success":
+        lesson_type = "successful_strategy"
+        outcome = "promoted_by_core_evaluator"
+        applicability = [
+            "when the same problem-family features and edit contract are present",
+            "when the incumbent mechanism can be preserved and mutated incrementally",
+        ]
+        contraindications = ["do not copy instance-specific outputs or scores", "do not bypass validator/evaluator gates"]
+    elif status == "no_improvement":
+        lesson_type = "no_improvement_pattern"
+        outcome = "legal_but_not_promoted"
+        applicability = ["when a similar idea repeats without strict improvement"]
+        contraindications = ["avoid repeating the same tie-break or cosmetic change unchanged"]
+    elif status in {"strategy_infeasible", "worker_failed"}:
+        lesson_type = "failure_pattern"
+        outcome = status
+        applicability = ["when similar files, warnings, or failure signatures appear"]
+        contraindications = ["repair legality and patch shape before objective tuning"]
+    else:
+        lesson_type = "candidate_observation"
+        outcome = status or str(direction.get("decision") or "unknown")
+        applicability = ["use only as weak evidence until repeated"]
+        contraindications = ["do not promote to a skill without more evidence"]
+
+    return {
+        "lesson_id": make_lesson_id(direction, lesson_type),
+        "lesson_type": lesson_type,
+        "problem_family": problem_family,
+        "strategy": strategy[:160],
+        "strategy_type": direction.get("strategy_type"),
+        "outcome": outcome,
+        "applicability": applicability,
+        "contraindications": contraindications,
+        "evidence": {
+            "direction_id": direction.get("direction_id"),
+            "round_index": direction.get("round_index"),
+            "decision": direction.get("decision"),
+            "status": direction.get("status"),
+            "score_relation": direction.get("score_relation"),
+            "artifact_refs": direction.get("artifact_refs") or {},
+        },
+        "confidence": "candidate",
+        "recommended_skill_update": recommended_skill_update(lesson_type, direction),
+    }
+
+
+def repair_lesson_from_direction(
+    direction: dict[str, Any],
+    *,
+    problem_family: str | None,
+) -> dict[str, Any] | None:
+    attempts = _list(direction.get("attempts"))
+    if len(attempts) < 2 or not direction_recovered(direction):
+        return None
+    return {
+        "lesson_id": make_lesson_id(direction, "repair_recovery"),
+        "lesson_type": "repair_recovery",
+        "problem_family": problem_family,
+        "strategy": str(direction.get("title") or "")[:160],
+        "strategy_type": direction.get("strategy_type"),
+        "outcome": "same_direction_attempt_recovered",
+        "applicability": [
+            "when the first attempt is illegal or legal-but-not-better but carries useful patch evidence",
+            "when repair feedback includes exact rejected edits, failure signatures, and incumbent context",
+        ],
+        "contraindications": ["do not spend a new direction before consuming same-direction feedback"],
+        "evidence": {
+            "direction_id": direction.get("direction_id"),
+            "round_index": direction.get("round_index"),
+            "attempt_count": len(attempts),
+            "artifact_refs": direction.get("artifact_refs") or {},
+        },
+        "confidence": "candidate",
+        "recommended_skill_update": "Keep same-direction repair/refinement prompts focused on exact failed edits and measured failure signatures.",
+    }
+
+
+def direction_recovered(direction: dict[str, Any]) -> bool:
+    attempts = _list(direction.get("attempts"))
+    if len(attempts) < 2:
+        return False
+    return direction.get("decision") == "promoted" or direction.get("status") in {
+        "validated_success",
+        "no_improvement",
+        "unstable_or_noisy_improvement",
+    }
+
+
+def make_lesson_id(direction: dict[str, Any], lesson_type: str) -> str:
+    raw = f"{direction.get('direction_id')}:{lesson_type}:{direction.get('title')}"
+    return "lesson_" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def recommended_skill_update(lesson_type: str, direction: dict[str, Any]) -> str:
+    if lesson_type == "successful_strategy":
+        return (
+            "Consider a reusable workflow only after this method succeeds again under similar contracts; "
+            "capture method structure, not instance score values."
+        )
+    if lesson_type == "failure_pattern":
+        return "Add or strengthen a negative-memory guard if the same failure signature repeats."
+    if lesson_type == "no_improvement_pattern":
+        return "Down-rank unchanged repeats; require a materially different neighborhood, decoder, or rule mechanism."
+    return "Keep as candidate memory until more evaluator-backed evidence exists."
+
+
+def skill_usage_records_from_directions(directions: list[Any]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for direction in directions:
+        if not isinstance(direction, dict):
+            continue
+        hypotheses = _list(direction.get("hypotheses"))
+        sources: set[str] = set()
+        for hypothesis in hypotheses:
+            if isinstance(hypothesis, dict):
+                sources.update(_bounded_strings(hypothesis.get("evidence_used"), limit=20))
+        intent = str(direction.get("strategy_intent") or "").lower()
+        if "knowledge_cards" in intent or "rag" in intent:
+            sources.add("knowledge_cards")
+        if "loop_feedback" in intent or _list(direction.get("attempts")):
+            sources.add("loop_feedback")
+        if not sources:
+            sources.add("unattributed")
+        for source in sorted(sources):
+            records.append(
+                {
+                    "usage_id": make_usage_id(direction, source),
+                    "direction_id": direction.get("direction_id"),
+                    "round_index": direction.get("round_index"),
+                    "source": source,
+                    "source_kind": classify_usage_source(source),
+                    "strategy_type": direction.get("strategy_type"),
+                    "outcome": direction.get("status"),
+                    "decision": direction.get("decision"),
+                    "effect": usage_effect(direction),
+                }
+            )
+    return records
+
+
+def make_usage_id(direction: dict[str, Any], source: str) -> str:
+    raw = f"{direction.get('direction_id')}:{source}"
+    return "usage_" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def classify_usage_source(source: str) -> str:
+    lowered = source.lower()
+    if "knowledge" in lowered or "rag" in lowered or lowered.endswith(".md"):
+        return "knowledge_card"
+    if "skill" in lowered:
+        return "skill"
+    if "loop_feedback" in lowered or "failure_memory" in lowered or "previous" in lowered:
+        return "within_run_memory"
+    if "project_intake" in lowered or "instance_diagnostics" in lowered or "slot_manifest" in lowered:
+        return "context_source"
+    return "declared_evidence"
+
+
+def usage_effect(direction: dict[str, Any]) -> str:
+    if direction.get("decision") == "promoted":
+        return "associated_with_promotion"
+    if direction.get("status") == "strategy_infeasible":
+        return "associated_with_invalid_or_rejected_candidate"
+    if direction.get("status") == "no_improvement":
+        return "associated_with_legal_no_improvement"
+    return "associated_with_observation"
+
+
+def summarize_skill_usage_records(records: list[dict[str, Any]]) -> dict[str, Any]:
+    by_kind: dict[str, dict[str, int]] = {}
+    for record in records:
+        kind = str(record.get("source_kind") or "unknown")
+        effect = str(record.get("effect") or "unknown")
+        by_kind.setdefault(kind, {})
+        by_kind[kind][effect] = by_kind[kind].get(effect, 0) + 1
+    return {
+        "record_count": len(records),
+        "by_source_kind": by_kind,
+        "promoted_usage_count": sum(1 for item in records if item.get("effect") == "associated_with_promotion"),
+    }
+
+
+def direction_graph_guidance(directions: list[dict[str, Any]]) -> list[str]:
+    if not directions:
+        return ["Start with a small, auditable direction and require explicit rule/operator hypotheses."]
+    guidance = [
+        "Treat each direction as a hypothesis lifecycle: repair/refine attempts first, then promote, prune, or mutate.",
+        "Preserve promoted directions as parents; do not replace them without an explicit ablation fallback.",
+    ]
+    if any(item.get("status") == "no_improvement" for item in directions[-3:]):
+        guidance.append("Recent legal no-improvement directions should be mutated materially before spending another direction.")
+    if any(item.get("status") == "strategy_infeasible" for item in directions[-3:]):
+        guidance.append("Recent infeasible directions should trigger legality or patch-shape repair before objective tuning.")
+    return guidance
+
+
+def experience_guidance(lessons: list[dict[str, Any]], usage_records: list[dict[str, Any]]) -> list[str]:
+    guidance = [
+        "Inject only candidate lessons whose applicability matches the current contract and problem family.",
+        "Keep candidate lessons separate from curated skills until repeated success or human review.",
+    ]
+    if any(item.get("lesson_type") == "successful_strategy" for item in lessons):
+        guidance.append("Preserve method-level structure from promoted lessons, but never use prior solution files or scores as solver inputs.")
+    if any(item.get("lesson_type") == "failure_pattern" for item in lessons):
+        guidance.append("Recall repeated failure patterns as negative memory and require a material implementation difference.")
+    if usage_records and not any(item.get("source_kind") == "knowledge_card" for item in usage_records):
+        guidance.append("Future directions should explicitly cite relevant knowledge cards or explain why local evidence overrides them.")
+    return guidance
+
+
+def _dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _int(value: Any, *, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _number_list(value: Any) -> list[float]:
+    if not isinstance(value, list):
+        return []
+    result: list[float] = []
+    for item in value:
+        if isinstance(item, (int, float)):
+            result.append(float(item))
+    return result
+
+
+def _bounded_text(value: Any, *, limit: int = 500) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    return text[:limit]
+
+
+def _bounded_strings(value: Any, *, limit: int) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item)[:500] for item in value[:limit] if item is not None]
+
+
+def _counts(values: Any) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        counts[value] = counts.get(value, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _md_cell(value: str) -> str:
+    return value.replace("|", "\\|").replace("\n", " ")[:500]

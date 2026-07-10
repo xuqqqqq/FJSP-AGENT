@@ -730,6 +730,7 @@ def priority_worker_context(context: dict[str, Any]) -> str:
         "round_learning_contract": {
             "must_do": [
                 "Preserve the current promoted incumbent and make one accepted incremental edit.",
+                "Treat the current outer round as one improvement direction. Repair or refine the same direction before switching ideas.",
                 "Use failure_memory.must_avoid as hard negative memory.",
                 "Do not submit a no-op proposal during improvement rounds.",
                 "Do not repeat a legal-but-not-better tie-break tweak; change the neighborhood, decoder, or insertion/regret mechanism materially.",
@@ -848,12 +849,89 @@ def compact_loop_feedback_for_prompt(loop_feedback: dict[str, Any]) -> dict[str,
         "baseline_best_metrics": baseline_summary.get("best_metrics"),
         "baseline_best_candidate_metrics": baseline_summary.get("best_candidate_metrics"),
         "baseline_validation_summary": baseline_summary.get("validation_summary"),
+        "round_semantics": loop_feedback.get("round_semantics") or {},
+        "current_direction": loop_feedback.get("current_direction") or {},
+        "direction_graph": compact_direction_graph_for_prompt(loop_feedback.get("direction_graph") or {}),
+        "experience_memory": compact_experience_memory_for_prompt(loop_feedback.get("experience_memory") or {}),
+        "skill_usage_summary": loop_feedback.get("skill_usage_summary") or {},
         "protected_promoted_facts": loop_feedback.get("protected_promoted_facts") or [],
         "failure_memory": loop_feedback.get("failure_memory") or {},
         "next_round_guidance": loop_feedback.get("next_round_guidance") or {},
         "current_round_repair": compact_current_round_repair(loop_feedback.get("current_round_repair") or {}),
         "previous_rounds": compact_previous,
         "instructions": loop_feedback.get("instructions"),
+    }
+
+
+def compact_direction_graph_for_prompt(value: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, dict) or not value:
+        return {}
+    directions = value.get("directions")
+    if not isinstance(directions, list):
+        directions = []
+    compact_directions = []
+    for item in directions[-6:]:
+        if not isinstance(item, dict):
+            continue
+        compact_directions.append(
+            {
+                "direction_id": item.get("direction_id"),
+                "parent_id": item.get("parent_id"),
+                "round_index": item.get("round_index"),
+                "title": item.get("title"),
+                "status": item.get("status"),
+                "decision": item.get("decision"),
+                "strategy_type": item.get("strategy_type"),
+                "target_files": (item.get("target_files") or [])[:8],
+                "score_relation": item.get("score_relation"),
+                "attempt_count": item.get("attempt_count"),
+            }
+        )
+    return {
+        "schema_version": value.get("schema_version"),
+        "round_semantics": value.get("round_semantics"),
+        "direction_count": value.get("direction_count"),
+        "attempt_count": value.get("attempt_count"),
+        "status_counts": value.get("status_counts") or {},
+        "decision_counts": value.get("decision_counts") or {},
+        "promoted_direction_ids": (value.get("promoted_direction_ids") or [])[-6:],
+        "directions": compact_directions,
+        "guidance": (value.get("guidance") or [])[:6],
+    }
+
+
+def compact_experience_memory_for_prompt(value: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, dict) or not value:
+        return {}
+    tiers = value.get("memory_tiers")
+    if not isinstance(tiers, dict):
+        tiers = {}
+    lessons = tiers.get("candidate_lessons")
+    if not isinstance(lessons, list):
+        lessons = []
+    compact_lessons = []
+    for item in lessons[-8:]:
+        if not isinstance(item, dict):
+            continue
+        compact_lessons.append(
+            {
+                "lesson_id": item.get("lesson_id"),
+                "lesson_type": item.get("lesson_type"),
+                "strategy": item.get("strategy"),
+                "strategy_type": item.get("strategy_type"),
+                "outcome": item.get("outcome"),
+                "applicability": (item.get("applicability") or [])[:3],
+                "contraindications": (item.get("contraindications") or [])[:3],
+                "confidence": item.get("confidence"),
+            }
+        )
+    return {
+        "schema_version": value.get("schema_version"),
+        "write_policy": value.get("write_policy") or {},
+        "candidate_lessons": compact_lessons,
+        "skill_usage_summary": value.get("skill_usage_summary") or {},
+        "self_evolution_metrics": value.get("self_evolution_metrics") or {},
+        "next_context_guidance": (value.get("next_context_guidance") or [])[:6],
     }
 
 

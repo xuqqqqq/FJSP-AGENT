@@ -11,6 +11,7 @@ from .loop_runner import (
     WorkerLoopResult,
     compact_promotion_check,
     compact_proposal_audit,
+    round_record_payload,
     run_worker_loop,
     summary_payload,
 )
@@ -137,6 +138,11 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
         "context_packet": str(context_path.resolve()),
         "loop_report": str((output_dir / "worker_loop" / "loop_report.md").resolve()),
         "loop_result": str((output_dir / "worker_loop" / "loop_result.json").resolve()),
+        "hypothesis_graph": str((output_dir / "worker_loop" / "hypothesis_graph.json").resolve()),
+        "hypothesis_graph_report": str((output_dir / "worker_loop" / "hypothesis_graph.md").resolve()),
+        "experience_memory": str((output_dir / "worker_loop" / "experience_memory.json").resolve()),
+        "experience_memory_report": str((output_dir / "worker_loop" / "experience_memory.md").resolve()),
+        "skill_usage_records": str((output_dir / "worker_loop" / "skill_usage_records.json").resolve()),
     }
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     report_path.write_text(render_standard_worker_report(manifest), encoding="utf-8")
@@ -287,6 +293,17 @@ def standard_worker_manifest(
     output_dir: Path,
 ) -> dict[str, Any]:
     promoted_rounds = sum(1 for item in loop_result.rounds if item.decision == "promoted")
+    round_payloads = [round_record_payload(item) for item in loop_result.rounds]
+    loop_result_path = output_dir / "worker_loop" / "loop_result.json"
+    loop_payload = {}
+    if loop_result_path.exists():
+        try:
+            loop_payload = json.loads(loop_result_path.read_text(encoding="utf-8-sig"))
+        except json.JSONDecodeError:
+            loop_payload = {}
+    hypothesis_graph = loop_payload.get("hypothesis_graph") or {}
+    experience_memory = loop_payload.get("experience_memory") or {}
+    skill_usage_records = loop_payload.get("skill_usage_records") or []
     final_summary = summary_payload(loop_result.baseline_summary)
     final_round_index: int | None = None
     for item in loop_result.rounds:
@@ -330,29 +347,20 @@ def standard_worker_manifest(
         "improved": loop_result.final_key > loop_result.baseline_key,
         "round_count": len(loop_result.rounds),
         "promoted_rounds": promoted_rounds,
+        "round_semantics": {
+            "user_visible_round": "improvement_direction",
+            "core_atomic_unit": "worker_attempt",
+        },
+        "hypothesis_graph": hypothesis_graph,
+        "experience_memory": experience_memory,
+        "skill_usage_records": skill_usage_records,
         "in_round_repair": repair_stats,
         "final_worktree": str(loop_result.final_worktree),
         "baseline_summary": summary_payload(loop_result.baseline_summary),
         "final_summary": final_summary,
         "final_round_index": final_round_index,
         "latest_candidate_summary": latest_candidate_summary,
-        "rounds": [
-            {
-                "round_index": item.round_index,
-                "decision": item.decision,
-                "worker_status": item.worker_status,
-                "worker_changed_files": item.worker_changed_files,
-                "duplicate_proposal": item.duplicate_proposal,
-                "proposal_diagnostics": item.proposal_diagnostics,
-                "promotion_check": item.promotion_check,
-                "candidate_key": list(item.candidate_key),
-                "incumbent_key_after": list(item.incumbent_key_after),
-                "cycle_dir": item.cycle_dir,
-                "delta_path": item.delta_path,
-                "patch_path": item.patch_path,
-            }
-            for item in loop_result.rounds
-        ],
+        "rounds": round_payloads,
     }
 
 
@@ -397,6 +405,8 @@ def render_standard_worker_report(manifest: dict[str, Any]) -> str:
         f"- Improved: `{manifest.get('improved')}`",
         f"- Rounds: `{manifest.get('round_count')}`",
         f"- Promoted rounds: `{manifest.get('promoted_rounds')}`",
+        f"- Direction graph: `{json.dumps((manifest.get('hypothesis_graph') or {}).get('status_counts') or {}, ensure_ascii=False)}`",
+        f"- Candidate lessons: `{len(((manifest.get('experience_memory') or {}).get('memory_tiers') or {}).get('candidate_lessons') or [])}`",
         f"- In-round repair: `{json.dumps(manifest.get('in_round_repair') or {}, ensure_ascii=False)}`",
         f"- Final worktree: `{manifest.get('final_worktree')}`",
         "",

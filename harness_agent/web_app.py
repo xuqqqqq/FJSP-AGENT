@@ -1214,11 +1214,30 @@ def summarize_worker_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     in_round_repair = manifest.get("in_round_repair")
     if not isinstance(in_round_repair, dict):
         in_round_repair = summarize_in_round_repair(rounds)
+    hypothesis_graph = manifest.get("hypothesis_graph") if isinstance(manifest.get("hypothesis_graph"), dict) else {}
+    experience_memory = (
+        manifest.get("experience_memory") if isinstance(manifest.get("experience_memory"), dict) else {}
+    )
+    memory_tiers = (
+        experience_memory.get("memory_tiers") if isinstance(experience_memory.get("memory_tiers"), dict) else {}
+    )
+    candidate_lessons = memory_tiers.get("candidate_lessons") if isinstance(memory_tiers.get("candidate_lessons"), list) else []
+    skill_usage_records = manifest.get("skill_usage_records")
+    if not isinstance(skill_usage_records, list):
+        skill_usage_records = experience_memory.get("skill_usage_records")
+    if not isinstance(skill_usage_records, list):
+        skill_usage_records = []
     final_metrics = summary_metrics(final_summary)
     latest_metrics = summary_metrics(latest_summary)
     return {
         "round_count": int(manifest.get("round_count", 0) or 0),
         "completed_round_count": int(manifest.get("round_count", 0) or 0),
+        "direction_count": int(hypothesis_graph.get("direction_count", manifest.get("round_count", 0)) or 0),
+        "attempt_count": int(hypothesis_graph.get("attempt_count", manifest.get("round_count", 0)) or 0),
+        "candidate_lesson_count": len(candidate_lessons),
+        "skill_usage_record_count": len(skill_usage_records),
+        "direction_status_counts": hypothesis_graph.get("status_counts") or {},
+        "direction_decision_counts": hypothesis_graph.get("decision_counts") or {},
         "promoted_rounds": int(manifest.get("promoted_rounds", 0) or 0),
         "improved": bool(manifest.get("improved")),
         "baseline_key": baseline_key,

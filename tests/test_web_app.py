@@ -168,12 +168,30 @@ class WebAppTests(unittest.TestCase):
                     "recovered_round_count": 1,
                     "final_rejected_after_repair": 0,
                 },
+                "hypothesis_graph": {
+                    "direction_count": 2,
+                    "attempt_count": 4,
+                    "status_counts": {"validated_success": 1, "no_improvement": 1},
+                    "decision_counts": {"promoted": 1, "rolled_back": 1},
+                },
+                "experience_memory": {
+                    "memory_tiers": {
+                        "candidate_lessons": [
+                            {"lesson_id": "lesson_001", "lesson_type": "successful_strategy"}
+                        ]
+                    },
+                    "skill_usage_records": [{"usage_id": "usage_001"}],
+                },
                 "rounds": [],
             }
         )
 
         self.assertEqual(2, summary["in_round_repair"]["repair_attempt_count"])
         self.assertEqual(1, summary["in_round_repair"]["recovered_round_count"])
+        self.assertEqual(2, summary["direction_count"])
+        self.assertEqual(4, summary["attempt_count"])
+        self.assertEqual(1, summary["candidate_lesson_count"])
+        self.assertEqual(1, summary["skill_usage_record_count"])
 
     def test_code_evolution_progress_uses_final_repair_attempt(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

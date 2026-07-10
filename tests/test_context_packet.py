@@ -113,6 +113,42 @@ class ContextPacketTests(unittest.TestCase):
                                 }
                             ],
                         },
+                        "direction_graph_signal": {
+                            "schema_version": 2,
+                            "round_semantics": "direction",
+                            "direction_count": 2,
+                            "attempt_count": 3,
+                            "status_counts": {"validated_success": 1, "no_improvement": 1},
+                            "decision_counts": {"promoted": 1, "rolled_back": 1},
+                            "recent_directions": [
+                                {
+                                    "direction_id": "d001",
+                                    "round_index": 1,
+                                    "title": "machine_load_insert",
+                                    "status": "validated_success",
+                                    "decision": "promoted",
+                                    "strategy_type": "dispatch_rule",
+                                    "attempt_count": 2,
+                                }
+                            ],
+                            "guidance": ["Preserve promoted directions."],
+                        },
+                        "experience_memory_signal": {
+                            "schema_version": 1,
+                            "candidate_lesson_count": 1,
+                            "candidate_lessons": [
+                                {
+                                    "lesson_id": "lesson_001",
+                                    "lesson_type": "successful_strategy",
+                                    "strategy": "machine_load_insert",
+                                    "strategy_type": "dispatch_rule",
+                                    "outcome": "promoted_by_core_evaluator",
+                                    "confidence": "candidate",
+                                }
+                            ],
+                            "next_context_guidance": ["Keep candidate lessons separate from curated skills."],
+                        },
+                        "skill_usage_signal": {"record_count": 2, "by_source_kind": {"knowledge_card": 1}},
                         "recommendations": ["Require a materially different rule."],
                     },
                     ensure_ascii=False,
@@ -136,6 +172,9 @@ class ContextPacketTests(unittest.TestCase):
             self.assertEqual(16.67, memory["benchmark_signal"]["avg_reported_gap_pct"])
             self.assertEqual("rolled_back", memory["worker_signal"]["rounds"][0]["decision"])
             self.assertEqual(3, memory["operator_lineage_signal"]["hypothesis_count"])
+            self.assertEqual(2, memory["direction_graph_signal"]["direction_count"])
+            self.assertEqual(1, memory["experience_memory_signal"]["candidate_lesson_count"])
+            self.assertEqual(2, memory["skill_usage_signal"]["record_count"])
             guidance = memory["operator_guidance"]
             self.assertEqual("available", guidance["status"])
             self.assertIn("Use Core evaluator metrics", " ".join(guidance["must_do"]))
@@ -146,6 +185,14 @@ class ContextPacketTests(unittest.TestCase):
             self.assertIn("Review previous_pipeline_memory", " ".join(packet["worker_instruction"]["required_order"]))
             self.assertIn(
                 "operator_guidance",
+                " ".join(packet["worker_instruction"]["required_order"]),
+            )
+            self.assertIn(
+                "direction_graph_signal",
+                " ".join(packet["worker_instruction"]["required_order"]),
+            )
+            self.assertIn(
+                "experience_memory_signal",
                 " ".join(packet["worker_instruction"]["required_order"]),
             )
 
