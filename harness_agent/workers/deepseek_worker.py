@@ -335,7 +335,9 @@ Selected harness report excerpt:
         return f"""
 You are inside an AlgoForge coding-worker loop. The harness/evaluator is the
 source of truth; your job is to propose a small code change that can be audited
-and then evaluated by Core.
+and then evaluated by Core. When the priority context says this is an
+agent-generated baseline or legality repair, the safe change may be a complete
+standalone generated solver entrypoint rather than a tiny patch.
 
 Return JSON only with this schema:
 {{
@@ -348,22 +350,22 @@ Return JSON only with this schema:
       "novelty": "how this differs from prior rolled-back or baseline behavior",
       "expected_effect": "which evaluator metric should improve and why",
       "evidence_used": ["contract_review_evidence.role_prioritized_sections", "loop_feedback.previous_rounds"],
-      "target_files": ["examples/standard_fjsp_local_search_solver.py"],
+      "target_files": ["active solver path from evaluator_protocol.solver_command_template"],
       "ablation_plan": "how Core can isolate this rule/operator effect in a later run"
     }}
   ],
   "solver_contract_self_check": {{
-    "active_features": ["alternative_machines", "operation_precedence", "machine_capacity"],
+    "active_features": ["copy exact active_features from agent_generated_solver_quality_contract"],
     "capabilities": [
       {{
-        "name": "stable_operation_identity",
+        "name": "one required_code_capability or variant_required_code_capability",
         "status": "implemented",
-        "evidence": "op_info uses (job_id, op_id) keys; schedule output preserves job_id/op_id"
+        "evidence": "concrete function/variable/guard symbols from submitted code"
       }}
     ],
     "representation": "which operation identity, assignment, and machine sequence structures the code uses",
     "decoder": "which function rebuilds a complete schedule and how it rejects infeasible candidates",
-    "variant_handling": ["sequence_dependent_setup is applied on same-machine arcs inside decode_schedule"],
+    "variant_handling": ["for each active variant_required_code_capability, cite the concrete timing/capacity/objective guard; use [] when none are active"],
     "runtime_bounds": "where restarts/iterations/windows/deadlines are capped",
     "incumbent_preservation": "how failed candidates keep the incumbent schedule",
     "remaining_gaps": []

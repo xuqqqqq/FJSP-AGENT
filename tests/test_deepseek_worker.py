@@ -835,6 +835,25 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("Do not preserve a nonexistent incumbent", prompt_context)
         self.assertNotIn("Preserve the current promoted incumbent", prompt_context)
 
+    def test_code_edit_prompt_schema_avoids_variant_and_file_bias(self) -> None:
+        worker = DeepSeekWorker()
+        prompt = worker._code_edit_prompt(  # noqa: SLF001 - regression-tests prompt guardrails.
+            context=_agent_generated_sdst_context(),
+            max_steps=2,
+        )
+
+        self.assertIn("active solver path from evaluator_protocol.solver_command_template", prompt)
+        self.assertIn("standalone generated solver entrypoint", prompt)
+        self.assertIn("copy exact active_features from agent_generated_solver_quality_contract", prompt)
+        self.assertIn("one required_code_capability or variant_required_code_capability", prompt)
+        self.assertIn("concrete function/variable/guard symbols from submitted code", prompt)
+        self.assertIn("use [] when none are active", prompt)
+        self.assertNotIn("examples/standard_fjsp_local_search_solver.py", prompt)
+        self.assertNotIn(
+            "sequence_dependent_setup is applied on same-machine arcs inside decode_schedule",
+            prompt,
+        )
+
     def test_priority_worker_context_includes_agent_quality_memory(self) -> None:
         context = _agent_generated_sdst_context()
         context["loop_feedback"] = {
