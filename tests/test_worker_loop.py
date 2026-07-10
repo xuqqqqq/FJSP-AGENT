@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from harness_agent.context_packet import ContextPacketRequest, write_context_packet
-from harness_agent.loop_runner import current_round_repair_feedback, run_worker_loop
+from harness_agent.loop_runner import current_round_repair_feedback, run_worker_loop, worker_proposal_diagnostics
 from harness_agent.models import TaskContract
 from harness_agent.standard_worker_loop import worker_loop_agent_quality_summary
 from harness_agent.worker import NullWorker, WorkerCapabilities, WorkerResult
@@ -1270,6 +1270,43 @@ class WorkerLoopTests(unittest.TestCase):
             targets["agent_generated_solver_expected_contract"]["capability_playbook"][0]["name"],
         )
         self.assertIn("repair_targets", feedback["must_do"][-1])
+
+    def test_worker_proposal_diagnostics_preserves_solver_self_check_audit_details(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            proposal_path = Path(tmp) / "proposal.json"
+            proposal_path.write_text(
+                json.dumps(
+                    {
+                        "summary": "Generated solver had unsupported self-check prose.",
+                        "proposal_audit": {
+                            "warnings": ["agent_generated_solver_self_check_narrative_source_mismatch"],
+                            "solver_contract_self_check": {
+                                "required": True,
+                                "present": True,
+                                "missing_narrative_fields": ["decoder"],
+                                "narrative_with_source_mismatch": ["variant_handling"],
+                                "capabilities_with_source_mismatch": ["active_io_parser"],
+                                "warnings": ["agent_generated_solver_self_check_narrative_source_mismatch"],
+                            },
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            diagnostics = worker_proposal_diagnostics(
+                WorkerResult(
+                    status="ok",
+                    changed_files=["examples/agent_generated_fjsp_solver.py"],
+                    summary="Generated solver proposal with self-check audit details.",
+                    artifacts={"proposal": str(proposal_path)},
+                )
+            )
+
+        audit = diagnostics["proposal_audit"]["solver_contract_self_check"]
+        self.assertEqual(["decoder"], audit["missing_narrative_fields"])
+        self.assertEqual(["variant_handling"], audit["narrative_with_source_mismatch"])
+        self.assertEqual(["active_io_parser"], audit["capabilities_with_source_mismatch"])
 
     def test_agent_generated_baseline_is_written_before_first_measurement(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

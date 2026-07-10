@@ -948,6 +948,9 @@ def compact_loop_feedback_for_prompt(loop_feedback: dict[str, Any]) -> dict[str,
                 "rule_operator_hypotheses": (diagnostics.get("rule_operator_hypotheses") or [])[:4],
                 "rejected_change_count": ((diagnostics.get("proposal_audit") or {}).get("rejected_change_count")),
                 "proposal_warnings": ((diagnostics.get("proposal_audit") or {}).get("warnings") or [])[:6],
+                "solver_contract_self_check_audit": compact_solver_contract_self_check_audit_for_prompt(
+                    ((diagnostics.get("proposal_audit") or {}).get("solver_contract_self_check") or {})
+                ),
                 "smoke_gate": {
                     "passed": smoke_gate.get("passed"),
                     "full_evaluation_started": smoke_gate.get("full_evaluation_started"),
@@ -1131,6 +1134,9 @@ def compact_current_round_repair(value: dict[str, Any]) -> dict[str, Any]:
                 "accepted_change_paths": (audit.get("accepted_change_paths") or [])[:8],
                 "rejected_change_count": audit.get("rejected_change_count"),
                 "warnings": (audit.get("warnings") or [])[:10],
+                "solver_contract_self_check_audit": compact_solver_contract_self_check_audit_for_prompt(
+                    audit.get("solver_contract_self_check") or {}
+                ),
                 "proposal_diagnostics": {
                     "apply_rejections": (diagnostics.get("apply_rejections") or [])[:8],
                     "rejected_edits": (diagnostics.get("rejected_edits") or [])[:8],
@@ -1166,6 +1172,35 @@ def compact_repair_targets_for_prompt(value: dict[str, Any]) -> dict[str, Any]:
     for key in ("python_compile_errors", "agent_generated_solver_expected_contract"):
         item = value.get(key)
         if isinstance(item, dict) and item:
+            compact[key] = item
+    return compact
+
+
+def compact_solver_contract_self_check_audit_for_prompt(value: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, dict) or not value:
+        return {}
+    keys = [
+        "required",
+        "present",
+        "changed_agent_generated_solver",
+        "missing_active_features",
+        "missing_capabilities",
+        "missing_variant_handling",
+        "missing_narrative_fields",
+        "capabilities_without_evidence",
+        "capabilities_with_vague_evidence",
+        "capabilities_without_concrete_source_evidence",
+        "capabilities_with_source_mismatch",
+        "narrative_without_concrete_source_evidence",
+        "narrative_with_source_mismatch",
+        "warnings",
+    ]
+    compact: dict[str, Any] = {}
+    for key in keys:
+        item = value.get(key)
+        if isinstance(item, list):
+            compact[key] = item[:12]
+        elif item not in (None, "", [], {}):
             compact[key] = item
     return compact
 

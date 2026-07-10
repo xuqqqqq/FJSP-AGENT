@@ -1577,8 +1577,38 @@ def worker_proposal_diagnostics(worker_result: WorkerResult) -> dict[str, Any]:
             "changed_benchmark_files": _bounded_list(audit.get("changed_benchmark_files"), limit=40),
             "referenced_test_commands": _bounded_list(audit.get("referenced_test_commands"), limit=20),
             "operator_lineage": audit.get("operator_lineage") or {},
+            "solver_contract_self_check": compact_solver_contract_self_check_audit(
+                audit.get("solver_contract_self_check")
+            ),
             "warnings": _bounded_list(audit.get("warnings"), limit=20),
         },
+    }
+
+
+def compact_solver_contract_self_check_audit(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        "required": value.get("required"),
+        "present": value.get("present"),
+        "changed_agent_generated_solver": value.get("changed_agent_generated_solver"),
+        "missing_active_features": _bounded_list(value.get("missing_active_features"), limit=12),
+        "missing_capabilities": _bounded_list(value.get("missing_capabilities"), limit=18),
+        "missing_variant_handling": _bounded_list(value.get("missing_variant_handling"), limit=12),
+        "missing_narrative_fields": _bounded_list(value.get("missing_narrative_fields"), limit=8),
+        "capabilities_without_evidence": _bounded_list(value.get("capabilities_without_evidence"), limit=18),
+        "capabilities_with_vague_evidence": _bounded_list(value.get("capabilities_with_vague_evidence"), limit=18),
+        "capabilities_without_concrete_source_evidence": _bounded_list(
+            value.get("capabilities_without_concrete_source_evidence"),
+            limit=18,
+        ),
+        "capabilities_with_source_mismatch": _bounded_list(value.get("capabilities_with_source_mismatch"), limit=18),
+        "narrative_without_concrete_source_evidence": _bounded_list(
+            value.get("narrative_without_concrete_source_evidence"),
+            limit=8,
+        ),
+        "narrative_with_source_mismatch": _bounded_list(value.get("narrative_with_source_mismatch"), limit=8),
+        "warnings": _bounded_list(value.get("warnings"), limit=20),
     }
 
 

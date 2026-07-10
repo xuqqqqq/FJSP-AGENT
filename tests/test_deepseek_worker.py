@@ -8,6 +8,7 @@ from unittest.mock import patch
 from harness_agent.workers.deepseek_worker import (
     DeepSeekWorker,
     apply_code_edit_proposal,
+    compact_loop_feedback_for_prompt,
     compact_priority_knowledge_cards,
     extract_json_object,
     insert_after_anchor,
@@ -548,6 +549,55 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("best_schedule, best_makespan = local_search_insertion(best_schedule)", prompt_context)
         self.assertIn("repair_targets", prompt_context)
         self.assertIn("stable_operation_identity", prompt_context)
+
+    def test_compact_loop_feedback_keeps_solver_self_check_audit_details(self) -> None:
+        audit = {
+            "required": True,
+            "present": True,
+            "missing_narrative_fields": ["decoder"],
+            "narrative_with_source_mismatch": ["variant_handling"],
+            "capabilities_with_source_mismatch": ["active_io_parser"],
+            "warnings": ["agent_generated_solver_self_check_narrative_source_mismatch"],
+        }
+        feedback = {
+            "round_index": 2,
+            "previous_rounds": [
+                {
+                    "round_index": 1,
+                    "decision": "rolled_back",
+                    "proposal_diagnostics": {
+                        "proposal_audit": {
+                            "rejected_change_count": 0,
+                            "warnings": audit["warnings"],
+                            "solver_contract_self_check": audit,
+                        },
+                    },
+                }
+            ],
+            "current_round_repair": {
+                "previous_attempts": [
+                    {
+                        "attempt_index": 0,
+                        "proposal_diagnostics": {
+                            "proposal_audit": {
+                                "warnings": audit["warnings"],
+                                "solver_contract_self_check": audit,
+                            },
+                        },
+                    }
+                ],
+            },
+        }
+
+        compact = compact_loop_feedback_for_prompt(feedback)
+
+        previous_audit = compact["previous_rounds"][0]["solver_contract_self_check_audit"]
+        self.assertEqual(["decoder"], previous_audit["missing_narrative_fields"])
+        self.assertEqual(["variant_handling"], previous_audit["narrative_with_source_mismatch"])
+        repair_audit = compact["current_round_repair"]["previous_attempts"][0][
+            "solver_contract_self_check_audit"
+        ]
+        self.assertEqual(["active_io_parser"], repair_audit["capabilities_with_source_mismatch"])
 
     def test_priority_worker_context_keeps_incumbent_before_large_rag_cards(self) -> None:
         context = _context_packet_with_intake()
