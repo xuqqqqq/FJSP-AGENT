@@ -531,6 +531,7 @@ def _detect_agent_generated_solver_quality_risks(
     risks: list[str] = []
     hardcoded_parser_risks = _detect_hardcoded_agent_generated_parser_risks(combined_text)
     risks.extend(hardcoded_parser_risks)
+    risks.extend(_detect_agent_generated_dead_function_risks(combined_text))
     missing = _missing_agent_generated_base_capabilities(combined_text)
     if missing:
         risks.append(f"agent_generated_solver: missing base capabilities: {', '.join(missing)}")
@@ -720,6 +721,43 @@ def _source_self_check_block(text: str) -> tuple[str, str] | None:
 
 def _function_call_count(text: str, function_name: str) -> int:
     return len(re.findall(rf"\b{re.escape(function_name)}\s*\(", text))
+
+
+def _detect_agent_generated_dead_function_risks(text: str) -> list[str]:
+    """Catch generated helpers that are cited/defined but not wired into flow.
+
+    This is intentionally a call-flow contract, not an algorithm template.  A
+    generated solver may choose any parser, decoder, or validator shape, but if
+    it defines one of these critical helpers it must actually call it.
+    """
+
+    patterns = [
+        (
+            "parser",
+            r"^def\s+((?:parse|read|load)[A-Za-z0-9_]*(?:instance|problem|input)[A-Za-z0-9_]*)\s*\(",
+        ),
+        (
+            "decoder",
+            r"^def\s+((?:decode|build|construct)[A-Za-z0-9_]*(?:schedule|solution)[A-Za-z0-9_]*)\s*\(",
+        ),
+        (
+            "source-level self-check",
+            r"^def\s+((?:validate|self_check|check|assert)[A-Za-z0-9_]*(?:schedule|solution|feasible|valid)[A-Za-z0-9_]*)\s*\(",
+        ),
+    ]
+    risks: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for label, pattern in patterns:
+        for name in re.findall(pattern, text, re.M):
+            key = (label, name)
+            if key in seen:
+                continue
+            seen.add(key)
+            if _function_call_count(text, name) < 2:
+                risks.append(
+                    f"agent_generated_solver: {label} `{name}` is defined but not called by the generated solver flow"
+                )
+    return risks
 
 
 def _has_setup_aware_source_self_check_guard(text: str) -> bool:
