@@ -38,10 +38,10 @@ RULE_OPERATOR_TYPES = [
     "parameter_policy",
 ]
 
-PRIORITY_CONTEXT_DEFAULT_MAX_CHARS = 32000
+PRIORITY_CONTEXT_DEFAULT_MAX_CHARS = 48000
 PRIORITY_CONTEXT_MIN_CHARS = 12000
 PRIORITY_CONTEXT_MAX_CHARS = 60000
-PRIORITY_INCUMBENT_FILE_MAX_CHARS = 5200
+PRIORITY_INCUMBENT_FILE_MAX_CHARS = 16000
 PRIORITY_KNOWLEDGE_CARD_LIMIT = 3
 PRIORITY_KNOWLEDGE_CARD_MAX_CHARS = 3600
 
@@ -890,6 +890,10 @@ def compact_current_round_repair(value: dict[str, Any]) -> dict[str, Any]:
                 "accepted_change_paths": (audit.get("accepted_change_paths") or [])[:8],
                 "rejected_change_count": audit.get("rejected_change_count"),
                 "warnings": (audit.get("warnings") or [])[:10],
+                "proposal_diagnostics": {
+                    "apply_rejections": (diagnostics.get("apply_rejections") or [])[:8],
+                    "rejected_edits": (diagnostics.get("rejected_edits") or [])[:8],
+                },
             }
         )
     return {

@@ -472,7 +472,6 @@ def _proposal_text_for_guard(proposal: dict[str, Any]) -> str:
     parts = [
         str(proposal.get("summary") or ""),
         str(proposal.get("strategy_intent") or ""),
-        " ".join(str(item) for item in (proposal.get("risk_notes") or []) if isinstance(item, str)),
     ]
     for hypothesis in proposal.get("rule_operator_hypotheses") or []:
         if not isinstance(hypothesis, dict):
@@ -483,13 +482,22 @@ def _proposal_text_for_guard(proposal: dict[str, Any]) -> str:
                 str(hypothesis.get("type") or ""),
                 str(hypothesis.get("novelty") or ""),
                 str(hypothesis.get("expected_effect") or ""),
-                str(hypothesis.get("ablation_plan") or ""),
             ]
         )
     for change in proposal.get("changes") or []:
         if not isinstance(change, dict):
             continue
-        parts.extend([str(change.get("path") or ""), str(change.get("rationale") or "")])
+        parts.extend(
+            [
+                str(change.get("path") or ""),
+                str(change.get("action") or ""),
+                str(change.get("old") or ""),
+                str(change.get("new") or ""),
+                str(change.get("anchor") or ""),
+                str(change.get("content") or ""),
+                str(change.get("rationale") or ""),
+            ]
+        )
     return "\n".join(parts).replace("_", " ").lower()
 
 

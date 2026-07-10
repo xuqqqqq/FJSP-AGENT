@@ -445,9 +445,45 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("examples/agent_generated_fjsp_solver.py", prompt_context)
         self.assertIn("def schedule(): pass", prompt_context)
 
+    def test_priority_worker_context_keeps_full_generated_solver_edit_site(self) -> None:
+        context = _context_packet_with_intake()
+        context["iteration_edit_contract"] = {"mode": "incremental_after_baseline"}
+        context["loop_feedback"] = {"incumbent_key_before": [-1267.0], "previous_rounds": []}
+        source = (
+            "def parse_instance(path):\n"
+            "    return path\n\n"
+            + ("# generated solver body\n" * 360)
+            + "def local_search_insertion(schedule):\n"
+            "    return schedule\n\n"
+            "def main():\n"
+            "    best_schedule = build_schedule()\n"
+            + ("    # main refinement setup\n" * 80)
+            + "    improved_schedule, improved_makespan = local_search_insertion(\n"
+            "        best_schedule\n"
+            "    )\n"
+            "    return improved_schedule, improved_makespan\n"
+        )
+        context["incumbent_code_context"] = {
+            "source": "promoted_incumbent_worktree",
+            "purpose": "test full generated solver edit site",
+            "files": [
+                {
+                    "relative_path": "examples/agent_generated_fjsp_solver.py",
+                    "chars": len(source),
+                    "truncated": False,
+                    "snippet": source,
+                }
+            ],
+        }
+
+        prompt_context = priority_worker_context(context)
+
+        self.assertIn("improved_schedule, improved_makespan = local_search_insertion(", prompt_context)
+        self.assertIn("return improved_schedule, improved_makespan", prompt_context)
+
     def test_priority_context_max_chars_is_configurable_and_clamped(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
-            self.assertEqual(32000, priority_context_max_chars())
+            self.assertEqual(48000, priority_context_max_chars())
         with patch.dict("os.environ", {"ALGOFORGE_PRIORITY_CONTEXT_MAX_CHARS": "48000"}, clear=True):
             self.assertEqual(48000, priority_context_max_chars())
         with patch.dict("os.environ", {"ALGOFORGE_PRIORITY_CONTEXT_MAX_CHARS": "1000"}, clear=True):
@@ -455,7 +491,50 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         with patch.dict("os.environ", {"ALGOFORGE_PRIORITY_CONTEXT_MAX_CHARS": "999999"}, clear=True):
             self.assertEqual(60000, priority_context_max_chars())
         with patch.dict("os.environ", {"ALGOFORGE_PRIORITY_CONTEXT_MAX_CHARS": "wide"}, clear=True):
-            self.assertEqual(32000, priority_context_max_chars())
+            self.assertEqual(48000, priority_context_max_chars())
+
+    def test_priority_worker_context_keeps_exact_rejected_edit_for_repair(self) -> None:
+        context = _context_packet_with_intake()
+        context["iteration_edit_contract"] = {"mode": "incremental_after_baseline"}
+        context["loop_feedback"] = {
+            "incumbent_key_before": [-1267.0],
+            "previous_rounds": [],
+            "current_round_repair": {
+                "status": "repair_required",
+                "attempt_index": 1,
+                "max_repair_attempts": 2,
+                "previous_attempts": [
+                    {
+                        "attempt_index": 0,
+                        "failure_signatures": ["proposal_apply_rejections"],
+                        "proposal_diagnostics": {
+                            "summary": "Guessed a stale local-search call.",
+                            "apply_rejections": [
+                                {
+                                    "path": "examples/agent_generated_fjsp_solver.py",
+                                    "reason": "old text not found",
+                                }
+                            ],
+                            "rejected_edits": [
+                                {
+                                    "path": "examples/agent_generated_fjsp_solver.py",
+                                    "reason": "old text not found",
+                                    "action": "text_replace",
+                                    "old": "best_schedule, best_makespan = local_search_insertion(best_schedule)",
+                                }
+                            ],
+                        },
+                    }
+                ],
+                "must_do": ["Repair the rejected edit."],
+                "avoid": ["proposal_apply_rejections"],
+            },
+        }
+
+        prompt_context = priority_worker_context(context)
+
+        self.assertIn("old text not found", prompt_context)
+        self.assertIn("best_schedule, best_makespan = local_search_insertion(best_schedule)", prompt_context)
 
     def test_priority_worker_context_keeps_incumbent_before_large_rag_cards(self) -> None:
         context = _context_packet_with_intake()

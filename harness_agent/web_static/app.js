@@ -620,6 +620,7 @@ function statusLabel(status) {
     running: "运行中",
     completed: "已完成",
     completed_with_warnings: "完成但有警告",
+    interrupted: "已中断",
     failed: "失败",
   };
   return labels[status] || status || "-";

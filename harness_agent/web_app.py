@@ -157,11 +157,33 @@ def load_persisted_jobs(output_root: Path, *, limit: int = 30) -> None:
             job_id = str(payload.get("id") or "").strip()
             if not job_id or job_id in _JOBS:
                 continue
+            if mark_stale_persisted_job_interrupted(payload):
+                status_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             payload["job_dir"] = str(status_path.parent.resolve())
             payload.setdefault("summary", {})
             payload.setdefault("artifacts", {})
             refresh_persisted_worker_summary(payload)
             _JOBS[job_id] = payload
+
+
+def mark_stale_persisted_job_interrupted(payload: dict[str, Any]) -> bool:
+    """A prior-process queued/running job cannot still execute after server restart."""
+
+    if str(payload.get("status") or "") not in {"queued", "running"}:
+        return False
+    payload["status"] = "interrupted"
+    payload["updated_at"] = utc_timestamp()
+    payload["error"] = "后端停止或重启前任务未完成，已标记为中断；不会自动续跑。"
+    events = payload.setdefault("events", [])
+    if isinstance(events, list):
+        events.append(
+            {
+                "time": payload["updated_at"],
+                "level": "warning",
+                "message": "检测到上一次后端进程遗留的未完成任务，已标记为中断并保留现有报告。",
+            }
+        )
+    return True
 
 
 def refresh_persisted_worker_summary(job: dict[str, Any]) -> None:

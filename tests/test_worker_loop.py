@@ -353,7 +353,13 @@ class InRoundRepairWorker:
                                 "path": "examples/new_helper.py",
                                 "action": "create_or_replace",
                                 "content": "VALUE = 1\n",
-                            }
+                            },
+                            {
+                                "path": "examples/dummy_solver.py",
+                                "action": "text_replace",
+                                "old": "missing solver expression",
+                                "new": "8 + args.seed",
+                            },
                         ],
                         "apply_rejections": [
                             {"path": "examples/dummy_solver.py", "reason": "old text not found"}
@@ -670,6 +676,64 @@ class ProtectedFactRegressionWorker:
         )
 
 
+class ProtectedFactAblationPlanWorker:
+    """Worker that preserves a protected mechanism but documents a future ablation."""
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="protected-fact-ablation-plan",
+            supports_code_generation=True,
+            supports_repair=False,
+            supports_structured_output=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        output_dir = Path(spec.output_dir or spec.worktree_path)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        solver_path = Path(spec.worktree_path) / "examples" / "dummy_solver.py"
+        text = solver_path.read_text(encoding="utf-8")
+        solver_path.write_text(text.replace("10 + args.seed", "9 + args.seed"), encoding="utf-8")
+        proposal_path = output_dir / "proposal.json"
+        proposal_path.write_text(
+            json.dumps(
+                {
+                    "summary": "Add a bounded refinement while preserving the promoted insertion mechanism.",
+                    "strategy_intent": "Keep insertion active and add one attributable refinement.",
+                    "rule_operator_hypotheses": [
+                        {
+                            "name": "bounded_refinement_after_insertion",
+                            "type": "local_search_operator",
+                            "target_files": ["examples/dummy_solver.py"],
+                            "novelty": "Adds a second pass without changing insertion.",
+                            "expected_effect": "Improve the fixed evaluator objective.",
+                            "ablation_plan": "Remove the insertion call only in a later ablation run to isolate its effect.",
+                        }
+                    ],
+                    "changes": [
+                        {
+                            "path": "examples/dummy_solver.py",
+                            "action": "text_replace",
+                            "old": "10 + args.seed",
+                            "new": "9 + args.seed",
+                            "rationale": "Add the bounded refinement while preserving insertion.",
+                        }
+                    ],
+                    "quick_test_plan": "python -m compileall examples/dummy_solver.py",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return WorkerResult(
+            status="applied",
+            changed_files=["examples/dummy_solver.py"],
+            summary="Preserve insertion and document a later ablation.",
+            artifacts={"proposal": str(proposal_path)},
+        )
+
+
 class SafeFeasibilityProtectedEditWorker:
     """Worker that edits a solver under an empty-schedule protected fact without reintroducing the risk."""
 
@@ -842,6 +906,8 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual(1, repair["repair_attempt_count"])
             self.assertTrue(repair["recovered"])
             self.assertIn("proposal_apply_rejections", repair["attempts"][0]["failure_signatures"])
+            rejected_edits = repair["attempts"][0]["proposal_diagnostics"]["rejected_edits"]
+            self.assertEqual("missing solver expression", rejected_edits[0]["old"])
 
             repair_context = json.loads(
                 (tmp_path / "loop" / "round_000" / "repair_001" / "context_packet.json").read_text(encoding="utf-8")
@@ -850,6 +916,10 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual("repair_required", current_repair["status"])
             self.assertEqual(1, current_repair["attempt_index"])
             self.assertIn("proposal_apply_rejections", current_repair["avoid"])
+            self.assertEqual(
+                "missing solver expression",
+                current_repair["previous_attempts"][0]["proposal_diagnostics"]["rejected_edits"][0]["old"],
+            )
             self.assertIn("repair current_round_repair.previous_attempts", repair_context["loop_feedback"]["instructions"][0])
 
     def test_agent_generated_baseline_is_written_before_first_measurement(self) -> None:
@@ -1211,6 +1281,40 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertIn("protected_promoted_fact_regression", result.agentic_judgment.issues)
             regressions = result.agentic_judgment.checks["protected_promoted_fact_regressions"]
             self.assertIn("normalization", regressions[0])
+
+    def test_protected_fact_guard_ignores_future_ablation_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+            context = json.loads(context_path.read_text(encoding="utf-8"))
+            context["loop_feedback"] = {
+                "protected_promoted_facts": [
+                    {
+                        "round_index": 1,
+                        "name": "machine_sequence_insertion_local_search",
+                        "type": "local_search_operator",
+                        "target_files": ["examples/dummy_solver.py"],
+                        "novelty": "Preserve the promoted insertion mechanism.",
+                    }
+                ]
+            }
+            context_path.write_text(json.dumps(context, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+            result = run_worker_cycle(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "cycle",
+                context_packet_path=context_path,
+                worker=ProtectedFactAblationPlanWorker(),
+                experiment_id="test_protected_fact_ablation_plan",
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+            )
+
+            self.assertTrue(result.agentic_judgment.accepted)
+            self.assertNotIn("protected_promoted_fact_regression", result.agentic_judgment.issues)
 
     def test_feasibility_protected_fact_allows_safe_dispatch_edit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

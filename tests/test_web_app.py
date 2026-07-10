@@ -15,6 +15,7 @@ from harness_agent.web_app import (
     create_job,
     deepseek_status_payload,
     make_demo_examples,
+    mark_stale_persisted_job_interrupted,
     run_job,
     scan_awls_zi_progress,
     scan_code_evolution_progress,
@@ -36,6 +37,28 @@ class WebAppTests(unittest.TestCase):
             os.environ.pop(key, None)
             if value is not None:
                 os.environ[key] = value
+
+    def test_stale_running_job_is_marked_interrupted_without_losing_history(self) -> None:
+        payload = {
+            "id": "stale-job",
+            "status": "running",
+            "events": [{"time": "earlier", "level": "info", "message": "round_003"}],
+            "summary": {"worker_summary": {"completed_round_count": 4}},
+        }
+
+        changed = mark_stale_persisted_job_interrupted(payload)
+
+        self.assertTrue(changed)
+        self.assertEqual("interrupted", payload["status"])
+        self.assertEqual(4, payload["summary"]["worker_summary"]["completed_round_count"])
+        self.assertEqual("warning", payload["events"][-1]["level"])
+        self.assertIn("不会自动续跑", payload["error"])
+
+    def test_completed_persisted_job_is_not_reclassified(self) -> None:
+        payload = {"id": "done-job", "status": "completed", "events": []}
+
+        self.assertFalse(mark_stale_persisted_job_interrupted(payload))
+        self.assertEqual("completed", payload["status"])
 
     def test_browser_safe_json_replaces_non_finite_numbers(self) -> None:
         payload = {

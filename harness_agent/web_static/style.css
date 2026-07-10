@@ -558,6 +558,12 @@ button {
   background: var(--danger);
 }
 
+.status-pill.interrupted {
+  color: #fff;
+  border-color: #8a5a22;
+  background: #8a5a22;
+}
+
 .status-pill.running {
   color: #fff;
   border-color: var(--amber);

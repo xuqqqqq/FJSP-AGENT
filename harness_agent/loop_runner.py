@@ -1215,6 +1215,8 @@ def worker_proposal_diagnostics(worker_result: WorkerResult) -> dict[str, Any]:
     context_usage = proposal.get("context_usage")
     if not isinstance(context_usage, dict):
         context_usage = {}
+    apply_rejections = compact_apply_rejections(proposal.get("apply_rejections"))
+    proposal_changes = compact_proposal_changes(proposal.get("changes"))
 
     return {
         "status": "ok",
@@ -1225,6 +1227,8 @@ def worker_proposal_diagnostics(worker_result: WorkerResult) -> dict[str, Any]:
             proposal.get("rule_operator_hypotheses") or [],
             limit=12,
         ),
+        "apply_rejections": apply_rejections,
+        "rejected_edits": rejected_proposal_edits(proposal_changes, apply_rejections),
         "context_usage": {
             "used_project_intake": bool(context_usage.get("used_project_intake")),
             "referenced_files": _bounded_list(context_usage.get("referenced_files"), limit=40),
@@ -1253,6 +1257,67 @@ def worker_proposal_diagnostics(worker_result: WorkerResult) -> dict[str, Any]:
             "warnings": _bounded_list(audit.get("warnings"), limit=20),
         },
     }
+
+
+def compact_apply_rejections(value: Any, *, limit: int = 12) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    result: list[dict[str, str]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        path = _bounded_text(item.get("path"), limit=500)
+        reason = _bounded_text(item.get("reason"), limit=500)
+        if path or reason:
+            result.append({"path": path, "reason": reason})
+        if len(result) >= limit:
+            break
+    return result
+
+
+def compact_proposal_changes(value: Any, *, limit: int = 20) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    result: list[dict[str, str]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        compact = {
+            "path": _bounded_text(item.get("path"), limit=500),
+            "action": _bounded_text(item.get("action"), limit=100),
+        }
+        for key in ("slot_id", "anchor", "old"):
+            text = _bounded_text(item.get(key), limit=2400)
+            if text:
+                compact[key] = text
+        result.append(compact)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def rejected_proposal_edits(
+    changes: list[dict[str, str]],
+    apply_rejections: list[dict[str, str]],
+    *,
+    limit: int = 12,
+) -> list[dict[str, str]]:
+    """Keep exact failed edit anchors so a same-round repair does not guess again."""
+
+    result: list[dict[str, str]] = []
+    for rejection in apply_rejections:
+        path = rejection.get("path", "")
+        matching = [change for change in changes if change.get("path") == path]
+        if not matching:
+            result.append(dict(rejection))
+            continue
+        for change in matching:
+            item = dict(rejection)
+            item.update(change)
+            result.append(item)
+            if len(result) >= limit:
+                return result
+    return result[:limit]
 
 
 def write_loop_report(*, output_dir: Path, result: WorkerLoopResult) -> None:
