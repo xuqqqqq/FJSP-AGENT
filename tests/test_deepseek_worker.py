@@ -847,6 +847,8 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("copy exact active_features from agent_generated_solver_quality_contract", prompt)
         self.assertIn("one required_code_capability or variant_required_code_capability", prompt)
         self.assertIn("concrete function/variable/guard symbols from submitted code", prompt)
+        self.assertIn("current-project standard FJSP solver files", prompt)
+        self.assertIn("does not apply to standalone agent-generated", prompt)
         self.assertIn("use [] when none are active", prompt)
         self.assertNotIn("examples/standard_fjsp_local_search_solver.py", prompt)
         self.assertNotIn(

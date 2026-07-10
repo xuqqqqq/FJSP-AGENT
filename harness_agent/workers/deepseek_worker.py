@@ -455,9 +455,11 @@ Rules:
 - If only one slot has user_confirmed=true, its exact target file is the slot's
   target_file from slot_manifest; do not invent a new solver filename.
 - Preserve existing parser, validator, evaluator, and benchmark semantics unless
-  the task contract explicitly asks to implement those surfaces.  For standard
-  FJSP runs, prefer importing the existing parser/evaluator helpers instead of
-  reimplementing machine-index or duration parsing.
+  the task contract explicitly asks to implement those surfaces.  For
+  current-project standard FJSP solver files, prefer importing the existing
+  parser/evaluator helpers instead of reimplementing machine-index or duration
+  parsing. This import guidance does not apply to standalone agent-generated
+  `examples/agent_generated*.py` solver runtimes.
 - For agent-generated FJSP/FJSP-variant solvers, derive active features from
   the requirement document, IO contract, evaluator protocol, and
   instance_diagnostics before choosing an algorithm.  Do not assume the variant
