@@ -74,6 +74,12 @@ def run_worker_cycle(
     worker_result = worker.run_experiment(spec)
     after_snapshot = collect_worktree_snapshot(worktree_path)
     delta = compute_worktree_delta(before_snapshot, after_snapshot)
+    detected_changed_files = changed_files_from_worktree_delta(delta)
+    if detected_changed_files:
+        worker_result = replace(
+            worker_result,
+            changed_files=sorted(set(worker_result.changed_files or []) | set(detected_changed_files)),
+        )
     delta_path, patch_path = write_worktree_delta_artifacts(
         root=worktree_path,
         before_snapshot=before_snapshot,
@@ -376,6 +382,15 @@ def compute_worktree_delta(
         ],
         "deleted": [{"path": path, **_public_snapshot_entry(before_snapshot[path])} for path in deleted],
     }
+
+
+def changed_files_from_worktree_delta(delta: dict[str, Any]) -> list[str]:
+    paths: set[str] = set()
+    for key in ("added", "modified", "deleted"):
+        for item in delta.get(key, []) or []:
+            if isinstance(item, dict) and isinstance(item.get("path"), str):
+                paths.add(item["path"])
+    return sorted(paths)
 
 
 def write_worktree_delta_artifacts(

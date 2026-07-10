@@ -41,6 +41,28 @@ class ImproveOnceWorker:
         )
 
 
+class DiffOnlyWorker:
+    """Test worker that edits the worktree but does not report changed files."""
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="diff-only",
+            supports_code_generation=True,
+            supports_repair=False,
+            supports_structured_output=False,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        solver_path = Path(spec.worktree_path) / "examples" / "dummy_solver.py"
+        text = solver_path.read_text(encoding="utf-8")
+        solver_path.write_text(text.replace("10 + args.seed", "9 + args.seed"), encoding="utf-8")
+        return WorkerResult(
+            status="ok",
+            changed_files=[],
+            summary="Edited the worktree but left changed_files empty.",
+        )
+
+
 class UnstableImproveWorker:
     """Test worker whose first run improves but repeated runs regress."""
 
@@ -956,6 +978,30 @@ class SafeFeasibilityProtectedEditWorker:
 
 
 class WorkerLoopTests(unittest.TestCase):
+    def test_worker_cycle_uses_actual_worktree_delta_when_worker_omits_changed_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+
+            result = run_worker_cycle(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "cycle",
+                context_packet_path=context_path,
+                worker=DiffOnlyWorker(),
+                experiment_id="test_diff_only_worker",
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=True,
+            )
+
+            self.assertEqual(["examples/dummy_solver.py"], result.worker_result.changed_files)
+            self.assertTrue(result.agentic_judgment.accepted, result.agentic_judgment.issues)
+            delta = json.loads(result.delta_path.read_text(encoding="utf-8"))
+            self.assertEqual(1, delta["counts"]["total_changed"])
+            self.assertEqual(["examples/dummy_solver.py"], [item["path"] for item in delta["modified"]])
+
     def test_refreshed_context_records_previous_round_and_duplicate_proposal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
