@@ -139,6 +139,35 @@ class AgenticReviewQualityContractTests(unittest.TestCase):
             self.assertTrue(judgment.accepted, judgment.issues)
             self.assertEqual([], judgment.checks["agent_generated_solver_self_check_risks"])
 
+    def test_agent_generated_direct_edit_requires_source_level_self_check(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            solver = root / "examples" / "agent_generated_fjsp_solver.py"
+            solver.parent.mkdir(parents=True)
+            source = _strong_agent_generated_solver_source().replace(
+                "    validate_schedule(instance, schedule)\n",
+                "",
+            )
+            solver.write_text(source, encoding="utf-8")
+            context_path = _write_context(root, sdst=True)
+
+            judgment = judge_worker_result(
+                worker_result=WorkerResult(
+                    status="ok",
+                    changed_files=["examples/agent_generated_fjsp_solver.py"],
+                    summary="Direct generated solver edit without proposal self-check or source-level validation call.",
+                ),
+                worktree_path=root,
+                context_packet_path=context_path,
+                output_dir=root / "review",
+                apply_worker_changes=False,
+            )
+
+            self.assertFalse(judgment.accepted)
+            self.assertIn("agent_generated_solver_self_check_incomplete", judgment.issues)
+            risks = judgment.checks["agent_generated_solver_self_check_risks"]
+            self.assertTrue(any("defined but not called" in item for item in risks))
+
     def test_agent_generated_self_check_evidence_must_match_source_symbols(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -555,11 +584,51 @@ def _strong_agent_generated_solver_source() -> str:
             "            best_makespan = candidate_makespan",
             "    return best_schedule",
             "",
+            "def validate_schedule(instance, schedule):",
+            "    op_info = instance['op_info']",
+            "    expected_ops = set(op_info)",
+            "    total_ops = instance['total_ops']",
+            "    seen_ops = set()",
+            "    job_ready = {}",
+            "    machine_ready = {}",
+            "    machine_intervals = {}",
+            "    for item in schedule:",
+            "        job_id = item['job_id']",
+            "        op_id = item['op_id']",
+            "        machine_id = item['machine_id']",
+            "        start = item['start']",
+            "        end = item['end']",
+            "        op_key = (job_id, op_id)",
+            "        if op_key in seen_ops:",
+            "            raise ValueError('duplicate operation')",
+            "        if op_key not in expected_ops:",
+            "            raise ValueError('unexpected operation')",
+            "        seen_ops.add(op_key)",
+            "        eligible = op_info[op_key]['eligible']",
+            "        if machine_id not in eligible:",
+            "            raise ValueError('ineligible machine')",
+            "        duration = eligible[machine_id]",
+            "        if end - start != duration:",
+            "            raise ValueError('processing duration mismatch')",
+            "        if start < job_ready.get(job_id, 0):",
+            "            raise ValueError('job precedence violation')",
+            "        for prev_start, prev_end in machine_intervals.get(machine_id, []):",
+            "            if not (end <= prev_start or start >= prev_end):",
+            "                raise ValueError('machine overlap')",
+            "        job_ready[job_id] = max(job_ready.get(job_id, 0), end)",
+            "        machine_ready[machine_id] = max(machine_ready.get(machine_id, 0), end)",
+            "        machine_intervals.setdefault(machine_id, []).append((start, end))",
+            "    missing_ops = expected_ops - seen_ops",
+            "    if missing_ops or len(schedule) != total_ops:",
+            "        raise ValueError('missing_ops')",
+            "    return True",
+            "",
             "def solve(input_path, seed=0):",
             "    instance = parse_instance(input_path)",
             "    schedule = improve(instance)",
             "    if schedule is None:",
             "        raise ValueError('infeasible generated schedule')",
+            "    validate_schedule(instance, schedule)",
             "    return {'format': 'standard_fjsp_schedule_v1', 'variant': 'fjsp_sdst', 'instance': instance['name'], 'seed': seed, 'schedule': schedule, 'makespan': max(item['end'] for item in schedule)}",
             "",
             "def main():",

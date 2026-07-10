@@ -566,11 +566,17 @@ def _detect_agent_generated_solver_self_check_risks(
     changed_files: list[str],
     quality_contract: dict[str, Any],
 ) -> list[str]:
-    if not proposal or not quality_contract.get("enabled"):
+    if not quality_contract.get("enabled"):
         return []
     changed = [item.replace("\\", "/") for item in changed_files]
     if not any(_is_agent_generated_example_path(path) for path in changed):
         return []
+    if not proposal:
+        return _detect_agent_generated_source_self_check_risks(
+            worktree_path=worktree_path,
+            changed_files=changed,
+            quality_contract=quality_contract,
+        )
 
     self_check = proposal.get("solver_contract_self_check")
     if not isinstance(self_check, dict) or not self_check.get("present"):
@@ -627,6 +633,64 @@ def _detect_agent_generated_solver_self_check_risks(
     )
     risks.extend(source_evidence_risks)
     return risks
+
+
+def _detect_agent_generated_source_self_check_risks(
+    *,
+    worktree_path: Path,
+    changed_files: list[str],
+    quality_contract: dict[str, Any],
+) -> list[str]:
+    sources = _agent_generated_solver_sources(worktree_path, changed_files)
+    if not sources:
+        return []
+    combined_text = "\n".join(sources.values())
+    self_check = _source_self_check_block(combined_text)
+    if self_check is None:
+        return [
+            "agent-generated solver edit has no solver_contract_self_check proposal and no source-level validate_schedule/self_check function"
+        ]
+    name, block = self_check
+    risks: list[str] = []
+    if _function_call_count(combined_text, name) < 2:
+        risks.append(f"source-level self-check `{name}` is defined but not called before output")
+
+    expected_capabilities = set(_quality_contract_capabilities_for_review(quality_contract))
+    capability_detectors = [
+        ("complete_schedule_coverage_guard", _has_operation_coverage_guard),
+        ("machine_eligibility_guard", _has_machine_eligibility_guard),
+        ("processing_duration_guard", _has_processing_duration_guard),
+        ("job_precedence_guard", _has_job_precedence_guard),
+        ("machine_non_overlap_guard", _has_machine_non_overlap_guard),
+    ]
+    missing = [
+        capability
+        for capability, detector in capability_detectors
+        if capability in expected_capabilities and not detector(block)
+    ]
+    if missing:
+        risks.append(
+            "source-level self-check missing capability evidence: "
+            + ", ".join(missing)
+        )
+    return risks
+
+
+def _source_self_check_block(text: str) -> tuple[str, str] | None:
+    match = re.search(
+        r"^def\s+((?:validate|self_check|check|assert)[A-Za-z0-9_]*(?:schedule|solution|feasible|valid)[A-Za-z0-9_]*)\s*\(",
+        text,
+        re.M,
+    )
+    if not match:
+        return None
+    next_def = re.search(r"^def\s+", text[match.end() :], re.M)
+    end = match.end() + next_def.start() if next_def else len(text)
+    return match.group(1), text[match.start() : end]
+
+
+def _function_call_count(text: str, function_name: str) -> int:
+    return len(re.findall(rf"\b{re.escape(function_name)}\s*\(", text))
 
 
 def _detect_self_check_evidence_source_mismatches(

@@ -92,6 +92,8 @@ class OpenCodeWorkerTests(unittest.TestCase):
             self.assertIn("standalone solver entrypoint", prompt)
             self.assertIn("evaluator_protocol.solver_command_template", prompt)
             self.assertIn("actual code diff", prompt)
+            self.assertIn("source-level validation helper", prompt)
+            self.assertIn("validate_schedule", prompt)
             self.assertIn("operation_level_ready_list_constructor", prompt)
             self.assertIn("sequence_dependent_setup", prompt)
 

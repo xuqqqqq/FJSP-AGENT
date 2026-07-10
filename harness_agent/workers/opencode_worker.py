@@ -130,6 +130,12 @@ Task:
 - For agent-generated baselines, stdout may include a short self-check, but the
   decisive evidence is the actual code diff. Cite real function/variable/guard
   names that exist in the file you changed.
+- Because this worker edits files directly instead of returning structured
+  proposal JSON, include a source-level validation helper such as
+  `validate_schedule(...)` or `self_check_solution(...)` in the generated solver
+  and call it before writing output. It must reject missing/duplicate
+  operations, ineligible machines, duration mismatches, precedence violations,
+  and machine overlaps.
 
 Priority context:
 ```json
