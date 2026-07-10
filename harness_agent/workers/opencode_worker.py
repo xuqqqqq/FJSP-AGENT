@@ -135,7 +135,9 @@ Task:
   `validate_schedule(...)` or `self_check_solution(...)` in the generated solver
   and call it before writing output. It must reject missing/duplicate
   operations, ineligible machines, duration mismatches, precedence violations,
-  and machine overlaps.
+  and machine overlaps. If sequence-dependent setup is active, the helper must
+  also verify setup-aware same-machine arcs, for example
+  `start >= prev_end + setup_time(...)` for adjacent operations on the machine.
 
 Priority context:
 ```json

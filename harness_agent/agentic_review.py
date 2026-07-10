@@ -670,6 +670,7 @@ def _detect_agent_generated_source_self_check_risks(
         ("processing_duration_guard", _has_processing_duration_guard),
         ("job_precedence_guard", _has_job_precedence_guard),
         ("machine_non_overlap_guard", _has_machine_non_overlap_guard),
+        ("setup_aware_machine_arc_timing", _has_setup_aware_source_self_check_guard),
     ]
     missing = [
         capability
@@ -699,6 +700,19 @@ def _source_self_check_block(text: str) -> tuple[str, str] | None:
 
 def _function_call_count(text: str, function_name: str) -> int:
     return len(re.findall(rf"\b{re.escape(function_name)}\s*\(", text))
+
+
+def _has_setup_aware_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    setup_terms = ["setup_time(", "setup_times", "setup ="]
+    previous_terms = ["prev_key", "prev_op", "previous", "prev_end", "machine_prev"]
+    timing_terms = ["+ setup", "setup +", "prev_end + setup", "start <"]
+    return (
+        any(term in lowered for term in setup_terms)
+        and any(term in lowered for term in previous_terms)
+        and any(term in lowered for term in timing_terms)
+        and "machine" in lowered
+    )
 
 
 def _detect_self_check_evidence_source_mismatches(

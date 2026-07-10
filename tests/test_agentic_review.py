@@ -168,6 +168,72 @@ class AgenticReviewQualityContractTests(unittest.TestCase):
             risks = judgment.checks["agent_generated_solver_self_check_risks"]
             self.assertTrue(any("defined but not called" in item for item in risks))
 
+    def test_agent_generated_direct_edit_with_source_level_self_check_passes_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            solver = root / "examples" / "agent_generated_fjsp_solver.py"
+            solver.parent.mkdir(parents=True)
+            solver.write_text(_strong_agent_generated_solver_source(), encoding="utf-8")
+            context_path = _write_context(root, sdst=True)
+
+            judgment = judge_worker_result(
+                worker_result=WorkerResult(
+                    status="ok",
+                    changed_files=["examples/agent_generated_fjsp_solver.py"],
+                    summary="Direct generated solver edit with source-level validation.",
+                ),
+                worktree_path=root,
+                context_packet_path=context_path,
+                output_dir=root / "review",
+                apply_worker_changes=False,
+            )
+
+            self.assertTrue(judgment.accepted, judgment.issues)
+            self.assertEqual([], judgment.checks["agent_generated_solver_self_check_risks"])
+
+    def test_agent_generated_direct_sdst_edit_requires_setup_self_check(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            solver = root / "examples" / "agent_generated_fjsp_solver.py"
+            solver.parent.mkdir(parents=True)
+            source = _strong_agent_generated_solver_source().replace(
+                "\n".join(
+                    [
+                        "    for machine_id, intervals in by_machine.items():",
+                        "        intervals.sort()",
+                        "        prev_key = None",
+                        "        prev_end = 0",
+                        "        for start, end, op_key in intervals:",
+                        "            setup = setup_time(instance, machine_id, prev_key, op_key)",
+                        "            if prev_key is not None and start < prev_end + setup:",
+                        "                raise ValueError('setup arc violation')",
+                        "            prev_key = op_key",
+                        "            prev_end = end",
+                    ]
+                )
+                + "\n",
+                "",
+            )
+            solver.write_text(source, encoding="utf-8")
+            context_path = _write_context(root, sdst=True)
+
+            judgment = judge_worker_result(
+                worker_result=WorkerResult(
+                    status="ok",
+                    changed_files=["examples/agent_generated_fjsp_solver.py"],
+                    summary="Direct generated SDST solver edit without source-level setup validation.",
+                ),
+                worktree_path=root,
+                context_packet_path=context_path,
+                output_dir=root / "review",
+                apply_worker_changes=False,
+            )
+
+            self.assertFalse(judgment.accepted)
+            self.assertIn("agent_generated_solver_self_check_incomplete", judgment.issues)
+            risks = judgment.checks["agent_generated_solver_self_check_risks"]
+            self.assertTrue(any("setup_aware_machine_arc_timing" in item for item in risks))
+
     def test_agent_generated_self_check_evidence_must_match_source_symbols(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -592,6 +658,7 @@ def _strong_agent_generated_solver_source() -> str:
             "    job_ready = {}",
             "    machine_ready = {}",
             "    machine_intervals = {}",
+            "    by_machine = {}",
             "    for item in schedule:",
             "        job_id = item['job_id']",
             "        op_id = item['op_id']",
@@ -618,6 +685,17 @@ def _strong_agent_generated_solver_source() -> str:
             "        job_ready[job_id] = max(job_ready.get(job_id, 0), end)",
             "        machine_ready[machine_id] = max(machine_ready.get(machine_id, 0), end)",
             "        machine_intervals.setdefault(machine_id, []).append((start, end))",
+            "        by_machine.setdefault(machine_id, []).append((start, end, op_key))",
+            "    for machine_id, intervals in by_machine.items():",
+            "        intervals.sort()",
+            "        prev_key = None",
+            "        prev_end = 0",
+            "        for start, end, op_key in intervals:",
+            "            setup = setup_time(instance, machine_id, prev_key, op_key)",
+            "            if prev_key is not None and start < prev_end + setup:",
+            "                raise ValueError('setup arc violation')",
+            "            prev_key = op_key",
+            "            prev_end = end",
             "    missing_ops = expected_ops - seen_ops",
             "    if missing_ops or len(schedule) != total_ops:",
             "        raise ValueError('missing_ops')",
