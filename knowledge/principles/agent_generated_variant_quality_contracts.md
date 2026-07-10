@@ -39,6 +39,13 @@ For every generated solver, cite concrete source symbols for:
 - complete coverage, duplicate rejection, machine eligibility, duration
   equality, precedence, non-overlap, runtime bounds, and incumbent preservation.
 
+The `solver_contract_self_check` narrative fields are evidence fields, not
+free-form strategy notes. `representation`, `decoder`, `variant_handling`,
+`runtime_bounds`, and `incumbent_preservation` should each name source symbols
+from the submitted solver. If a field only describes an intention and no cited
+symbol appears in the code, repair the code or the self-check before running
+objective evaluation.
+
 For active variants, add evidence for the matching constraint:
 
 - `sequence_dependent_setup`: setup on adjacent same-machine arcs and full

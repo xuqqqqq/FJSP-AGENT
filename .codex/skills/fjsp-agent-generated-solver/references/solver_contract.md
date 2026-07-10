@@ -83,6 +83,25 @@ the only promotion authority. Internally:
 - Never score an empty failed decode as makespan `0`.
 - Keep incumbent schedule when a trial move cannot be decoded.
 
+## Structured Self-Check Evidence
+
+When returning a structured `solver_contract_self_check`, every implemented
+capability must cite function, variable, or guard symbols that appear in the
+submitted code.  The narrative fields must do the same:
+
+- `representation` should name the operation-key and assignment/sequence data
+  structures used by the code;
+- `decoder` should name the function that rebuilds and rejects complete
+  candidates;
+- `variant_handling` should name the active timing, capacity, calendar, or
+  objective guard for each active variant;
+- `runtime_bounds` should name the iteration, restart, window, or deadline
+  controls;
+- `incumbent_preservation` should name the best/current schedule variables or
+  candidate-failure branch that keeps the incumbent.
+
+Do not use these fields for strategy prose that has no matching source anchor.
+
 ## Runtime Contract
 
 The solver must finish comfortably under the harness timeout:

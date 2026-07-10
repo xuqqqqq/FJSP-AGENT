@@ -134,7 +134,9 @@ Task:
   required.
 - For agent-generated baselines, stdout may include a short self-check, but the
   decisive evidence is the actual code diff. Cite real function/variable/guard
-  names that exist in the file you changed.
+  names that exist in the file you changed. If you mention representation,
+  decoder, variant handling, runtime bounds, or incumbent preservation in notes
+  or self-check output, anchor each claim to source symbols in the changed file.
 - Because this worker edits files directly instead of returning structured
   proposal JSON, include a source-level validation helper such as
   `validate_schedule(...)` or `self_check_solution(...)` in the generated solver

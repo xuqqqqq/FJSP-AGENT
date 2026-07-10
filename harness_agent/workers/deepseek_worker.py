@@ -363,11 +363,11 @@ Return JSON only with this schema:
         "evidence": "concrete function/variable/guard symbols from submitted code"
       }}
     ],
-    "representation": "which operation identity, assignment, and machine sequence structures the code uses",
-    "decoder": "which function rebuilds a complete schedule and how it rejects infeasible candidates",
+    "representation": "cite source symbols for the operation identity, assignment, and machine sequence structures the code uses",
+    "decoder": "cite the source function that rebuilds a complete schedule and rejects infeasible candidates",
     "variant_handling": ["for each active variant_required_code_capability, cite the concrete timing/capacity/objective guard; use [] when none are active"],
-    "runtime_bounds": "where restarts/iterations/windows/deadlines are capped",
-    "incumbent_preservation": "how failed candidates keep the incumbent schedule",
+    "runtime_bounds": "cite source symbols where restarts/iterations/windows/deadlines are capped",
+    "incumbent_preservation": "cite source symbols showing how failed candidates keep the incumbent schedule",
     "remaining_gaps": []
   }},
   "changes": [
@@ -487,7 +487,10 @@ Rules:
   must name symbols that appear verbatim in the proposed code, such as
   `parse_instance`, `op_info`, `decode_schedule`, `expected_ops`, `deadline`, or
   `best_schedule`. Do not mark a capability implemented unless the proposed code
-  contains the cited evidence.
+  contains the cited evidence. The narrative fields `representation`, `decoder`,
+  `variant_handling`, `runtime_bounds`, and `incumbent_preservation` must also
+  cite source symbols that appear in the proposed code; do not use those fields
+  for high-level strategy text that has no matching implementation anchor.
 - If evaluator_protocol.solver_command_template runs an agent-generated solver
   under `examples/agent_generated*.py`, treat generated solver/helper files as
   standalone example scripts. Do not import `harness_agent.*` from those files;
@@ -840,7 +843,9 @@ def priority_worker_context(context: dict[str, Any]) -> str:
             "capability and cite concrete code evidence in solver_contract_self_check.capabilities, or mark it "
             "missing with a repair note. Evidence must name function/variable/guard symbols that appear verbatim "
             "in the submitted code; do not claim a capability is implemented from strategy text or imaginary "
-            "helper names alone."
+            "helper names alone. The solver_contract_self_check narrative fields representation, decoder, "
+            "variant_handling, runtime_bounds, and incumbent_preservation must also cite submitted source "
+            "symbols, not only describe the intended method."
         ),
         "candidate_runtime_import_rule": (
             "When the solver command is an agent-generated examples/agent_generated*.py entrypoint, "

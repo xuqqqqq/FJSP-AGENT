@@ -104,6 +104,8 @@ class OpenCodeWorkerTests(unittest.TestCase):
             self.assertIn("improvement_round", prompt)
             self.assertIn("source-level validation helper", prompt)
             self.assertIn("validate_schedule", prompt)
+            self.assertIn("decoder, variant handling", prompt)
+            self.assertIn("anchor each claim to source symbols", prompt)
             self.assertIn("variant_required_code_capabilities", prompt)
             self.assertIn("setup-aware same-machine arcs", prompt)
             self.assertIn("release dates require starts", prompt)
