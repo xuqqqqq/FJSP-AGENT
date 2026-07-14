@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
+from harness_agent.deepseek_client import DeepSeekChatResult
 from harness_agent.semantic_review import (
+    AlgorithmSemanticReviewRequest,
     DeepSeekAlgorithmSemanticReviewer,
     EvidenceOnlySemanticReviewer,
     load_review_sources,
@@ -132,8 +135,9 @@ class SemanticReviewTests(unittest.TestCase):
             reviewer="test",
         )
 
-        self.assertEqual("pass", fabricated.status)
+        self.assertEqual("warning", fabricated.status)
         self.assertTrue(fabricated.accepted)
+        self.assertIn("Rejected 1 semantic finding", fabricated.summary)
         self.assertEqual("warning", low_confidence.status)
         self.assertTrue(low_confidence.accepted)
         self.assertFalse(low_confidence.findings[0]["blocking"])
@@ -160,8 +164,6 @@ class SemanticReviewTests(unittest.TestCase):
     def test_unavailable_model_reviewer_is_non_blocking(self) -> None:
         reviewer = DeepSeekAlgorithmSemanticReviewer()
         with tempfile.TemporaryDirectory() as tmp:
-            from harness_agent.semantic_review import AlgorithmSemanticReviewRequest
-
             request = AlgorithmSemanticReviewRequest(
                 round_index=0,
                 attempt_index=0,
@@ -181,9 +183,76 @@ class SemanticReviewTests(unittest.TestCase):
         self.assertEqual("unavailable", result.status)
         self.assertTrue(result.accepted)
 
-    def test_evidence_only_fallback_is_non_blocking(self) -> None:
-        from harness_agent.semantic_review import AlgorithmSemanticReviewRequest
+    def test_non_json_review_gets_one_structured_retry(self) -> None:
+        reviewer = DeepSeekAlgorithmSemanticReviewer()
+        client = Mock()
+        client.chat_with_usage.side_effect = [
+            DeepSeekChatResult(
+                content="The reverse tabu signature is wrong and should be blocking.",
+                usage={"prompt_tokens": 100, "completion_tokens": 20},
+            ),
+            DeepSeekChatResult(
+                content=json.dumps(
+                    {
+                        "summary": "Reverse move memory is inconsistent.",
+                        "findings": [
+                            {
+                                "finding_id": "reverse_move",
+                                "category": "move_memory",
+                                "severity": "blocking",
+                                "confidence": 0.95,
+                                "claim": "The loop implements reverse-move tabu memory.",
+                                "source_path": "solver.py",
+                                "line_start": 2,
+                                "line_end": 2,
+                                "knowledge_path": "contract.md",
+                                "knowledge_quote": "tabu memory must record the attribute that would undo that move",
+                                "explanation": "The forward attribute is stored instead.",
+                                "repair": "Store the inverse move attribute after acceptance.",
+                                "required_test": "Accept one move and prove its inverse remains tabu.",
+                            }
+                        ],
+                    }
+                ),
+                usage={"prompt_tokens": 30, "completion_tokens": 40},
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            request = AlgorithmSemanticReviewRequest(
+                round_index=0,
+                attempt_index=0,
+                context_packet_path=root / "context.json",
+                worktree_path=root,
+                changed_files=["solver.py"],
+                direction_plan={},
+                candidate_summary={},
+                output_dir=root / "review",
+            )
+            with (
+                patch("harness_agent.semantic_review.is_deepseek_configured", return_value=True),
+                patch("harness_agent.semantic_review.load_context_dict", return_value={}),
+                patch(
+                    "harness_agent.semantic_review.load_review_sources",
+                    return_value={"solver.py": "def search():\n    tabu[forward] = expiry\n"},
+                ),
+                patch(
+                    "harness_agent.semantic_review.load_review_knowledge",
+                    return_value={
+                        "contract.md": "Tabu memory must record the attribute that would undo that move."
+                    },
+                ),
+                patch("harness_agent.semantic_review.DeepSeekClient.from_env", return_value=client),
+            ):
+                result = reviewer.review(request)
 
+        self.assertEqual("repair_required", result.status)
+        self.assertFalse(result.accepted)
+        self.assertEqual(2, client.chat_with_usage.call_count)
+        self.assertEqual(130, result.usage["prompt_tokens"])
+        self.assertIn("json_retry_response", result.artifacts)
+
+    def test_evidence_only_fallback_is_non_blocking(self) -> None:
         result = EvidenceOnlySemanticReviewer().review(
             AlgorithmSemanticReviewRequest(
                 round_index=0,

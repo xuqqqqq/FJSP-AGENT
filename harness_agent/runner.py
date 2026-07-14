@@ -342,7 +342,7 @@ def run_shell_command(
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired as exc:
-        _kill_process_tree(proc)
+        kill_process_tree(proc)
         stdout, stderr = proc.communicate()
         raise subprocess.TimeoutExpired(
             cmd=exc.cmd,
@@ -357,7 +357,7 @@ def run_shell_command(
     return result
 
 
-def _kill_process_tree(proc: subprocess.Popen[str]) -> None:
+def kill_process_tree(proc: subprocess.Popen[str]) -> None:
     if proc.poll() is not None:
         return
     if os.name == "nt":

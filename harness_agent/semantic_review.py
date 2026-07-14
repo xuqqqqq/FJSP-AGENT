@@ -84,6 +84,7 @@ class DeepSeekAlgorithmSemanticReviewer:
         if not is_deepseek_configured():
             return self.fallback.review(request)
 
+        artifacts: dict[str, str] = {}
         try:
             context = load_context_dict(request.context_packet_path)
             sources = load_review_sources(
@@ -116,7 +117,14 @@ class DeepSeekAlgorithmSemanticReviewer:
             prompt_path = request.output_dir / "algorithm_semantic_review_prompt.md"
             raw_path = request.output_dir / "algorithm_semantic_review_raw.json"
             prompt_path.write_text(prompt, encoding="utf-8")
-            response = DeepSeekClient.from_env(model=self.model).chat_with_usage(
+            artifacts.update(
+                {
+                    "prompt": str(prompt_path.resolve()),
+                    "raw_response": str(raw_path.resolve()),
+                }
+            )
+            client = DeepSeekClient.from_env(model=self.model)
+            response = client.chat_with_usage(
                 [
                     {
                         "role": "system",
@@ -132,17 +140,44 @@ class DeepSeekAlgorithmSemanticReviewer:
                 json_mode=True,
             )
             raw_path.write_text(response.content + "\n", encoding="utf-8")
-            raw = json.loads(response.content)
+            usage = response.usage
+            try:
+                raw = parse_json_object_response(response.content)
+            except json.JSONDecodeError:
+                retry_path = request.output_dir / "algorithm_semantic_review_json_retry.json"
+                retry = client.chat_with_usage(
+                    [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a JSON formatter. Do not analyze, explain, or use markdown. "
+                                "Return one valid JSON object only."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": semantic_review_json_repair_prompt(
+                                response.content,
+                                sources=sources,
+                                knowledge=knowledge,
+                            ),
+                        },
+                    ],
+                    temperature=0.0,
+                    max_tokens=3500,
+                    json_mode=True,
+                )
+                retry_path.write_text(retry.content + "\n", encoding="utf-8")
+                artifacts["json_retry_response"] = str(retry_path.resolve())
+                raw = parse_json_object_response(retry.content)
+                usage = merge_usage(response.usage, retry.usage)
             result = normalize_semantic_review(
                 raw,
                 sources=sources,
                 knowledge=knowledge,
                 reviewer="deepseek_algorithm_semantic_reviewer",
-                usage=response.usage,
-                artifacts={
-                    "prompt": str(prompt_path.resolve()),
-                    "raw_response": str(raw_path.resolve()),
-                },
+                usage=usage,
+                artifacts=artifacts,
             )
             return write_semantic_review_artifacts(request.output_dir, result)
         except Exception as exc:  # noqa: BLE001 - reviewer failure must not replace Core authority.
@@ -159,7 +194,7 @@ class DeepSeekAlgorithmSemanticReviewer:
                 reviewed_files=[],
                 knowledge_paths=[],
                 reviewer="deepseek_algorithm_semantic_reviewer",
-                artifacts={"exception": str(exception_path.resolve())},
+                artifacts={**artifacts, "exception": str(exception_path.resolve())},
             )
 
 
@@ -173,8 +208,9 @@ def normalize_semantic_review(
     artifacts: dict[str, str] | None = None,
 ) -> AlgorithmSemanticReviewResult:
     payload = raw if isinstance(raw, dict) else {}
+    requested_findings = [item for item in payload.get("findings") or [] if isinstance(item, dict)]
     findings: list[dict[str, Any]] = []
-    for value in payload.get("findings") or []:
+    for value in requested_findings:
         finding = verified_semantic_finding(value, sources=sources, knowledge=knowledge)
         if finding:
             findings.append(finding)
@@ -182,8 +218,14 @@ def normalize_semantic_review(
             break
     blocking = [item for item in findings if item.get("blocking")]
     warning_count = sum(1 for item in findings if not item.get("blocking"))
-    status = "repair_required" if blocking else ("warning" if warning_count else "pass")
+    rejected_count = len(requested_findings) - len(findings)
+    status = "repair_required" if blocking else ("warning" if warning_count or rejected_count else "pass")
     summary = str(payload.get("summary") or "").strip()
+    if rejected_count:
+        summary = (
+            f"Rejected {rejected_count} semantic finding(s) whose source or knowledge evidence did not verify. "
+            f"{summary}"
+        ).strip()
     if not summary:
         summary = (
             f"Verified {len(blocking)} blocking and {warning_count} warning semantic findings."
@@ -309,6 +351,55 @@ Candidate source (complete bounded files):
 
 Knowledge contracts:
 {json.dumps(knowledge, ensure_ascii=False, indent=2)}
+""".strip()
+
+
+def semantic_review_json_repair_prompt(
+    draft: str,
+    *,
+    sources: dict[str, str] | None = None,
+    knowledge: dict[str, str] | None = None,
+) -> str:
+    numbered_sources = {
+        path: "\n".join(f"{line_number}: {line}" for line_number, line in enumerate(text.splitlines(), start=1))
+        for path, text in (sources or {}).items()
+    }
+    return f"""
+Convert the draft review below into the exact JSON schema shown here. Preserve only findings already identified in
+the draft. Do not add new findings, commentary, markdown, or code fences.
+
+Every finding must use an exact source_path and knowledge_path key supplied below. Derive line_start and line_end from
+the numbered source, and copy knowledge_quote exactly from the supplied knowledge text.
+
+{{
+  "summary": "short evidence-based verdict",
+  "findings": [
+    {{
+      "finding_id": "stable id",
+      "category": "state_invariant | move_memory | structural_exactness | operator_fidelity | runtime_scaling | other",
+      "severity": "blocking | warning",
+      "confidence": 0.0,
+      "claim": "the method claim being checked",
+      "source_path": "source path from the draft",
+      "line_start": 1,
+      "line_end": 1,
+      "knowledge_path": "knowledge path from the draft",
+      "knowledge_quote": "exact contract quote from the draft",
+      "explanation": "evidence-based explanation from the draft",
+      "repair": "bounded repair from the draft",
+      "required_test": "behavioral test from the draft"
+    }}
+  ]
+}}
+
+Draft review:
+{draft[:80_000]}
+
+Numbered candidate source:
+{json.dumps(numbered_sources, ensure_ascii=False, indent=2)}
+
+Allowed knowledge contracts:
+{json.dumps(knowledge or {}, ensure_ascii=False, indent=2)}
 """.strip()
 
 
@@ -461,6 +552,28 @@ def relative_python_paths(command: str) -> list[Path]:
 
 def normalize_review_path(value: Any) -> str:
     return str(value or "").strip().replace("\\", "/")
+
+
+def parse_json_object_response(content: str) -> dict[str, Any]:
+    text = str(content or "").strip()
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as original:
+        fenced = re.fullmatch(r"```(?:json)?\s*(\{.*\})\s*```", text, flags=re.DOTALL | re.IGNORECASE)
+        if fenced is None:
+            raise original
+        payload = json.loads(fenced.group(1))
+    if not isinstance(payload, dict):
+        raise json.JSONDecodeError("semantic review response is not a JSON object", text, 0)
+    return payload
+
+
+def merge_usage(*values: dict[str, int] | None) -> dict[str, int]:
+    result: dict[str, int] = {}
+    for value in values:
+        for key, amount in (value or {}).items():
+            result[str(key)] = result.get(str(key), 0) + int(amount)
+    return result
 
 
 def resolve_review_path(value: Any, available: dict[str, str]) -> str | None:

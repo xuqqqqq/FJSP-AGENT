@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import os
 import stat
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -146,6 +148,40 @@ class OpenCodeWorkerTests(unittest.TestCase):
             self.assertIn("operation_level_ready_list_constructor", prompt)
             self.assertIn("sequence_dependent_setup", prompt)
 
+    def test_timeout_kills_opencode_child_process_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            worktree = tmp_path / "worktree"
+            output_dir = tmp_path / "worker"
+            worktree.mkdir()
+            context_packet = tmp_path / "context_packet.json"
+            context_packet.write_text("{}", encoding="utf-8")
+            executable, pid_path = _write_hanging_opencode(tmp_path)
+
+            result = OpenCodeWorker(executable=str(executable)).run_experiment(
+                ExperimentSpec(
+                    task_id="test",
+                    experiment_id="timeout_tree",
+                    context_packet_path=str(context_packet),
+                    worktree_path=str(worktree),
+                    max_steps=1,
+                    max_runtime_seconds=1,
+                    output_dir=str(output_dir),
+                    apply_changes=False,
+                )
+            )
+
+            self.assertEqual("timeout", result.status)
+            deadline = time.time() + 5
+            while not pid_path.exists() and time.time() < deadline:
+                time.sleep(0.05)
+            self.assertTrue(pid_path.exists(), "fake OpenCode did not record its child pid")
+            child_pid = int(pid_path.read_text(encoding="utf-8"))
+            deadline = time.time() + 5
+            while _process_exists(child_pid) and time.time() < deadline:
+                time.sleep(0.1)
+            self.assertFalse(_process_exists(child_pid), f"OpenCode child process {child_pid} survived timeout")
+
 
 def _write_fake_opencode(tmp_path: Path) -> Path:
     script = tmp_path / "fake_opencode.py"
@@ -171,6 +207,55 @@ def _write_fake_opencode(tmp_path: Path) -> Path:
         wrapper.write_text(f'#!/bin/sh\n"{sys.executable}" "{script}" "$@"\n', encoding="utf-8")
         wrapper.chmod(wrapper.stat().st_mode | stat.S_IEXEC)
     return wrapper
+
+
+def _write_hanging_opencode(tmp_path: Path) -> tuple[Path, Path]:
+    child = tmp_path / "hanging_child.py"
+    child.write_text("import time\nwhile True:\n    time.sleep(1)\n", encoding="utf-8")
+    pid_path = tmp_path / "hanging_child.pid"
+    parent = tmp_path / "hanging_opencode.py"
+    parent.write_text(
+        "\n".join(
+            [
+                "from pathlib import Path",
+                "import subprocess",
+                "import sys",
+                "import time",
+                f"child = subprocess.Popen([sys.executable, {str(child)!r}])",
+                f"Path({str(pid_path)!r}).write_text(str(child.pid), encoding='utf-8')",
+                "while True:",
+                "    time.sleep(1)",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    if os.name == "nt":
+        wrapper = tmp_path / "hanging_opencode.cmd"
+        wrapper.write_text(f'@echo off\n"{sys.executable}" "{parent}"\n', encoding="utf-8")
+    else:
+        wrapper = tmp_path / "hanging_opencode"
+        wrapper.write_text(f'#!/bin/sh\n"{sys.executable}" "{parent}" "$@"\n', encoding="utf-8")
+        wrapper.chmod(wrapper.stat().st_mode | stat.S_IEXEC)
+    return wrapper, pid_path
+
+
+def _process_exists(pid: int) -> bool:
+    if os.name == "nt":
+        completed = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        return str(pid) in completed.stdout
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 if __name__ == "__main__":

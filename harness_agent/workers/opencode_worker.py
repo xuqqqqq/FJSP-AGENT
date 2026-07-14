@@ -9,6 +9,7 @@ from pathlib import Path
 
 from ..context_loader import load_context_dict
 from ..deepseek_client import load_local_env, resolve_secret
+from ..runner import CREATE_NEW_PROCESS_GROUP, kill_process_tree
 from ..worker_context import worker_context_sections
 from ..worker import CodingWorker, ExperimentSpec, WorkerCapabilities, WorkerResult
 
@@ -52,19 +53,25 @@ class OpenCodeWorker(CodingWorker):
         command = self._command(prompt_path)
         command_path.write_text(json_dumps(command), encoding="utf-8")
 
+        popen_kwargs: dict[str, object] = {
+            "cwd": spec.worktree_path,
+            "env": opencode_subprocess_environment(),
+            "text": True,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+        }
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = CREATE_NEW_PROCESS_GROUP
+        else:
+            popen_kwargs["start_new_session"] = True
+        process = subprocess.Popen(command, **popen_kwargs)
         try:
-            completed = subprocess.run(
-                command,
-                cwd=spec.worktree_path,
-                env=opencode_subprocess_environment(),
-                text=True,
-                capture_output=True,
-                timeout=max(1, spec.max_runtime_seconds),
-                check=False,
-            )
+            stdout, stderr = process.communicate(timeout=max(1, spec.max_runtime_seconds))
         except subprocess.TimeoutExpired as exc:
-            stdout_path.write_text(exc.stdout or "", encoding="utf-8")
-            stderr_path.write_text(exc.stderr or "", encoding="utf-8")
+            kill_process_tree(process)
+            stdout, stderr = process.communicate()
+            stdout_path.write_text(stdout or exc.stdout or "", encoding="utf-8")
+            stderr_path.write_text(stderr or exc.stderr or "", encoding="utf-8")
             return WorkerResult(
                 status="timeout",
                 changed_files=[],
@@ -78,10 +85,10 @@ class OpenCodeWorker(CodingWorker):
                 },
             )
 
-        stdout_path.write_text(completed.stdout, encoding="utf-8")
-        stderr_path.write_text(completed.stderr, encoding="utf-8")
-        status = opencode_status(completed.returncode, completed.stdout, completed.stderr)
-        summary = f"OpenCode exited with code {completed.returncode}. Harness diff/evaluator artifacts decide acceptance."
+        stdout_path.write_text(stdout, encoding="utf-8")
+        stderr_path.write_text(stderr, encoding="utf-8")
+        status = opencode_status(process.returncode, stdout, stderr)
+        summary = f"OpenCode exited with code {process.returncode}. Harness diff/evaluator artifacts decide acceptance."
         return WorkerResult(
             status=status,
             changed_files=[],
