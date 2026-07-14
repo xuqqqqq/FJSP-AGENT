@@ -48,6 +48,50 @@ class SemanticReviewTests(unittest.TestCase):
         self.assertTrue(result.findings[0]["blocking"])
         self.assertIn("tabu[move_signature", result.findings[0]["source_excerpt"])
 
+    def test_unique_relative_knowledge_path_resolves_to_loaded_absolute_path(self) -> None:
+        absolute_contract = (
+            "F:/workspace/knowledge/imported_huawei_fjsp_knowledge/operators/"
+            "standard_fjsp_algorithm_semantic_review_contract.md"
+        )
+        result = normalize_semantic_review(
+            {
+                "summary": "Critical blocks merge operations separated by idle time.",
+                "findings": [
+                    {
+                        "finding_id": "critical_block_tight_arc",
+                        "category": "operator_fidelity",
+                        "severity": "blocking",
+                        "confidence": 0.95,
+                        "claim": "Critical blocks are built without checking tight machine arcs.",
+                        "source_path": "examples/solver.py",
+                        "line_start": 2,
+                        "line_end": 2,
+                        "knowledge_path": (
+                            "knowledge/imported_huawei_fjsp_knowledge/operators/"
+                            "standard_fjsp_algorithm_semantic_review_contract.md"
+                        ),
+                        "knowledge_quote": (
+                            "adjacent operations with idle time between them must not be merged"
+                        ),
+                        "explanation": "The grouping checks only machine identity.",
+                        "repair": "Traverse each machine sequence and require a tight arc.",
+                        "required_test": "Keep two critical operations in separate blocks when idle time exists.",
+                    }
+                ],
+            },
+            sources={"examples/solver.py": "def blocks():\n    return group_by_machine(critical_ops)\n"},
+            knowledge={
+                absolute_contract: (
+                    "Adjacent operations with idle time between them must not be merged into the same critical block."
+                )
+            },
+            reviewer="test",
+        )
+
+        self.assertEqual("repair_required", result.status)
+        self.assertFalse(result.accepted)
+        self.assertEqual(absolute_contract, result.findings[0]["knowledge_path"])
+
     def test_fabricated_quote_or_low_confidence_cannot_block(self) -> None:
         sources = {"solver.py": "def search():\n    return current\n"}
         knowledge = {"contract.md": "The search must return the global best state."}

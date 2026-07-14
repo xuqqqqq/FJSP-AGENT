@@ -211,9 +211,9 @@ def verified_semantic_finding(
 ) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
-    source_path = normalize_review_path(value.get("source_path"))
-    knowledge_path = normalize_review_path(value.get("knowledge_path"))
-    if source_path not in sources or knowledge_path not in knowledge:
+    source_path = resolve_review_path(value.get("source_path"), sources)
+    knowledge_path = resolve_review_path(value.get("knowledge_path"), knowledge)
+    if source_path is None or knowledge_path is None:
         return None
     line_start = _bounded_int(value.get("line_start"), lower=1, upper=1_000_000)
     line_end = _bounded_int(value.get("line_end"), lower=line_start, upper=line_start + 80)
@@ -461,6 +461,27 @@ def relative_python_paths(command: str) -> list[Path]:
 
 def normalize_review_path(value: Any) -> str:
     return str(value or "").strip().replace("\\", "/")
+
+
+def resolve_review_path(value: Any, available: dict[str, str]) -> str | None:
+    requested = normalize_review_path(value).strip("/")
+    if not requested:
+        return None
+    exact = [
+        key
+        for key in available
+        if normalize_review_path(key).strip("/").casefold() == requested.casefold()
+    ]
+    if len(exact) == 1:
+        return exact[0]
+
+    suffix = f"/{requested.casefold()}"
+    matches = [
+        key
+        for key in available
+        if normalize_review_path(key).strip("/").casefold().endswith(suffix)
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def normalize_quote(value: str) -> str:
