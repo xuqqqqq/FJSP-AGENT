@@ -72,7 +72,7 @@ async function loadDemo(options = {}) {
   $("seeds").value = demo.config.seeds;
   $("max-workers").value = demo.config.max_workers || 2;
   $("solver").value = demo.config.solver;
-  $("baseline-source").value = demo.config.baseline_source || "current_project";
+  $("baseline-source").value = demo.config.baseline_source || "agent_generated";
   $("evolution-mode").value = demo.config.evolution_mode === "slot" ? "code" : demo.config.evolution_mode;
   $("profile-mode").value = demo.config.profile_mode;
   $("strategy-candidates").value = demo.config.strategy_candidates;

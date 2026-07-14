@@ -54,6 +54,7 @@ class StandardWorkerLoopTests(unittest.TestCase):
                     max_steps=1,
                     max_runtime_seconds=30,
                     apply_worker_changes=False,
+                    baseline_source="current_project",
                     experiment_id="test_standard_worker_loop",
                 )
             )
@@ -128,6 +129,19 @@ class StandardWorkerLoopTests(unittest.TestCase):
 
         self.assertEqual("agent_generated", args.baseline_source)
         self.assertEqual("examples/custom_agent_generated.py", args.agent_generated_solver_path)
+
+    def test_standard_worker_cli_defaults_to_agent_capability_baseline(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "run-standard-worker-loop",
+                "--instance-dir",
+                "examples",
+                "--output-dir",
+                "outputs/test",
+            ]
+        )
+
+        self.assertEqual("agent_generated", args.baseline_source)
 
 
 def _write_previous_memory(tmp_path: Path) -> Path:

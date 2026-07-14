@@ -533,10 +533,10 @@ def build_parser() -> argparse.ArgumentParser:
     standard_worker.add_argument(
         "--baseline-source",
         choices=["current_project", "agent_generated"],
-        default="current_project",
+        default="agent_generated",
         help=(
-            "Use current_project to measure the existing solver first, or agent_generated "
-            "to ask the coding worker to create the initial solver before baseline measurement."
+            "Use agent_generated for Agent capability evaluation. current_project is an explicit legacy/reference "
+            "solver tuning mode and must not be reported as Agent-written solver quality."
         ),
     )
     standard_worker.add_argument(
@@ -1409,6 +1409,7 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
                 "status": manifest["status"],
                 "baseline_key": manifest["baseline_key"],
                 "baseline_source": manifest["baseline_source"],
+                "evaluation_mode": manifest["evaluation_mode"],
                 "final_key": manifest["final_key"],
                 "improved": manifest["improved"],
                 "round_count": manifest["round_count"],

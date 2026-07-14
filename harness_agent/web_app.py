@@ -659,6 +659,11 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         evolution_mode = "code"
     if baseline_source not in {"agent_generated", "current_project"}:
         baseline_source = "agent_generated" if evolution_mode == "code" else "current_project"
+    if evolution_mode == "code" and baseline_source != "agent_generated":
+        raise ValueError(
+            "自由代码层用于 Agent 能力评测，baseline_source 必须是 agent_generated；"
+            "current_project 仅允许显式 legacy/slot 调优，不能计入 Agent 自写成绩。"
+        )
     if baseline_source == "agent_generated" and evolution_mode != "code":
         raise ValueError("agent-generated baseline currently requires free code layer; slot mode uses current_project incumbent markers")
     if evolution_mode == "slot":

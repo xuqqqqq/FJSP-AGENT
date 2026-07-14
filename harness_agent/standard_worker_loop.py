@@ -322,6 +322,11 @@ def standard_worker_manifest(
     agent_quality = worker_loop_agent_quality_summary(loop_result)
     return {
         "status": "ok",
+        "evaluation_mode": (
+            "agent_capability"
+            if loop_result.baseline_source == "agent_generated"
+            else "legacy_solver_tuning"
+        ),
         "request": {
             "docs": [str(path) for path in request.docs],
             "instance_dir": str(request.instance_dir),
@@ -487,6 +492,7 @@ def render_standard_worker_report(manifest: dict[str, Any]) -> str:
         "# Standard FJSP Worker Loop Report",
         "",
         f"- Status: `{manifest.get('status')}`",
+        f"- Evaluation mode: `{manifest.get('evaluation_mode')}`",
         f"- Baseline source: `{manifest.get('baseline_source')}`",
         f"- Baseline key: `{json.dumps(manifest.get('baseline_key'), ensure_ascii=False)}`",
         f"- Final key: `{json.dumps(manifest.get('final_key'), ensure_ascii=False)}`",
@@ -498,6 +504,12 @@ def render_standard_worker_report(manifest: dict[str, Any]) -> str:
         f"- In-round repair: `{json.dumps(manifest.get('in_round_repair') or {}, ensure_ascii=False)}`",
         f"- Agent quality: `{json.dumps(manifest.get('agent_generated_quality') or {}, ensure_ascii=False)}`",
         f"- Final worktree: `{manifest.get('final_worktree')}`",
+        "",
+        (
+            "> This run measures Agent-written solver capability."
+            if manifest.get("evaluation_mode") == "agent_capability"
+            else "> Legacy/reference solver tuning run. Do not report this result as Agent-written solver capability."
+        ),
         "",
         "## Artifacts",
         "",

@@ -531,6 +531,22 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("baseline_source is agent_generated", request.hypothesis)
         self.assertEqual("completed", finished["status"])
 
+    def test_code_mode_rejects_current_project_baseline_as_agent_capability(self) -> None:
+        demo = make_demo_examples()
+        payload = {
+            "title": "invalid legacy baseline",
+            "requirement": demo["requirement"],
+            "io": demo["io"],
+            "instance": demo["instance"],
+            "evolution_mode": "code",
+            "baseline_source": "current_project",
+            "solver": "local-search",
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "baseline_source.*agent_generated"):
+                create_job(payload, output_root=Path(tmp))
+
     def test_create_job_times_budget_from_actual_instance_content(self) -> None:
         demo = make_demo_examples()
         fake_dp15 = "20 10 10\n" + "\n".join("15 " + " ".join(["1 1 3"] * 15) for _ in range(20)) + "\n"
