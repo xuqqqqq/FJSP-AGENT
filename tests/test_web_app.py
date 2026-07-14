@@ -14,6 +14,7 @@ from harness_agent.web_app import (
     browser_safe_json,
     create_job,
     deepseek_status_payload,
+    latest_compatible_experience_memory,
     make_demo_examples,
     mark_stale_persisted_job_interrupted,
     run_job,
@@ -59,6 +60,67 @@ class WebAppTests(unittest.TestCase):
 
         self.assertFalse(mark_stale_persisted_job_interrupted(payload))
         self.assertEqual("completed", payload["status"])
+
+    def test_latest_compatible_experience_memory_requires_validated_same_variant_lessons(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            previous_dir = root / "previous"
+            memory_path = (
+                previous_dir
+                / "run"
+                / "standard_worker_loop"
+                / "worker_loop"
+                / "experience_memory.json"
+            )
+            memory_path.parent.mkdir(parents=True)
+            memory_path.write_text(
+                json.dumps(
+                    {
+                        "memory_tiers": {
+                            "candidate_lessons": [{"lesson_id": "candidate"}],
+                            "validated_lessons": [
+                                {
+                                    "lesson_id": "validated",
+                                    "method_package_id": "standard_fjsp_awls_hgtsa",
+                                }
+                            ],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            current = {
+                "id": "current",
+                "config": {
+                    "baseline_source": "agent_generated",
+                    "instance_profile": {
+                        "format": "standard_fjsp",
+                        "has_sequence_dependent_setup": False,
+                    },
+                },
+            }
+            previous = {
+                "id": "previous",
+                "status": "completed",
+                "job_dir": str(previous_dir),
+                "config": {
+                    "baseline_source": "agent_generated",
+                    "instance_profile": {
+                        "format": "standard_fjsp",
+                        "has_sequence_dependent_setup": False,
+                    },
+                },
+            }
+            original_jobs = dict(_JOBS)
+            try:
+                _JOBS.clear()
+                _JOBS["previous"] = previous
+                self.assertEqual(memory_path.resolve(), latest_compatible_experience_memory(current))
+                current["config"]["instance_profile"]["has_sequence_dependent_setup"] = True
+                self.assertIsNone(latest_compatible_experience_memory(current))
+            finally:
+                _JOBS.clear()
+                _JOBS.update(original_jobs)
 
     def test_browser_safe_json_replaces_non_finite_numbers(self) -> None:
         payload = {

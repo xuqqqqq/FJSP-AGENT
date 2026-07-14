@@ -59,6 +59,38 @@ class ContextPacketTests(unittest.TestCase):
             self.assertLessEqual(len(raw), 180_000)
             self.assertEqual("bounded_round_context", packet["context_compaction"]["mode"])
             self.assertLess(len(packet["loop_feedback"]["previous_rounds"]), len(large_rounds))
+            self.assertNotIn("active_method_package", packet)
+
+    def test_refreshed_agent_generated_context_activates_one_method_package(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = json.loads((ROOT / "configs" / "standard_fjsp_tiny.example.json").read_text(encoding="utf-8"))
+            contract["commands"]["solver"] = (
+                "python examples/agent_generated_fjsp_solver.py --input {instance} --output {solution} --seed {seed}"
+            )
+            contract_path = tmp_path / "contract.json"
+            contract_path.write_text(json.dumps(contract), encoding="utf-8")
+            base_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=contract_path,
+                    output_path=tmp_path / "base_context.json",
+                )
+            )
+            output = write_refreshed_context_packet(
+                base_context_packet_path=base_path,
+                output_path=tmp_path / "round_context.json",
+                loop_feedback={
+                    "current_direction_plan": {
+                        "method_package_id": "standard_fjsp_awls_hgtsa",
+                        "strategy_type": "local_search_operator",
+                    }
+                },
+            )
+            packet = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual("standard_fjsp_awls_hgtsa", packet["active_method_package"]["package_id"])
+        self.assertEqual("requested", packet["active_method_package"]["selection"])
+        self.assertIn("reference_solver.py", " ".join(packet["active_method_package"]["assets"]))
 
     def test_context_packet_embeds_project_intake_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -241,6 +273,46 @@ class ContextPacketTests(unittest.TestCase):
                 "experience_memory_signal",
                 " ".join(packet["worker_instruction"]["required_order"]),
             )
+
+    def test_context_packet_accepts_raw_worker_experience_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            memory_path = tmp_path / "experience_memory.json"
+            memory_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "memory_tiers": {
+                            "candidate_lessons": [{"lesson_id": "candidate", "confidence": "candidate"}],
+                            "validated_lessons": [
+                                {
+                                    "lesson_id": "validated",
+                                    "strategy": "AWLS method adaptation",
+                                    "strategy_type": "local_search_operator",
+                                    "method_package_id": "standard_fjsp_awls_hgtsa",
+                                    "confidence": "core_and_semantic_validated",
+                                }
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            output = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "context_packet.json",
+                    previous_pipeline_memory=memory_path,
+                )
+            )
+            packet = json.loads(output.read_text(encoding="utf-8"))
+
+        signal = packet["previous_pipeline_memory"]["experience_memory_signal"]
+        self.assertEqual(1, signal["candidate_lesson_count"])
+        self.assertEqual([], signal["candidate_lessons"])
+        self.assertTrue(signal["candidate_lessons_withheld"])
+        self.assertEqual(1, signal["validated_lesson_count"])
+        self.assertEqual("standard_fjsp_awls_hgtsa", signal["validated_lessons"][0]["method_package_id"])
 
     def test_context_packet_embeds_sdst_instance_diagnostics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

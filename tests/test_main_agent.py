@@ -44,6 +44,7 @@ class MainAgentTests(unittest.TestCase):
             self.assertEqual("repair_rule", stored["strategy_type"])
             self.assertEqual(["Repair the decoder before tuning."], stored["change_scope"])
             self.assertIn("Keep the promoted parser.", stored["preserve"])
+            self.assertEqual("", stored["method_package_id"])
 
     def test_direction_plan_normalization_never_accepts_unbounded_lists(self) -> None:
         plan = normalize_direction_plan(
@@ -58,6 +59,35 @@ class MainAgentTests(unittest.TestCase):
         self.assertLessEqual(len(plan["hypothesis"]), 1200)
         self.assertEqual(8, len(plan["change_scope"]))
         self.assertEqual(12, len(plan["knowledge_paths"]))
+
+    def test_evidence_main_agent_selects_recommended_agent_generated_method_package(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = json.loads((ROOT / "configs" / "standard_fjsp_tiny.example.json").read_text(encoding="utf-8"))
+            contract["commands"]["solver"] = (
+                "python examples/agent_generated_fjsp_solver.py --input {instance} --output {solution} --seed {seed}"
+            )
+            contract_path = tmp_path / "contract.json"
+            contract_path.write_text(json.dumps(contract), encoding="utf-8")
+            context_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=contract_path,
+                    output_path=tmp_path / "context.json",
+                )
+            )
+
+            plan = EvidenceDrivenMainAgent().plan_direction(
+                DirectionPlanRequest(
+                    round_index=-1,
+                    context_packet_path=context_path,
+                    loop_feedback={"round_type": "agent_generated_baseline"},
+                    output_dir=tmp_path / "main_agent",
+                )
+            )
+
+        self.assertEqual("baseline_constructor", plan["strategy_type"])
+        self.assertEqual("standard_fjsp_awls_hgtsa", plan["method_package_id"])
+        self.assertIn("reference_solver.py", " ".join(plan["knowledge_paths"]))
 
 
 if __name__ == "__main__":

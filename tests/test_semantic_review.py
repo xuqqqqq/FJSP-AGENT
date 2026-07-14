@@ -161,7 +161,7 @@ class SemanticReviewTests(unittest.TestCase):
             self.assertGreater(len(sources["solver.py"]), 16_000)
             self.assertIn("semantic-tail-marker", sources["solver.py"])
 
-    def test_unavailable_model_reviewer_is_non_blocking(self) -> None:
+    def test_unavailable_model_reviewer_is_not_accepted(self) -> None:
         reviewer = DeepSeekAlgorithmSemanticReviewer()
         with tempfile.TemporaryDirectory() as tmp:
             request = AlgorithmSemanticReviewRequest(
@@ -181,7 +181,7 @@ class SemanticReviewTests(unittest.TestCase):
                 result = reviewer.review(request)
 
         self.assertEqual("unavailable", result.status)
-        self.assertTrue(result.accepted)
+        self.assertFalse(result.accepted)
 
     def test_non_json_review_gets_one_structured_retry(self) -> None:
         reviewer = DeepSeekAlgorithmSemanticReviewer()

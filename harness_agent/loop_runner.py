@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .context_loader import load_context_packet
-from .context_packet import write_refreshed_context_packet
+from .context_packet import activate_method_package_context, write_refreshed_context_packet
 from .domain_pack import get_domain_pack
 from .graph_runner import GraphHarnessRunner
 from .hypothesis import (
@@ -94,6 +94,7 @@ def run_worker_loop(
 ) -> WorkerLoopResult:
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    direction_planner = main_agent or EvidenceDrivenMainAgent()
 
     normalized_baseline_source = normalize_baseline_source(baseline_source)
     baseline_generation: dict[str, Any] | None = None
@@ -109,6 +110,11 @@ def run_worker_loop(
             max_steps=max_steps,
             max_runtime_seconds=max_runtime_seconds,
             semantic_reviewer=semantic_reviewer,
+            direction_plan=plan_agent_generated_baseline_direction(
+                planner=direction_planner,
+                context_packet_path=context_packet_path,
+                output_dir=output_dir / "agent_generated_baseline" / "main_agent",
+            ),
             repair_attempts=worker_loop_repair_attempt_budget(
                 baseline_worker_for_generation,
                 in_round_repair_attempts,
@@ -148,8 +154,6 @@ def run_worker_loop(
         write_loop_report(output_dir=output_dir, result=result, problem_family=contract.problem_family)
         return result
     effective_repair_attempts = worker_loop_repair_attempt_budget(worker, in_round_repair_attempts)
-    direction_planner = main_agent or EvidenceDrivenMainAgent()
-
     round_records: list[LoopRoundRecord] = []
     seen_proposal_fingerprints: set[str] = set()
     for round_index in range(max(0, iterations)):
@@ -300,7 +304,7 @@ def run_worker_loop(
         if semantic_review_blocks_promotion(semantic_review):
             promotion_check = {
                 "status": "skipped",
-                "reason": "algorithm_semantic_review_repair_required",
+                "reason": semantic_review_promotion_block_reason(semantic_review),
                 "promoted": False,
                 "required_repeats": max(1, promotion_repeats),
                 "semantic_review": semantic_review,
@@ -430,6 +434,8 @@ def run_worker_cycle_with_in_round_repairs(
             round_index=round_index,
             attempt_index=attempt_index,
             output_dir=attempt_dir / "semantic_review",
+            incumbent_key=incumbent_key,
+            candidate_key=summary_objective_key(last_cycle.summary, contract.objectives),
         )
         attempts.append(
             round_attempt_payload(
@@ -475,6 +481,8 @@ def run_algorithm_semantic_review(
     round_index: int,
     attempt_index: int,
     output_dir: Path,
+    incumbent_key: tuple[float, ...] | None = None,
+    candidate_key: tuple[float, ...] | None = None,
 ) -> dict[str, Any]:
     if reviewer is None:
         return {
@@ -505,6 +513,16 @@ def run_algorithm_semantic_review(
             "findings": [],
             "reviewer": type(reviewer).__name__,
         }
+    effective_candidate_key = candidate_key or _summary_objective_key_from_cycle(cycle)
+    if incumbent_key is not None and effective_candidate_key and effective_candidate_key <= incumbent_key:
+        return {
+            "schema_version": 1,
+            "status": "not_required",
+            "accepted": True,
+            "summary": "Semantic review is deferred because the Core-valid candidate is not strictly better than the incumbent.",
+            "findings": [],
+            "reviewer": type(reviewer).__name__,
+        }
     result = reviewer.review(
         AlgorithmSemanticReviewRequest(
             round_index=round_index,
@@ -523,7 +541,21 @@ def run_algorithm_semantic_review(
 def semantic_review_blocks_promotion(value: dict[str, Any] | None) -> bool:
     if not isinstance(value, dict):
         return False
-    return value.get("status") == "repair_required" or value.get("accepted") is False
+    return value.get("status") in {"repair_required", "unavailable"} or value.get("accepted") is False
+
+
+def semantic_review_requires_repair(value: dict[str, Any] | None) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return value.get("status") == "repair_required" or (
+        value.get("accepted") is False and value.get("status") != "unavailable"
+    )
+
+
+def semantic_review_promotion_block_reason(value: dict[str, Any] | None) -> str:
+    if isinstance(value, dict) and value.get("status") == "unavailable":
+        return "algorithm_semantic_review_unavailable"
+    return "algorithm_semantic_review_repair_required"
 
 
 def should_attempt_in_round_repair(
@@ -537,7 +569,7 @@ def should_attempt_in_round_repair(
     if is_nonrepairable_worker_failure(cycle):
         return False
 
-    if semantic_review_blocks_promotion(semantic_review):
+    if semantic_review_requires_repair(semantic_review):
         return True
 
     judgment = getattr(cycle, "agentic_judgment", None)
@@ -553,10 +585,6 @@ def should_attempt_in_round_repair(
         return False
     if failed > 0 or valid < total:
         return True
-    if incumbent_key is not None:
-        candidate_key = _summary_objective_key_from_cycle(cycle)
-        if candidate_key and not _all_negative_infinity(candidate_key) and candidate_key <= incumbent_key:
-            return True
     return False
 
 
@@ -866,7 +894,7 @@ def attempt_failure_signatures(
         if audit.get("rejected_change_count"):
             signatures.append("proposal_changes_rejected")
     if semantic_review_blocks_promotion(semantic_review):
-        signatures.append("algorithm_semantic_review_repair_required")
+        signatures.append(semantic_review_promotion_block_reason(semantic_review))
         for finding in semantic_review.get("findings") or []:
             if isinstance(finding, dict) and finding.get("blocking"):
                 signatures.append(f"algorithm_semantic_{finding.get('category') or 'method_semantics'}")
@@ -1037,6 +1065,7 @@ def run_agent_generated_baseline(
     max_steps: int,
     max_runtime_seconds: int,
     semantic_reviewer: AlgorithmSemanticReviewer | None = None,
+    direction_plan: dict[str, Any] | None = None,
     repair_attempts: int = DEFAULT_IN_ROUND_REPAIR_ATTEMPTS,
 ) -> tuple[RunSummary, Path, dict[str, Any]]:
     """Ask the worker to create the initial solver before measuring baseline.
@@ -1077,6 +1106,7 @@ def run_agent_generated_baseline(
                 output_path=attempt_dir / "context_packet.json",
                 hidden_incumbent_files=hidden_incumbent_files,
                 current_round_repair=repair_feedback,
+                direction_plan=direction_plan,
             )
             cycle = run_worker_cycle(
                 contract=contract,
@@ -1093,7 +1123,7 @@ def run_agent_generated_baseline(
                 reviewer=semantic_reviewer,
                 cycle=cycle,
                 context_packet_path=baseline_context_path,
-                direction_plan=baseline_semantic_direction_plan(baseline_context_path),
+                direction_plan=direction_plan or baseline_semantic_direction_plan(baseline_context_path),
                 round_index=-1,
                 attempt_index=attempt_index,
                 output_dir=attempt_dir / "semantic_review",
@@ -1151,6 +1181,7 @@ def run_agent_generated_baseline(
             if selected_cycle.agentic_error_analysis
             else None,
             "semantic_review": selected_semantic_review,
+            "direction_plan": direction_plan or {},
         }
         return selected_cycle.summary, selected_cycle.worktree_path, generation_payload
     except Exception as exc:  # noqa: BLE001 - invalid generated baselines should become evaluator feedback.
@@ -1204,7 +1235,50 @@ def baseline_semantic_direction_plan(context_packet_path: Path) -> dict[str, Any
         "strategy_type": "baseline_constructor",
         "hypothesis": str(loaded.get("hypothesis") or "Generate a legal standalone baseline solver.")[:1200],
         "knowledge_paths": list(loaded.get("auto_knowledge_cards") or [])[:12],
+        "method_package_id": (
+            (loaded.get("active_method_package") or {}).get("package_id")
+            or (loaded.get("method_package_catalog") or {}).get("recommended_package_id")
+        ),
     }
+
+
+def plan_agent_generated_baseline_direction(
+    *,
+    planner: DirectionPlanningAgent,
+    context_packet_path: Path,
+    output_dir: Path,
+) -> dict[str, Any]:
+    feedback = {
+        "round_type": "agent_generated_baseline",
+        "baseline_source": "agent_generated",
+        "instructions": [
+            "Choose one compatible method package before the Coding Agent writes the initial solver.",
+            "Generate from active IO and requirements; do not copy instance-specific schedules or scores.",
+        ],
+    }
+    try:
+        return planner.plan_direction(
+            DirectionPlanRequest(
+                round_index=-1,
+                context_packet_path=context_packet_path,
+                loop_feedback=feedback,
+                output_dir=output_dir,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - baseline planning must retain deterministic fallback.
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "planner_exception.txt").write_text(
+            "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+            encoding="utf-8",
+        )
+        return EvidenceDrivenMainAgent().plan_direction(
+            DirectionPlanRequest(
+                round_index=-1,
+                context_packet_path=context_packet_path,
+                loop_feedback=feedback,
+                output_dir=output_dir,
+            )
+        )
 
 
 def prepare_agent_generated_baseline_source_project(
@@ -1289,6 +1363,7 @@ def write_baseline_generation_context_packet(
     output_path: Path,
     hidden_incumbent_files: list[str] | None = None,
     current_round_repair: dict[str, Any] | None = None,
+    direction_plan: dict[str, Any] | None = None,
 ) -> Path:
     loaded_packet = load_context_packet(base_context_packet_path)
     packet = loaded_packet.effective_context
@@ -1310,13 +1385,24 @@ def write_baseline_generation_context_packet(
             "If that entrypoint file does not exist in this baseline worktree, use create_or_replace with full file content; do not use text_replace or insert anchors against a nonexistent file.",
             "Reuse fixed parser/evaluator helper APIs when the context exposes them.",
             "Treat LB/UB/BKS as diagnostics only; optimize the declared objective.",
-            "Do not claim AWLS, N7/N8, NK, k-insertion, critical-block, or tabu as implemented baseline methods unless the generated code truly implements the named executable structures. Prefer an honest legal ready-list/multi-start baseline; add strong neighborhoods only after Core promotes an incumbent.",
+            "When a method package is selected, preserve its executable decoder, neighborhood, tabu, adaptive-search, and diversification structure; do not reduce it to a ready-list-only solver.",
         ],
         "hidden_incumbent_files": hidden_incumbent_files or [],
     }
+    if direction_plan:
+        refreshed["loop_feedback"] = {
+            "round_index": "agent_generated_baseline",
+            "current_direction_plan": direction_plan,
+            "instructions": [
+                "Implement the selected method package against the active IO and solver contract.",
+                "Do not blend a second method family into this baseline direction.",
+            ],
+        }
+        activate_method_package_context(refreshed, direction_plan=direction_plan)
     if current_round_repair:
         refreshed["loop_feedback"] = {
             "round_index": "agent_generated_baseline",
+            "current_direction_plan": direction_plan or {},
             "current_round_repair": current_round_repair,
             "instructions": [
                 "This is an in-baseline repair attempt. The worktree starts from the previous baseline-generation candidate; repair that candidate before Core measures baseline.",
@@ -1336,8 +1422,8 @@ def write_baseline_generation_context_packet(
     worker_instruction["baseline_generation_rule"] = (
         "The first measured baseline must come from worker-written code, not from an existing incumbent solver. "
         "During baseline generation or repair, missing solver entrypoints require create_or_replace with full content. "
-        "Baseline proposals should not advertise critical-block, tabu, AWLS, N7/N8/NK, or k-insertion unless those "
-        "structures are present in reachable code; use a legal operation-level ready-list baseline first."
+        "If a method package is active, adapt its complete implementation structure to the active IO and CLI. "
+        "Do not claim critical-block, tabu, AWLS, N7/N8/NK, or k-insertion unless those structures are reachable."
     )
     refreshed["worker_instruction"] = worker_instruction
     hypothesis = str(refreshed.get("hypothesis") or "")

@@ -435,6 +435,10 @@ Return JSON only with this schema:
 
 Rules:
 - Maximum internal reasoning/edit steps requested by Core: {max_steps}.
+- Do not ask the coding runtime to run formal benchmarks, the evaluator command,
+  multiple seeds, repeated solver trials, parameter sweeps, or the full test
+  suite. The worker quick_test_plan is limited to one compile check and one
+  fixed-seed short smoke; Core owns formal evaluation.
 - Only propose edits under edit_policy.allowed_paths.
 - Never propose edits under edit_policy.forbidden_paths or .git/outputs.
 - Prefer `text_replace` or `insert_after` for existing solver files. Use
@@ -564,6 +568,9 @@ Rules:
 - If Priority context contains `loop_feedback.current_direction_plan`, treat it
   as the Main Agent experiment contract. Translate that plan into code evidence;
   do not replace it with an unrelated worker-authored algorithm direction.
+- If Priority context contains `active_method_package`, adapt only that package
+  in this direction. Read the implementation asset and behavior contract, keep
+  the executable method structure, and do not combine unrelated method families.
 - If previous_pipeline_memory.operator_guidance is present, use its must_do,
   preserve, mutate, and avoid lists when forming rule_operator_hypotheses and
   novelty statements.
@@ -864,15 +871,21 @@ def priority_worker_context(context: dict[str, Any]) -> str:
             "decoded-candidate rejection, or post-move coverage guard will be rejected even if evaluator smoke passes."
         )
     else:
-        method_scope_rule = (
-            "This is baseline generation, not a promoted-incumbent improvement round. First produce a legal, "
-            "IO-derived standalone solver with parser, operation-level ready-list construction, full schedule "
-            "coverage, eligibility, duration, precedence, non-overlap, bounded runtime, and JSON output. Do not "
-            "claim or cite AWLS, N7/N8, NK, k-insertion, critical-block, or tabu as implemented baseline methods "
-            "unless the baseline code truly contains the executable structures named by those methods. Prefer an "
-            "honest ready-list/multi-start constructive baseline over unsupported strong-neighborhood wording; "
-            "strong local-search operators should be added only after Core promotes a legal generated incumbent."
-        )
+        if context.get("active_method_package"):
+            method_scope_rule = (
+                "This is baseline generation with one active method package. Adapt the package's complete, "
+                "reachable implementation structure to the active IO, standalone CLI, output schema, and shared "
+                "deadline. Keep parser/coverage/eligibility/precedence/non-overlap validation, but do not collapse "
+                "the selected decoder, structured neighborhoods, tabu/aspiration, adaptive search, or "
+                "diversification into a ready-list-only baseline. Every named method must still have reachable code."
+            )
+        else:
+            method_scope_rule = (
+                "This is baseline generation without an active method package. Produce a legal IO-derived "
+                "standalone solver with parser, operation-level ready-list construction, full coverage, "
+                "eligibility, duration, precedence, non-overlap, bounded runtime, and JSON output. Do not claim "
+                "strong neighborhoods unless their executable structures exist."
+            )
     payload = {
         "round_type": "improvement_round" if is_improvement_round else "baseline_or_single_round",
         "iteration_edit_contract": context.get("iteration_edit_contract") or {},
@@ -976,6 +989,7 @@ def priority_worker_context(context: dict[str, Any]) -> str:
             limit=priority_knowledge_card_limit(context),
             max_chars_per_card=PRIORITY_KNOWLEDGE_CARD_MAX_CHARS,
         ),
+        "active_method_package": context.get("active_method_package") or {},
         "knowledge_use_rule": (
             "Use priority_knowledge_cards after reading the incumbent_code_context and loop_feedback. "
             "The current code and failed anchors are authoritative for patch shape; RAG cards only guide "
@@ -1766,6 +1780,12 @@ def compact_priority_knowledge_cards(
     agent_generated_mode = "agent_generated" in query_terms
     sdst_active = _context_sequence_dependent_setup_active(context)
     operator_stage_active = bool(operator_improvement_stage_for_worker(context).get("active"))
+    active_package = context.get("active_method_package") if isinstance(context.get("active_method_package"), dict) else {}
+    package_asset_paths = {
+        str(value).replace("\\", "/").lower()
+        for value in active_package.get("assets") or []
+        if str(value).strip()
+    }
 
     def card_score(card: dict[str, Any]) -> int:
         path = str(card.get("path") or "").lower()
@@ -1780,6 +1800,8 @@ def compact_priority_knowledge_cards(
         ):
             return -10000
         score = 0
+        if path.replace("\\", "/") in package_asset_paths:
+            score += 1200
         for term in query_terms:
             if term and term in normalized_haystack:
                 score += 4
@@ -1867,6 +1889,14 @@ def compact_priority_knowledge_cards(
             }
         )
         seen_paths.add(path)
+
+    for package_path in package_asset_paths:
+        for card in typed_cards:
+            if str(card.get("path") or "").replace("\\", "/").lower() == package_path:
+                append_card(card)
+                break
+        if len(selected) >= limit:
+            break
 
     if operator_stage_active:
         for marker in forced_operator_stage_card_markers(context):
@@ -2091,13 +2121,19 @@ def _knowledge_query_terms(context: dict[str, Any]) -> set[str]:
             add_text(instance.get("id"))
             add_text(instance.get("path"))
 
-    capability = context.get("problem_family_capability")
-    if isinstance(capability, dict):
-        for key in ("supported_variants", "knowledge_tags", "specialization_hooks"):
-            for item in capability.get(key) or []:
-                if not sdst_active and _mentions_sdst_feature(str(item)):
-                    continue
-                add_text(item)
+    package = context.get("active_method_package")
+    if isinstance(package, dict):
+        add_text(package.get("package_id"))
+        add_text(package.get("title"))
+        add_text(package.get("description"))
+        for item in package.get("strategy_types") or []:
+            add_text(item)
+
+    feedback = context.get("loop_feedback") if isinstance(context.get("loop_feedback"), dict) else {}
+    direction_plan = feedback.get("current_direction_plan") if isinstance(feedback.get("current_direction_plan"), dict) else {}
+    add_text(direction_plan.get("strategy_type"))
+    add_text(direction_plan.get("hypothesis"))
+    add_text(direction_plan.get("method_package_id"))
 
     evaluator_protocol = context.get("evaluator_protocol")
     if isinstance(evaluator_protocol, dict):

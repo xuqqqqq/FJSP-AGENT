@@ -188,7 +188,7 @@ class DeepSeekAlgorithmSemanticReviewer:
             )
             return AlgorithmSemanticReviewResult(
                 status="unavailable",
-                accepted=True,
+                accepted=False,
                 summary=f"Semantic reviewer unavailable: {exc}",
                 findings=[],
                 reviewed_files=[],

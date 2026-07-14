@@ -25,6 +25,7 @@ from .graph_runner import GraphHarnessRunner
 from .health_check import HealthCheckRequest, run_health_check
 from .intent_alignment import IntentAlignmentRequest, write_intent_alignment
 from .loop_runner import DEFAULT_IN_ROUND_REPAIR_ATTEMPTS, run_worker_loop
+from .main_agent import DeepSeekMainAgent, EvidenceDrivenMainAgent
 from .models import TaskContract
 from .semantic_review import DeepSeekAlgorithmSemanticReviewer
 from .project_intake import ProjectIntakeRequest, write_project_intake
@@ -1371,6 +1372,11 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
         and is_deepseek_configured()
         else None
     )
+    main_agent = (
+        DeepSeekMainAgent(model=args.deepseek_model)
+        if is_deepseek_configured()
+        else EvidenceDrivenMainAgent()
+    )
     manifest = run_standard_worker_loop(
         StandardWorkerLoopRequest(
             docs=args.doc,
@@ -1380,6 +1386,7 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
             output_dir=args.output_dir,
             project_root=args.project_root,
             worker=worker,
+            main_agent=main_agent,
             semantic_reviewer=semantic_reviewer,
             best_known_csv=args.best_known_csv,
             slot_manifest=args.slot_manifest,

@@ -1170,6 +1170,9 @@ def compact_experience_memory_signal(memory: dict[str, Any]) -> dict[str, Any]:
     lessons = tiers.get("candidate_lessons")
     if not isinstance(lessons, list):
         lessons = []
+    validated = tiers.get("validated_lessons")
+    if not isinstance(validated, list):
+        validated = []
     return {
         "schema_version": memory.get("schema_version"),
         "write_policy": memory.get("write_policy") or {},
@@ -1180,10 +1183,25 @@ def compact_experience_memory_signal(memory: dict[str, Any]) -> dict[str, Any]:
                 "lesson_type": item.get("lesson_type"),
                 "strategy": item.get("strategy"),
                 "strategy_type": item.get("strategy_type"),
+                "method_package_id": item.get("method_package_id"),
                 "outcome": item.get("outcome"),
                 "confidence": item.get("confidence"),
             }
             for item in lessons[-10:]
+            if isinstance(item, dict)
+        ],
+        "validated_lesson_count": len(validated),
+        "validated_lessons": [
+            {
+                "lesson_id": item.get("lesson_id"),
+                "lesson_type": item.get("lesson_type"),
+                "strategy": item.get("strategy"),
+                "strategy_type": item.get("strategy_type"),
+                "method_package_id": item.get("method_package_id"),
+                "outcome": item.get("outcome"),
+                "confidence": item.get("confidence"),
+            }
+            for item in validated[-10:]
             if isinstance(item, dict)
         ],
         "self_evolution_metrics": memory.get("self_evolution_metrics") or {},

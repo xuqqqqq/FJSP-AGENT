@@ -1201,9 +1201,8 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("generated_solver_call_flow_rule", prompt_context)
         self.assertIn("A helper that is only defined or cited", prompt_context)
         self.assertIn("baseline_or_single_round", prompt_context)
-        self.assertIn("This is baseline generation, not a promoted-incumbent improvement round", prompt_context)
-        self.assertIn("Do not claim or cite AWLS", prompt_context)
-        self.assertIn("honest ready-list/multi-start constructive baseline", prompt_context)
+        self.assertIn("baseline generation without an active method package", prompt_context)
+        self.assertIn("Do not claim strong neighborhoods", prompt_context)
         self.assertIn("Do not preserve a nonexistent incumbent", prompt_context)
         self.assertNotIn("Preserve the current promoted incumbent", prompt_context)
 

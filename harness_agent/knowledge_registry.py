@@ -32,6 +32,62 @@ class KnowledgeSelection:
     audit: dict[str, Any]
 
 
+def method_package_catalog(
+    *,
+    problem_family: str,
+    active_features: list[str] | None = None,
+) -> dict[str, Any]:
+    """Return only method packages compatible with the active task features."""
+
+    pack = get_domain_pack(problem_family)
+    if pack is None:
+        return {
+            "status": "missing_domain_pack",
+            "problem_family": problem_family,
+            "packages": [],
+            "recommended_package_id": None,
+        }
+    features = {str(item).strip().lower() for item in active_features or [] if str(item).strip()}
+    packages = []
+    for package in pack.method_packages:
+        required = {str(item).strip().lower() for item in package.required_features if str(item).strip()}
+        excluded = {str(item).strip().lower() for item in package.excluded_features if str(item).strip()}
+        if required - features or excluded & features:
+            continue
+        packages.append(package.to_payload())
+    packages.sort(key=lambda item: (-int(item.get("default_priority") or 0), str(item.get("package_id") or "")))
+    return {
+        "status": "ok",
+        "problem_family": problem_family,
+        "active_features": sorted(features),
+        "packages": packages,
+        "recommended_package_id": packages[0]["package_id"] if packages else None,
+    }
+
+
+def resolve_method_package(
+    *,
+    problem_family: str,
+    package_id: str | None,
+    active_features: list[str] | None = None,
+) -> dict[str, Any] | None:
+    catalog = method_package_catalog(problem_family=problem_family, active_features=active_features)
+    packages = [item for item in catalog.get("packages") or [] if isinstance(item, dict)]
+    requested = str(package_id or "").strip().lower()
+    for package in packages:
+        if str(package.get("package_id") or "").strip().lower() == requested:
+            return package
+    recommended = str(catalog.get("recommended_package_id") or "").strip().lower()
+    return next(
+        (
+            package
+            for package in packages
+            if str(package.get("package_id") or "").strip().lower() == recommended
+        ),
+        None,
+    )
+
+
 def auto_knowledge_cards(
     *,
     problem_family: str,

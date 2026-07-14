@@ -735,6 +735,24 @@ class SequencedSemanticReviewer:
         )
 
 
+class UnavailableSemanticReviewer:
+    def __init__(self) -> None:
+        self.requests = []
+
+    def review(self, request) -> AlgorithmSemanticReviewResult:  # noqa: ANN001 - protocol-compatible test double.
+        self.requests.append(request)
+        return AlgorithmSemanticReviewResult(
+            status="unavailable",
+            accepted=False,
+            summary="Provider unavailable.",
+            findings=[],
+            reviewed_files=[],
+            knowledge_paths=[],
+            reviewer="unavailable_test_reviewer",
+            artifacts={},
+        )
+
+
 class EmptySlotProposalWorker:
     """Test worker that emits an empty confirmed-slot proposal without risk notes."""
 
@@ -1580,6 +1598,9 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual(1, semantic_memory["repair_required_attempt_count"])
             self.assertEqual(1, semantic_memory["recovered_direction_count"])
             self.assertIn("reverse_move_memory", semantic_memory["recurring_categories"][0]["text"])
+            validated = loop_payload["experience_memory"]["memory_tiers"]["validated_lessons"]
+            self.assertEqual(1, len(validated))
+            self.assertEqual("core_and_semantic_validated", validated[0]["confidence"])
 
     def test_semantic_review_exhaustion_rolls_back_even_when_objective_improves(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1615,7 +1636,44 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertIn("algorithm_semantic_review_repair_required", failure_memory["must_avoid"])
             self.assertNotIn("legal_but_not_strictly_better", failure_memory["must_avoid"])
 
-    def test_legal_no_improvement_refines_inside_same_direction(self) -> None:
+    def test_semantic_review_unavailable_blocks_promotion_without_code_repair(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+            worker = PromotingProposalWorker()
+            reviewer = UnavailableSemanticReviewer()
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=worker,
+                semantic_reviewer=reviewer,
+                experiment_id="test_semantic_unavailable",
+                iterations=1,
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+                in_round_repair_attempts=2,
+            )
+
+            self.assertEqual(1, len(reviewer.requests))
+            self.assertEqual("rolled_back", result.rounds[0].decision)
+            self.assertEqual(
+                "algorithm_semantic_review_unavailable",
+                result.rounds[0].promotion_check["reason"],
+            )
+            self.assertNotIn("in_round_repair", result.rounds[0].proposal_diagnostics)
+            memory = json.loads((tmp_path / "loop" / "experience_memory.json").read_text(encoding="utf-8"))
+            self.assertEqual([], memory["memory_tiers"]["validated_lessons"])
+            self.assertEqual(
+                0,
+                memory.get("algorithm_semantic_memory", {}).get("repair_required_attempt_count", 0),
+            )
+
+    def test_legal_no_improvement_rolls_back_without_spending_repair_budget(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
@@ -1636,19 +1694,14 @@ class WorkerLoopTests(unittest.TestCase):
                 in_round_repair_attempts=1,
             )
 
-            self.assertEqual(2, worker.calls)
-            self.assertTrue(worker.saw_refinement_feedback)
-            self.assertEqual(["promoted"], [item.decision for item in result.rounds])
-            repair = result.rounds[0].proposal_diagnostics["in_round_repair"]
-            self.assertIn("legal_but_not_strictly_better", repair["attempts"][0]["failure_signatures"])
-
-            repair_context = json.loads(
-                (tmp_path / "loop" / "round_000" / "repair_001" / "context_packet.json").read_text(encoding="utf-8")
-            )
-            self.assertEqual("refinement_required", repair_context["loop_feedback"]["current_round_repair"]["status"])
+            self.assertEqual(1, worker.calls)
+            self.assertFalse(worker.saw_refinement_feedback)
+            self.assertEqual(["rolled_back"], [item.decision for item in result.rounds])
+            self.assertNotIn("in_round_repair", result.rounds[0].proposal_diagnostics)
+            self.assertFalse((tmp_path / "loop" / "round_000" / "repair_001").exists())
             loop_result = json.loads((tmp_path / "loop" / "loop_result.json").read_text(encoding="utf-8"))
             self.assertEqual(1, loop_result["hypothesis_graph"]["direction_count"])
-            self.assertEqual(2, loop_result["hypothesis_graph"]["attempt_count"])
+            self.assertEqual(1, loop_result["hypothesis_graph"]["attempt_count"])
             self.assertTrue(loop_result["experience_memory"]["memory_tiers"]["candidate_lessons"])
 
     def test_current_round_repair_feedback_carries_quality_targets(self) -> None:

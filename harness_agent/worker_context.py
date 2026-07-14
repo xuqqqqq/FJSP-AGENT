@@ -24,6 +24,7 @@ def worker_context_sections(context: dict[str, Any]) -> dict[str, str]:
         "agent_generated_solver_quality_contract": build_agent_generated_solver_quality_contract(context),
         "incumbent_code_context": context.get("incumbent_code_context") or {},
         "loop_feedback": context.get("loop_feedback") or {},
+        "active_method_package": context.get("active_method_package") or {},
         "active_knowledge_paths": [
             str(item)
             for item in context.get("auto_knowledge_cards") or []

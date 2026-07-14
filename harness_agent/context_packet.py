@@ -16,7 +16,7 @@ from .context_compaction import (
 )
 from .context_loader import load_context_packet
 from .domain_context import get_domain_context_provider
-from .knowledge_registry import select_knowledge_cards
+from .knowledge_registry import method_package_catalog, resolve_method_package, select_knowledge_cards
 from .models import TaskContract
 from .problem_families import get_problem_family
 from .slot_contract import ResolvedCodeSlot
@@ -80,8 +80,11 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
     )
     contract_review_evidence = _contract_review_payload(contract.review)
     problem_family_capability = get_problem_family(contract.problem_family).to_payload()
-    problem_family_tags = list(problem_family_capability.get("knowledge_tags") or [])
-    if _uses_agent_generated_solver(contract):
+    agent_generated_solver = _uses_agent_generated_solver(contract)
+    problem_family_tags = (
+        [] if agent_generated_solver else list(problem_family_capability.get("knowledge_tags") or [])
+    )
+    if agent_generated_solver:
         problem_family_tags.append("agent_generated_solver")
     active_features = domain_context_provider.active_features(
         contract=contract,
@@ -96,6 +99,20 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         active_features=active_features,
     )
     auto_cards = knowledge_selection.cards
+    package_catalog = (
+        method_package_catalog(
+            problem_family=contract.problem_family,
+            active_features=active_features,
+        )
+        if agent_generated_solver
+        else {
+            "status": "not_applicable",
+            "problem_family": contract.problem_family,
+            "active_features": active_features,
+            "packages": [],
+            "recommended_package_id": None,
+        }
+    )
     knowledge_card_paths = _unique_paths([*request.knowledge_cards, *auto_cards])
     knowledge_cards = [_source_payload(path, request.max_chars_per_source) for path in knowledge_card_paths]
     required_order = [
@@ -133,7 +150,7 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         if previous_pipeline_memory.get("experience_memory_signal"):
             required_order.insert(
                 2,
-                "Use previous_pipeline_memory.experience_memory_signal as candidate lessons only; do not treat them as curated skills.",
+                "Use validated lessons from previous_pipeline_memory.experience_memory_signal as reusable method evidence; keep candidate lessons provisional.",
             )
     packet = {
         "packet_type": "algoforge_context_packet",
@@ -173,8 +190,21 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
             "resources": {key: str(value) for key, value in contract.resources.items()},
             "formal_verdict_owner": "AlgoForge Core",
             "worker_self_evaluation_policy": (
-                "Worker may run quick tests and evaluator self-checks, but final success is decided only by Core."
+                "Worker may compile changed code and run one fixed-seed short smoke only; formal evaluator, "
+                "multi-seed, repeated, and benchmark runs belong exclusively to Core."
             ),
+            "worker_execution_budget": {
+                "compile_runs": 1,
+                "smoke_runs": 1,
+                "smoke_seed": contract.budget.seeds[0] if contract.budget.seeds else 0,
+                "smoke_timeout_seconds": min(10, max(5, contract.budget.timeout_seconds)),
+                "forbidden": [
+                    "multi-seed evaluation",
+                    "formal benchmark command",
+                    "full test suite",
+                    "repeated evaluator runs",
+                ],
+            },
         },
         "edit_policy": {
             "allowed_paths": contract.paths.allowed_paths,
@@ -195,6 +225,7 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         "knowledge_cards": knowledge_cards,
         "auto_knowledge_cards": [str(path) for path in auto_cards],
         "knowledge_selection": knowledge_selection.audit,
+        "method_package_catalog": package_catalog,
         "previous_report": previous_report,
         "previous_pipeline_memory": previous_pipeline_memory,
     }
@@ -270,6 +301,14 @@ def write_refreshed_context_packet(
         refreshed["incumbent_code_context"] = incumbent_code_context
     compacted_feedback = compact_json(loop_feedback, max_chars=ROUND_FEEDBACK_MAX_CHARS)
     refreshed["loop_feedback"] = compacted_feedback.payload
+    activate_method_package_context(
+        refreshed,
+        direction_plan=(
+            loop_feedback.get("current_direction_plan")
+            if isinstance(loop_feedback.get("current_direction_plan"), dict)
+            else None
+        ),
+    )
     refreshed["hypothesis"] = _improvement_round_hypothesis(str(refreshed.get("hypothesis") or ""))
     if project_root is not None:
         refreshed["slot_manifest"] = _refresh_slot_manifest_sources(
@@ -325,6 +364,75 @@ def write_refreshed_context_packet(
         output_text = json.dumps(refreshed, ensure_ascii=False, indent=2) + "\n"
     output_path.write_text(output_text, encoding="utf-8")
     return output_path
+
+
+def activate_method_package_context(
+    context: dict[str, Any],
+    *,
+    direction_plan: dict[str, Any] | None,
+    max_chars_per_asset: int = 16000,
+) -> dict[str, Any] | None:
+    """Attach one selected method package to a worker context."""
+
+    task = context.get("task") if isinstance(context.get("task"), dict) else {}
+    catalog = (
+        context.get("method_package_catalog")
+        if isinstance(context.get("method_package_catalog"), dict)
+        else {}
+    )
+    if catalog.get("status") != "ok" or not catalog.get("packages"):
+        context.pop("active_method_package", None)
+        return None
+    active_features = [str(item) for item in catalog.get("active_features") or []]
+    requested_id = str((direction_plan or {}).get("method_package_id") or "").strip()
+    package = resolve_method_package(
+        problem_family=str(task.get("problem_family") or ""),
+        package_id=requested_id,
+        active_features=active_features,
+    )
+    if not package:
+        context.pop("active_method_package", None)
+        return None
+
+    asset_paths = [Path(str(value)) for value in package.get("assets") or [] if str(value).strip()]
+    existing_cards = [item for item in context.get("knowledge_cards") or [] if isinstance(item, dict)]
+    by_path = {str(item.get("path") or ""): item for item in existing_cards if str(item.get("path") or "")}
+    package_cards: list[dict[str, Any]] = []
+    for asset_path in asset_paths:
+        key = str(asset_path)
+        card = by_path.get(key) or _source_payload(asset_path, max_chars_per_asset)
+        by_path[key] = card
+        package_cards.append(card)
+    context["knowledge_cards"] = list(by_path.values())
+    context["auto_knowledge_cards"] = _unique_strings(
+        [
+            *(str(item) for item in context.get("auto_knowledge_cards") or []),
+            *(str(path) for path in asset_paths),
+        ]
+    )
+    context["active_method_package"] = {
+        **package,
+        "requested_package_id": requested_id or None,
+        "selection": "requested" if requested_id == package.get("package_id") else "recommended_fallback",
+        "asset_records": package_cards,
+        "worker_rule": (
+            "Adapt this one package to the active IO and solver contract. Do not blend in a second algorithm "
+            "family during the same direction. Preserve executable method structure and verify behavior."
+        ),
+    }
+    return context["active_method_package"]
+
+
+def _unique_strings(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        text = str(value).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
 
 
 def _improvement_round_hypothesis(base_hypothesis: str) -> str:
@@ -586,6 +694,9 @@ def _pipeline_memory_payload(path: Path) -> dict[str, Any]:
         exists = False
         error = str(exc)
 
+    raw_experience_signal = _raw_experience_memory_signal(memory)
+    experience_signal = memory.get("experience_memory_signal") or raw_experience_signal
+
     return {
         "path": str(path),
         "exists": exists,
@@ -598,7 +709,7 @@ def _pipeline_memory_payload(path: Path) -> dict[str, Any]:
         "worker_signal": _compact_worker_signal(memory.get("worker_signal") or {}),
         "operator_lineage_signal": _compact_operator_lineage_signal(memory.get("operator_lineage_signal") or {}),
         "direction_graph_signal": _compact_direction_graph_signal(memory.get("direction_graph_signal") or {}),
-        "experience_memory_signal": _compact_experience_memory_signal(memory.get("experience_memory_signal") or {}),
+        "experience_memory_signal": _compact_experience_memory_signal(experience_signal),
         "skill_usage_signal": memory.get("skill_usage_signal") or {},
         "operator_guidance": _operator_guidance_from_memory(memory),
         "evidence_signal": memory.get("evidence_signal") or {},
@@ -632,9 +743,32 @@ def _compact_experience_memory_signal(signal: dict[str, Any]) -> dict[str, Any]:
         "write_policy": signal.get("write_policy") or {},
         "candidate_lesson_count": signal.get("candidate_lesson_count", 0),
         "candidate_lessons": _compact_lesson_records(signal.get("candidate_lessons") or [], limit=10),
+        "candidate_lessons_withheld": bool(signal.get("candidate_lessons_withheld")),
+        "validated_lesson_count": signal.get("validated_lesson_count", 0),
+        "validated_lessons": _compact_lesson_records(signal.get("validated_lessons") or [], limit=10),
         "self_evolution_metrics": signal.get("self_evolution_metrics") or {},
         "algorithm_semantic_memory": signal.get("algorithm_semantic_memory") or {},
         "next_context_guidance": (signal.get("next_context_guidance") or [])[:8],
+    }
+
+
+def _raw_experience_memory_signal(memory: dict[str, Any]) -> dict[str, Any]:
+    tiers = memory.get("memory_tiers") if isinstance(memory.get("memory_tiers"), dict) else {}
+    if not tiers:
+        return {}
+    candidate = [item for item in tiers.get("candidate_lessons") or [] if isinstance(item, dict)]
+    validated = [item for item in tiers.get("validated_lessons") or [] if isinstance(item, dict)]
+    return {
+        "schema_version": memory.get("schema_version"),
+        "write_policy": memory.get("write_policy") or {},
+        "candidate_lesson_count": len(candidate),
+        "candidate_lessons": [],
+        "candidate_lessons_withheld": bool(candidate),
+        "validated_lesson_count": len(validated),
+        "validated_lessons": validated,
+        "self_evolution_metrics": memory.get("self_evolution_metrics") or {},
+        "algorithm_semantic_memory": memory.get("algorithm_semantic_memory") or {},
+        "next_context_guidance": memory.get("next_context_guidance") or [],
     }
 
 
@@ -651,6 +785,7 @@ def _compact_direction_records(records: list[Any], *, limit: int) -> list[dict[s
                 "status": item.get("status"),
                 "decision": item.get("decision"),
                 "strategy_type": item.get("strategy_type"),
+                "method_package_id": item.get("method_package_id"),
                 "attempt_count": item.get("attempt_count"),
             }
         )
@@ -670,6 +805,7 @@ def _compact_lesson_records(records: list[Any], *, limit: int) -> list[dict[str,
                 "lesson_type": item.get("lesson_type"),
                 "strategy": str(item.get("strategy") or "")[:160],
                 "strategy_type": item.get("strategy_type"),
+                "method_package_id": item.get("method_package_id"),
                 "outcome": item.get("outcome"),
                 "confidence": item.get("confidence"),
             }

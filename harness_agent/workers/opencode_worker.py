@@ -131,10 +131,20 @@ Task:
 - Do not edit forbidden paths such as .git or outputs.
 - Do not claim benchmark success. The harness will snapshot the worktree, run
   the fixed evaluator, and decide whether this candidate is promoted.
+- Worker execution is intentionally narrow. You may run one compile check and
+  at most one fixed-seed short smoke using the first active instance. Do not run
+  the formal evaluator command, any benchmark command, multiple seeds, repeated
+  solver trials, the full test suite, or parameter sweeps. Core owns all formal
+  and multi-seed evaluation.
 - Prefer a complete, reversible solver improvement over broad rewrites.
 - Treat `loop_feedback.current_direction_plan` as the Main Agent experiment
   contract. Implement that direction and keep same-direction repairs inside its
   change scope instead of switching to an unrelated method.
+- When `active_method_package` is present, read its assets and adapt that one
+  package to the active IO/CLI. Preserve its executable decoder, neighborhood,
+  tabu/aspiration, adaptive-search, and diversification structure. Do not blend
+  a second method family into the same direction or reduce the package to a
+  random hill climber while retaining the stronger method name.
 - If the priority context says `agent_generated_solver_quality_contract.enabled`
   is true, create or edit the standalone solver entrypoint referenced by the
   context packet's `evaluator_protocol.solver_command_template`. The code must

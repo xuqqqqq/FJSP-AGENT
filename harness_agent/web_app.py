@@ -19,6 +19,7 @@ from .awls_zi_evolution import AwlsZiEvolutionRequest, run_awls_zi_evolution
 from .deepseek_client import is_deepseek_configured, load_local_env, local_env_candidates, normalize_deepseek_model
 from .demo import StandardDemoRequest, run_standard_demo
 from .loop_runner import DEFAULT_IN_ROUND_REPAIR_ATTEMPTS
+from .knowledge_registry import method_package_catalog
 from .main_agent import DeepSeekMainAgent, EvidenceDrivenMainAgent
 from .semantic_review import DeepSeekAlgorithmSemanticReviewer
 from .slot_contract import ResolvedCodeSlot
@@ -892,6 +893,67 @@ def inspect_instance_profile(instance_path: Path) -> dict[str, Any]:
     return profile
 
 
+def latest_compatible_experience_memory(job: dict[str, Any]) -> Path | None:
+    """Return the newest same-variant memory containing semantic-validated lessons."""
+
+    config = job.get("config") if isinstance(job.get("config"), dict) else {}
+    profile = config.get("instance_profile") if isinstance(config.get("instance_profile"), dict) else {}
+    expected_format = str(profile.get("format") or "").strip()
+    if not expected_format:
+        return None
+    expected_sdst = bool(profile.get("has_sequence_dependent_setup"))
+    expected_features = ["fjsp_sdst", "sequence_dependent_setup", "setup_time"] if expected_sdst else []
+    expected_package_id = str(
+        method_package_catalog(problem_family="FJSP", active_features=expected_features).get(
+            "recommended_package_id"
+        )
+        or ""
+    )
+    candidates: list[tuple[float, Path]] = []
+    with _LOCK:
+        jobs = [dict(item) for item in _JOBS.values()]
+    for previous in jobs:
+        if previous.get("id") == job.get("id"):
+            continue
+        if str(previous.get("status") or "") not in {"completed", "completed_with_warnings"}:
+            continue
+        previous_config = previous.get("config") if isinstance(previous.get("config"), dict) else {}
+        previous_profile = (
+            previous_config.get("instance_profile")
+            if isinstance(previous_config.get("instance_profile"), dict)
+            else {}
+        )
+        if bool(previous_profile.get("has_sequence_dependent_setup")) != expected_sdst:
+            continue
+        if str(previous_profile.get("format") or "").strip() != expected_format:
+            continue
+        if previous_config.get("baseline_source") != "agent_generated":
+            continue
+        memory_path = (
+            Path(str(previous.get("job_dir") or ""))
+            / "run"
+            / "standard_worker_loop"
+            / "worker_loop"
+            / "experience_memory.json"
+        )
+        if not memory_path.is_file():
+            continue
+        memory = read_json_file(memory_path)
+        tiers = memory.get("memory_tiers") if isinstance(memory.get("memory_tiers"), dict) else {}
+        validated = [item for item in tiers.get("validated_lessons") or [] if isinstance(item, dict)]
+        validated_package_ids = {
+            str(item.get("method_package_id") or "").strip()
+            for item in validated
+            if str(item.get("method_package_id") or "").strip()
+        }
+        if not validated or not expected_package_id or expected_package_id not in validated_package_ids:
+            continue
+        candidates.append((memory_path.stat().st_mtime, memory_path.resolve()))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: item[0])[1]
+
+
 def effective_awls_time_limit_for_web(config: dict[str, Any], instance_path: Path) -> float:
     request = AwlsBenchmarkRequest(
         instance_dir=instance_path.parent,
@@ -1064,6 +1126,17 @@ def run_job(job_id: str) -> None:
                 and is_deepseek_configured()
                 else None
             )
+            previous_memory_path = (
+                latest_compatible_experience_memory(job)
+                if str(config["baseline_source"]).strip().lower().replace("-", "_") == "agent_generated"
+                else None
+            )
+            if previous_memory_path:
+                append_event(
+                    job,
+                    f"已召回同问题族上一任务的语义验证方法经验：{previous_memory_path}",
+                )
+                write_job_status(job)
             worker_loop_root = output_dir / "standard_worker_loop" / "worker_loop"
             progress_stop = threading.Event()
             progress_thread = threading.Thread(
@@ -1097,6 +1170,7 @@ def run_job(job_id: str) -> None:
                         worker=coding_worker,
                         main_agent=direction_planner,
                         semantic_reviewer=semantic_reviewer,
+                        previous_pipeline_memory=previous_memory_path,
                         slot_manifest=slot_manifest_path,
                         max_instances=1,
                         iterations=config["max_rounds"],

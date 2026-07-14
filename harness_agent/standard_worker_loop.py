@@ -165,6 +165,12 @@ def build_standard_worker_contract_payload(request: StandardWorkerLoopRequest) -
 
     resources: dict[str, str] = {}
     solver = standard_solver_command(request)
+    quick_test = "python -m compileall harness_agent examples"
+    if normalize_baseline_source(request.baseline_source) == "agent_generated":
+        solver_path = str(request.agent_generated_solver_path or "examples/agent_generated_fjsp_solver.py").replace(
+            "\\", "/"
+        )
+        quick_test = f"python -m py_compile {solver_path}"
     evaluator = "python examples/standard_fjsp_evaluator.py --instance {instance} --solution {solution} --metrics {metrics}"
     if request.best_known_csv:
         best_known_csv = resolve_input_path(request.project_root, request.best_known_csv)
@@ -187,7 +193,7 @@ def build_standard_worker_contract_payload(request: StandardWorkerLoopRequest) -
         "commands": {
             "solver": solver,
             "evaluator": evaluator,
-            "quick_test": "python -m compileall harness_agent examples",
+            "quick_test": quick_test,
         },
         "budget": {
             "rounds": 1,

@@ -290,6 +290,7 @@ def summarize_direction_graph(rounds: list[dict[str, Any]]) -> dict[str, Any]:
         diagnostics = _dict(item.get("proposal_diagnostics"))
         hypotheses = _list(diagnostics.get("rule_operator_hypotheses"))
         primary = _dict(hypotheses[0]) if hypotheses else {}
+        direction_plan = _dict(item.get("direction_plan"))
         round_index = _int(item.get("round_index"), default=len(directions))
         direction_id = make_direction_id(round_index, diagnostics)
         decision = str(item.get("decision") or "unknown")
@@ -302,7 +303,9 @@ def summarize_direction_graph(rounds: list[dict[str, Any]]) -> dict[str, Any]:
             "title": direction_title(item, primary),
             "status": status,
             "decision": decision,
-            "strategy_type": str(primary.get("type") or "unknown"),
+            "strategy_type": str(direction_plan.get("strategy_type") or primary.get("type") or "unknown"),
+            "method_package_id": direction_plan.get("method_package_id"),
+            "direction_plan": direction_plan,
             "target_files": _bounded_strings(primary.get("target_files"), limit=12),
             "strategy_intent": _bounded_text(diagnostics.get("strategy_intent"), limit=500),
             "hypotheses": [compact_hypothesis_payload(value) for value in hypotheses[:6] if isinstance(value, dict)],
@@ -375,13 +378,24 @@ def build_experience_memory(
     usage_records = skill_usage_records_from_directions(graph.get("directions") or [])
     quality_memory = agent_generated_quality_memory_from_directions(graph.get("directions") or [])
     semantic_memory = algorithm_semantic_memory_from_directions(graph.get("directions") or [])
+    validated_lessons = [
+        {**lesson, "confidence": "core_and_semantic_validated"}
+        for lesson in candidate_lessons
+        if lesson.get("lesson_type") == "successful_strategy"
+        and any(
+            isinstance(direction, dict)
+            and direction.get("direction_id") == (lesson.get("evidence") or {}).get("direction_id")
+            and direction_semantically_validated(direction)
+            for direction in graph.get("directions") or []
+        )
+    ]
     return {
         "schema_version": 1,
         "purpose": "Run-local learning memory for future context selection; not a curated long-term knowledge write.",
         "write_policy": {
             "raw_notes": "preserve as artifacts only",
             "candidate_lessons": "may be recalled with source evidence",
-            "validated_lessons": "requires repeated success or human review",
+            "validated_lessons": "requires Core promotion plus authoritative semantic pass/warning",
             "curated_skills": "requires explicit promotion outside the worker loop",
             "no_instance_score_as_method": True,
         },
@@ -395,7 +409,7 @@ def build_experience_memory(
                 ],
             },
             "candidate_lessons": candidate_lessons,
-            "validated_lessons": [],
+            "validated_lessons": validated_lessons,
             "curated_skills": [],
         },
         "agent_generated_quality_memory": quality_memory,
@@ -406,6 +420,7 @@ def build_experience_memory(
             "direction_count": graph.get("direction_count", 0),
             "attempt_count": graph.get("attempt_count", 0),
             "candidate_lesson_count": len(candidate_lessons),
+            "validated_lesson_count": len(validated_lessons),
             "skill_usage_record_count": len(usage_records),
             "promoted_direction_count": len(graph.get("promoted_direction_ids") or []),
             "same_direction_recovery_count": sum(
@@ -531,6 +546,10 @@ def make_direction_id(round_index: int, diagnostics: dict[str, Any]) -> str:
 
 
 def direction_title(round_record: dict[str, Any], primary: dict[str, Any]) -> str:
+    direction_plan = _dict(round_record.get("direction_plan"))
+    planned_title = str(direction_plan.get("title") or "").strip()
+    if planned_title:
+        return planned_title[:160]
     name = str(primary.get("name") or "").strip()
     if name:
         return name[:160]
@@ -553,12 +572,16 @@ def direction_status(round_record: dict[str, Any]) -> str:
     if candidate_key and all(value == float("-inf") for value in candidate_key):
         return "strategy_infeasible"
     semantic_review = _dict(round_record.get("semantic_review"))
+    if semantic_review.get("status") == "unavailable":
+        return "semantic_review_unavailable"
     if semantic_review.get("status") == "repair_required" or semantic_review.get("accepted") is False:
         return "semantic_repair_required"
     smoke = _dict(round_record.get("smoke_gate"))
     if smoke and smoke.get("passed") is False:
         return "strategy_infeasible"
     promotion = _dict(round_record.get("promotion_check"))
+    if promotion.get("reason") == "algorithm_semantic_review_unavailable":
+        return "semantic_review_unavailable"
     if promotion.get("reason") == "candidate_not_strictly_better":
         return "no_improvement"
     if promotion.get("reason") == "repeat_objective_not_strictly_better":
@@ -761,7 +784,12 @@ def candidate_lesson_from_direction(
         outcome = "legal_but_not_promoted"
         applicability = ["when a similar idea repeats without strict improvement"]
         contraindications = ["avoid repeating the same tie-break or cosmetic change unchanged"]
-    elif status in {"strategy_infeasible", "worker_failed", "semantic_repair_required"}:
+    elif status in {
+        "strategy_infeasible",
+        "worker_failed",
+        "semantic_repair_required",
+        "semantic_review_unavailable",
+    }:
         lesson_type = "failure_pattern"
         outcome = status
         applicability = ["when similar files, warnings, or failure signatures appear"]
@@ -778,6 +806,7 @@ def candidate_lesson_from_direction(
         "problem_family": problem_family,
         "strategy": strategy[:160],
         "strategy_type": direction.get("strategy_type"),
+        "method_package_id": direction.get("method_package_id"),
         "outcome": outcome,
         "applicability": applicability,
         "contraindications": contraindications,
@@ -808,6 +837,7 @@ def repair_lesson_from_direction(
         "problem_family": problem_family,
         "strategy": str(direction.get("title") or "")[:160],
         "strategy_type": direction.get("strategy_type"),
+        "method_package_id": direction.get("method_package_id"),
         "outcome": "same_direction_attempt_recovered",
         "applicability": [
             "when the first attempt is illegal or legal-but-not-better but carries useful patch evidence",
@@ -861,6 +891,7 @@ def agent_generated_quality_lesson_from_direction(
         "problem_family": problem_family,
         "strategy": str(direction.get("title") or "")[:160],
         "strategy_type": direction.get("strategy_type"),
+        "method_package_id": direction.get("method_package_id"),
         "outcome": "recovered_after_quality_repair" if recovered else "blocked_by_quality_gate",
         "applicability": [
             "when an agent-generated solver is created or evolved from IO and requirement documents",
@@ -924,6 +955,7 @@ def algorithm_semantic_lesson_from_direction(
         "problem_family": problem_family,
         "strategy": str(direction.get("title") or "")[:160],
         "strategy_type": direction.get("strategy_type"),
+        "method_package_id": direction.get("method_package_id"),
         "outcome": (
             "recovered_after_semantic_repair"
             if recovered
@@ -966,6 +998,14 @@ def algorithm_semantic_reviews_from_direction(direction: dict[str, Any]) -> list
         for review in [_dict(attempt.get("algorithm_semantic_review"))]
         if review
     ]
+
+
+def direction_semantically_validated(direction: dict[str, Any]) -> bool:
+    reviews = algorithm_semantic_reviews_from_direction(direction)
+    if not reviews:
+        return False
+    final = reviews[-1]
+    return final.get("status") in {"pass", "warning"} and final.get("accepted") is not False
 
 
 def algorithm_semantic_direction_recovered(direction: dict[str, Any]) -> bool:
@@ -1022,7 +1062,8 @@ def algorithm_semantic_memory_from_directions(directions: list[Any]) -> dict[str
     repair_required_count = sum(
         1
         for review in reviews
-        if review.get("status") == "repair_required" or review.get("accepted") is False
+        if review.get("status") == "repair_required"
+        or (review.get("accepted") is False and review.get("status") != "unavailable")
     )
     warning_count = sum(1 for review in reviews if review.get("status") == "warning")
     return {
@@ -1183,6 +1224,9 @@ def skill_usage_records_from_directions(directions: list[Any]) -> list[dict[str,
             sources.add("knowledge_cards")
         if "loop_feedback" in intent or _list(direction.get("attempts")):
             sources.add("loop_feedback")
+        method_package_id = str(direction.get("method_package_id") or "").strip()
+        if method_package_id:
+            sources.add(f"method_package:{method_package_id}")
         if not sources:
             sources.add("unattributed")
         for source in sorted(sources):
@@ -1194,6 +1238,7 @@ def skill_usage_records_from_directions(directions: list[Any]) -> list[dict[str,
                     "source": source,
                     "source_kind": classify_usage_source(source),
                     "strategy_type": direction.get("strategy_type"),
+                    "method_package_id": method_package_id or None,
                     "outcome": direction.get("status"),
                     "decision": direction.get("decision"),
                     "effect": usage_effect(direction),
@@ -1211,6 +1256,8 @@ def classify_usage_source(source: str) -> str:
     lowered = source.lower()
     if "knowledge" in lowered or "rag" in lowered or lowered.endswith(".md"):
         return "knowledge_card"
+    if lowered.startswith("method_package:"):
+        return "method_package"
     if "skill" in lowered:
         return "skill"
     if "loop_feedback" in lowered or "failure_memory" in lowered or "previous" in lowered:

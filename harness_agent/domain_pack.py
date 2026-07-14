@@ -62,6 +62,34 @@ class DomainEditStrategy:
 
 
 @dataclass(frozen=True)
+class DomainMethodPackage:
+    """One reusable algorithm method package owned by a domain pack."""
+
+    package_id: str
+    title: str
+    description: str = ""
+    strategy_types: list[str] = field(default_factory=list)
+    required_features: list[str] = field(default_factory=list)
+    excluded_features: list[str] = field(default_factory=list)
+    assets: list[Path] = field(default_factory=list)
+    implementation_asset: Path | None = None
+    default_priority: int = 0
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "package_id": self.package_id,
+            "title": self.title,
+            "description": self.description,
+            "strategy_types": list(self.strategy_types),
+            "required_features": list(self.required_features),
+            "excluded_features": list(self.excluded_features),
+            "assets": [str(path) for path in self.assets],
+            "implementation_asset": str(self.implementation_asset) if self.implementation_asset else None,
+            "default_priority": self.default_priority,
+        }
+
+
+@dataclass(frozen=True)
 class DomainPack:
     """External domain assets for one optimization problem family."""
 
@@ -70,6 +98,7 @@ class DomainPack:
     capability: DomainCapability
     base_cards: list[Path] = field(default_factory=list)
     tagged_cards: dict[str, list[Path]] = field(default_factory=dict)
+    method_packages: list[DomainMethodPackage] = field(default_factory=list)
     edit_strategies: list[DomainEditStrategy] = field(default_factory=list)
     semantic_review_cards: list[Path] = field(default_factory=list)
     agent_generated_baseline_preserve_paths: list[str] = field(default_factory=list)
@@ -85,6 +114,13 @@ class DomainPack:
         for strategy in self.edit_strategies:
             if _normalize_key(strategy.name) == normalized:
                 return strategy
+        return None
+
+    def method_package(self, package_id: str) -> DomainMethodPackage | None:
+        normalized = _normalize_key(package_id)
+        for package in self.method_packages:
+            if _normalize_key(package.package_id) == normalized:
+                return package
         return None
 
 
@@ -128,6 +164,11 @@ def load_domain_pack(path: Path, *, project_root: Path = PROJECT_ROOT) -> Domain
         capability=capability,
         base_cards=base_cards,
         tagged_cards=tagged_cards,
+        method_packages=[
+            _load_method_package(value, project_root=project_root)
+            for value in payload.get("method_packages") or []
+            if isinstance(value, dict) and str(value.get("package_id") or "").strip()
+        ],
         edit_strategies=[
             _load_edit_strategy(value, project_root=project_root)
             for value in payload.get("edit_strategies") or []
@@ -213,6 +254,29 @@ def _load_edit_strategy(value: Any, *, project_root: Path) -> DomainEditStrategy
         description=str(payload.get("description") or ""),
         assets=assets,
         options=dict(options),
+    )
+
+
+def _load_method_package(value: dict[str, Any], *, project_root: Path) -> DomainMethodPackage:
+    implementation_value = str(value.get("implementation_asset") or "").strip()
+    return DomainMethodPackage(
+        package_id=str(value.get("package_id") or "").strip(),
+        title=str(value.get("title") or value.get("package_id") or "").strip(),
+        description=str(value.get("description") or "").strip(),
+        strategy_types=[str(item) for item in value.get("strategy_types") or [] if str(item).strip()],
+        required_features=[str(item) for item in value.get("required_features") or [] if str(item).strip()],
+        excluded_features=[str(item) for item in value.get("excluded_features") or [] if str(item).strip()],
+        assets=[
+            _resolve_pack_path(item, project_root=project_root)
+            for item in value.get("assets") or []
+            if str(item).strip()
+        ],
+        implementation_asset=(
+            _resolve_pack_path(implementation_value, project_root=project_root)
+            if implementation_value
+            else None
+        ),
+        default_priority=int(value.get("default_priority") or 0),
     )
 
 

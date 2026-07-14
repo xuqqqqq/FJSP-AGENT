@@ -109,6 +109,9 @@ def stable_worker_context(context: dict[str, Any]) -> dict[str, Any]:
         "documents": context.get("documents") or [],
         "knowledge_selection": context.get("knowledge_selection") or {},
         "auto_knowledge_cards": context.get("auto_knowledge_cards") or [],
+        "method_package_catalog": context.get("method_package_catalog") or {},
+        "active_method_package": context.get("active_method_package") or {},
+        "previous_pipeline_memory": context.get("previous_pipeline_memory") or {},
     }
 
 

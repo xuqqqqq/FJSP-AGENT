@@ -8,7 +8,7 @@ from pathlib import Path
 from harness_agent.context_packet import ContextPacketRequest, write_context_packet
 from harness_agent.domain_pack import get_domain_pack, load_domain_pack, load_domain_packs
 from harness_agent.edit_strategy_assets import load_edit_strategy_json_asset
-from harness_agent.knowledge_registry import auto_knowledge_cards
+from harness_agent.knowledge_registry import auto_knowledge_cards, method_package_catalog
 from harness_agent.problem_families import get_problem_family
 from harness_agent.slot_manifest import default_slot_manifest, write_default_slot_manifest, write_selected_slot_manifest
 from harness_agent.workers.deepseek_slot_worker import generic_slot_repair_guidance
@@ -54,6 +54,10 @@ class DomainPackTests(unittest.TestCase):
         self.assertNotIn(
             "harness_agent/awls_benchmark.py",
             pack.agent_generated_baseline_preserve_paths,
+        )
+        self.assertEqual(
+            "standard_fjsp_awls_hgtsa",
+            pack.method_package("standard_fjsp_awls_hgtsa").package_id,
         )
 
     def test_domain_pack_declares_knowledge_retrieval_without_backend_tables(self) -> None:
@@ -261,10 +265,19 @@ class DomainPackTests(unittest.TestCase):
         self.assertIn("agent_generated_variant_quality_contracts.md", auto_cards)
         self.assertIn("solver_contract.md", auto_cards)
         self.assertIn("standard_fjsp_agent_generated_reference_skeleton.md", auto_cards)
-        self.assertIn("standard_fjsp_agent_generated_neighborhood_templates.md", auto_cards)
-        self.assertIn("standard_fjsp_awls_hgtsa_execution_skeleton.md", auto_cards)
+        self.assertNotIn("standard_fjsp_agent_generated_neighborhood_templates.md", auto_cards)
+        self.assertNotIn("standard_fjsp_awls_hgtsa_execution_skeleton.md", auto_cards)
         self.assertNotIn("fjsp_sdst_agent_generated_search_memory_20260707.md", auto_cards)
         self.assertNotIn("decoder_neighborhood.md", auto_cards)
+        catalog = packet["method_package_catalog"]
+        self.assertEqual("standard_fjsp_awls_hgtsa", catalog["recommended_package_id"])
+        self.assertEqual(
+            ["standard_fjsp_awls_hgtsa"],
+            [item["package_id"] for item in catalog["packages"]],
+        )
+        self.assertTrue(
+            any(str(path).endswith("reference_solver.py") for path in catalog["packages"][0]["assets"])
+        )
 
     def test_standard_fjsp_agent_generated_code_template_cards_exist(self) -> None:
         skeleton = (
@@ -309,6 +322,24 @@ class DomainPackTests(unittest.TestCase):
         self.assertIn("def tabu_search", text)
         self.assertIn("def perturb_state", text)
         self.assertIn("diversification", text)
+
+    def test_method_package_catalog_filters_standard_and_sdst_packages(self) -> None:
+        standard = method_package_catalog(problem_family="FJSP", active_features=[])
+        sdst = method_package_catalog(
+            problem_family="FJSP",
+            active_features=["fjsp_sdst", "sequence_dependent_setup", "setup_time"],
+        )
+
+        self.assertEqual("standard_fjsp_awls_hgtsa", standard["recommended_package_id"])
+        self.assertEqual(
+            ["standard_fjsp_awls_hgtsa"],
+            [item["package_id"] for item in standard["packages"]],
+        )
+        self.assertEqual("fjsp_sdst_awls_adaptation", sdst["recommended_package_id"])
+        self.assertEqual(
+            ["fjsp_sdst_awls_adaptation"],
+            [item["package_id"] for item in sdst["packages"]],
+        )
 
 
 if __name__ == "__main__":
