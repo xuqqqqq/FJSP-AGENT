@@ -7,6 +7,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from ..context_compaction import compact_json, stable_worker_context_json
+from ..context_loader import load_context_dict
 from ..deepseek_client import DeepSeekClient, DeepSeekUnavailable, is_deepseek_configured
 from ..solver_quality_contract import build_agent_generated_solver_quality_contract
 from ..slot_contract import extract_marked_block, replace_marked_block, validate_slot_manifest_gate
@@ -94,10 +96,10 @@ class DeepSeekWorker(CodingWorker):
                 artifacts={"output_dir": str(output_dir)},
             )
 
-        context = json.loads(Path(spec.context_packet_path).read_text(encoding="utf-8-sig"))
+        context = load_context_dict(Path(spec.context_packet_path))
         client = DeepSeekClient.from_env(model=self.model)
         prompt = self._code_edit_prompt(context=context, max_steps=spec.max_steps)
-        content = client.chat(
+        response = client.chat_with_usage(
             [
                 {
                     "role": "system",
@@ -112,8 +114,22 @@ class DeepSeekWorker(CodingWorker):
             max_tokens=12000,
             json_mode=True,
         )
+        content = response.content
         raw_path = output_dir / "deepseek_code_edit_raw.json"
         raw_path.write_text(content, encoding="utf-8")
+        usage_path = output_dir / "deepseek_usage.json"
+        usage_path.write_text(
+            json.dumps(
+                {
+                    "usage": response.usage,
+                    "cache_hit_ratio": response.cache_hit_ratio,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         try:
             raw_proposal = extract_json_object(content)
         except json.JSONDecodeError as exc:
@@ -147,6 +163,7 @@ class DeepSeekWorker(CodingWorker):
                 "output_dir": str(output_dir),
                 "proposal": str(proposal_path),
                 "proposal_markdown": str(markdown_path),
+                "usage": str(usage_path),
             },
         )
 
@@ -331,7 +348,7 @@ Selected harness report excerpt:
 """.strip()
 
     def _code_edit_prompt(self, *, context: dict[str, Any], max_steps: int) -> str:
-        compact_context = json.dumps(context, ensure_ascii=False, indent=2)
+        stable_context = stable_worker_context_json(context).text
         priority_context = priority_worker_context(context)
         return f"""
 You are inside an AlgoForge coding-worker loop. The harness/evaluator is the
@@ -428,6 +445,11 @@ Rules:
   helper before `def main(...)` or another function definition. Never insert a
   top-level helper immediately after a `def ...:` line, because that leaves the
   original function with no body and causes syntax errors.
+- When baseline generation requires `create_or_replace` with a complete
+  standalone generated solver, keep the file compact and JSON-safe: target
+  under about 260 lines, avoid long comments/docstrings/embedded reports, and
+  include only code that is actually called by `main(...)` or `solve(...)`.
+  Truncated full-file JSON content will be rejected before evaluation.
 - For helper code longer than about 40 lines, prefer a new small helper file
   plus a compact import/call patch over one huge inline JSON string. This keeps
   proposals parseable and reduces indentation mistakes.
@@ -480,6 +502,12 @@ Rules:
   file.  A parser that calls read_text/split/json.load and then hardcodes
   `op_info = {{(0, 0): ...}}`, a fixed `machine_sequences`, or a fixed schedule
   is not an active parser and will be rejected.
+- For standard FJSP text instances when the active context has no setup times
+  (`setup_time_kinds` empty/none and no `sequence_dependent_setup` feature),
+  parse packed job lines with a token cursor.  Each job line starts with
+  `operation_count`; every operation on that same line consumes
+  `candidate_count` followed by exactly `2 * candidate_count` machine-duration
+  tokens.  Do not increment the physical file-line index once per operation.
 - When agent_generated_solver_quality_contract.enabled is true and you edit an
   agent-generated solver, fill `solver_contract_self_check` before the changes:
   list the active_features you detected from IO/requirements/diagnostics, mark
@@ -488,10 +516,16 @@ Rules:
   must name symbols that appear verbatim in the proposed code, such as
   `parse_instance`, `op_info`, `decode_schedule`, `expected_ops`, `deadline`, or
   `best_schedule`. Do not mark a capability implemented unless the proposed code
-  contains the cited evidence. The narrative fields `representation`, `decoder`,
+  contains the cited evidence and the cited code is called before output is
+  written. The narrative fields `representation`, `decoder`,
   `variant_handling`, `runtime_bounds`, and `incumbent_preservation` must also
   cite source symbols that appear in the proposed code; do not use those fields
   for high-level strategy text that has no matching implementation anchor.
+- The declared output schema must match the actual bytes written to
+  `--output`. For standard FJSP generated solvers, write a JSON object such as
+  `{{"format": "...", "schedule": [...], "makespan": ...}}`; never write a bare
+  schedule list via `json.dump(best_schedule, f)` or
+  `Path(output).write_text(json.dumps(best_schedule))`.
 - Any parser, decoder, schedule builder, or validation/self-check helper you
   define must be called by the generated solver flow, such as `solve(...)`,
   `improve(...)`, or `main(...)`, before writing output. Do not define
@@ -509,6 +543,12 @@ Rules:
   decode/build path, JSON output schema, and self-checks for every active
   constraint.  A fixed job-by-job greedy that does not compare ready operations
   and eligible machines is not a sufficient generated baseline.
+- For `operation_level_ready_list_constructor`, do not select one ready
+  operation and then call `rng.choice(eligible)` or `random.choice(machines)`.
+  Build `ready_choices`/`candidate_choices` by looping over every ready
+  operation and every eligible machine, compute `start` and `finish` from
+  `job_ready` and `machine_ready`, then commit the best or seeded tie-break
+  candidate. This is required even for a randomized baseline.
 - During agent-generated improvement rounds, preserve the promoted incumbent
   parser and valid skeleton.  If the incumbent lacks a required contract
   capability, repair that missing capability first; otherwise mutate exactly
@@ -521,6 +561,9 @@ Rules:
 - State 1 to 3 materially different rule_operator_hypotheses before changes.
   These are rule/operator lineage records, not success claims.  Use types only
   from: {", ".join(RULE_OPERATOR_TYPES)}.
+- If Priority context contains `loop_feedback.current_direction_plan`, treat it
+  as the Main Agent experiment contract. Translate that plan into code evidence;
+  do not replace it with an unrelated worker-authored algorithm direction.
 - If previous_pipeline_memory.operator_guidance is present, use its must_do,
   preserve, mutate, and avoid lists when forming rule_operator_hypotheses and
   novelty statements.
@@ -528,7 +571,7 @@ Rules:
   in-round repair attempt after Core rejected the previous proposal. First fix
   the listed JA/evaluator issues; do not repeat rejected anchors, unsupported
   actions, protected-fact regressions, no-op proposals, or syntax errors.
-- Read Priority context before the full Context packet.  If
+- Read the Stable task context first, then the Dynamic round context. If
   priority_knowledge_cards are present, cite `knowledge_cards` in
   evidence_used when they shape the proposal, and either follow any
   preserve/recover/avoid guidance or explain in risk_notes why loop_feedback
@@ -544,6 +587,11 @@ Rules:
   makespan or score is computed; deadlocked/partial/empty schedules must be
   skipped or treated as infeasible, never as makespan 0; only replace the
   incumbent schedule after verifying identical operation coverage.
+- A machine-sequence decoder must not simply replay
+  `for machine_id, sequence in machine_sequences.items(): for op in sequence`.
+  Decode with a progress/topological loop: schedule a machine's next operation
+  only when its job predecessor is already scheduled, otherwise continue; if no
+  operation can progress, reject the candidate as infeasible.
 - If active features include sequence-dependent setup, setup time is a machine
   sequencing effect: candidate start times must include setup between adjacent
   operations on the same machine, and any sequence/neighborhood move must be
@@ -557,11 +605,11 @@ Rules:
 - If no safe edit is possible, return an empty "changes" list with an explicit
   risk note.
 
-Priority context for this round:
-{priority_context}
+Stable task context (cache-friendly and unchanged within one task):
+{stable_context}
 
-Context packet:
-{compact_context[:26000]}
+Dynamic round context (incumbent, retrieved methods, and recent feedback):
+{priority_context}
 """.strip()
 
     def _repair_code_edit_json(self, client: DeepSeekClient, raw: str, error: str, max_tokens: int) -> str:
@@ -796,6 +844,35 @@ def normalize_strategy_profile(profile: dict[str, Any]) -> dict[str, Any]:
 def priority_worker_context(context: dict[str, Any]) -> str:
     quality_contract = build_agent_generated_solver_quality_contract(context)
     is_improvement_round = bool(context.get("iteration_edit_contract"))
+    operator_stage = operator_improvement_stage_for_worker(context, quality_contract=quality_contract)
+    if is_improvement_round:
+        method_scope_rule = (
+            "For a standard-FJSP agent-generated solver, do not claim AWLS, N7/N8, NK, k-insertion, "
+            "critical-block, or tabu local search unless the submitted code either already has or incrementally "
+            "adds the required executable skeleton: stable operation keys, assignment plus machine_sequences, "
+            "a full progress/topological decode_state, bounded neighbor generation, decoded candidate rejection, "
+            "and best-incumbent preservation. If the incumbent lacks this skeleton, add exactly one missing "
+            "structural piece before tuning another dispatch tie-break. If the incumbent already has random "
+            "machine-reassignment hill climbing, do not add another pure improving random hill climber; upgrade "
+            "it with critical-path/critical-block candidate selection, N8 or k-insertion move generation, tabu "
+            "memory, aspiration, or bounded perturbation so the search has both intensification and diversification. "
+            "Method-stage contract: (1) if the code uses only a global order/list schedule, first migrate one "
+            "bounded path to assignment + machine_sequences plus a progress decoder; (2) only after that, add "
+            "critical_blocks/apply_move or N8/k-insertion neighbor generation; (3) only after executable neighbor "
+            "generation exists, add tabu/aspiration/perturbation. A proposal that names critical-block, N8, "
+            "k-insertion, AWLS, or tabu but lacks machine_sequences, critical block extraction, apply_move, "
+            "decoded-candidate rejection, or post-move coverage guard will be rejected even if evaluator smoke passes."
+        )
+    else:
+        method_scope_rule = (
+            "This is baseline generation, not a promoted-incumbent improvement round. First produce a legal, "
+            "IO-derived standalone solver with parser, operation-level ready-list construction, full schedule "
+            "coverage, eligibility, duration, precedence, non-overlap, bounded runtime, and JSON output. Do not "
+            "claim or cite AWLS, N7/N8, NK, k-insertion, critical-block, or tabu as implemented baseline methods "
+            "unless the baseline code truly contains the executable structures named by those methods. Prefer an "
+            "honest ready-list/multi-start constructive baseline over unsupported strong-neighborhood wording; "
+            "strong local-search operators should be added only after Core promotes a legal generated incumbent."
+        )
     payload = {
         "round_type": "improvement_round" if is_improvement_round else "baseline_or_single_round",
         "iteration_edit_contract": context.get("iteration_edit_contract") or {},
@@ -808,6 +885,7 @@ def priority_worker_context(context: dict[str, Any]) -> str:
         ),
         "incumbent_code_context": compact_incumbent_code_context(context.get("incumbent_code_context") or {}),
         "loop_feedback": compact_loop_feedback_for_prompt(context.get("loop_feedback") or {}),
+        "operator_improvement_stage": operator_stage,
         "round_learning_contract": round_learning_contract_for_worker(is_improvement_round=is_improvement_round),
         "candidate_feasibility_guard": {
             "rule": (
@@ -837,6 +915,21 @@ def priority_worker_context(context: dict[str, Any]) -> str:
             "from the active input file. Do not satisfy parser checks by reading the file and then hardcoding "
             "op_info, assignment, machine_sequences, or a fixed one-operation schedule."
         ),
+        "standard_fjsp_packed_job_line_rule": (
+            "When the active context is standard FJSP with no setup times, parse Dauzere/DP/BA/BR/HU-style "
+            "job lines using a token cursor. One physical job line packs all operations for that job: consume "
+            "operation_count, then for each operation consume candidate_count plus exactly 2*candidate_count "
+            "machine-duration tokens from the same job line. Do not read lines[idx] or advance the file-line "
+            "index once per operation."
+        ),
+        "standard_fjsp_machine_id_base_rule": (
+            "Standard FJSP public instances may encode machine ids as either 0-based or 1-based. Collect all raw "
+            "machine ids while parsing, then choose machine_base = 0 only when min(raw_ids) >= 0 and "
+            "max(raw_ids) < machine_count; choose machine_base = 1 only when min(raw_ids) >= 1 and "
+            "max(raw_ids) <= machine_count. Normalize exactly once when building eligible-machine maps. "
+            "Do not unconditionally subtract 1 while reading each candidate token; that creates machine -1 "
+            "or machine 0 out-of-range failures on mixed benchmark families."
+        ),
         "constructive_baseline_rule": (
             "For an agent-generated baseline, use an operation-level ready list: keep one next operation per "
             "unfinished job, evaluate eligible machines for each ready operation using job_ready/machine_ready "
@@ -850,7 +943,9 @@ def priority_worker_context(context: dict[str, Any]) -> str:
             "in the submitted code; do not claim a capability is implemented from strategy text or imaginary "
             "helper names alone. The solver_contract_self_check narrative fields representation, decoder, "
             "variant_handling, runtime_bounds, and incumbent_preservation must also cite submitted source "
-            "symbols, not only describe the intended method."
+            "symbols, not only describe the intended method. The actual output writer must emit the declared "
+            "JSON object with a schedule field; a bare list is not declared_output_schema. A machine-sequence "
+            "decoder must use a progress/topological predecessor check, not machine-major replay."
         ),
         "generated_solver_call_flow_rule": (
             "Parser, decoder, schedule-builder, and validation/self-check helpers must be called by the runnable "
@@ -864,12 +959,21 @@ def priority_worker_context(context: dict[str, Any]) -> str:
             "gate rejects such imports before evaluator execution."
         ),
         "worker_instruction": {
+            "required_order": (context.get("worker_instruction") or {}).get("required_order"),
             "round_feedback_rule": (context.get("worker_instruction") or {}).get("round_feedback_rule"),
             "incremental_edit_rule": (context.get("worker_instruction") or {}).get("incremental_edit_rule"),
         },
+        "agent_generated_method_skeleton_rule": method_scope_rule,
+        "agent_generated_method_stage_repair_rule": (
+            "If loop_feedback.current_round_repair.repair_targets.agent_generated_solver_repair_plan is present, "
+            "treat it as the construction order for this attempt. In method_stage_migration mode, satisfy the "
+            "repair_plan.target_stage and must_add items before any makespan tuning. If the repair escalation "
+            "mode is repair_only_stage_gate, either implement the named missing structures or remove the unsupported "
+            "strong-neighborhood claim; do not submit another AWLS/critical-block/tabu wording-only patch."
+        ),
         "priority_knowledge_cards": compact_priority_knowledge_cards(
             context,
-            limit=PRIORITY_KNOWLEDGE_CARD_LIMIT,
+            limit=priority_knowledge_card_limit(context),
             max_chars_per_card=PRIORITY_KNOWLEDGE_CARD_MAX_CHARS,
         ),
         "knowledge_use_rule": (
@@ -888,8 +992,13 @@ def priority_worker_context(context: dict[str, Any]) -> str:
             "while the generated solver still lacks parser, representation, constructor, decoder, or active "
             "variant evidence from the prior memory."
         ),
+        "main_agent_direction_rule": (
+            "When loop_feedback.current_direction_plan is present, implement its change_scope, preserve, avoid, "
+            "knowledge_paths, acceptance_checks, and stop_conditions. Worker hypotheses may refine the plan into "
+            "code-level actions but must not switch to another method inside the same direction."
+        ),
     }
-    return json.dumps(payload, ensure_ascii=False, indent=2)[:priority_context_max_chars()]
+    return compact_json(payload, max_chars=priority_context_max_chars()).text
 
 
 def round_learning_contract_for_worker(*, is_improvement_round: bool) -> dict[str, Any]:
@@ -914,6 +1023,7 @@ def round_learning_contract_for_worker(*, is_improvement_round: bool) -> dict[st
             "Treat the current outer round as one improvement direction. Repair or refine the same direction before switching ideas.",
             "Use failure_memory.must_avoid as hard negative memory.",
             "Do not submit a no-op proposal during improvement rounds.",
+            "When the incumbent is legal and repair feedback is not blocking, choose one method-level operator from retrieved local-search/operator knowledge instead of another tie-break-only tweak.",
             "Do not repeat a legal-but-not-better tie-break tweak; change the neighborhood, decoder, or insertion/regret mechanism materially.",
         ],
         "quality_target": (
@@ -921,6 +1031,246 @@ def round_learning_contract_for_worker(*, is_improvement_round: bool) -> dict[st
             "one bounded code mutation, fixed parser/evaluator semantics, and Core evaluator evidence only."
         ),
     }
+
+
+def operator_improvement_stage_for_worker(
+    context: dict[str, Any],
+    *,
+    quality_contract: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Describe when a legal incumbent should pivot from construction to search operators."""
+
+    if not context.get("iteration_edit_contract"):
+        return {"active": False, "reason": "not_improvement_round"}
+    if incumbent_requires_legality_repair(context):
+        return {"active": False, "reason": "incumbent_requires_legality_repair"}
+    loop_feedback = context.get("loop_feedback") if isinstance(context.get("loop_feedback"), dict) else {}
+    incumbent_key = loop_feedback.get("incumbent_key_before")
+    baseline_memory = (
+        loop_feedback.get("agent_generated_baseline_memory")
+        if isinstance(loop_feedback.get("agent_generated_baseline_memory"), dict)
+        else {}
+    )
+    has_legal_incumbent = _finite_objective_key(incumbent_key) or bool(
+        baseline_memory.get("accepted_as_incumbent")
+    )
+    if not has_legal_incumbent:
+        return {"active": False, "reason": "no_finite_legal_incumbent"}
+
+    current_repair = (
+        loop_feedback.get("current_round_repair")
+        if isinstance(loop_feedback.get("current_round_repair"), dict)
+        else {}
+    )
+    repair_status = str(current_repair.get("status") or "").strip()
+    if repair_status == "repair_required" and repair_blocks_operator_stage(current_repair):
+        return {
+            "active": False,
+            "reason": "current_attempt_needs_legality_or_schema_repair",
+            "repair_rule": "Fix current_round_repair.repair_targets before adding a new local-search operator.",
+        }
+
+    active_features = []
+    if isinstance(quality_contract, dict):
+        active_features = list(quality_contract.get("active_features") or [])
+    method_stage = incumbent_method_stage_for_worker(context)
+    mode = "same_direction_refinement" if repair_status == "refinement_required" else "new_operator_direction"
+    if repair_status == "repair_required":
+        mode = "same_direction_repair"
+    return {
+        "active": True,
+        "mode": mode,
+        "active_features": active_features[:16],
+        "incumbent_method_stage": method_stage,
+        "required_next_operator_capabilities": required_next_operator_capabilities(method_stage),
+        "purpose": (
+            "A legal incumbent exists. The worker should now activate method knowledge for bounded search operators, "
+            "not keep only repairing construction prose or tuning dispatch tie-breaks."
+        ),
+        "must_do": [
+            "Choose one operator family from priority_knowledge_cards and cite the card path in evidence_used.",
+            "Preserve the incumbent parser, output schema, constructive baseline, legality guards, and best-schedule preservation.",
+            "Implement one bounded search operator around the incumbent representation: decode every neighbor, reject partial/infeasible candidates, and keep the incumbent on failure.",
+            "For standard-FJSP AWLS/N7/N8/NK claims, first ensure the code has assignment plus machine_sequences and a progress/topological decode_state; otherwise add one of those missing structures before adding more tie-break scoring.",
+            "If the incumbent still uses best_order/global operation order as the local-search state, do not label a global-order shift as critical-block/N8/k-insertion; migrate the state representation first.",
+            "If assignment plus decode_state already exist, prefer critical-path N8/k-insertion/tabu with diversification over another pure random hill-climbing reassignment.",
+            "If retrieved cards mention critical path, machine blocks, alternate-machine reassignment, insertion, or tabu search, prefer one of those method families over another pure dispatch tie-break.",
+            "If required_next_operator_capabilities is non-empty, implement those named source-level structures; do not satisfy the repair by merely deleting the strong-method claim or renaming a random reassignment hill climber.",
+            "When repairing an unsupported critical-block/N8/k-insertion/tabu claim and the incumbent parser/decoder is legal, keep the same strong-neighborhood direction and add the missing reachable functions instead of downgrading to dispatch or tie-break tuning.",
+            "Do not copy instance-specific scores, schedules, or target makespans from reports into solver code.",
+        ],
+    }
+
+
+def incumbent_method_stage_for_worker(context: dict[str, Any]) -> dict[str, Any]:
+    source = incumbent_source_text(context)
+    normalized = source.lower()
+    has_assignment = "assignment" in normalized
+    has_machine_sequences = "machine_sequences" in normalized
+    has_decoder = bool(re.search(r"\bdef\s+decode_\w*\s*\(", source)) or "decode_state(" in normalized
+    has_progress_decoder = has_decoder and (
+        "progressed = false" in normalized
+        or "if not progressed" in normalized
+        or "deadlock" in normalized
+        or "job_next_op" in normalized
+    )
+    has_apply_move = any(
+        token in normalized
+        for token in (
+            "def apply_sequence_move",
+            "def apply_move",
+            "apply_sequence_move(",
+            "apply_move(",
+        )
+    )
+    has_critical = any(
+        token in normalized
+        for token in (
+            "def critical_blocks",
+            "critical_blocks(",
+            "critical_path",
+            "critical_ops",
+            "critical operation",
+        )
+    )
+    has_structured_neighbors = any(
+        token in normalized
+        for token in (
+            "generate_critical_block",
+            "generate_n8",
+            "n8_",
+            "k_insertion",
+            "k-insertion",
+            "generate_k_insertion",
+        )
+    )
+    has_tabu = any(token in normalized for token in ("tabu", "aspiration", "perturb_state", "perturbation"))
+
+    if not (has_assignment and has_machine_sequences):
+        stage = "stage_2_missing_machine_sequence_state"
+    elif not has_progress_decoder:
+        stage = "stage_3_machine_sequences_without_progress_decoder"
+    elif not (has_apply_move and (has_critical or has_structured_neighbors)):
+        stage = "stage_4_basic_sequence_moves_without_structured_neighborhood"
+    elif not has_tabu:
+        stage = "stage_5_structured_neighbors_without_search_control"
+    else:
+        stage = "stage_6_structured_tabu_or_diversified_search"
+    return {
+        "stage": stage,
+        "has_assignment": has_assignment,
+        "has_machine_sequences": has_machine_sequences,
+        "has_progress_decoder": has_progress_decoder,
+        "has_apply_move": has_apply_move,
+        "has_critical_block_or_path": has_critical,
+        "has_n8_or_k_insertion_generation": has_structured_neighbors,
+        "has_tabu_or_perturbation_memory": has_tabu,
+    }
+
+
+def required_next_operator_capabilities(method_stage: dict[str, Any]) -> list[str]:
+    stage = str(method_stage.get("stage") or "")
+    if stage == "stage_2_missing_machine_sequence_state":
+        return [
+            "assignment plus machine_sequences state",
+            "progress/topological decode_state over machine_sequences",
+            "decoded-candidate rejection with full coverage guard",
+        ]
+    if stage == "stage_3_machine_sequences_without_progress_decoder":
+        return [
+            "progress/topological decode_state over machine_sequences",
+            "deadlock rejection instead of partial-schedule scoring",
+            "post-decode coverage guard before makespan comparison",
+        ]
+    if stage == "stage_4_basic_sequence_moves_without_structured_neighborhood":
+        return [
+            "critical_blocks(schedule) or critical_path/critical_ops extraction",
+            "apply_sequence_move/apply_move that mutates assignment plus machine_sequences",
+            "generate_critical_block_moves or generate_k_insertion_neighbors",
+            "decode every moved neighbor and reject infeasible/partial candidates",
+        ]
+    if stage == "stage_5_structured_neighbors_without_search_control":
+        return [
+            "tabu memory or aspiration rule around structured moves",
+            "bounded perturbation/restart after stagnation",
+            "separate current state from best incumbent state",
+        ]
+    return []
+
+
+def repair_blocks_operator_stage(current_repair: dict[str, Any]) -> bool:
+    signatures = repair_failure_signatures(current_repair)
+    if not signatures:
+        return False
+    nonblocking = {
+        "no_changed_files_after_apply",
+        "quick_test_plan_does_not_reference_intake_test_command",
+        "priority_knowledge_cards_not_referenced",
+        "structured_neighborhood_claim_unimplemented",
+    }
+    if all(any(token in signature for token in nonblocking) for signature in signatures):
+        return False
+    blocking_tokens = {
+        "python_compile",
+        "syntaxerror",
+        "indentationerror",
+        "agent_generated_runtime_import",
+        "active_io_parser",
+        "declared_output_schema",
+        "operation_level_ready_list_constructor",
+        "complete_schedule_coverage_guard",
+        "machine_eligibility_guard",
+        "processing_duration_guard",
+        "job_precedence_guard",
+        "machine_non_overlap_guard",
+        "standalone_cli_interface",
+    }
+    return any(any(token in signature for token in blocking_tokens) for signature in signatures)
+
+
+def repair_failure_signatures(current_repair: dict[str, Any]) -> list[str]:
+    signatures: list[str] = []
+
+    def add(value: Any) -> None:
+        if isinstance(value, str) and value.strip():
+            signatures.append(value.strip().lower())
+
+    for item in current_repair.get("avoid") or []:
+        add(item)
+    for attempt in current_repair.get("previous_attempts") or []:
+        if not isinstance(attempt, dict):
+            continue
+        for signature in attempt.get("failure_signatures") or []:
+            add(signature)
+        summary = attempt.get("summary") if isinstance(attempt.get("summary"), dict) else {}
+        validation = summary.get("validation_summary") if isinstance(summary.get("validation_summary"), dict) else {}
+        judgment = validation.get("agentic_judgment") if isinstance(validation.get("agentic_judgment"), dict) else {}
+        for issue in judgment.get("issues") or []:
+            add(issue)
+        for warning in (judgment.get("checks") or {}).get("proposal_audit_warnings") or []:
+            add(warning)
+    return signatures
+
+
+def incumbent_source_text(context: dict[str, Any]) -> str:
+    code_context = context.get("incumbent_code_context")
+    if not isinstance(code_context, dict):
+        return ""
+    snippets: list[str] = []
+    for item in code_context.get("files") or []:
+        if isinstance(item, dict):
+            snippets.append(str(item.get("snippet") or ""))
+    return "\n\n".join(snippets)
+
+
+def priority_knowledge_card_limit(context: dict[str, Any]) -> int:
+    if operator_improvement_stage_for_worker(context).get("active"):
+        return max(PRIORITY_KNOWLEDGE_CARD_LIMIT, 5)
+    return PRIORITY_KNOWLEDGE_CARD_LIMIT
+
+
+def _finite_objective_key(value: Any) -> bool:
+    return isinstance(value, list) and bool(value) and all(_finite_number(item) for item in value)
 
 
 def priority_context_max_chars() -> int:
@@ -1192,6 +1542,14 @@ def compact_repair_targets_for_prompt(value: dict[str, Any]) -> dict[str, Any]:
         item = value.get(key)
         if isinstance(item, dict) and item:
             compact[key] = item
+    for key in (
+        "agent_generated_solver_method_stage",
+        "agent_generated_solver_repair_plan",
+        "agent_generated_repair_escalation",
+    ):
+        item = value.get(key)
+        if isinstance(item, dict) and item:
+            compact[key] = item
     return compact
 
 
@@ -1339,14 +1697,24 @@ def compact_priority_knowledge_cards(
 
     query_terms = _knowledge_query_terms(context)
     agent_generated_mode = "agent_generated" in query_terms
+    sdst_active = _context_sequence_dependent_setup_active(context)
+    operator_stage_active = bool(operator_improvement_stage_for_worker(context).get("active"))
 
     def card_score(card: dict[str, Any]) -> int:
         path = str(card.get("path") or "").lower()
         snippet = str(card.get("snippet") or "").lower()
         haystack = f"{path}\n{snippet}"
+        normalized_haystack = haystack.replace("-", "_")
+        if not sdst_active and _sdst_specific_knowledge_path(path):
+            return -10000
+        if agent_generated_mode and not operator_stage_active and (
+            "standard_fjsp_agent_generated_neighborhood_templates" in path
+            or "standard_fjsp_awls_hgtsa_execution_skeleton" in path
+        ):
+            return -10000
         score = 0
         for term in query_terms:
-            if term and term in haystack:
+            if term and term in normalized_haystack:
                 score += 4
         if "sdst" in query_terms and "sdst" in haystack:
             score += 25
@@ -1361,6 +1729,16 @@ def compact_priority_knowledge_cards(
         ) and "awls" in haystack
         if agent_generated_mode and agent_generated_card:
             score += 220
+        if agent_generated_mode and "standard_fjsp_agent_generated_reference_skeleton" in path:
+            score += 420
+        if agent_generated_mode and operator_stage_active and "standard_fjsp_agent_generated_neighborhood_templates" in path:
+            score += 260
+        elif agent_generated_mode and "standard_fjsp_agent_generated_neighborhood_templates" in path:
+            score -= 120
+        if agent_generated_mode and operator_stage_active and "standard_fjsp_awls_hgtsa_execution_skeleton" in path:
+            score += 260
+        elif agent_generated_mode and "standard_fjsp_awls_hgtsa_execution_skeleton" in path:
+            score -= 120
         if agent_generated_mode and awls_transfer_card:
             score += 140
         if agent_generated_mode and "fjsp_sdst_agent_generated_search_memory" in haystack:
@@ -1369,26 +1747,44 @@ def compact_priority_knowledge_cards(
             score += 30
         if agent_generated_mode and "fjsp_agent_current_capability" in haystack:
             score -= 80
+        standard_awls_hgtsa_card = "standard_fjsp_awls_hgtsa_execution_skeleton" in path
         if agent_generated_mode and "awls_sdst_" in path and not agent_generated_card:
             score -= 260
-        elif agent_generated_mode and "awls" in haystack and not agent_generated_card:
+        elif agent_generated_mode and "awls" in haystack and not agent_generated_card and not standard_awls_hgtsa_card:
             score -= 120
         if "local_search" in query_terms and ("local search" in haystack or "local-search" in haystack):
             score += 12
+        direct_operator_card = "/operators/" in path.replace("\\", "/")
+        if operator_stage_active and _local_search_operator_knowledge_card(path, normalized_haystack):
+            score += 260
+        if operator_stage_active and direct_operator_card:
+            score += 360
+        if operator_stage_active and "standard_fjsp_agent_generated_neighborhood_templates" in path:
+            score += 460
+        if operator_stage_active and (
+            "critical_path" in normalized_haystack
+            or "critical_block" in normalized_haystack
+            or "machine_reassignment" in normalized_haystack
+            or "k_insertion" in normalized_haystack
+            or "tabu_search" in normalized_haystack
+        ):
+            score += 80
         if "loop_feedback" in query_terms and ("memory" in haystack or "failed attempt" in haystack):
             score += 12
         return score
 
-    ranked = sorted(enumerate(typed_cards), key=lambda item: (card_score(item[1]), -item[0]), reverse=True)
     selected: list[dict[str, Any]] = []
     seen_paths: set[str] = set()
-    for _index, card in ranked:
+
+    def append_card(card: dict[str, Any]) -> None:
+        if len(selected) >= limit:
+            return
         path = str(card.get("path") or "")
         if not path or path in seen_paths:
-            continue
+            return
         score = card_score(card)
-        if score <= 0 and selected:
-            continue
+        if score <= -1000:
+            return
         snippet = compact_knowledge_card_snippet(
             str(card.get("snippet") or ""),
             query_terms=query_terms,
@@ -1404,9 +1800,60 @@ def compact_priority_knowledge_cards(
             }
         )
         seen_paths.add(path)
+
+    if operator_stage_active:
+        for marker in forced_operator_stage_card_markers(context):
+            for card in typed_cards:
+                path = str(card.get("path") or "").lower()
+                if marker in path:
+                    append_card(card)
+                    break
+            if len(selected) >= limit:
+                break
+
+    ranked = sorted(enumerate(typed_cards), key=lambda item: (card_score(item[1]), -item[0]), reverse=True)
+    for _index, card in ranked:
+        path = str(card.get("path") or "")
+        if not path or path in seen_paths:
+            continue
+        score = card_score(card)
+        if score <= -1000:
+            continue
+        if score <= 0 and selected:
+            continue
+        append_card(card)
         if len(selected) >= limit:
             break
     return selected
+
+
+def forced_operator_stage_card_markers(context: dict[str, Any]) -> list[str]:
+    method_stage = incumbent_method_stage_for_worker(context)
+    stage = str(method_stage.get("stage") or "")
+    if stage in {
+        "stage_4_basic_sequence_moves_without_structured_neighborhood",
+        "stage_5_structured_neighbors_without_search_control",
+        "stage_6_structured_tabu_or_diversified_search",
+    }:
+        return [
+            "standard_fjsp_agent_generated_neighborhood_templates",
+            "hgtsa_fjsp_n8_k_insertion_blueprint",
+            "xiejin_hgtsa_n8_k_insertion_tabu_spec",
+            "standard_fjsp_awls_hgtsa_execution_skeleton",
+        ]
+    if stage in {
+        "stage_2_missing_machine_sequence_state",
+        "stage_3_machine_sequences_without_progress_decoder",
+    }:
+        return [
+            "standard_fjsp_agent_generated_reference_skeleton",
+            "standard_fjsp_agent_generated_neighborhood_templates",
+            "standard_fjsp_awls_hgtsa_execution_skeleton",
+        ]
+    return [
+        "standard_fjsp_agent_generated_neighborhood_templates",
+        "standard_fjsp_awls_hgtsa_execution_skeleton",
+    ]
 
 
 def compact_knowledge_card_snippet(snippet: str, *, query_terms: set[str], max_chars: int) -> str:
@@ -1442,6 +1889,9 @@ def compact_knowledge_card_snippet(snippet: str, *, query_terms: set[str], max_c
         "multi-start",
         "critical-block",
         "critical path",
+        "machine block",
+        "machine reassignment",
+        "candidate machine",
         "method transfer",
         "agent-generated-transfer",
         "awls-sdst method transfer",
@@ -1451,7 +1901,10 @@ def compact_knowledge_card_snippet(snippet: str, *, query_terms: set[str], max_c
         "anchor text",
         "old text",
         "regret",
+        "relocation",
         "insertion",
+        "k-insertion",
+        "n8",
         "tabu",
         "avoid",
     ]
@@ -1530,8 +1983,31 @@ def compact_knowledge_card_snippet(snippet: str, *, query_terms: set[str], max_c
     return result[:max_chars]
 
 
+def _local_search_operator_knowledge_card(path: str, normalized_haystack: str) -> bool:
+    if "/operators/" in path.replace("\\", "/").lower():
+        return True
+    operator_terms = {
+        "local_search",
+        "neighborhood",
+        "critical_path",
+        "critical_block",
+        "machine_block",
+        "machine_reassignment",
+        "machine_assignment",
+        "reassignment",
+        "k_insertion",
+        "insertion",
+        "relocation",
+        "tabu_search",
+        "tabu",
+        "destroy_repair",
+    }
+    return any(term in normalized_haystack for term in operator_terms)
+
+
 def _knowledge_query_terms(context: dict[str, Any]) -> set[str]:
     terms: set[str] = set()
+    sdst_active = _context_sequence_dependent_setup_active(context)
 
     def add_text(value: Any) -> None:
         text = str(value).lower().replace("-", "_")
@@ -1552,6 +2028,8 @@ def _knowledge_query_terms(context: dict[str, Any]) -> set[str]:
     if isinstance(capability, dict):
         for key in ("supported_variants", "knowledge_tags", "specialization_hooks"):
             for item in capability.get(key) or []:
+                if not sdst_active and _mentions_sdst_feature(str(item)):
+                    continue
                 add_text(item)
 
     evaluator_protocol = context.get("evaluator_protocol")
@@ -1568,13 +2046,140 @@ def _knowledge_query_terms(context: dict[str, Any]) -> set[str]:
     if context.get("incumbent_code_context"):
         add_text(context.get("incumbent_code_context"))
 
-    if any(term in terms for term in {"fjsp_sdst", "sequence_dependent_setup", "setup_matrix", "oddla20", "oddla"}):
+    if sdst_active:
         terms.add("sdst")
+    else:
+        _remove_inactive_sdst_terms(terms)
     if any("agent_generated" in term or term == "generated" for term in terms):
         terms.add("agent_generated")
     if any(term in terms for term in {"local_search_operator", "neighborhood", "tabu", "hill_climbing"}):
         terms.add("local_search")
+    if operator_improvement_stage_for_worker(context).get("active"):
+        terms.update(
+            {
+                "local_search",
+                "operator",
+                "neighborhood",
+                "critical_path",
+                "critical_block",
+                "machine_block",
+                "machine_reassignment",
+                "machine_assignment",
+                "reassignment",
+                "insertion",
+                "k_insertion",
+                "relocation",
+                "tabu",
+                "tabu_search",
+            }
+        )
     return terms
+
+
+def _context_sequence_dependent_setup_active(context: dict[str, Any]) -> bool:
+    if _slot_manifest_requests_sdst(context.get("slot_manifest")):
+        return True
+    diagnostics = context.get("instance_diagnostics") if isinstance(context.get("instance_diagnostics"), dict) else {}
+    diagnostic_state = _sdst_state_from_diagnostics(diagnostics)
+    if diagnostic_state is not None:
+        return diagnostic_state
+
+    active_text = json.dumps(
+        {
+            "task": context.get("task"),
+            "evaluator_protocol": context.get("evaluator_protocol"),
+            "hypothesis": context.get("hypothesis"),
+            "contract_review_evidence": context.get("contract_review_evidence"),
+            "slot_manifest": context.get("slot_manifest"),
+        },
+        ensure_ascii=False,
+    ).lower()
+    return _mentions_sdst_feature(active_text)
+
+
+def _slot_manifest_requests_sdst(slot_manifest: Any) -> bool:
+    if not isinstance(slot_manifest, dict):
+        return False
+    for slot in slot_manifest.get("slots") or []:
+        if not isinstance(slot, dict) or not slot.get("user_confirmed"):
+            continue
+        slot_id = str(slot.get("slot_id") or "").strip().lower()
+        if slot_id.startswith("awls_sdst_"):
+            return True
+        tags = " ".join(str(tag) for tag in slot.get("knowledge_tags") or [])
+        if _mentions_sdst_feature(f"{slot_id} {tags}"):
+            return True
+    return False
+
+
+def _sdst_state_from_diagnostics(diagnostics: dict[str, Any]) -> bool | None:
+    if not isinstance(diagnostics, dict) or not diagnostics:
+        return None
+    summary = diagnostics.get("summary") if isinstance(diagnostics.get("summary"), dict) else {}
+    instances = [item for item in diagnostics.get("instances") or [] if isinstance(item, dict)]
+    profiled_count = int(summary.get("profiled_count") or 0)
+    instance_count = int(summary.get("instance_count") or 0)
+    diagnostics_have_shape = (
+        diagnostics.get("status") in {"available", "partial"}
+        and (profiled_count > 0 or instance_count > 0 or bool(instances))
+    )
+    if not diagnostics_have_shape:
+        return None
+    setup_kinds = [str(kind).strip().lower() for kind in summary.get("setup_time_kinds") or []]
+    if int(summary.get("sdst_instance_count") or 0) > 0:
+        return True
+    if any(kind not in {"", "none", "null"} for kind in setup_kinds):
+        return True
+    for item in instances:
+        variant = str(item.get("variant") or "").strip().lower()
+        setup_kind = str(item.get("setup_time_kind") or "").strip().lower()
+        if variant == "fjsp_sdst" or setup_kind not in {"", "none", "null"}:
+            return True
+    return False
+
+
+def _mentions_sdst_feature(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\bfjsp[-_]?sdst\b|\bsd-st\b|\bsequence[-_\s]?dependent[-_\s]?setup\b|"
+            r"\bsetup[-_\s]?matrix\b|\bsetup[-_\s]?time(?:s)?\b|\bawls[-_]?sdst\b|\boddla\d*\b",
+            str(text),
+            flags=re.I,
+        )
+    )
+
+
+def _remove_inactive_sdst_terms(terms: set[str]) -> None:
+    blocked = {
+        "sdst",
+        "fjsp_sdst",
+        "sequence_dependent_setup",
+        "setup_matrix",
+        "setup_time",
+        "setup_times",
+        "setup_aware_dispatch_or_insertion",
+        "sdst_io_contract",
+        "oddla",
+        "oddla20",
+        "hudata",
+    }
+    for term in list(terms):
+        if term in blocked or "awls_sdst" in term or "fjsp_sdst" in term:
+            terms.discard(term)
+
+
+def _sdst_specific_knowledge_path(path: str) -> bool:
+    normalized = str(path).replace("\\", "/").lower()
+    return any(
+        marker in normalized
+        for marker in (
+            "awls_sdst",
+            "fjsp_sdst",
+            "sdst_hudata",
+            "sdst_fattahi",
+            "decoder_neighborhood.md",
+        )
+    )
 
 
 def normalize_local_search_profiles(profile: dict[str, Any]) -> list[dict[str, Any]]:

@@ -5,6 +5,7 @@ const state = {
   lastRenderedStatus: null,
   previewArtifactName: null,
   autoPreviewKey: null,
+  activeView: "overview",
 };
 const DEFAULT_STANDARD_SEEDS = "0,1,2,3,4,5,6,7,8,9";
 const DEFAULT_CHAT_ACTIONS = [
@@ -17,6 +18,29 @@ const DEFAULT_CHAT_ACTIONS = [
 ];
 
 const $ = (id) => document.getElementById(id);
+
+const VIEW_TITLES = {
+  overview: "FJSP 求解质量优化",
+  context: "Context Packet",
+  worker: "Worker 输出过程",
+  experiments: "实验监督",
+  versions: "版本记录",
+  resources: "知识库 / Skills",
+  setup: "任务配置",
+};
+
+function setActiveView(view) {
+  const targetView = VIEW_TITLES[view] ? view : "overview";
+  state.activeView = targetView;
+  document.querySelectorAll(".workspace-view").forEach((item) => {
+    item.classList.toggle("active", item.id === `view-${targetView}`);
+  });
+  document.querySelectorAll("[data-view-target]").forEach((item) => {
+    item.classList.toggle("active", item.dataset.viewTarget === targetView);
+  });
+  const title = $("workspace-title");
+  if (title) title.textContent = VIEW_TITLES[targetView];
+}
 
 async function readFileToTextarea(fileInput, textarea) {
   const file = fileInput.files?.[0];
@@ -46,6 +70,7 @@ async function loadDemo(options = {}) {
   $("run-mode").value = demo.config.run_mode || "standard_loop";
   $("max-rounds").value = demo.config.max_rounds;
   $("seeds").value = demo.config.seeds;
+  $("max-workers").value = demo.config.max_workers || 2;
   $("solver").value = demo.config.solver;
   $("baseline-source").value = demo.config.baseline_source || "current_project";
   $("evolution-mode").value = demo.config.evolution_mode === "slot" ? "code" : demo.config.evolution_mode;
@@ -73,6 +98,7 @@ async function loadDemo(options = {}) {
   updateContractSummary();
   if (!options.silent) {
     appendChatMessage("assistant", "SDST-HUdata LA20 默认测试已载入：Agent 自写初始 solver，DeepSeek 自由代码层，10 轮，10 个种子。可以直接“启动”。");
+    setActiveView("setup");
   }
 }
 
@@ -87,10 +113,10 @@ async function loadDeepSeekStatus() {
       <span>${escapeHtml(status.model)} · ${escapeHtml(status.base_url)}</span>
       <small>${escapeHtml(status.diagnosis || "密钥已加载，界面不会展示密钥内容。")}</small>
     `;
-    badge.className = "api-status ready";
+    badge.className = "api-panel ready";
   } else {
     badge.innerHTML = renderDeepSeekHelp(status);
-    badge.className = "api-status missing";
+    badge.className = "api-panel missing";
   }
 }
 
@@ -217,9 +243,11 @@ function buildPayload() {
     run_mode: $("run-mode").value,
     max_rounds: Number($("max-rounds").value || 2),
     seeds: $("seeds").value || DEFAULT_STANDARD_SEEDS,
+    max_workers: Number($("max-workers").value || 1),
     solver: $("solver").value,
     baseline_source: $("baseline-source").value,
     evolution_mode: $("evolution-mode").value === "slot" ? "code" : $("evolution-mode").value,
+    coding_backend: "opencode",
     selected_slot_id: "agent_auto",
     slot_user_confirmed: false,
     profile_mode: $("profile-mode").value,
@@ -418,12 +446,14 @@ async function handleChatCommand(message, options = {}) {
     return;
   }
   if (["历史", "历史任务", "history"].some((token) => normalized.includes(token))) {
+    setActiveView("versions");
     await loadJobHistory({restoreLatest: false});
     $("history-list").scrollIntoView({behavior: "smooth", block: "nearest"});
     appendChatMessage("assistant", "历史任务已刷新，可以在右侧点击任意一次运行查看报告。");
     return;
   }
   if (["参数", "配置", "config"].some((token) => normalized.includes(token))) {
+    setActiveView("setup");
     $("job-form").scrollIntoView({behavior: "smooth", block: "start"});
     appendChatMessage("assistant", "配置区已经定位到左侧下方。");
     return;
@@ -476,6 +506,15 @@ async function handleTerminalJob(job) {
 }
 
 function renderJob(job) {
+  const workspaceStatus = $("workspace-status");
+  if (workspaceStatus) {
+    workspaceStatus.textContent = statusLabel(job.status);
+    workspaceStatus.className = `status-pill ${job.status}`;
+  }
+  const inspectorTitle = $("inspector-title");
+  if (inspectorTitle) {
+    inspectorTitle.textContent = job.title || "Agent 自写 solver 能力提升";
+  }
   $("empty-state").classList.add("hidden");
   $("job-view").classList.remove("hidden");
   $("job-title").textContent = job.title;
@@ -558,6 +597,210 @@ function renderJob(job) {
     button.addEventListener("click", () => loadArtifact(name));
     artifactList.appendChild(button);
   }
+  loadAndRenderInsights(job).catch(() => {});
+}
+
+async function loadAndRenderInsights(job) {
+  if (!job?.id) return;
+  const response = await fetch(`/api/jobs/${encodeURIComponent(job.id)}/insights`);
+  if (!response.ok) return;
+  const insights = await response.json();
+  if (state.currentJobId && state.currentJobId !== job.id) return;
+  renderInsights(insights, job);
+}
+
+function renderInsights(insights, job) {
+  renderContextInsight(insights.context || {});
+  renderWorkerInsight(insights.worker || {});
+  renderExperimentInsight(insights.experiments || {});
+  renderKnowledgeInsight(insights.knowledge || {});
+  renderInspectorInsight(insights, job);
+}
+
+function renderContextInsight(context) {
+  setText("context-packet-hash", compactHash(context.packet_hash));
+  setText("context-contract-hash", compactHash(context.contract_hash));
+  setText(
+    "context-selected-count",
+    `${context.selected_source_count ?? 0} 类 · 文档 ${context.document_count ?? 0} · 知识 ${context.knowledge_card_count ?? 0}`,
+  );
+  setText("context-excluded-count", `${context.excluded_source_count ?? 0} 项`);
+  const list = $("context-source-list");
+  if (!list) return;
+  const sources = Array.isArray(context.sources) ? context.sources : [];
+  list.innerHTML = "";
+  if (!sources.length) {
+    list.innerHTML = `<article><span class="source-state excluded">待生成</span><strong>Context Packet</strong><p>运行后展示来源链。</p></article>`;
+    return;
+  }
+  for (const source of sources) {
+    const article = document.createElement("article");
+    const state = source.state === "excluded" ? "excluded" : "selected";
+    article.innerHTML = `
+      <span class="source-state ${state}">${state === "selected" ? "已选择" : "已排除"}</span>
+      <strong>${escapeHtml(source.title || "Context Source")}</strong>
+      <p>${escapeHtml(source.detail || "-")}</p>
+    `;
+    list.appendChild(article);
+  }
+  for (const hint of context.diagnostics?.direction_hints || []) {
+    const article = document.createElement("article");
+    article.innerHTML = `
+      <span class="source-state selected">诊断</span>
+      <strong>方向提示</strong>
+      <p>${escapeHtml(hint)}</p>
+    `;
+    list.appendChild(article);
+  }
+}
+
+function renderWorkerInsight(worker) {
+  const rounds = Array.isArray(worker.rounds) ? worker.rounds : [];
+  const roundList = $("worker-round-list");
+  if (roundList) {
+    roundList.innerHTML = "";
+    if (!rounds.length) {
+      roundList.innerHTML = "<li class=\"active\"><strong>待运行</strong><span>暂无回合</span></li>";
+    } else {
+      rounds.forEach((round, index) => {
+        const item = document.createElement("li");
+        item.className = index === rounds.length - 1 ? "active" : "";
+        item.innerHTML = `
+          <strong>${String(round.round_index + 1).padStart(2, "0")}</strong>
+          <span>${escapeHtml(truncateText(round.title || "-", 34))}<br>${workerDecisionLabel(round.decision)} · ${formatMetric(round.makespan)}</span>
+        `;
+        roundList.appendChild(item);
+      });
+    }
+  }
+
+  const detail = $("worker-direction-list");
+  if (!detail) return;
+  detail.innerHTML = "";
+  if (!rounds.length) {
+    detail.innerHTML = "<div class=\"knowledge-empty\">运行后这里会展示每轮提出的方向、修补次数、JA/evaluator 结果和证据来源。</div>";
+    return;
+  }
+  for (const round of rounds) {
+    const card = document.createElement("article");
+    card.className = `direction-card ${safeClass(round.status)} ${safeClass(round.decision)}`;
+    const failures = (round.failure_signatures || []).map((item) => `<span class="tag danger">${escapeHtml(item)}</span>`).join("");
+    const evidence = (round.evidence_used || []).slice(0, 2).map((item) => `<span class="tag">${escapeHtml(truncateText(item, 72))}</span>`).join("");
+    card.innerHTML = `
+      <header>
+        <div>
+          <span class="section-kicker">第 ${round.round_index + 1} 轮 · ${escapeHtml(round.strategy_type || "-")}</span>
+          <h3>${escapeHtml(round.title || "-")}</h3>
+        </div>
+        <span class="tag ${round.decision === "promoted" ? "success" : round.status === "no_improvement" ? "warning" : "danger"}">${workerDecisionLabel(round.decision)}</span>
+      </header>
+      <p>${escapeHtml(truncateText(round.strategy_intent || "没有记录策略说明。", 220))}</p>
+      <div class="direction-meta">
+        <span class="tag">尝试 ${round.attempt_count ?? 0}</span>
+        <span class="tag">valid ${round.valid ?? 0}/${round.total ?? 0}</span>
+        <span class="tag">makespan ${formatMetric(round.makespan)}</span>
+        ${round.gap_pct === null || round.gap_pct === undefined ? "" : `<span class="tag">gap ${formatPct(round.gap_pct)}</span>`}
+        ${failures}
+        ${evidence}
+      </div>
+    `;
+    detail.appendChild(card);
+  }
+}
+
+function renderExperimentInsight(experiments) {
+  setText("experiment-baseline", formatMetric(experiments.baseline_makespan));
+  setText("experiment-best", formatMetric(experiments.best_makespan ?? experiments.final_makespan));
+  const finalTotal = experiments.final_total ?? 0;
+  const finalValid = experiments.final_valid ?? 0;
+  setText("experiment-valid-rate", finalTotal ? `${finalValid}/${finalTotal}` : "-");
+  setText("experiment-promotions", `${experiments.promoted_rounds ?? 0}/${experiments.round_count ?? 0}`);
+  const trend = $("experiment-trend");
+  if (!trend) return;
+  const points = Array.isArray(experiments.trend) ? experiments.trend : [];
+  trend.innerHTML = "";
+  trend.className = "trend-placeholder trend-chart";
+  const finiteMakespans = points.map((item) => Number(item.makespan)).filter((value) => Number.isFinite(value));
+  const max = finiteMakespans.length ? Math.max(...finiteMakespans) : 0;
+  const min = finiteMakespans.length ? Math.min(...finiteMakespans) : 0;
+  if (!points.length) {
+    trend.innerHTML = "<span>运行后展示趋势</span>";
+    return;
+  }
+  for (const point of points) {
+    const makespan = Number(point.makespan);
+    const valid = Number(point.valid || 0);
+    const denominator = Math.max(1, max - min);
+    const height = Number.isFinite(makespan) ? 52 + ((max - makespan) / denominator) * 128 : 32;
+    const bar = document.createElement("div");
+    bar.className = `trend-bar ${safeClass(point.decision)} ${!valid && point.decision !== "baseline" ? "invalid" : ""}`;
+    bar.innerHTML = `
+      <span style="--bar-height: ${Math.round(height)}px">${escapeHtml(formatMetric(point.makespan))}</span>
+      <strong>${escapeHtml(point.label || "-")}</strong>
+    `;
+    trend.appendChild(bar);
+  }
+}
+
+function renderKnowledgeInsight(knowledge) {
+  const ledger = $("knowledge-ledger");
+  if (!ledger) return;
+  ledger.innerHTML = "";
+  const summary = document.createElement("article");
+  summary.className = "knowledge-item";
+  const usageSummary = knowledge.skill_usage_summary || {};
+  summary.innerHTML = `
+    <header>
+      <div>
+        <span class="section-kicker">经验分层沉淀</span>
+        <h3>候选经验 ${knowledge.lesson_count ?? 0} · 已验证 ${knowledge.validated_lesson_count ?? 0} · 使用记录 ${knowledge.skill_usage_record_count ?? 0}</h3>
+      </div>
+    </header>
+    <p>${escapeHtml(knowledge.purpose || "运行后按层沉淀经验。")}</p>
+    <div class="knowledge-meta">
+      <span class="tag">promotion 关联 ${usageSummary.promoted_usage_count ?? 0}</span>
+      <span class="tag">record ${usageSummary.record_count ?? 0}</span>
+    </div>
+  `;
+  ledger.appendChild(summary);
+  const lessons = Array.isArray(knowledge.lessons) ? knowledge.lessons : [];
+  if (!lessons.length) {
+    const empty = document.createElement("div");
+    empty.className = "knowledge-empty";
+    empty.textContent = "还没有可展示的经验条目。";
+    ledger.appendChild(empty);
+    return;
+  }
+  for (const lesson of lessons) {
+    const item = document.createElement("article");
+    const negative = /failure|no_improvement|not_promoted|infeasible/i.test(`${lesson.lesson_type} ${lesson.outcome}`);
+    item.className = `knowledge-item ${negative ? "negative" : ""}`;
+    item.innerHTML = `
+      <header>
+        <div>
+          <span class="section-kicker">${escapeHtml(lesson.lesson_type || "-")}</span>
+          <h3>${escapeHtml(lesson.strategy || "-")}</h3>
+        </div>
+        <span class="tag ${negative ? "warning" : "success"}">${escapeHtml(lesson.outcome || "-")}</span>
+      </header>
+      <p>${escapeHtml(lesson.recommended_skill_update || "暂无 skill 更新建议。")}</p>
+      <div class="knowledge-meta"><span class="tag">confidence ${escapeHtml(lesson.confidence || "-")}</span></div>
+    `;
+    ledger.appendChild(item);
+  }
+}
+
+function renderInspectorInsight(insights, job) {
+  const experiments = insights.experiments || {};
+  const context = insights.context || {};
+  const worker = insights.worker || {};
+  setText("inspector-validator", `${experiments.final_valid ?? 0}/${experiments.final_total ?? 0}`);
+  setText(
+    "inspector-benchmark",
+    `${formatMetric(experiments.best_makespan ?? experiments.final_makespan)}${experiments.final_gap_pct === null || experiments.final_gap_pct === undefined ? "" : ` · ${formatPct(experiments.final_gap_pct)}`}`,
+  );
+  setText("inspector-context", `${context.selected_source_count ?? 0} 类 · ${compactHash(context.packet_hash)}`);
+  setText("inspector-artifacts", `${Object.keys(job.artifacts || {}).length} 个 · 方向 ${worker.direction_count ?? 0}`);
 }
 
 function workerRepairText(workerSummary) {
@@ -633,6 +876,44 @@ function formatMetric(value) {
   return Number.isInteger(num) ? String(num) : num.toFixed(2);
 }
 
+function formatPct(value) {
+  if (value === undefined || value === null || Number.isNaN(Number(value))) return "-";
+  return `${Number(value).toFixed(2)}%`;
+}
+
+function setText(id, value) {
+  const element = $(id);
+  if (!element) return;
+  element.textContent = value === undefined || value === null || value === "" ? "-" : String(value);
+}
+
+function compactHash(value) {
+  const text = String(value || "");
+  if (!text || text === "-") return "-";
+  return text.length <= 14 ? text : `${text.slice(0, 10)}...`;
+}
+
+function truncateText(value, maxLength) {
+  const text = String(value || "");
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1))}…`;
+}
+
+function safeClass(value) {
+  return String(value || "unknown").toLowerCase().replace(/[^a-z0-9_-]+/g, "_");
+}
+
+function workerDecisionLabel(value) {
+  const labels = {
+    promoted: "已提升",
+    rolled_back: "已回滚",
+    baseline: "基线",
+    skipped: "跳过",
+    unknown: "未知",
+  };
+  return labels[value] || value || "-";
+}
+
 function statusLabel(status) {
   const labels = {
     queued: "排队中",
@@ -675,11 +956,22 @@ for (const id of ["run-mode", "evolution-mode", "profile-mode", "baseline-source
     updateContractSummary();
   });
 }
+document.querySelectorAll("[data-view-target]").forEach((button) => {
+  button.addEventListener("click", () => {
+    setActiveView(button.dataset.viewTarget);
+  });
+});
+document.querySelectorAll("[data-artifact-shortcut]").forEach((button) => {
+  button.addEventListener("click", () => {
+    loadArtifact(button.dataset.artifactShortcut);
+  });
+});
 
 initializeChat();
+setActiveView("overview");
 loadDeepSeekStatus().catch(() => {
   $("deepseek-status").textContent = "DeepSeek API：状态读取失败";
-  $("deepseek-status").className = "api-status missing";
+  $("deepseek-status").className = "api-panel missing";
 });
 loadDemo({silent: true}).catch(() => {
   $("artifact-preview").textContent = "内置示例读取失败，但仍可手动粘贴文档和算例。";

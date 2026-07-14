@@ -1,0 +1,251 @@
+# Standard FJSP Agent-Generated Neighborhood Templates
+
+Use this card only after the generated solver has a reachable
+`assignment + machine_sequences + decode_state(...)` path.  These templates show
+the executable code shape for stronger neighborhoods.  They are not instance
+solutions and must not hardcode operations, machines, or makespans.
+
+Assumed state:
+
+```python
+OpKey = tuple[int, int]
+assignment: dict[OpKey, int]
+machine_sequences: dict[int, list[OpKey]]
+schedule: list[dict]  # decoded records with job_id/op_id/machine_id/start/end
+```
+
+The solver must already provide:
+
+- `decode_state(instance, assignment, machine_sequences) -> list[dict] | None`
+- `validate_schedule(instance, schedule) -> bool`
+- `coverage_ok(instance, schedule) -> bool`
+- `makespan(schedule) -> int`
+- `clone_state(assignment, machine_sequences)`
+
+## Move Records
+
+```python
+def schedule_by_machine(schedule: list[dict]) -> dict[int, list[dict]]:
+    by_machine: dict[int, list[dict]] = {}
+    for item in schedule:
+        by_machine.setdefault(item["machine_id"], []).append(item)
+    for items in by_machine.values():
+        items.sort(key=lambda row: (row["start"], row["end"], row["job_id"], row["op_id"]))
+    return by_machine
+
+
+def op_key_of(item: dict) -> OpKey:
+    return (item["job_id"], item["op_id"])
+
+
+def critical_blocks(schedule: list[dict]) -> list[dict]:
+    """Extract compact machine blocks on the current makespan-critical tail.
+
+    This deliberately uses a conservative, portable signal: operations that end
+    close to the current makespan plus adjacent operations on the same machine.
+    A stronger implementation may compute exact longest-path critical arcs.
+    """
+    if not schedule:
+        return []
+    cmax = makespan(schedule)
+    blocks: list[dict] = []
+    for machine_id, items in schedule_by_machine(schedule).items():
+        anchor_positions = [
+            index
+            for index, item in enumerate(items)
+            if item["end"] == cmax or cmax - item["end"] <= max(1, cmax // 20)
+        ]
+        for pos in anchor_positions:
+            left = max(0, pos - 2)
+            right = min(len(items), pos + 3)
+            block_ops = [op_key_of(item) for item in items[left:right]]
+            if len(block_ops) >= 2:
+                blocks.append({"machine": machine_id, "ops": block_ops})
+    return blocks
+```
+
+## Applying Moves
+
+```python
+def apply_sequence_move(
+    assignment: dict[OpKey, int],
+    machine_sequences: dict[int, list[OpKey]],
+    move: dict,
+) -> tuple[dict[OpKey, int], dict[int, list[OpKey]]] | None:
+    next_assignment, next_sequences = clone_state(assignment, machine_sequences)
+    kind = move.get("kind")
+
+    if kind == "same_machine_swap":
+        machine_id = int(move["machine"])
+        left = tuple(move["left"])
+        right = tuple(move["right"])
+        seq = next_sequences.get(machine_id)
+        if seq is None or left not in seq or right not in seq:
+            return None
+        i = seq.index(left)
+        j = seq.index(right)
+        seq[i], seq[j] = seq[j], seq[i]
+        return next_assignment, next_sequences
+
+    if kind == "same_machine_insert":
+        machine_id = int(move["machine"])
+        op_key = tuple(move["op"])
+        pos = int(move["pos"])
+        seq = next_sequences.get(machine_id)
+        if seq is None or op_key not in seq:
+            return None
+        seq.remove(op_key)
+        pos = max(0, min(pos, len(seq)))
+        seq.insert(pos, op_key)
+        return next_assignment, next_sequences
+
+    if kind == "change_machine_insert":
+        op_key = tuple(move["op"])
+        new_machine = int(move["machine"])
+        pos = int(move["pos"])
+        old_machine = next_assignment.get(op_key)
+        if old_machine is None:
+            return None
+        old_seq = next_sequences.get(old_machine)
+        if old_seq is None or op_key not in old_seq:
+            return None
+        old_seq.remove(op_key)
+        new_seq = next_sequences.setdefault(new_machine, [])
+        pos = max(0, min(pos, len(new_seq)))
+        new_seq.insert(pos, op_key)
+        next_assignment[op_key] = new_machine
+        return next_assignment, next_sequences
+
+    return None
+```
+
+## N8/K-Insertion-Like Candidate Generation
+
+```python
+def generate_critical_block_moves(
+    instance: dict,
+    assignment: dict[OpKey, int],
+    machine_sequences: dict[int, list[OpKey]],
+    schedule: list[dict],
+    *,
+    max_moves: int = 200,
+) -> list[dict]:
+    moves: list[dict] = []
+    for block in critical_blocks(schedule):
+        machine_id = block["machine"]
+        block_ops = block["ops"]
+        seq = machine_sequences.get(machine_id, [])
+        for left, right in zip(block_ops, block_ops[1:]):
+            if left in seq and right in seq:
+                moves.append({"kind": "same_machine_swap", "machine": machine_id, "left": left, "right": right})
+                if len(moves) >= max_moves:
+                    return moves
+        for op_key in block_ops:
+            if op_key not in seq:
+                continue
+            old_pos = seq.index(op_key)
+            for pos in range(max(0, old_pos - 3), min(len(seq), old_pos + 4)):
+                if pos != old_pos:
+                    moves.append({"kind": "same_machine_insert", "machine": machine_id, "op": op_key, "pos": pos})
+                    if len(moves) >= max_moves:
+                        return moves
+            for new_machine in instance["op_info"][op_key]["eligible"]:
+                if new_machine == machine_id:
+                    continue
+                target_len = len(machine_sequences.get(new_machine, []))
+                for pos in (0, target_len // 2, target_len):
+                    moves.append({"kind": "change_machine_insert", "op": op_key, "machine": new_machine, "pos": pos})
+                    if len(moves) >= max_moves:
+                        return moves
+    return moves
+```
+
+## Tabu/Best-Improvement Search Loop
+
+```python
+def move_signature(move: dict) -> tuple:
+    return tuple((key, str(value)) for key, value in sorted(move.items()))
+
+
+def tabu_best_improvement(
+    instance: dict,
+    assignment: dict[OpKey, int],
+    machine_sequences: dict[int, list[OpKey]],
+    schedule: list[dict],
+    *,
+    seed: int,
+    deadline: float,
+) -> tuple[dict[OpKey, int], dict[int, list[OpKey]], list[dict]]:
+    rng = random.Random(seed)
+    best_assignment, best_sequences = clone_state(assignment, machine_sequences)
+    best_schedule = list(schedule)
+    best_value = makespan(best_schedule)
+    current_assignment, current_sequences = clone_state(best_assignment, best_sequences)
+    current_schedule = list(best_schedule)
+    tabu_until: dict[tuple, int] = {}
+    no_improve = 0
+    iteration = 0
+
+    while time.perf_counter() < deadline and iteration < 1500:
+        iteration += 1
+        moves = generate_critical_block_moves(
+            instance,
+            current_assignment,
+            current_sequences,
+            current_schedule,
+            max_moves=180,
+        )
+        if not moves:
+            break
+        rng.shuffle(moves)
+        best_trial = None
+        best_trial_value = None
+        best_move = None
+        for move in moves:
+            signature = move_signature(move)
+            trial_state = apply_sequence_move(current_assignment, current_sequences, move)
+            if trial_state is None:
+                continue
+            trial_assignment, trial_sequences = trial_state
+            trial_schedule = decode_state(instance, trial_assignment, trial_sequences)
+            if trial_schedule is None or not validate_schedule(instance, trial_schedule):
+                continue
+            if not coverage_ok(instance, trial_schedule):
+                continue
+            trial_value = makespan(trial_schedule)
+            tabu = tabu_until.get(signature, -1) > iteration
+            aspiration = trial_value < best_value
+            if tabu and not aspiration:
+                continue
+            if best_trial_value is None or trial_value < best_trial_value:
+                best_trial_value = trial_value
+                best_trial = (trial_assignment, trial_sequences, trial_schedule)
+                best_move = signature
+        if best_trial is None:
+            no_improve += 1
+            if no_improve >= 20:
+                break
+            continue
+
+        current_assignment, current_sequences, current_schedule = best_trial
+        if best_move is not None:
+            tabu_until[best_move] = iteration + 9 + (iteration % 5)
+
+        if best_trial_value is not None and best_trial_value < best_value:
+            best_assignment, best_sequences = clone_state(current_assignment, current_sequences)
+            best_schedule = list(current_schedule)
+            best_value = best_trial_value
+            no_improve = 0
+        else:
+            no_improve += 1
+
+    return best_assignment, best_sequences, best_schedule
+```
+
+## Acceptance Rules
+
+- Never score a move before `decode_state` returns a full schedule.
+- Never replace the incumbent on equal or worse makespan.
+- Never claim `critical_block`, `N8`, `k_insertion`, or `tabu` unless the
+  submitted solver has reachable versions of the functions above.
+- Keep candidate caps and deadlines small enough for evaluator smoke.

@@ -8,10 +8,39 @@ import unittest
 from pathlib import Path
 
 from harness_agent.worker import ExperimentSpec
-from harness_agent.workers.opencode_worker import OpenCodeWorker, opencode_status
+from harness_agent.workers.opencode_worker import OpenCodeWorker, opencode_status, opencode_subprocess_environment
 
 
 class OpenCodeWorkerTests(unittest.TestCase):
+    def test_opencode_environment_resolves_deepseek_key_file_without_copying_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            key_file = tmp_path / "deepseek.key"
+            env_file = tmp_path / ".env.test"
+            key_file.write_text("test-opencode-key\n", encoding="utf-8")
+            env_file.write_text(
+                f'DEEPSEEK_API_KEY=\nDEEPSEEK_API_KEY_FILE="{key_file}"\n',
+                encoding="utf-8",
+            )
+            previous = {
+                key: os.environ.get(key)
+                for key in ("DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY_FILE", "FJSP_AGENT_ENV_FILE")
+            }
+            try:
+                os.environ.pop("DEEPSEEK_API_KEY", None)
+                os.environ.pop("DEEPSEEK_API_KEY_FILE", None)
+                os.environ["FJSP_AGENT_ENV_FILE"] = str(env_file)
+
+                environment = opencode_subprocess_environment()
+            finally:
+                for key, value in previous.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+
+        self.assertEqual("test-opencode-key", environment["DEEPSEEK_API_KEY"])
+
     def test_opencode_status_classifies_authorization_failures(self) -> None:
         self.assertEqual(
             "authorization_required",
@@ -108,6 +137,9 @@ class OpenCodeWorkerTests(unittest.TestCase):
             self.assertIn("anchor each claim to source symbols", prompt)
             self.assertIn("before the solution file is", prompt)
             self.assertIn("evidence-only scaffolding", prompt)
+            self.assertIn(".algoforge_worker_tmp", prompt)
+            self.assertIn("Never use", prompt)
+            self.assertIn("external directory", prompt)
             self.assertIn("variant_required_code_capabilities", prompt)
             self.assertIn("setup-aware same-machine arcs", prompt)
             self.assertIn("release dates require starts", prompt)

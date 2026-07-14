@@ -23,7 +23,7 @@ from .evidence import EvidenceIndexRequest, build_evidence_index
 from .graph_runner import GraphHarnessRunner
 from .health_check import HealthCheckRequest, run_health_check
 from .intent_alignment import IntentAlignmentRequest, write_intent_alignment
-from .loop_runner import run_worker_loop
+from .loop_runner import DEFAULT_IN_ROUND_REPAIR_ATTEMPTS, run_worker_loop
 from .models import TaskContract
 from .project_intake import ProjectIntakeRequest, write_project_intake
 from .problem_families import write_problem_family_card
@@ -547,6 +547,12 @@ def build_parser() -> argparse.ArgumentParser:
     standard_worker.add_argument("--iterations", type=int, default=1)
     standard_worker.add_argument("--max-steps", type=int, default=4)
     standard_worker.add_argument("--max-runtime-seconds", type=int, default=120)
+    standard_worker.add_argument(
+        "--in-round-repair-attempts",
+        type=int,
+        default=DEFAULT_IN_ROUND_REPAIR_ATTEMPTS,
+        help="same-direction repair/refinement attempts allowed inside each worker round",
+    )
     standard_worker.add_argument("--apply-worker", action="store_true")
     standard_worker.add_argument(
         "--promotion-repeats",
@@ -614,6 +620,12 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--worker-iterations", type=int, default=1)
     pipeline.add_argument("--worker-max-steps", type=int, default=4)
     pipeline.add_argument("--worker-max-runtime-seconds", type=int, default=120)
+    pipeline.add_argument(
+        "--worker-in-round-repair-attempts",
+        type=int,
+        default=DEFAULT_IN_ROUND_REPAIR_ATTEMPTS,
+        help="same-direction repair/refinement attempts allowed inside each worker round",
+    )
     pipeline.add_argument("--worker-apply", action="store_true")
     pipeline.add_argument(
         "--worker-promotion-repeats",
@@ -1381,6 +1393,7 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
             iterations=args.iterations,
             max_steps=args.max_steps,
             max_runtime_seconds=args.max_runtime_seconds,
+            in_round_repair_attempts=max(0, args.in_round_repair_attempts),
             apply_worker_changes=bool(args.apply_worker),
             promotion_repeats=max(1, args.promotion_repeats),
             baseline_source=args.baseline_source,
@@ -1464,6 +1477,7 @@ def run_standard_pipeline_cmd(args: argparse.Namespace) -> int:
         worker_iterations=args.worker_iterations,
         worker_max_steps=args.worker_max_steps,
         worker_max_runtime_seconds=args.worker_max_runtime_seconds,
+        worker_in_round_repair_attempts=max(0, args.worker_in_round_repair_attempts),
         worker_apply_changes=bool(args.worker_apply),
         worker_promotion_repeats=max(1, args.worker_promotion_repeats),
         worker_experiment_id=args.worker_experiment_id,

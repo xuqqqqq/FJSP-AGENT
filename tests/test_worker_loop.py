@@ -4,13 +4,29 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from harness_agent.context_packet import ContextPacketRequest, write_context_packet
-from harness_agent.loop_runner import current_round_repair_feedback, run_worker_loop, worker_proposal_diagnostics
+from harness_agent.loop_runner import (
+    current_round_repair_feedback,
+    round_attempt_payload,
+    run_agent_generated_baseline,
+    run_worker_cycle_with_in_round_repairs,
+    run_worker_loop,
+    worker_proposal_diagnostics,
+)
 from harness_agent.models import TaskContract
 from harness_agent.standard_worker_loop import worker_loop_agent_quality_summary
 from harness_agent.worker import NullWorker, WorkerCapabilities, WorkerResult
-from harness_agent.worker_cycle import render_worktree_patch, run_worker_cycle
+from harness_agent.agentic_review import AgenticJudgment
+from harness_agent.runner import RunSummary
+from harness_agent.worker_cycle import (
+    render_worktree_patch,
+    run_worker_cycle,
+    should_soft_accept_agent_generated_quality_rejection,
+    soften_agent_generated_quality_judgment,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -132,6 +148,31 @@ class RuntimeFailWorker:
             status="ok",
             changed_files=["examples/dummy_solver.py"],
             summary="Introduce a runtime failure that py_compile cannot catch.",
+        )
+
+
+class AgentGeneratedBareListOutputWorker:
+    """Generated solver that compiles but writes a bare schedule list."""
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="agent-generated-bare-list-output",
+            supports_code_generation=True,
+            supports_repair=False,
+            supports_structured_output=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        solver_path = Path(spec.worktree_path) / "examples" / "agent_generated_fjsp_solver.py"
+        source = _standard_agent_generated_solver_source().replace(
+            "Path(args.output).write_text(json.dumps(solution), encoding='utf-8')",
+            "with Path(args.output).open('w', encoding='utf-8') as handle:\n        json.dump(solution['schedule'], handle)",
+        )
+        solver_path.write_text(source, encoding="utf-8")
+        return WorkerResult(
+            status="ok",
+            changed_files=["examples/agent_generated_fjsp_solver.py"],
+            summary="Write a generated solver that falsely claims the object schema but emits a bare list.",
         )
 
 
@@ -946,6 +987,67 @@ class ProtectedFactAblationPlanWorker:
         )
 
 
+class AdditiveNeighborhoodMoveWorker:
+    """Worker that describes a remove-and-reinsert move while only adding code."""
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="additive-neighborhood-move",
+            supports_code_generation=True,
+            supports_repair=False,
+            supports_structured_output=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        output_dir = Path(spec.output_dir or spec.worktree_path)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        solver_path = Path(spec.worktree_path) / "examples" / "dummy_solver.py"
+        text = solver_path.read_text(encoding="utf-8")
+        solver_path.write_text(text + "\n# additive insertion-neighborhood helper placeholder\n", encoding="utf-8")
+        proposal_path = output_dir / "proposal.json"
+        proposal_path.write_text(
+            json.dumps(
+                {
+                    "summary": (
+                        "Add a critical insertion operator: remove an operation from a trial sequence, "
+                        "try eligible machines, and reinsert it while preserving promoted mechanisms."
+                    ),
+                    "strategy_intent": (
+                        "This is an additive neighborhood description, not a deletion of the existing "
+                        "critical operator or eligibility guard."
+                    ),
+                    "rule_operator_hypotheses": [
+                        {
+                            "name": "additive_critical_insertion_neighborhood",
+                            "type": "local_search_operator",
+                            "target_files": ["examples/dummy_solver.py"],
+                            "novelty": "Add a new insertion neighborhood while preserving the incumbent operator.",
+                            "expected_effect": "Improve the evaluator objective without removing protected facts.",
+                        }
+                    ],
+                    "changes": [
+                        {
+                            "path": "examples/dummy_solver.py",
+                            "action": "insert_before",
+                            "rationale": "Additive helper only; no existing promoted mechanism is removed.",
+                        }
+                    ],
+                    "quick_test_plan": "python -m compileall examples/dummy_solver.py",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return WorkerResult(
+            status="applied",
+            changed_files=["examples/dummy_solver.py"],
+            summary="Add additive insertion-neighborhood helper text.",
+            artifacts={"proposal": str(proposal_path)},
+        )
+
+
 class SafeFeasibilityProtectedEditWorker:
     """Worker that edits a solver under an empty-schedule protected fact without reintroducing the risk."""
 
@@ -997,6 +1099,134 @@ class SafeFeasibilityProtectedEditWorker:
 
 
 class WorkerLoopTests(unittest.TestCase):
+    def test_main_agent_direction_plan_reaches_every_attempt_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+
+            class StaticPlanner:
+                def plan_direction(self, request):  # noqa: ANN001 - follows planner protocol.
+                    return {
+                        "schema_version": 1,
+                        "direction_id": "d000",
+                        "title": "decoder repair",
+                        "strategy_type": "repair_rule",
+                        "hypothesis": "Repair the decoder before objective tuning.",
+                        "preserve": ["current parser"],
+                        "change_scope": ["decoder only"],
+                        "avoid": ["unrelated tie break"],
+                        "knowledge_paths": [],
+                        "acceptance_checks": ["fixed evaluator valid"],
+                        "stop_conditions": ["repair budget exhausted"],
+                        "planner": "test",
+                    }
+
+            run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=NullWorker(),
+                main_agent=StaticPlanner(),
+                experiment_id="test_main_agent_plan",
+                iterations=1,
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+                in_round_repair_attempts=0,
+            )
+
+            round_context = json.loads(
+                (tmp_path / "loop" / "round_000" / "context_packet.json").read_text(encoding="utf-8")
+            )
+
+            self.assertEqual("decoder repair", round_context["loop_feedback"]["current_direction_plan"]["title"])
+            self.assertEqual(["decoder only"], round_context["loop_feedback"]["current_direction_plan"]["change_scope"])
+
+    def test_in_round_repair_continues_from_previous_candidate_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+            project_roots: list[Path] = []
+            worktrees: list[Path] = []
+
+            def fake_run_worker_cycle(**kwargs):  # noqa: ANN001 - mirrors worker-cycle API.
+                attempt_index = len(project_roots)
+                project_roots.append(Path(kwargs["project_root"]))
+                output_dir = Path(kwargs["output_dir"])
+                output_dir.mkdir(parents=True, exist_ok=True)
+                worktree = output_dir / "candidate_worktree"
+                worktree.mkdir(parents=True, exist_ok=True)
+                worktrees.append(worktree)
+                patch_path = output_dir / "worker_changes.patch"
+                delta_path = output_dir / "worker_worktree_delta.json"
+                patch_path.write_text("", encoding="utf-8")
+                delta_path.write_text("{}", encoding="utf-8")
+                accepted = attempt_index == 1
+                return SimpleNamespace(
+                    worker_result=WorkerResult(
+                        status="applied",
+                        changed_files=["examples/dummy_solver.py"],
+                        summary=f"attempt {attempt_index}",
+                    ),
+                    summary=RunSummary(
+                        total=1 if accepted else 0,
+                        valid=1 if accepted else 0,
+                        failed=0,
+                        best_experiment_id="candidate" if accepted else None,
+                        best_metrics={"completed_weight": 12.0, "runtime_seconds": 0.01} if accepted else {},
+                    ),
+                    worktree_path=worktree,
+                    harness_output_dir=output_dir / "harness",
+                    delta_path=delta_path,
+                    patch_path=patch_path,
+                    agentic_judgment=AgenticJudgment(
+                        accepted=accepted,
+                        right=accepted,
+                        stage="code_generation",
+                        issues=[] if accepted else ["python_compile_error"],
+                        suggestions=[],
+                        checks={},
+                    ),
+                    agentic_error_analysis=None,
+                    smoke_summary=None,
+                    smoke_output_dir=None,
+                    diagnostic_smoke_summary=None,
+                    diagnostic_smoke_output_dir=None,
+                    full_evaluation_started=accepted,
+                )
+
+            with patch("harness_agent.loop_runner.run_worker_cycle", side_effect=fake_run_worker_cycle):
+                cycle, _context, _attempts = run_worker_cycle_with_in_round_repairs(
+                    contract=contract,
+                    project_root=ROOT,
+                    output_dir=tmp_path / "loop" / "round_000",
+                    base_context_packet_path=context_path,
+                    round_index=0,
+                    worker=NullWorker(),
+                    experiment_id="direction_workspace",
+                    max_steps=1,
+                    max_runtime_seconds=30,
+                    apply_worker_changes=True,
+                    baseline_summary=RunSummary(
+                        total=1,
+                        valid=1,
+                        failed=0,
+                        best_experiment_id="baseline",
+                        best_metrics={"completed_weight": 10.0, "runtime_seconds": 0.01},
+                    ),
+                    incumbent_key=(10.0, -0.01),
+                    baseline_generation=None,
+                    previous_rounds=[],
+                    repair_attempts=1,
+                )
+
+            self.assertEqual(2, len(project_roots))
+            self.assertEqual(worktrees[0], project_roots[1])
+            self.assertEqual(worktrees[1], cycle.worktree_path)
+
     def test_worker_cycle_uses_actual_worktree_delta_when_worker_omits_changed_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -1236,6 +1466,20 @@ class WorkerLoopTests(unittest.TestCase):
                             "agent_generated_solver_quality_risks": [
                                 "agent_generated_solver: missing base capabilities: stable_operation_identity"
                             ],
+                            "agent_generated_solver_method_stage": {
+                                "schema_version": 1,
+                                "stage_index": 0,
+                                "stage_name": "stage_0_contract_repair_required",
+                                "missing_for_next_stage": ["stable_operation_identity"],
+                            },
+                            "agent_generated_solver_repair_plan": {
+                                "schema_version": 1,
+                                "repair_mode": "quality_contract_repair",
+                                "reason": "agent_generated_solver_quality_contract_missing",
+                                "target_stage": "stage_1_legal_constructor",
+                                "must_add": ["Normalize operation identity."],
+                                "must_not": ["Do not claim a higher-level local-search method yet."],
+                            },
                             "agent_generated_solver_self_check_risks": [
                                 "solver_contract_self_check missing implemented capabilities: stable_operation_identity"
                             ],
@@ -1269,7 +1513,56 @@ class WorkerLoopTests(unittest.TestCase):
             "stable_operation_identity",
             targets["agent_generated_solver_expected_contract"]["capability_playbook"][0]["name"],
         )
-        self.assertIn("repair_targets", feedback["must_do"][-1])
+        self.assertEqual(
+            "quality_contract_repair",
+            targets["agent_generated_solver_repair_plan"]["repair_mode"],
+        )
+        self.assertEqual(
+            "stage_0_contract_repair_required",
+            targets["agent_generated_solver_method_stage"]["stage_name"],
+        )
+        self.assertTrue(any("repair_targets" in item for item in feedback["must_do"]))
+        self.assertTrue(any("agent_generated_solver_repair_plan" in item for item in feedback["must_do"]))
+
+    def test_current_round_repair_feedback_escalates_repeated_structured_claim_failures(self) -> None:
+        structured_risk = (
+            "agent_generated_solver: structured_neighborhood_claim_unimplemented: claims awls, tabu "
+            "but missing critical_block_extraction, apply_move_on_assignment_and_machine_sequences"
+        )
+        attempt = {
+            "agentic_judgment": {
+                "accepted": False,
+                "issues": ["agent_generated_solver_quality_contract_missing"],
+                "checks": {
+                    "agent_generated_solver_quality_risks": [structured_risk],
+                    "agent_generated_solver_repair_plan": {
+                        "schema_version": 1,
+                        "repair_mode": "method_stage_migration",
+                        "reason": "structured_neighborhood_claim_unimplemented",
+                        "target_stage": "stage_5_structured_neighborhood",
+                        "missing_components": [
+                            "critical_block_extraction",
+                            "apply_move_on_assignment_and_machine_sequences",
+                        ],
+                    },
+                },
+            },
+        }
+
+        feedback = current_round_repair_feedback(
+            attempt_index=2,
+            max_repair_attempts=3,
+            previous_attempts=[attempt, attempt],
+        )
+
+        escalation = feedback["repair_targets"]["agent_generated_repair_escalation"]
+        self.assertEqual("repair_only_stage_gate", escalation["mode"])
+        self.assertEqual(2, escalation["count"])
+        self.assertEqual(
+            "method_stage_migration",
+            feedback["repair_targets"]["agent_generated_solver_repair_plan"]["repair_mode"],
+        )
+        self.assertTrue(any("repair-only stage-gate" in item for item in feedback["must_do"]))
 
     def test_worker_proposal_diagnostics_preserves_solver_self_check_audit_details(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1401,6 +1694,14 @@ class WorkerLoopTests(unittest.TestCase):
             repair_targets = repair_context["loop_feedback"]["current_round_repair"]["repair_targets"]
             self.assertIn("agent_generated_solver_expected_contract", repair_targets)
             self.assertIn("stable_operation_identity", json.dumps(repair_targets, ensure_ascii=False))
+            self.assertIn(
+                "create_or_replace the full solver entrypoint",
+                json.dumps(repair_context["loop_feedback"]["instructions"], ensure_ascii=False),
+            )
+            self.assertIn(
+                "missing solver entrypoints require create_or_replace",
+                repair_context["worker_instruction"]["baseline_generation_rule"],
+            )
             self.assertLess(result.baseline_key[0], 0.0)
             quality_summary = worker_loop_agent_quality_summary(result)
             self.assertTrue(quality_summary["baseline"]["enabled"])
@@ -1408,6 +1709,100 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual(1, quality_summary["baseline"]["repair_attempt_count"])
             self.assertTrue(quality_summary["baseline"]["repair_recovered"])
             self.assertEqual(0, quality_summary["round_count"])
+
+    def test_agent_generated_baseline_repair_keeps_best_changed_attempt_after_empty_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract_path = _write_standard_agent_generated_contract(tmp_path)
+            contract = TaskContract.load(contract_path)
+            context_path = _write_test_context(tmp_path, contract_path=contract_path)
+            project_roots: list[Path] = []
+            worktrees: list[Path] = []
+
+            def fake_run_worker_cycle(**kwargs):  # noqa: ANN001 - mirrors patched worker-cycle API.
+                attempt_index = len(project_roots)
+                project_roots.append(Path(kwargs["project_root"]))
+                output_dir = Path(kwargs["output_dir"])
+                output_dir.mkdir(parents=True, exist_ok=True)
+                worktree = output_dir / "candidate_worktree"
+                worktree.mkdir(parents=True, exist_ok=True)
+                worktrees.append(worktree)
+                patch_path = output_dir / "candidate.patch"
+                delta_path = output_dir / "candidate_delta.json"
+                patch_path.write_text(f"attempt {attempt_index}\n", encoding="utf-8")
+                delta_path.write_text("{}", encoding="utf-8")
+                changed_files = ["examples/agent_generated_fjsp_solver.py"] if attempt_index < 2 else []
+                diagnostic = (
+                    RunSummary(
+                        total=1,
+                        valid=1,
+                        failed=0,
+                        best_experiment_id="diagnostic",
+                        best_metrics={"makespan": 123},
+                    )
+                    if attempt_index == 1
+                    else None
+                )
+                return SimpleNamespace(
+                    worker_result=WorkerResult(
+                        status="ok",
+                        changed_files=changed_files,
+                        summary=f"attempt {attempt_index}",
+                    ),
+                    summary=RunSummary(
+                        total=0,
+                        valid=0,
+                        failed=0,
+                        best_experiment_id=None,
+                        best_metrics={},
+                    ),
+                    worktree_path=worktree,
+                    harness_output_dir=output_dir / "harness",
+                    delta_path=delta_path,
+                    patch_path=patch_path,
+                    agentic_judgment=AgenticJudgment(
+                        accepted=False,
+                        right=False,
+                        stage="code_generation",
+                        issues=["agent_generated_solver_quality_contract_missing"],
+                        suggestions=[],
+                        checks={},
+                    ),
+                    agentic_error_analysis=None,
+                    smoke_summary=None,
+                    smoke_output_dir=None,
+                    diagnostic_smoke_summary=diagnostic,
+                    diagnostic_smoke_output_dir=output_dir / "harness_diagnostic_smoke" if diagnostic else None,
+                    full_evaluation_started=False,
+                )
+
+            with patch("harness_agent.loop_runner.run_worker_cycle", side_effect=fake_run_worker_cycle):
+                summary, worktree, generation = run_agent_generated_baseline(
+                    contract=contract,
+                    project_root=ROOT,
+                    output_dir=tmp_path / "loop",
+                    context_packet_path=context_path,
+                    worker=NullWorker(),
+                    experiment_id="test_baseline_best_attempt",
+                    max_steps=2,
+                    max_runtime_seconds=30,
+                    repair_attempts=2,
+                )
+
+            self.assertEqual(3, len(project_roots))
+            self.assertEqual(worktrees[0], project_roots[1])
+            self.assertEqual(worktrees[1], project_roots[2])
+            self.assertEqual(1, generation["selected_attempt_index"])
+            self.assertEqual(str(worktrees[1]), generation["worktree"])
+            self.assertEqual(worktrees[1], worktree)
+            self.assertEqual(0, summary.total)
+            self.assertEqual(0, generation["summary"]["total"])
+            self.assertTrue(generation["in_round_repair"]["final_attempt_superseded"])
+            self.assertEqual(
+                "changed_candidate_with_valid_diagnostic_smoke",
+                generation["in_round_repair"]["selection_reason"],
+            )
+            self.assertEqual(2, generation["in_round_repair"]["final_attempt_index"])
 
     def test_agent_generated_baseline_memory_reaches_first_improvement_round(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1463,6 +1858,43 @@ class WorkerLoopTests(unittest.TestCase):
                     for item in feedback["next_round_guidance"]["must_do"]
                 )
             )
+
+    def test_invalid_agent_generated_baseline_stops_before_improvement_rounds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract_path = _write_standard_agent_generated_contract(tmp_path)
+            contract = TaskContract.load(contract_path)
+            context_path = _write_test_context(tmp_path, contract_path=contract_path)
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=NullWorker(),
+                baseline_worker=AgentBaselineRepairWorker(),
+                baseline_source="agent_generated",
+                experiment_id="test_agent_generated_baseline_hard_stop",
+                iterations=2,
+                max_steps=2,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+                in_round_repair_attempts=0,
+            )
+
+            self.assertEqual("agent_generated", result.baseline_source)
+            self.assertEqual([], result.rounds)
+            self.assertEqual((float("-inf"),), result.baseline_key)
+            self.assertEqual(result.baseline_key, result.final_key)
+            self.assertIsNotNone(result.baseline_generation)
+            generation = result.baseline_generation or {}
+            self.assertTrue(generation["stopped_before_rounds"])
+            self.assertEqual("agent_generated_baseline_not_valid", generation["stop_reason"])
+            self.assertFalse(generation["agentic_judgment"]["accepted"])
+            self.assertFalse((tmp_path / "loop" / "round_000").exists())
+            loop_result = json.loads((tmp_path / "loop" / "loop_result.json").read_text(encoding="utf-8"))
+            self.assertEqual([], loop_result["rounds"])
+            self.assertTrue(loop_result["baseline_generation"]["stopped_before_rounds"])
 
     def test_loop_promotes_only_strict_objective_improvement(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1558,6 +1990,166 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertTrue(cycle_result["smoke_gate"]["enabled"])
             self.assertFalse(cycle_result["smoke_gate"]["passed"])
             self.assertFalse(cycle_result["smoke_gate"]["full_evaluation_started"])
+
+    def test_agent_generated_ja_rejection_records_diagnostic_smoke_feedback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract_path = _write_standard_agent_generated_contract(tmp_path)
+            contract = TaskContract.load(contract_path)
+            context_path = _write_test_context(tmp_path, contract_path=contract_path)
+
+            result = run_worker_cycle(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "cycle",
+                context_packet_path=context_path,
+                worker=AgentGeneratedBareListOutputWorker(),
+                experiment_id="test_agent_generated_diagnostic_smoke",
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+            )
+
+            self.assertFalse(result.agentic_judgment.accepted)
+            self.assertIn("agent_generated_solver_quality_contract_missing", result.agentic_judgment.issues)
+            self.assertEqual(0, result.summary.total)
+            self.assertIsNotNone(result.diagnostic_smoke_summary)
+            self.assertEqual(1, result.diagnostic_smoke_summary.total)
+            self.assertEqual(0, result.diagnostic_smoke_summary.valid)
+            diagnostic_payload = json.dumps(
+                result.diagnostic_smoke_summary.validation_summary,
+                ensure_ascii=False,
+            )
+            self.assertIn("list", diagnostic_payload)
+
+            cycle_result = json.loads((tmp_path / "cycle" / "cycle_result.json").read_text(encoding="utf-8"))
+            self.assertFalse(cycle_result["smoke_gate"]["enabled"])
+            self.assertTrue(cycle_result["diagnostic_smoke"]["enabled"])
+            self.assertTrue(cycle_result["diagnostic_smoke"]["diagnostic_only"])
+            self.assertFalse(cycle_result["diagnostic_smoke"]["passed"])
+
+            attempt = round_attempt_payload(
+                result,
+                attempt_index=0,
+                context_packet_path=context_path,
+            )
+            feedback = current_round_repair_feedback(
+                attempt_index=1,
+                max_repair_attempts=2,
+                previous_attempts=[attempt],
+            )
+            self.assertIn("diagnostic_smoke_invalid_candidate", feedback["avoid"])
+            self.assertIn("diagnostic_smoke_top_errors", feedback["repair_targets"])
+            self.assertIn("list", json.dumps(feedback["repair_targets"]["diagnostic_smoke_top_errors"], ensure_ascii=False))
+
+    def test_soft_accepts_generated_solver_quality_gap_after_valid_diagnostic_smoke(self) -> None:
+        judgment = AgenticJudgment(
+            accepted=False,
+            right=False,
+            stage="code_generation",
+            issues=["agent_generated_solver_quality_contract_missing"],
+            suggestions=["repair soft source-shape evidence"],
+            checks={
+                "agent_generated_solver_quality_risks": [
+                    "agent_generated_solver: self-check evidence names a helper but the submitted code uses an alias"
+                ]
+            },
+        )
+        diagnostic = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="tiny",
+            best_metrics={"makespan": 10.0},
+            best_candidate_id="candidate",
+            best_candidate_metrics={"avg_makespan": 10.0},
+            candidate_summaries=[],
+            pareto_frontier=[],
+            validation_summary={"status_counts": {"success": 1}},
+        )
+
+        self.assertTrue(
+            should_soft_accept_agent_generated_quality_rejection(
+                agentic_judgment=judgment,
+                diagnostic_smoke_summary=diagnostic,
+            )
+        )
+        softened = soften_agent_generated_quality_judgment(
+            agentic_judgment=judgment,
+            diagnostic_smoke_summary=diagnostic,
+        )
+        self.assertTrue(softened.accepted)
+        self.assertEqual([], softened.issues)
+        self.assertIn("soft_accepted_by_diagnostic_smoke", softened.checks)
+
+    def test_does_not_soft_accept_generated_solver_missing_base_capabilities(self) -> None:
+        judgment = AgenticJudgment(
+            accepted=False,
+            right=False,
+            stage="code_generation",
+            issues=["agent_generated_solver_quality_contract_missing"],
+            suggestions=["repair missing constructor structure"],
+            checks={
+                "agent_generated_solver_quality_risks": [
+                    "agent_generated_solver: missing base capabilities: operation_level_ready_list_constructor"
+                ]
+            },
+        )
+        diagnostic = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="tiny",
+            best_metrics={"makespan": 10.0},
+            best_candidate_id="candidate",
+            best_candidate_metrics={"avg_makespan": 10.0},
+            candidate_summaries=[],
+            pareto_frontier=[],
+            validation_summary={"status_counts": {"success": 1}},
+        )
+
+        self.assertFalse(
+            should_soft_accept_agent_generated_quality_rejection(
+                agentic_judgment=judgment,
+                diagnostic_smoke_summary=diagnostic,
+            )
+        )
+
+    def test_does_not_soft_accept_generated_solver_when_hard_issue_remains(self) -> None:
+        judgment = AgenticJudgment(
+            accepted=False,
+            right=False,
+            stage="code_generation",
+            issues=["incomplete_solution_acceptance_risk", "agent_generated_solver_quality_contract_missing"],
+            suggestions=["repair empty fallback"],
+            checks={
+                "incomplete_solution_acceptance_risks": [
+                    "examples/agent_generated_fjsp_solver.py: empty_schedule_fallback_emitted"
+                ],
+                "agent_generated_solver_quality_risks": [
+                    "agent_generated_solver: missing base capabilities: complete_schedule_coverage_guard"
+                ],
+            },
+        )
+        diagnostic = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="tiny",
+            best_metrics={"makespan": 10.0},
+            best_candidate_id="candidate",
+            best_candidate_metrics={"avg_makespan": 10.0},
+            candidate_summaries=[],
+            pareto_frontier=[],
+            validation_summary={"status_counts": {"success": 1}},
+        )
+
+        self.assertFalse(
+            should_soft_accept_agent_generated_quality_rejection(
+                agentic_judgment=judgment,
+                diagnostic_smoke_summary=diagnostic,
+            )
+        )
 
     def test_code_judgment_rejects_incomplete_local_search_acceptance(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1817,6 +2409,40 @@ class WorkerLoopTests(unittest.TestCase):
 
             self.assertTrue(result.agentic_judgment.accepted)
             self.assertNotIn("protected_promoted_fact_regression", result.agentic_judgment.issues)
+
+    def test_protected_fact_guard_allows_additive_remove_and_reinsert_neighborhood(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+            context = json.loads(context_path.read_text(encoding="utf-8"))
+            context["loop_feedback"] = {
+                "protected_promoted_facts": [
+                    {
+                        "round_index": 1,
+                        "name": "critical_op_machine_reassignment_local_search",
+                        "type": "local_search_operator",
+                        "target_files": ["examples/dummy_solver.py"],
+                        "novelty": "Preserve critical operator and eligible-machine reassignment behavior.",
+                    }
+                ]
+            }
+            context_path.write_text(json.dumps(context, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+            result = run_worker_cycle(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "cycle",
+                context_packet_path=context_path,
+                worker=AdditiveNeighborhoodMoveWorker(),
+                experiment_id="test_additive_neighborhood_move",
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+            )
+
+            self.assertTrue(result.agentic_judgment.accepted)
+            self.assertEqual([], result.agentic_judgment.checks["protected_promoted_fact_regressions"])
 
     def test_feasibility_protected_fact_allows_safe_dispatch_edit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

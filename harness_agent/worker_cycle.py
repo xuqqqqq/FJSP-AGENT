@@ -14,6 +14,7 @@ from .agentic_review import (
     analyze_rejected_judgment,
     analyze_run_summary,
     judge_worker_result,
+    write_judgment_artifacts,
 )
 from .graph_runner import GraphHarnessRunner
 from .models import TaskContract, resolve_project_path
@@ -33,6 +34,8 @@ class WorkerCycleResult:
     agentic_error_analysis: ErrorAnalysis | None
     smoke_summary: RunSummary | None = None
     smoke_output_dir: Path | None = None
+    diagnostic_smoke_summary: RunSummary | None = None
+    diagnostic_smoke_output_dir: Path | None = None
     full_evaluation_started: bool = False
 
 
@@ -55,6 +58,7 @@ def run_worker_cycle(
     worker_output_dir = output_dir / "worker"
     harness_output_dir = output_dir / "harness"
     smoke_output_dir = output_dir / "harness_smoke"
+    diagnostic_smoke_output_dir = output_dir / "harness_diagnostic_smoke"
     prepare_candidate_worktree(
         project_root=project_root.resolve(),
         contract=contract,
@@ -95,6 +99,7 @@ def run_worker_cycle(
         apply_worker_changes=apply_worker_changes,
     )
     agentic_error_analysis: ErrorAnalysis | None = None
+    diagnostic_smoke_summary: RunSummary | None = None
     if not agentic_judgment.accepted:
         summary = RunSummary(
             total=0,
@@ -110,7 +115,51 @@ def run_worker_cycle(
         )
         agentic_error_analysis = analyze_rejected_judgment(judgment=agentic_judgment, output_dir=output_dir)
         smoke_summary = None
-        full_evaluation_started = False
+        if should_run_agent_generated_smoke_diagnostic(
+            contract=contract,
+            worker_result=worker_result,
+            agentic_judgment=agentic_judgment,
+        ):
+            diagnostic_smoke_summary = run_diagnostic_smoke(
+                contract=contract,
+                worktree_path=worktree_path,
+                output_dir=diagnostic_smoke_output_dir,
+            )
+        if should_soft_accept_agent_generated_quality_rejection(
+            agentic_judgment=agentic_judgment,
+            diagnostic_smoke_summary=diagnostic_smoke_summary,
+        ):
+            agentic_judgment = soften_agent_generated_quality_judgment(
+                agentic_judgment=agentic_judgment,
+                diagnostic_smoke_summary=diagnostic_smoke_summary,
+            )
+            write_judgment_artifacts(output_dir=output_dir, judgment=agentic_judgment)
+            agentic_error_analysis = None
+            smoke_contract = smoke_gate_contract(contract)
+            smoke_runner = GraphHarnessRunner(
+                contract=smoke_contract,
+                project_root=worktree_path,
+                output_dir=smoke_output_dir,
+            )
+            try:
+                smoke_summary = smoke_runner.run()
+            finally:
+                smoke_runner.close()
+            smoke_passed = smoke_summary.total > 0 and smoke_summary.valid == smoke_summary.total
+            full_evaluation_started = False
+            if smoke_passed and full_evaluation_required(contract):
+                runner = GraphHarnessRunner(contract=contract, project_root=worktree_path, output_dir=harness_output_dir)
+                try:
+                    summary = runner.run()
+                finally:
+                    runner.close()
+                full_evaluation_started = True
+            else:
+                summary = smoke_summary
+                harness_output_dir = smoke_output_dir
+            agentic_error_analysis = analyze_run_summary(summary=summary, output_dir=output_dir)
+        else:
+            full_evaluation_started = False
     else:
         smoke_contract = smoke_gate_contract(contract)
         smoke_runner = GraphHarnessRunner(contract=smoke_contract, project_root=worktree_path, output_dir=smoke_output_dir)
@@ -144,6 +193,8 @@ def run_worker_cycle(
         agentic_error_analysis=agentic_error_analysis,
         smoke_summary=smoke_summary,
         smoke_output_dir=smoke_output_dir if smoke_summary else None,
+        diagnostic_smoke_summary=diagnostic_smoke_summary,
+        diagnostic_smoke_output_dir=diagnostic_smoke_output_dir if diagnostic_smoke_summary else None,
         full_evaluation_started=full_evaluation_started,
     )
     return WorkerCycleResult(
@@ -157,6 +208,8 @@ def run_worker_cycle(
         agentic_error_analysis=agentic_error_analysis,
         smoke_summary=smoke_summary,
         smoke_output_dir=smoke_output_dir if smoke_summary else None,
+        diagnostic_smoke_summary=diagnostic_smoke_summary,
+        diagnostic_smoke_output_dir=diagnostic_smoke_output_dir if diagnostic_smoke_summary else None,
         full_evaluation_started=full_evaluation_started,
     )
 
@@ -179,6 +232,142 @@ def smoke_gate_contract(contract: TaskContract) -> TaskContract:
 
 def full_evaluation_required(contract: TaskContract) -> bool:
     return contract.budget.rounds > 1 or len(contract.budget.seeds) > 1
+
+
+def should_run_agent_generated_smoke_diagnostic(
+    *,
+    contract: TaskContract,
+    worker_result: WorkerResult,
+    agentic_judgment: AgenticJudgment,
+) -> bool:
+    """Run one diagnostic evaluator pass for rejected generated solvers.
+
+    This pass never promotes a candidate.  It exists to turn JA-rejected solver
+    claims into concrete evaluator feedback for same-round repair.
+    """
+
+    if agentic_judgment.accepted:
+        return False
+    solver_command = str(contract.commands.solver or "").replace("\\", "/").lower()
+    if "agent_generated" not in solver_command:
+        return False
+    changed = [str(path).replace("\\", "/").lower() for path in worker_result.changed_files or []]
+    return any(path.startswith("examples/agent_generated") and path.endswith(".py") for path in changed)
+
+
+def should_soft_accept_agent_generated_quality_rejection(
+    *,
+    agentic_judgment: AgenticJudgment,
+    diagnostic_smoke_summary: RunSummary | None,
+) -> bool:
+    """Let evaluator-proven generated solvers pass soft source-shape JA gaps.
+
+    Static quality checks are intentionally conservative, but they should not
+    trap an agent in helper-renaming repair loops after the fixed evaluator has
+    already proved complete coverage and legality on the active instance.
+    Concrete safety failures such as empty-schedule fallback, syntax errors,
+    parser hardcoding, backend imports, apply failures, or validator edits stay
+    hard-blocking.
+    """
+
+    if agentic_judgment.accepted or diagnostic_smoke_summary is None:
+        return False
+    if diagnostic_smoke_summary.total <= 0 or diagnostic_smoke_summary.valid != diagnostic_smoke_summary.total:
+        return False
+    issues = set(agentic_judgment.issues or [])
+    if issues != {"agent_generated_solver_quality_contract_missing"}:
+        return False
+    checks = agentic_judgment.checks or {}
+    quality_risks = [str(item) for item in checks.get("agent_generated_solver_quality_risks") or []]
+    if not quality_risks:
+        return False
+    hard_quality_fragments = (
+        "hardcode",
+        "missing base capabilities",
+        "declared_output_schema_mismatch",
+        "job_precedence_guard_mismatch",
+        "parser assumes one physical operation line",
+        "active feature",
+        "missing setup-aware capabilities",
+        "structured_neighborhood_claim_unimplemented",
+        "shallow_local_search_operator",
+        "sequence/neighborhood move lacks",
+    )
+    return not any(
+        any(fragment in risk for fragment in hard_quality_fragments)
+        for risk in quality_risks
+    )
+
+
+def soften_agent_generated_quality_judgment(
+    *,
+    agentic_judgment: AgenticJudgment,
+    diagnostic_smoke_summary: RunSummary,
+) -> AgenticJudgment:
+    checks = dict(agentic_judgment.checks or {})
+    checks["soft_accepted_by_diagnostic_smoke"] = {
+        "reason": "diagnostic_smoke_validated_soft_agent_generated_quality_gaps",
+        "original_issues": list(agentic_judgment.issues or []),
+        "original_quality_risks": list(checks.get("agent_generated_solver_quality_risks") or []),
+        "diagnostic_metrics": diagnostic_smoke_summary.best_candidate_metrics or diagnostic_smoke_summary.best_metrics,
+    }
+    return replace(
+        agentic_judgment,
+        accepted=True,
+        right=True,
+        issues=[],
+        suggestions=[
+            "Diagnostic smoke validated the active generated solver on the fixed evaluator; static quality-contract gaps were downgraded to warnings.",
+            "Continue with evaluator-backed comparison, and preserve the validated parser/coverage/eligibility behavior in later edits.",
+        ],
+        checks=checks,
+    )
+
+
+def run_diagnostic_smoke(*, contract: TaskContract, worktree_path: Path, output_dir: Path) -> RunSummary:
+    """Run a diagnostic-only one-seed smoke and capture quick-test failures."""
+
+    smoke_contract = smoke_gate_contract(contract)
+    runner = GraphHarnessRunner(contract=smoke_contract, project_root=worktree_path, output_dir=output_dir)
+    try:
+        summary = runner.run()
+    except Exception as exc:  # noqa: BLE001 - diagnostic feedback should not abort a repairable round.
+        summary = RunSummary(
+            total=1,
+            valid=0,
+            failed=1,
+            best_experiment_id=None,
+            best_metrics={},
+            best_candidate_id=None,
+            best_candidate_metrics=None,
+            candidate_summaries=[],
+            pareto_frontier=[],
+            validation_summary={
+                "diagnostic_only": True,
+                "status_counts": {"failed_runtime": 1},
+                "top_errors": [{"error": f"diagnostic smoke failed before evaluator records: {exc}", "count": 1}],
+            },
+        )
+        write_diagnostic_smoke_report(output_dir=output_dir, summary=summary)
+        return summary
+    finally:
+        runner.close()
+    return summary
+
+
+def write_diagnostic_smoke_report(*, output_dir: Path, summary: RunSummary) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "# Diagnostic Smoke Report",
+        "",
+        "This smoke run is diagnostic-only. It is used as repair feedback for a JA-rejected agent-generated solver and is not eligible for promotion.",
+        "",
+        f"- Total: {summary.total}",
+        f"- Valid: {summary.valid}",
+        f"- Failed: {summary.failed}",
+        f"- Validation summary: `{json.dumps(summary.validation_summary or {}, ensure_ascii=False)}`",
+    ]
+    (output_dir / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def prepare_candidate_worktree(*, project_root: Path, contract: TaskContract, worktree_path: Path) -> None:
@@ -219,6 +408,8 @@ def write_cycle_report(
     agentic_error_analysis: ErrorAnalysis | None,
     smoke_summary: RunSummary | None = None,
     smoke_output_dir: Path | None = None,
+    diagnostic_smoke_summary: RunSummary | None = None,
+    diagnostic_smoke_output_dir: Path | None = None,
     full_evaluation_started: bool = False,
 ) -> None:
     payload: dict[str, Any] = {
@@ -250,6 +441,17 @@ def write_cycle_report(
             "passed": bool(smoke_summary and smoke_summary.total > 0 and smoke_summary.valid == smoke_summary.total),
             "full_evaluation_started": full_evaluation_started,
             "summary": run_summary_payload(smoke_summary) if smoke_summary else None,
+        },
+        "diagnostic_smoke": {
+            "enabled": diagnostic_smoke_summary is not None,
+            "diagnostic_only": True,
+            "passed": bool(
+                diagnostic_smoke_summary
+                and diagnostic_smoke_summary.total > 0
+                and diagnostic_smoke_summary.valid == diagnostic_smoke_summary.total
+            ),
+            "summary": run_summary_payload(diagnostic_smoke_summary) if diagnostic_smoke_summary else None,
+            "output_dir": str(diagnostic_smoke_output_dir) if diagnostic_smoke_output_dir else None,
         },
         "worktree_delta": delta,
         "agentic_judgment": agentic_judgment.to_payload(),
@@ -296,6 +498,18 @@ def write_cycle_report(
                 f"- Full evaluation started: `{full_evaluation_started}`",
                 f"- Smoke output: `{smoke_output_dir}`",
                 f"- Smoke summary: `{json.dumps(run_summary_payload(smoke_summary), ensure_ascii=False)}`",
+            ]
+        )
+    if diagnostic_smoke_summary:
+        lines.extend(
+            [
+                "",
+                "## Diagnostic Smoke",
+                "",
+                "- Diagnostic only: `true`",
+                f"- Passed: `{diagnostic_smoke_summary.total > 0 and diagnostic_smoke_summary.valid == diagnostic_smoke_summary.total}`",
+                f"- Smoke output: `{diagnostic_smoke_output_dir}`",
+                f"- Smoke summary: `{json.dumps(run_summary_payload(diagnostic_smoke_summary), ensure_ascii=False)}`",
             ]
         )
     lines.extend(

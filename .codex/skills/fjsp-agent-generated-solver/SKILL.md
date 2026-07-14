@@ -19,21 +19,31 @@ strong legality and search-quality guardrails.
 4. For any active FJSP variant beyond standard alternative-machine precedence,
    read `knowledge/principles/agent_generated_variant_quality_contracts.md`
    when it is present in the project.
-5. For FJSP-SDST agent-generated solver work, read
+5. For standard FJSP agent-generated baseline creation or legality repair,
+   read
+   `knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_reference_skeleton.md`
+   when it is present in the project. Treat it as a portable code-level
+   skeleton to adapt to the active IO, not as a fixed instance solution.
+6. For standard FJSP local-search or neighborhood evolution, read
+   `knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_neighborhood_templates.md`
+   only after the incumbent has reachable `assignment`, `machine_sequences`,
+   and a progress decoder. Use it to implement executable move structures
+   before claiming critical-block, N8/NK, k-insertion, tabu, or AWLS.
+7. For FJSP-SDST agent-generated solver work, read
    `knowledge/papers/awls_sdst_agent_generated_transfer_notes.md` when it is
    present in the project. Treat it as AWLS-derived method transfer, not source
    code to copy.
-6. For FJSP-SDST or any variant with setup-aware sequencing, read
+8. For FJSP-SDST or any variant with setup-aware sequencing, read
    `references/decoder_neighborhood.md`.
-7. Propose one natural-language rule/operator hypothesis before writing code.
-8. Generate solver code from the IO contract. Do not import backend solver
+9. Propose one natural-language rule/operator hypothesis before writing code.
+10. Generate solver code from the IO contract. Do not import backend solver
    internals, evaluator code, or previous solution files.
-9. Self-check standalone CLI (`--input`, `--output`, `--seed`), active IO
+11. Self-check standalone CLI (`--input`, `--output`, `--seed`), active IO
    parsing, declared output schema, processing-time equality, full operation
    coverage, machine eligibility, precedence, non-overlap, variant constraints,
    incumbent preservation, and runtime before claiming a candidate is ready for
    Core evaluation.
-10. When loop feedback contains `agent_generated_quality_memory`, repair its
+12. When loop feedback contains `agent_generated_quality_memory`, repair its
    recurring parser, representation, constructor, decoder, variant-handling, or
    self-check gaps before proposing a new objective-improvement operator.
 
@@ -46,6 +56,9 @@ strong legality and search-quality guardrails.
 - Put reusable algorithmic knowledge in this skill, knowledge cards, domain
   packs, slot manifests, or worker context.
 - Promotion remains owned by the fixed Core evaluator.
+- Code-level knowledge templates may be copied and adapted by the coding agent,
+  but they must remain IO-derived and instance-agnostic.  Do not copy a solved
+  schedule, fixed operation order, benchmark-specific score, or previous output.
 
 ## Success Standard
 

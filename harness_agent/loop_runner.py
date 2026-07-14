@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .context_loader import load_context_packet
 from .context_packet import write_refreshed_context_packet
 from .graph_runner import GraphHarnessRunner
 from .hypothesis import (
@@ -18,6 +19,7 @@ from .hypothesis import (
     summarize_direction_graph,
 )
 from .ledger import ExperimentRecord
+from .main_agent import DirectionPlanRequest, DirectionPlanningAgent, EvidenceDrivenMainAgent
 from .models import ObjectiveSpec, TaskContract
 from .runner import RunSummary
 from .worker import CodingWorker, WorkerResult
@@ -33,7 +35,7 @@ AGENT_GENERATED_BASELINE_HIDDEN_INCUMBENT_FILES = (
     "examples/awls_evolved_slots.py",
 )
 
-DEFAULT_IN_ROUND_REPAIR_ATTEMPTS = 2
+DEFAULT_IN_ROUND_REPAIR_ATTEMPTS = 3
 
 
 def _utc_now_iso() -> str:
@@ -59,6 +61,7 @@ class LoopRoundRecord:
     delta_path: str
     patch_path: str
     promoted_worktree: str | None
+    direction_plan: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -79,6 +82,7 @@ def run_worker_loop(
     output_dir: Path,
     context_packet_path: Path,
     worker: CodingWorker,
+    main_agent: DirectionPlanningAgent | None = None,
     experiment_id: str,
     iterations: int,
     max_steps: int,
@@ -124,7 +128,27 @@ def run_worker_loop(
         )
     incumbent_key = summary_objective_key(baseline_summary, contract.objectives)
     incumbent_worktree = baseline_worktree
+    if normalized_baseline_source == "agent_generated" and not agent_generated_baseline_is_accepted(
+        baseline_generation,
+        baseline_summary=baseline_summary,
+        baseline_key=incumbent_key,
+    ):
+        if isinstance(baseline_generation, dict):
+            baseline_generation["stopped_before_rounds"] = True
+            baseline_generation["stop_reason"] = "agent_generated_baseline_not_valid"
+        result = WorkerLoopResult(
+            baseline_key=incumbent_key,
+            final_key=incumbent_key,
+            final_worktree=incumbent_worktree,
+            rounds=[],
+            baseline_summary=baseline_summary,
+            baseline_source=normalized_baseline_source,
+            baseline_generation=baseline_generation,
+        )
+        write_loop_report(output_dir=output_dir, result=result, problem_family=contract.problem_family)
+        return result
     effective_repair_attempts = worker_loop_repair_attempt_budget(worker, in_round_repair_attempts)
+    direction_planner = main_agent or EvidenceDrivenMainAgent()
 
     round_records: list[LoopRoundRecord] = []
     seen_proposal_fingerprints: set[str] = set()
@@ -132,6 +156,41 @@ def run_worker_loop(
         cycle_dir = output_dir / f"round_{round_index:03d}"
         round_context_packet_path = cycle_dir / "context_packet.json"
         in_round_attempts: list[dict[str, Any]] = []
+        planning_feedback = loop_feedback_payload(
+            round_index=round_index,
+            contract=contract,
+            baseline_summary=baseline_summary,
+            baseline_key=summary_objective_key(baseline_summary, contract.objectives),
+            incumbent_key_before=incumbent_key,
+            incumbent_worktree=incumbent_worktree,
+            baseline_generation=baseline_generation,
+            previous_rounds=round_records,
+            current_round_repair=None,
+        )
+        try:
+            direction_plan = direction_planner.plan_direction(
+                DirectionPlanRequest(
+                    round_index=round_index,
+                    context_packet_path=context_packet_path,
+                    loop_feedback=planning_feedback,
+                    output_dir=cycle_dir / "main_agent",
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - planner failure should fall back, not lose an experiment round.
+            planner_error_path = cycle_dir / "main_agent" / "planner_exception.txt"
+            planner_error_path.parent.mkdir(parents=True, exist_ok=True)
+            planner_error_path.write_text(
+                "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+                encoding="utf-8",
+            )
+            direction_plan = EvidenceDrivenMainAgent().plan_direction(
+                DirectionPlanRequest(
+                    round_index=round_index,
+                    context_packet_path=context_packet_path,
+                    loop_feedback=planning_feedback,
+                    output_dir=cycle_dir / "main_agent",
+                )
+            )
         try:
             cycle, round_context_packet_path, in_round_attempts = run_worker_cycle_with_in_round_repairs(
                 contract=contract,
@@ -149,6 +208,7 @@ def run_worker_loop(
                 baseline_generation=baseline_generation,
                 previous_rounds=round_records,
                 repair_attempts=effective_repair_attempts,
+                direction_plan=direction_plan,
             )
         except Exception as exc:  # noqa: BLE001 - failed worker rounds are feedback, not loop-ending failures.
             exception_path = cycle_dir / "cycle_exception.txt"
@@ -215,6 +275,7 @@ def run_worker_loop(
                     delta_path=str(delta_path),
                     patch_path=str(patch_path),
                     promoted_worktree=None,
+                    direction_plan=direction_plan,
                 )
             )
             continue
@@ -259,6 +320,7 @@ def run_worker_loop(
                 delta_path=str(cycle.delta_path),
                 patch_path=str(cycle.patch_path),
                 promoted_worktree=str(cycle.worktree_path) if promoted else None,
+                direction_plan=direction_plan,
             )
         )
 
@@ -292,6 +354,7 @@ def run_worker_cycle_with_in_round_repairs(
     baseline_generation: dict[str, Any] | None,
     previous_rounds: list[LoopRoundRecord],
     repair_attempts: int,
+    direction_plan: dict[str, Any] | None = None,
 ) -> tuple[Any, Path, list[dict[str, Any]]]:
     """Run one round, retrying repairable illegal candidates inside the same round."""
 
@@ -299,6 +362,7 @@ def run_worker_cycle_with_in_round_repairs(
     attempts: list[dict[str, Any]] = []
     last_cycle: Any | None = None
     last_context_packet_path = output_dir / "context_packet.json"
+    direction_project_root = project_root
     for attempt_index in range(max_repair_attempts + 1):
         attempt_dir = output_dir if attempt_index == 0 else output_dir / f"repair_{attempt_index:03d}"
         repair_feedback = (
@@ -323,12 +387,13 @@ def run_worker_cycle_with_in_round_repairs(
                 baseline_generation=baseline_generation,
                 previous_rounds=previous_rounds,
                 current_round_repair=repair_feedback,
+                current_direction_plan=direction_plan,
             ),
-            project_root=project_root,
+            project_root=direction_project_root,
         )
         last_cycle = run_worker_cycle(
             contract=contract,
-            project_root=project_root,
+            project_root=direction_project_root,
             output_dir=attempt_dir,
             context_packet_path=last_context_packet_path,
             worker=worker,
@@ -350,6 +415,7 @@ def run_worker_cycle_with_in_round_repairs(
             incumbent_key=incumbent_key,
         ):
             break
+        direction_project_root = Path(last_cycle.worktree_path)
 
     if last_cycle is None:
         raise RuntimeError("worker cycle did not produce an attempt")
@@ -436,6 +502,18 @@ def current_round_repair_feedback(
             "Repair every item in repair_targets explicitly. If agent-generated solver quality/self-check targets are present, "
             "update solver_contract_self_check and the actual code evidence in the same proposal before changing the optimization idea."
         )
+    if repair_targets.get("diagnostic_smoke_top_errors"):
+        must_do.append(
+            "Treat diagnostic_smoke_top_errors as concrete Core/evaluator evidence from the rejected attempt; repair those runtime/schema/legality errors before claiming the solver is ready."
+        )
+    if repair_targets.get("agent_generated_solver_repair_plan"):
+        must_do.append(
+            "Follow repair_targets.agent_generated_solver_repair_plan in order. For method-stage migration, satisfy the target_stage structures before restating any strong neighborhood claim."
+        )
+    if repair_targets.get("agent_generated_repair_escalation"):
+        must_do.append(
+            "Repeated agent-generated solver quality failure detected; switch this attempt to repair-only stage-gate mode and do not optimize makespan until the listed structural gate is satisfied."
+        )
     return {
         "status": status,
         "attempt_index": attempt_index,
@@ -456,6 +534,7 @@ def current_round_repair_feedback(
 
 def collect_current_round_repair_targets(attempts: list[dict[str, Any]]) -> dict[str, Any]:
     targets: dict[str, Any] = {}
+    structured_claim_failure_count = 0
 
     def add_list(key: str, value: Any, *, limit: int = 8) -> None:
         if not isinstance(value, list) or not value:
@@ -487,14 +566,38 @@ def collect_current_round_repair_targets(attempts: list[dict[str, Any]]) -> dict
             continue
         judgment = attempt.get("agentic_judgment") if isinstance(attempt.get("agentic_judgment"), dict) else {}
         checks = judgment.get("checks") if isinstance(judgment.get("checks"), dict) else {}
-        add_list("agent_generated_solver_quality_risks", checks.get("agent_generated_solver_quality_risks"))
+        quality_risks = checks.get("agent_generated_solver_quality_risks")
+        add_list("agent_generated_solver_quality_risks", quality_risks)
+        if isinstance(quality_risks, list):
+            structured_claim_failure_count += sum(
+                1 for item in quality_risks if "structured_neighborhood_claim_unimplemented" in str(item)
+            )
         add_list("agent_generated_solver_self_check_risks", checks.get("agent_generated_solver_self_check_risks"))
         add_list("incomplete_solution_acceptance_risks", checks.get("incomplete_solution_acceptance_risks"))
         add_list("protected_promoted_fact_regressions", checks.get("protected_promoted_fact_regressions"))
+        method_stage = checks.get("agent_generated_solver_method_stage")
+        if isinstance(method_stage, dict) and method_stage:
+            targets["agent_generated_solver_method_stage"] = method_stage
+        repair_plan = checks.get("agent_generated_solver_repair_plan")
+        if isinstance(repair_plan, dict) and repair_plan:
+            targets["agent_generated_solver_repair_plan"] = repair_plan
         add_dict("python_compile_errors", checks.get("python_compile_errors"))
         apply_rejections = checks.get("apply_rejections")
         if isinstance(apply_rejections, list):
             add_list("apply_rejections", apply_rejections)
+
+        diagnostic_smoke = attempt.get("diagnostic_smoke") if isinstance(attempt.get("diagnostic_smoke"), dict) else {}
+        diagnostic_summary = (
+            diagnostic_smoke.get("summary")
+            if isinstance(diagnostic_smoke.get("summary"), dict)
+            else {}
+        )
+        diagnostic_validation = (
+            diagnostic_summary.get("validation_summary")
+            if isinstance(diagnostic_summary.get("validation_summary"), dict)
+            else {}
+        )
+        add_list("diagnostic_smoke_top_errors", diagnostic_validation.get("top_errors"))
 
         quality_contract = checks.get("agent_generated_solver_quality_contract")
         if isinstance(quality_contract, dict) and quality_contract.get("enabled"):
@@ -508,6 +611,20 @@ def collect_current_round_repair_targets(attempts: list[dict[str, Any]]) -> dict
                 "capabilities": expected_capabilities[:24],
                 "capability_playbook": (quality_contract.get("capability_playbook") or [])[:24],
             }
+    if structured_claim_failure_count >= 2:
+        targets["agent_generated_repair_escalation"] = {
+            "reason": "repeated_structured_neighborhood_claim_unimplemented",
+            "count": structured_claim_failure_count,
+            "mode": "repair_only_stage_gate",
+            "must_do": [
+                "Either implement the missing structures in agent_generated_solver_repair_plan or remove the unsupported strong-neighborhood claim.",
+                "Do not introduce a new objective-improvement operator in this repair attempt.",
+            ],
+            "must_not": [
+                "Do not repeat AWLS/critical-block/N7/N8/NK/k-insertion/tabu terminology without matching reachable source structures.",
+                "Do not claim solver_contract_self_check evidence for helpers that are not called by the solver entry flow.",
+            ],
+        }
     return targets
 
 
@@ -530,6 +647,7 @@ def round_attempt_payload(
         "changed_files": list(getattr(worker_result, "changed_files", []) or []),
         "candidate_key": list(_summary_objective_key_from_cycle(cycle)),
         "summary": compact_attempt_summary(summary),
+        "diagnostic_smoke": compact_diagnostic_smoke(cycle),
         "agentic_judgment": judgment.to_payload() if judgment else None,
         "agentic_error_analysis": analysis.to_payload() if analysis else None,
         "proposal_diagnostics": diagnostics,
@@ -538,6 +656,19 @@ def round_attempt_payload(
         "delta_path": str(getattr(cycle, "delta_path", "")),
     }
     return payload
+
+
+def compact_diagnostic_smoke(cycle: Any) -> dict[str, Any] | None:
+    summary = getattr(cycle, "diagnostic_smoke_summary", None)
+    if summary is None:
+        return None
+    output_dir = getattr(cycle, "diagnostic_smoke_output_dir", None)
+    return {
+        "diagnostic_only": True,
+        "passed": bool(summary.total > 0 and summary.valid == summary.total),
+        "summary": compact_attempt_summary(summary),
+        "output_dir": str(output_dir) if output_dir else None,
+    }
 
 
 def _summary_objective_key_from_cycle(cycle: Any) -> tuple[float, ...]:
@@ -597,6 +728,13 @@ def attempt_failure_signatures(
             and candidate_key <= incumbent_key
         ):
             signatures.append("legal_but_not_strictly_better")
+    diagnostic_smoke = getattr(cycle, "diagnostic_smoke_summary", None)
+    if diagnostic_smoke is not None:
+        total = int(getattr(diagnostic_smoke, "total", 0) or 0)
+        valid = int(getattr(diagnostic_smoke, "valid", 0) or 0)
+        failed = int(getattr(diagnostic_smoke, "failed", 0) or 0)
+        if total > 0 and (failed > 0 or valid < total):
+            signatures.append("diagnostic_smoke_invalid_candidate")
     audit = diagnostics.get("proposal_audit") if isinstance(diagnostics, dict) else None
     if isinstance(audit, dict):
         signatures.extend(str(item) for item in (audit.get("warnings") or []) if item)
@@ -627,6 +765,95 @@ def normalize_baseline_source(value: str) -> str:
     if normalized in {"agent", "agent_generated", "agent_written", "generated"}:
         return "agent_generated"
     return "current_project"
+
+
+def agent_generated_baseline_is_accepted(
+    baseline_generation: dict[str, Any] | None,
+    *,
+    baseline_summary: RunSummary,
+    baseline_key: tuple[float, ...],
+) -> bool:
+    if not isinstance(baseline_generation, dict) or baseline_generation.get("source") != "agent_generated":
+        return False
+    judgment = (
+        baseline_generation.get("agentic_judgment")
+        if isinstance(baseline_generation.get("agentic_judgment"), dict)
+        else {}
+    )
+    return (
+        baseline_generation.get("status") == "ok"
+        and bool(judgment.get("accepted"))
+        and baseline_summary.total > 0
+        and baseline_summary.valid == baseline_summary.total
+        and not _all_negative_infinity(baseline_key)
+    )
+
+
+def agent_generated_baseline_cycle_is_core_accepted(cycle: Any) -> bool:
+    judgment = getattr(cycle, "agentic_judgment", None)
+    summary = getattr(cycle, "summary", None)
+    return (
+        judgment is not None
+        and bool(getattr(judgment, "accepted", False))
+        and summary is not None
+        and int(getattr(summary, "total", 0) or 0) > 0
+        and int(getattr(summary, "valid", 0) or 0) == int(getattr(summary, "total", 0) or 0)
+    )
+
+
+def select_agent_generated_baseline_cycle(cycles: list[tuple[int, Any, Path]]) -> tuple[int, Any, Path]:
+    if not cycles:
+        raise RuntimeError("agent-generated baseline did not record any attempts")
+    return max(cycles, key=lambda item: agent_generated_baseline_cycle_rank(item[1], attempt_index=item[0]))
+
+
+def agent_generated_baseline_cycle_rank(cycle: Any, *, attempt_index: int) -> tuple[int, int]:
+    judgment = getattr(cycle, "agentic_judgment", None)
+    summary = getattr(cycle, "summary", None)
+    worker_result = getattr(cycle, "worker_result", None)
+    changed_files = list(getattr(worker_result, "changed_files", []) or [])
+    has_changed_files = bool(changed_files)
+    agentic_accepted = bool(judgment is not None and getattr(judgment, "accepted", False))
+    core_total = int(getattr(summary, "total", 0) or 0) if summary is not None else 0
+    core_valid = int(getattr(summary, "valid", 0) or 0) if summary is not None else 0
+    diagnostic = getattr(cycle, "diagnostic_smoke_summary", None)
+    diagnostic_total = int(getattr(diagnostic, "total", 0) or 0) if diagnostic is not None else 0
+    diagnostic_valid = int(getattr(diagnostic, "valid", 0) or 0) if diagnostic is not None else 0
+    artifacts = getattr(worker_result, "artifacts", None) or {}
+
+    if agentic_accepted and core_total > 0 and core_valid == core_total:
+        return (500, attempt_index)
+    if agentic_accepted and has_changed_files:
+        return (400, attempt_index)
+    if core_total > 0 and core_valid == core_total and has_changed_files:
+        return (350, attempt_index)
+    if diagnostic_total > 0 and diagnostic_valid == diagnostic_total and has_changed_files:
+        return (300, attempt_index)
+    if has_changed_files:
+        return (200, attempt_index)
+    if artifacts.get("proposal"):
+        return (100, attempt_index)
+    return (0, attempt_index)
+
+
+def agent_generated_baseline_selection_reason(cycle: Any) -> str:
+    if agent_generated_baseline_cycle_is_core_accepted(cycle):
+        return "agentic_judgment_accepted_and_core_evaluator_valid"
+    worker_result = getattr(cycle, "worker_result", None)
+    diagnostic = getattr(cycle, "diagnostic_smoke_summary", None)
+    if (
+        diagnostic is not None
+        and int(getattr(diagnostic, "total", 0) or 0) > 0
+        and int(getattr(diagnostic, "valid", 0) or 0) == int(getattr(diagnostic, "total", 0) or 0)
+        and getattr(worker_result, "changed_files", None)
+    ):
+        return "changed_candidate_with_valid_diagnostic_smoke"
+    if getattr(worker_result, "changed_files", None):
+        return "latest_changed_candidate"
+    artifacts = getattr(worker_result, "artifacts", None) or {}
+    if artifacts.get("proposal"):
+        return "candidate_with_proposal_artifact"
+    return "last_recorded_candidate"
 
 
 def run_agent_generated_baseline(
@@ -661,6 +888,8 @@ def run_agent_generated_baseline(
     attempts: list[dict[str, Any]] = []
     try:
         cycle: Any | None = None
+        cycle_attempts: list[tuple[int, Any, Path]] = []
+        repair_project_root = source_project
         for attempt_index in range(max_repair_attempts + 1):
             attempt_dir = baseline_dir if attempt_index == 0 else baseline_dir / f"repair_{attempt_index:03d}"
             repair_feedback = (
@@ -680,7 +909,7 @@ def run_agent_generated_baseline(
             )
             cycle = run_worker_cycle(
                 contract=contract,
-                project_root=source_project,
+                project_root=repair_project_root,
                 output_dir=attempt_dir,
                 context_packet_path=baseline_context_path,
                 worker=worker,
@@ -696,31 +925,43 @@ def run_agent_generated_baseline(
                     context_packet_path=baseline_context_path,
                 )
             )
+            cycle_attempts.append((attempt_index, cycle, baseline_context_path))
+            if agent_generated_baseline_cycle_is_core_accepted(cycle):
+                break
             if attempt_index >= max_repair_attempts or not should_attempt_in_round_repair(cycle):
                 break
+            repair_project_root = Path(cycle.worktree_path)
         if cycle is None:
             raise RuntimeError("agent-generated baseline did not produce a candidate")
+        selected_attempt_index, selected_cycle, selected_context_path = select_agent_generated_baseline_cycle(
+            cycle_attempts
+        )
         repair_summary = in_round_repair_summary(attempts)
+        repair_summary["selected_attempt_index"] = selected_attempt_index
+        repair_summary["selection_reason"] = agent_generated_baseline_selection_reason(selected_cycle)
+        if selected_attempt_index != repair_summary.get("final_attempt_index"):
+            repair_summary["final_attempt_superseded"] = True
         generation_payload = {
             "status": "ok",
             "source": "agent_generated",
             "cycle_dir": str(baseline_dir),
-            "final_cycle_dir": str(Path(cycle.patch_path).parent),
-            "context_packet_path": str(baseline_context_path),
+            "final_cycle_dir": str(Path(selected_cycle.patch_path).parent),
+            "selected_attempt_index": selected_attempt_index,
+            "context_packet_path": str(selected_context_path),
             "source_project": str(source_project),
             "hidden_incumbent_files": hidden_incumbent_files,
-            "worktree": str(cycle.worktree_path),
-            "worker_status": cycle.worker_result.status,
-            "worker_changed_files": cycle.worker_result.changed_files,
-            "proposal_diagnostics": worker_proposal_diagnostics(cycle.worker_result),
+            "worktree": str(selected_cycle.worktree_path),
+            "worker_status": selected_cycle.worker_result.status,
+            "worker_changed_files": selected_cycle.worker_result.changed_files,
+            "proposal_diagnostics": worker_proposal_diagnostics(selected_cycle.worker_result),
             "in_round_repair": repair_summary,
-            "summary": summary_payload(cycle.summary),
-            "agentic_judgment": cycle.agentic_judgment.to_payload(),
-            "agentic_error_analysis": cycle.agentic_error_analysis.to_payload()
-            if cycle.agentic_error_analysis
+            "summary": summary_payload(selected_cycle.summary),
+            "agentic_judgment": selected_cycle.agentic_judgment.to_payload(),
+            "agentic_error_analysis": selected_cycle.agentic_error_analysis.to_payload()
+            if selected_cycle.agentic_error_analysis
             else None,
         }
-        return cycle.summary, cycle.worktree_path, generation_payload
+        return selected_cycle.summary, selected_cycle.worktree_path, generation_payload
     except Exception as exc:  # noqa: BLE001 - invalid generated baselines should become evaluator feedback.
         fallback_worktree = output_dir / "agent_generated_baseline_failed_worktree"
         prepare_candidate_worktree(
@@ -804,8 +1045,9 @@ def write_baseline_generation_context_packet(
     hidden_incumbent_files: list[str] | None = None,
     current_round_repair: dict[str, Any] | None = None,
 ) -> Path:
-    packet = json.loads(base_context_packet_path.read_text(encoding="utf-8-sig"))
-    parent_hash = packet.get("packet_hash") or _hash_text(json.dumps(packet, ensure_ascii=False, sort_keys=True))
+    loaded_packet = load_context_packet(base_context_packet_path)
+    packet = loaded_packet.effective_context
+    parent_hash = loaded_packet.raw.get("packet_hash") or loaded_packet.integrity["actual_packet_hash"]
     refreshed = dict(packet)
     refreshed.pop("packet_hash", None)
     refreshed["created_at"] = _utc_now_iso()
@@ -820,8 +1062,10 @@ def write_baseline_generation_context_packet(
         "rules": [
             "Do not copy a complete incumbent solver as the baseline.",
             "Create or replace the solver entrypoint named in evaluator_protocol.solver_command_template.",
+            "If that entrypoint file does not exist in this baseline worktree, use create_or_replace with full file content; do not use text_replace or insert anchors against a nonexistent file.",
             "Reuse fixed parser/evaluator helper APIs when the context exposes them.",
             "Treat LB/UB/BKS as diagnostics only; optimize the declared objective.",
+            "Do not claim AWLS, N7/N8, NK, k-insertion, critical-block, or tabu as implemented baseline methods unless the generated code truly implements the named executable structures. Prefer an honest legal ready-list/multi-start baseline; add strong neighborhoods only after Core promotes an incumbent.",
         ],
         "hidden_incumbent_files": hidden_incumbent_files or [],
     }
@@ -830,8 +1074,9 @@ def write_baseline_generation_context_packet(
             "round_index": "agent_generated_baseline",
             "current_round_repair": current_round_repair,
             "instructions": [
-                "This is an in-baseline repair attempt. Repair the previous baseline-generation proposal before Core measures baseline.",
+                "This is an in-baseline repair attempt. The worktree starts from the previous baseline-generation candidate; repair that candidate before Core measures baseline.",
                 "Keep this as baseline generation, not incumbent improvement: create a complete legal solver entrypoint from docs/IO.",
+                "If prior apply_rejections say target file does not exist, the next proposal must create_or_replace the full solver entrypoint instead of using text_replace/insert anchors.",
             ],
         }
     worker_instruction = dict(refreshed.get("worker_instruction") or {})
@@ -844,7 +1089,10 @@ def write_baseline_generation_context_packet(
         required_order.insert(1, generation_step)
     worker_instruction["required_order"] = required_order
     worker_instruction["baseline_generation_rule"] = (
-        "The first measured baseline must come from worker-written code, not from an existing incumbent solver."
+        "The first measured baseline must come from worker-written code, not from an existing incumbent solver. "
+        "During baseline generation or repair, missing solver entrypoints require create_or_replace with full content. "
+        "Baseline proposals should not advertise critical-block, tabu, AWLS, N7/N8/NK, or k-insertion unless those "
+        "structures are present in reachable code; use a legal operation-level ready-list baseline first."
     )
     refreshed["worker_instruction"] = worker_instruction
     hypothesis = str(refreshed.get("hypothesis") or "")
@@ -1016,6 +1264,7 @@ def loop_feedback_payload(
     previous_rounds: list[LoopRoundRecord],
     baseline_generation: dict[str, Any] | None = None,
     current_round_repair: dict[str, Any] | None = None,
+    current_direction_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     ordered_objectives = sorted(contract.objectives, key=lambda item: item.priority)
     previous_round_payloads = [round_record_payload(item) for item in previous_rounds]
@@ -1047,9 +1296,10 @@ def loop_feedback_payload(
         "current_direction": {
             "direction_id": f"d{round_index:03d}",
             "attempt_budget": "bounded_by_in_round_repair_attempts",
-            "status": "planning",
-            "rule": "Propose one coherent method direction, then repair or refine it inside this direction before moving on.",
+            "status": "planned" if current_direction_plan else "planning",
+            "rule": "Implement one planned method direction, then repair or refine it inside this direction before moving on.",
         },
+        "current_direction_plan": current_direction_plan or {},
         "objective_key_order": [
             {
                 "name": objective.name,
@@ -1077,6 +1327,7 @@ def loop_feedback_payload(
         "instructions": [
             "Use only Core evaluator metrics as promotion evidence.",
             "Treat the outer loop index as a direction lifecycle, not a single blind patch.",
+            "Implement current_direction_plan as the controlling experiment contract; do not replace it with an unrelated worker-authored method.",
             "Preserve successful ideas from promoted rounds unless a better alternative is justified.",
             "If agent_generated_baseline_memory is present, treat its recovered baseline mechanisms as incumbent structure to preserve before adding a new heuristic.",
             "Treat protected_promoted_facts as mechanisms to preserve; do not remove or disable them in the next proposal unless the proposal explicitly ablates them with a legality-preserving fallback.",
@@ -1253,6 +1504,7 @@ def round_record_payload(item: LoopRoundRecord) -> dict[str, Any]:
         "delta_path": item.delta_path,
         "patch_path": item.patch_path,
         "promoted_worktree": item.promoted_worktree,
+        "direction_plan": item.direction_plan or {},
     }
 
 
@@ -1686,6 +1938,8 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult, problem_fam
         "baseline_key": list(result.baseline_key),
         "final_key": list(result.final_key),
         "final_worktree": str(result.final_worktree),
+        "baseline_source": result.baseline_source,
+        "baseline_generation": result.baseline_generation,
         "baseline_summary": summary_payload(result.baseline_summary),
         "round_semantics": {
             "user_visible_round": "improvement_direction",
@@ -1730,6 +1984,9 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult, problem_fam
         f"- Skill usage records: `{len(skill_usage_records)}`",
         "",
         "## Baseline",
+        "",
+        f"- Source: `{result.baseline_source}`",
+        f"- Generation: `{json.dumps(result.baseline_generation or {}, ensure_ascii=False)}`",
         "",
         f"`{json.dumps(summary_payload(result.baseline_summary), ensure_ascii=False)}`",
         "",

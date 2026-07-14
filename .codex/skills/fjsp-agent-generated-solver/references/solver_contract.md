@@ -26,10 +26,54 @@ must include the runnable script surface that Core will execute:
 - JSON output with the declared format, schedule array, and the required
   `job_id`, `op_id`, `machine_id`, `start`, and `end` fields.
 
+The bytes written to `--output` must be the declared JSON object.  Do not
+write a bare schedule list such as `json.dump(best_schedule, f)` and then claim
+`declared_output_schema`; the standard evaluator expects an object containing a
+`schedule` array.
+
 Reading the file is not enough.  A proposal that calls `read_text().split()` or
 `json.load(...)` and then hardcodes `op_info = {(0, 0): ...}`, a fixed
 `machine_sequences`, or a fixed one-operation schedule has not implemented the
 active IO parser.
+
+## Standard FJSP Packed-Line Parser Rule
+
+For standard FJSP text instances such as Dauzere/DP/BA/BR/HU, each physical job
+line usually packs all operations for that job.  The coding agent must parse the
+job line with a token cursor:
+
+- consume `operation_count` once at the start of the job line;
+- for each operation, consume `candidate_count`;
+- then consume exactly `2 * candidate_count` tokens as
+  `(machine_id, processing_time)` pairs;
+- advance the operation cursor within the same job line, not the file-line
+  cursor.
+
+Do not implement a parser that reads one new physical line for each operation.
+That anti-pattern can compile and pass shallow self-checks while failing
+Dauzere/DP-style packed job-line instances.  The `active_io_parser` evidence
+should name the cursor variables or loops that consume all packed operation
+tokens from the active input.
+
+## Standard FJSP Machine-ID Base Rule
+
+Public standard FJSP benchmark families are not uniform about machine numbering.
+Some files use 0-based machine ids and others use 1-based machine ids.  The
+coding agent must not subtract 1 while reading each candidate pair by habit.
+
+Use this parser shape:
+
+- collect every raw machine id while reading candidate pairs;
+- after parsing all raw ids, set `machine_base = 0` only when
+  `min(raw_ids) >= 0` and `max(raw_ids) < machine_count`;
+- set `machine_base = 1` only when `min(raw_ids) >= 1` and
+  `max(raw_ids) <= machine_count`;
+- raise a parser error if neither condition holds;
+- normalize exactly once when building the eligible-machine map used by the
+  decoder and output writer.
+
+This avoids two common failures: `machine -1 out of range` on 0-based data and
+`machine 0 out of range` on 1-based data that was normalized twice.
 
 ## Representation Rule
 
@@ -60,6 +104,11 @@ first legal baseline should usually be an operation-level list scheduler:
   different interleavings.
 - Keep the best complete valid schedule found by decoded makespan.
 
+Randomization must happen after scoring the ready-operation/machine candidates.
+Choosing one ready operation and then calling `rng.choice(eligible)` over its
+machines is not an operation-level ready-list constructor, because it does not
+compare the ready operations and eligible machines under job/machine readiness.
+
 This is a method shape, not a fixed formula. Adapt scoring to the active
 variant and objective.
 
@@ -82,6 +131,11 @@ the only promotion authority. Internally:
 - Reject candidates that violate precedence or machine non-overlap.
 - Never score an empty failed decode as makespan `0`.
 - Keep incumbent schedule when a trial move cannot be decoded.
+
+When decoding `assignment + machine_sequences`, do not replay each machine list
+in machine-major order.  Use a progress loop: only schedule the next operation
+on a machine when its job predecessor is already scheduled; if no operation can
+progress, reject the candidate as infeasible.
 
 ## Structured Self-Check Evidence
 

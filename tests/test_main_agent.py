@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from harness_agent.context_packet import ContextPacketRequest, write_context_packet
+from harness_agent.main_agent import DirectionPlanRequest, EvidenceDrivenMainAgent, normalize_direction_plan
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class MainAgentTests(unittest.TestCase):
+    def test_evidence_main_agent_writes_one_bounded_direction_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "task_contract.example.json",
+                    output_path=tmp_path / "context.json",
+                    hypothesis="Improve one scheduling rule.",
+                )
+            )
+            plan = EvidenceDrivenMainAgent().plan_direction(
+                DirectionPlanRequest(
+                    round_index=2,
+                    context_packet_path=context_path,
+                    loop_feedback={
+                        "next_round_guidance": {
+                            "must_do": ["Repair the decoder before tuning."],
+                            "preserve": ["Keep the promoted parser."],
+                            "avoid": ["Do not return partial schedules."],
+                        }
+                    },
+                    output_dir=tmp_path / "main_agent",
+                )
+            )
+
+            stored = json.loads(Path(plan["artifact_path"]).read_text(encoding="utf-8"))
+
+            self.assertEqual("d002", stored["direction_id"])
+            self.assertEqual("repair_rule", stored["strategy_type"])
+            self.assertEqual(["Repair the decoder before tuning."], stored["change_scope"])
+            self.assertIn("Keep the promoted parser.", stored["preserve"])
+
+    def test_direction_plan_normalization_never_accepts_unbounded_lists(self) -> None:
+        plan = normalize_direction_plan(
+            {
+                "hypothesis": "x" * 5000,
+                "change_scope": [f"change {index}" for index in range(40)],
+                "knowledge_paths": [f"knowledge/{index}.md" for index in range(40)],
+            },
+            round_index=1,
+        )
+
+        self.assertLessEqual(len(plan["hypothesis"]), 1200)
+        self.assertEqual(8, len(plan["change_scope"]))
+        self.assertEqual(12, len(plan["knowledge_paths"]))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from harness_agent.contract_builder import DraftContractRequest, build_draft_contract
-from harness_agent.context_packet import ContextPacketRequest, write_context_packet
+from harness_agent.context_packet import ContextPacketRequest, write_context_packet, write_refreshed_context_packet
 from harness_agent.project_intake import ProjectIntakeRequest, write_project_intake
 
 
@@ -14,6 +14,52 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ContextPacketTests(unittest.TestCase):
+    def test_refreshed_context_packet_compacts_large_round_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            base_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "base_context.json",
+                    hypothesis="Bound round history.",
+                )
+            )
+            large_rounds = [
+                {
+                    "round_index": index,
+                    "decision": "rolled_back",
+                    "proposal_diagnostics": {
+                        "summary": "failed direction " + ("x" * 6000),
+                        "in_round_repair": {
+                            "attempts": [
+                                {
+                                    "failure_signatures": ["invalid_candidate"],
+                                    "error_diagnosis": ["y" * 5000],
+                                }
+                                for _ in range(5)
+                            ]
+                        },
+                    },
+                }
+                for index in range(30)
+            ]
+            output = write_refreshed_context_packet(
+                base_context_packet_path=base_path,
+                output_path=tmp_path / "round_context.json",
+                loop_feedback={
+                    "round_index": 30,
+                    "previous_rounds": large_rounds,
+                    "instructions": ["preserve incumbent"],
+                },
+            )
+
+            raw = output.read_text(encoding="utf-8")
+            packet = json.loads(raw)
+
+            self.assertLessEqual(len(raw), 180_000)
+            self.assertEqual("bounded_round_context", packet["context_compaction"]["mode"])
+            self.assertLess(len(packet["loop_feedback"]["previous_rounds"]), len(large_rounds))
+
     def test_context_packet_embeds_project_intake_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -246,6 +292,11 @@ class ContextPacketTests(unittest.TestCase):
         self.assertEqual("fjsp_sdst", diagnostics["instances"][0]["variant"])
         self.assertGreater(diagnostics["instances"][0]["setup_time_max"], 0)
         self.assertIn("Review instance_diagnostics", " ".join(packet["worker_instruction"]["required_order"]))
+        self.assertEqual("fjsp_sdst", packet["knowledge_selection"]["active_variant"])
+        auto_cards = {Path(path).name for path in packet["auto_knowledge_cards"]}
+        self.assertIn("awls_sdst_hudata20_baseline_notes.md", auto_cards)
+        self.assertIn("fjsp_sdst_agent_generated_search_memory_20260707.md", auto_cards)
+        self.assertIn("decoder_neighborhood.md", auto_cards)
 
     def test_context_packet_summarizes_multiple_sdst_shapes_without_prefix_bias(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

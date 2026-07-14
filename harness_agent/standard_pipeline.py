@@ -9,7 +9,7 @@ from .benchmark_suite import BenchmarkSuiteRequest, run_benchmark_suite
 from .evidence import EvidenceIndexRequest, build_evidence_index
 from .health_check import HealthCheckRequest, run_health_check
 from .intent_alignment import IntentAlignmentRequest, write_intent_alignment
-from .loop_runner import compact_rule_operator_hypotheses
+from .loop_runner import DEFAULT_IN_ROUND_REPAIR_ATTEMPTS, compact_rule_operator_hypotheses
 from .project_intake import ProjectIntakeRequest, write_project_intake
 from .standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop
 from .worker import CodingWorker
@@ -68,6 +68,7 @@ class StandardPipelineRequest:
     worker_iterations: int = 1
     worker_max_steps: int = 4
     worker_max_runtime_seconds: int = 120
+    worker_in_round_repair_attempts: int = DEFAULT_IN_ROUND_REPAIR_ATTEMPTS
     worker_apply_changes: bool = False
     worker_promotion_repeats: int = 1
     worker_experiment_id: str = "standard_pipeline_worker_loop"
@@ -200,6 +201,7 @@ def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
                 iterations=max(0, request.worker_iterations),
                 max_steps=max(1, request.worker_max_steps),
                 max_runtime_seconds=max(1, request.worker_max_runtime_seconds),
+                in_round_repair_attempts=max(0, request.worker_in_round_repair_attempts),
                 apply_worker_changes=bool(request.worker_apply_changes),
                 promotion_repeats=max(1, request.worker_promotion_repeats),
                 experiment_id=request.worker_experiment_id,

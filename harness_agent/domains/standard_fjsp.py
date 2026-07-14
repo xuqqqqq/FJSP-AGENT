@@ -1,0 +1,383 @@
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from ..models import TaskContract
+from ..standard_fjsp import parse_standard_fjsp
+
+
+@dataclass(frozen=True)
+class StandardFjspContextProvider:
+    def inspect_instances(self, contract: TaskContract, *, project_root: Path | None) -> dict[str, Any]:
+        best_known_csv = _resolve_optional_context_path(
+            contract.resources.get("best_known_csv"),
+            project_root=project_root,
+            base_dir=contract.source_path.parent,
+        )
+        detailed: list[dict[str, Any]] = []
+        profiled: list[dict[str, Any]] = []
+        for instance_spec in contract.instances:
+            instance_path = _resolve_context_path(
+                instance_spec.path,
+                project_root=project_root,
+                base_dir=contract.source_path.parent,
+            )
+            payload = _single_instance_diagnostics(
+                instance_id=instance_spec.id,
+                path=instance_path,
+                best_known_csv=best_known_csv,
+            )
+            detailed.append(payload)
+            if payload.get("parsed"):
+                profiled.append(payload)
+
+        status = (
+            "available"
+            if profiled and len(profiled) == len(contract.instances)
+            else "partial"
+            if profiled
+            else "unavailable"
+        )
+        sdst_instances = [item for item in profiled if item.get("variant") == "fjsp_sdst"]
+        best_known_count = sum(1 for item in profiled if item.get("best_known_makespan") is not None)
+        summary = {
+            "instance_count": len(contract.instances),
+            "profiled_count": len(profiled),
+            "sdst_instance_count": len(sdst_instances),
+            "shape_group_count": len(_instance_shape_groups(profiled)),
+            "setup_time_kinds": sorted(
+                {str(item.get("setup_time_kind")) for item in profiled if item.get("setup_time_kind")}
+            ),
+            "max_operation_count": max((int(item.get("operation_count", 0) or 0) for item in profiled), default=0),
+            "max_scale": max((int(item.get("scale", 0) or 0) for item in profiled), default=0),
+            "avg_candidate_count": _rounded_average(
+                float(item.get("avg_candidate_count", 0.0) or 0.0) for item in profiled
+            ),
+            "max_setup_to_processing_avg_ratio": max(
+                (float(item.get("setup_to_processing_avg_ratio", 0.0) or 0.0) for item in profiled),
+                default=0.0,
+            ),
+            "best_known_available_count": best_known_count,
+            "best_known_semantics": "diagnostic_only_score_remains_negative_makespan",
+        }
+        return {
+            "status": status,
+            "summary": summary,
+            "direction_hints": _instance_direction_hints(summary, profiled),
+            "best_known_csv": str(best_known_csv) if best_known_csv else None,
+            "shape_groups": _instance_shape_group_summaries(profiled),
+            "instances": _representative_instance_diagnostics(detailed, limit=12),
+            "truncated": len(detailed) > 12,
+        }
+
+    def active_features(
+        self,
+        *,
+        contract: TaskContract,
+        instance_diagnostics: dict[str, Any],
+        contract_review_evidence: dict[str, Any],
+    ) -> list[str]:
+        summary = instance_diagnostics.get("summary") if isinstance(instance_diagnostics.get("summary"), dict) else {}
+        setup_kinds = [str(kind).strip().lower() for kind in summary.get("setup_time_kinds") or []]
+        diagnostics_have_shape = (
+            instance_diagnostics.get("status") in {"available", "partial"}
+            and int(summary.get("profiled_count") or 0) > 0
+        )
+        diagnostics_show_sdst = (
+            int(summary.get("sdst_instance_count") or 0) > 0
+            or any(kind not in {"", "none", "null"} for kind in setup_kinds)
+        )
+        if diagnostics_show_sdst:
+            return ["fjsp_sdst", "sequence_dependent_setup", "setup_time"]
+        if diagnostics_have_shape:
+            return []
+
+        text = json.dumps(
+            {
+                "description": contract.description,
+                "review": contract_review_evidence,
+            },
+            ensure_ascii=False,
+        ).lower()
+        if re.search(r"\bfjsp[-_]?sdst\b|\bsequence[-_\s]?dependent[-_\s]?setup\b|\bsetup[-_\s]?matrix\b", text):
+            return ["fjsp_sdst", "sequence_dependent_setup", "setup_time"]
+        return []
+
+
+def _single_instance_diagnostics(
+    *,
+    instance_id: str,
+    path: Path,
+    best_known_csv: Path | None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": instance_id,
+        "path": str(path),
+        "exists": path.exists(),
+        "parsed": False,
+    }
+    try:
+        instance = parse_standard_fjsp(path)
+    except Exception as exc:  # noqa: BLE001 - diagnostics must not fail context generation.
+        payload["error"] = str(exc)
+        return payload
+
+    candidate_counts = [len(op.candidates) for job in instance.jobs for op in job.operations]
+    durations = [candidate.duration for job in instance.jobs for op in job.operations for candidate in op.candidates]
+    setup_stats = _setup_matrix_stats(instance.setup_times)
+    processing_avg = _rounded_average(float(value) for value in durations)
+    setup_ratio = (
+        _round_float(float(setup_stats["avg_nonzero"]) / processing_avg)
+        if processing_avg > 0 and setup_stats["avg_nonzero"] is not None
+        else 0.0
+    )
+    best_known = _load_best_known_diagnostic(best_known_csv, instance.name)
+    payload.update(
+        {
+            "parsed": True,
+            "name": instance.name,
+            "variant": "fjsp_sdst" if instance.has_sequence_dependent_setup else "standard_fjsp",
+            "job_count": instance.job_count,
+            "machine_count": instance.machine_count,
+            "operation_count": instance.operation_count,
+            "max_candidate_count": instance.max_candidate_count,
+            "scale": instance.job_count * instance.machine_count * instance.operation_count,
+            "avg_candidate_count": _rounded_average(float(value) for value in candidate_counts),
+            "min_candidate_count": min(candidate_counts, default=0),
+            "max_observed_candidate_count": max(candidate_counts, default=0),
+            "processing_time_min": min(durations, default=0),
+            "processing_time_max": max(durations, default=0),
+            "processing_time_avg": processing_avg,
+            "setup_time_kind": instance.setup_time_kind,
+            "setup_entry_count": setup_stats["entry_count"],
+            "setup_nonzero_count": setup_stats["nonzero_count"],
+            "setup_density": setup_stats["density"],
+            "setup_time_min_positive": setup_stats["min_positive"],
+            "setup_time_max": setup_stats["max"],
+            "setup_time_avg_nonzero": setup_stats["avg_nonzero"],
+            "setup_time_avg_all": setup_stats["avg_all"],
+            "setup_to_processing_avg_ratio": setup_ratio,
+            "best_known_makespan": best_known,
+            "best_known_diagnostic_only": best_known is not None,
+        }
+    )
+    return payload
+
+
+def _setup_matrix_stats(setup_times: Any) -> dict[str, Any]:
+    entry_count = 0
+    total = 0
+    nonzero_count = 0
+    nonzero_total = 0
+    min_positive: int | None = None
+    max_value = 0
+    for machine_matrix in setup_times or ():
+        for row in machine_matrix:
+            for raw_value in row:
+                value = int(raw_value)
+                entry_count += 1
+                total += value
+                max_value = max(max_value, value)
+                if value > 0:
+                    nonzero_count += 1
+                    nonzero_total += value
+                    min_positive = value if min_positive is None else min(min_positive, value)
+    return {
+        "entry_count": entry_count,
+        "nonzero_count": nonzero_count,
+        "density": _round_float(nonzero_count / entry_count) if entry_count else 0.0,
+        "min_positive": min_positive,
+        "max": max_value,
+        "avg_nonzero": _round_float(nonzero_total / nonzero_count) if nonzero_count else 0.0,
+        "avg_all": _round_float(total / entry_count) if entry_count else 0.0,
+    }
+
+
+def _instance_shape_groups(profiled: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for item in profiled:
+        groups.setdefault(_instance_shape_key(item), []).append(item)
+    return groups
+
+
+def _instance_shape_key(item: dict[str, Any]) -> str:
+    return (
+        f"j{int(item.get('job_count', 0) or 0)}_"
+        f"m{int(item.get('machine_count', 0) or 0)}_"
+        f"ops{int(item.get('operation_count', 0) or 0)}_"
+        f"c{int(item.get('max_candidate_count', 0) or 0)}_"
+        f"{item.get('setup_time_kind') or 'none'}"
+    )
+
+
+def _instance_shape_group_summaries(profiled: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for key, items in _instance_shape_groups(profiled).items():
+        first = items[0]
+        best_known_values = [
+            float(item["best_known_makespan"])
+            for item in items
+            if isinstance(item.get("best_known_makespan"), (int, float))
+        ]
+        setup_ratios = [float(item.get("setup_to_processing_avg_ratio", 0.0) or 0.0) for item in items]
+        summaries.append(
+            {
+                "shape_key": key,
+                "count": len(items),
+                "instance_ids": [str(item.get("id") or item.get("name") or "") for item in items],
+                "job_count": int(first.get("job_count", 0) or 0),
+                "machine_count": int(first.get("machine_count", 0) or 0),
+                "operation_count": int(first.get("operation_count", 0) or 0),
+                "max_candidate_count": int(first.get("max_candidate_count", 0) or 0),
+                "scale": int(first.get("scale", 0) or 0),
+                "setup_time_kind": first.get("setup_time_kind"),
+                "avg_candidate_count": _rounded_average(
+                    float(item.get("avg_candidate_count", 0.0) or 0.0) for item in items
+                ),
+                "setup_to_processing_avg_ratio_avg": _rounded_average(setup_ratios),
+                "setup_to_processing_avg_ratio_max": max(setup_ratios, default=0.0),
+                "best_known_min": min(best_known_values) if best_known_values else None,
+                "best_known_max": max(best_known_values) if best_known_values else None,
+            }
+        )
+    return sorted(
+        summaries,
+        key=lambda item: (
+            -int(item.get("scale", 0) or 0),
+            -int(item.get("count", 0) or 0),
+            str(item.get("shape_key") or ""),
+        ),
+    )
+
+
+def _representative_instance_diagnostics(detailed: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    if len(detailed) <= limit:
+        return detailed
+
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def item_key(item: dict[str, Any]) -> str:
+        return str(item.get("path") or item.get("id") or item.get("name") or len(seen))
+
+    def add(item: dict[str, Any]) -> None:
+        if len(selected) >= limit:
+            return
+        key = item_key(item)
+        if key in seen:
+            return
+        selected.append(item)
+        seen.add(key)
+
+    for item in [item for item in detailed if not item.get("parsed")][:2]:
+        add(item)
+    parsed = [item for item in detailed if item.get("parsed")]
+    for group_items in _instance_shape_groups(parsed).values():
+        ordered = sorted(group_items, key=lambda item: str(item.get("id") or item.get("name") or item.get("path") or ""))
+        for index in sorted({0, len(ordered) // 2, len(ordered) - 1}):
+            add(ordered[index])
+    for item in sorted(
+        parsed,
+        key=lambda item: (
+            float(item.get("setup_to_processing_avg_ratio", 0.0) or 0.0),
+            int(item.get("scale", 0) or 0),
+            float(item.get("best_known_makespan", 0.0) or 0.0),
+        ),
+        reverse=True,
+    ):
+        add(item)
+    for item in detailed:
+        add(item)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def _instance_direction_hints(summary: dict[str, Any], profiled: list[dict[str, Any]]) -> list[str]:
+    if not profiled:
+        return ["Instance parsing failed or no instances were supplied; do not infer scale or setup from filenames."]
+
+    hints = ["Use actual parsed instance content, not filename shape, when choosing budget-sensitive strategies."]
+    if int(summary.get("shape_group_count", 0) or 0) > 1:
+        hints.append(
+            "Multiple instance shapes are present; inspect shape_groups and avoid overfitting a single oddla/seed probe."
+        )
+    if int(summary.get("sdst_instance_count", 0) or 0) > 0:
+        hints.append("Sequence-dependent setup is active; use setup-aware method knowledge from the domain pack.")
+        setup_ratio = float(summary.get("max_setup_to_processing_avg_ratio", 0.0) or 0.0)
+        if setup_ratio >= 0.75:
+            hints.append("Setup is large relative to processing; prioritize setup-aware sequencing over processing-only rules.")
+        elif setup_ratio >= 0.25:
+            hints.append("Setup is material; combine setup deltas with criticality or bottleneck pressure.")
+    else:
+        hints.append("No sequence-dependent setup matrix was detected; do not retrieve setup-only methods.")
+    avg_candidates = float(summary.get("avg_candidate_count", 0.0) or 0.0)
+    if avg_candidates <= 1.2:
+        hints.append("Machine alternatives are sparse; sequence ordering likely has more leverage than reassignment-only rules.")
+    elif avg_candidates >= 3.0:
+        hints.append("Many machine alternatives exist; assignment and insertion methods may have leverage.")
+    has_large_five_machine_group = any(
+        int(item.get("job_count", 0) or 0) >= 20
+        and int(item.get("machine_count", 0) or 0) <= 5
+        and int(item.get("operation_count", 0) or 0) >= 100
+        for item in profiled
+    )
+    if has_large_five_machine_group:
+        hints.append(
+            "A large 20-job/5-machine SDST shape is present; include bottleneck-machine sequencing and load balance evidence."
+        )
+    if int(summary.get("best_known_available_count", 0) or 0) > 0:
+        hints.append("Best-known/LB/UB values are diagnostics only; promotion remains fixed-evaluator objective improvement.")
+    return hints
+
+
+def _resolve_optional_context_path(
+    path: Path | None,
+    *,
+    project_root: Path | None,
+    base_dir: Path,
+) -> Path | None:
+    if path is None:
+        return None
+    resolved = _resolve_context_path(path, project_root=project_root, base_dir=base_dir)
+    return resolved if resolved.exists() else None
+
+
+def _resolve_context_path(path: Path, *, project_root: Path | None, base_dir: Path) -> Path:
+    if path.is_absolute():
+        return path
+    repo_root = Path(__file__).resolve().parents[2]
+    candidates: list[Path] = []
+    if project_root is not None:
+        candidates.append(project_root / path)
+    candidates.extend([base_dir / path, repo_root / path])
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+    return candidates[0].resolve()
+
+
+def _load_best_known_diagnostic(path: Path | None, instance_name: str) -> float | None:
+    if path is None:
+        return None
+    try:
+        from examples.standard_fjsp_evaluator import load_best_known
+
+        return load_best_known(path, instance_name)
+    except Exception:  # noqa: BLE001 - diagnostics must not fail context generation.
+        return None
+
+
+def _rounded_average(values: Any) -> float:
+    values_list = [float(value) for value in values]
+    if not values_list:
+        return 0.0
+    return _round_float(sum(values_list) / len(values_list))
+
+
+def _round_float(value: float) -> float:
+    return round(float(value), 6)

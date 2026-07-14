@@ -28,7 +28,14 @@ For standard FJSP benchmark work, retrieve:
 
 1. `benchmarks/fjsp_benchmark_scope.md`
 2. `papers/fjsp_agent_current_capability_20260704.md`
-3. family/operator cards selected by tags such as `critical_block`,
+3. `imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_reference_skeleton.md`
+   when an agent-generated solver is being created or repaired from IO
+4. `imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_neighborhood_templates.md`
+   when an agent-generated solver already has `assignment + machine_sequences`
+   and is adding local-search neighborhoods
+5. `imported_huawei_fjsp_knowledge/operators/standard_fjsp_awls_hgtsa_execution_skeleton.md`
+   when an agent-generated solver is improving beyond construction
+6. family/operator cards selected by tags such as `critical_block`,
    `machine_reassignment`, `tabu_search`, or `portfolio`
 
 For FJSP-SDST / HUdata work, retrieve:

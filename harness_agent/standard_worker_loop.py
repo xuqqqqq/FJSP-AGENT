@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .context_packet import ContextPacketRequest, write_context_packet
+from .main_agent import DirectionPlanningAgent
 from .loop_runner import (
     DEFAULT_IN_ROUND_REPAIR_ATTEMPTS,
     WorkerLoopResult,
@@ -34,6 +35,7 @@ class StandardWorkerLoopRequest:
     output_dir: Path
     project_root: Path
     worker: CodingWorker
+    main_agent: DirectionPlanningAgent | None = None
     best_known_csv: Path | None = None
     knowledge_cards: list[Path] | None = None
     slot_manifest: Path | None = None
@@ -113,6 +115,7 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
         output_dir=output_dir / "worker_loop",
         context_packet_path=context_path,
         worker=request.worker,
+        main_agent=request.main_agent,
         experiment_id=request.experiment_id,
         iterations=max(0, request.iterations),
         max_steps=max(1, request.max_steps),

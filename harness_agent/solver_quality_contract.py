@@ -128,7 +128,7 @@ _CAPABILITY_PLAYBOOK = {
     },
     "operation_level_ready_list_constructor": {
         "evidence": "Cite the constructor that maintains one ready next operation per unfinished job, evaluates eligible machines for each ready operation, and uses a seeded tie-break or multi-start rule.",
-        "repair": "Replace fixed job-by-job construction with an operation-level ready list that scores all ready operations and eligible machines before committing one operation.",
+        "repair": "Replace fixed job-by-job construction with an operation-level ready list that scores all ready operations and eligible machines before committing one operation. Selecting one ready operation and then calling rng.choice(eligible) is not sufficient.",
     },
     "complete_schedule_coverage_guard": {
         "evidence": "Cite the check that decoded/output schedule covers every expected operation exactly once and rejects duplicates/missing ops.",

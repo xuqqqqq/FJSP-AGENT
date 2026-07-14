@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from tempfile import TemporaryDirectory
 from pathlib import Path
@@ -11,8 +12,10 @@ from harness_agent.workers.deepseek_worker import (
     compact_loop_feedback_for_prompt,
     compact_priority_knowledge_cards,
     extract_json_object,
+    incumbent_method_stage_for_worker,
     insert_after_anchor,
     insert_before_anchor,
+    operator_improvement_stage_for_worker,
     priority_context_max_chars,
     priority_worker_context,
     render_code_edit_markdown,
@@ -20,6 +23,45 @@ from harness_agent.workers.deepseek_worker import (
 
 
 class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
+    def test_priority_worker_context_remains_valid_json_when_context_is_large(self) -> None:
+        context = _context_packet_with_intake()
+        context["iteration_edit_contract"] = {"mode": "incremental_after_baseline"}
+        context["incumbent_code_context"] = {
+            "source": "promoted_incumbent_worktree",
+            "files": [
+                {
+                    "relative_path": "examples/agent_generated_fjsp_solver.py",
+                    "snippet": "def solve():\n    pass\n" + ("# incumbent filler\n" * 4000),
+                }
+            ],
+        }
+        context["loop_feedback"] = {
+            "incumbent_key_before": [-2500.0],
+            "previous_rounds": [
+                {
+                    "round_index": index,
+                    "decision": "rolled_back",
+                    "proposal_diagnostics": {"summary": "failure " + ("x" * 5000)},
+                }
+                for index in range(20)
+            ],
+        }
+
+        serialized = priority_worker_context(context)
+        payload = json.loads(serialized)
+
+        self.assertLessEqual(len(serialized), priority_context_max_chars())
+        self.assertEqual("improvement_round", payload["round_type"])
+
+    def test_code_edit_prompt_places_stable_task_context_before_dynamic_round_context(self) -> None:
+        context = _context_packet_with_intake()
+        context["iteration_edit_contract"] = {"mode": "incremental_after_baseline"}
+        context["loop_feedback"] = {"round_index": 1, "incumbent_key_before": [-2500.0]}
+
+        prompt = DeepSeekWorker()._code_edit_prompt(context=context, max_steps=4)  # noqa: SLF001
+
+        self.assertLess(prompt.index("Stable task context"), prompt.index("Dynamic round context"))
+
     def test_proposal_audit_records_project_intake_usage(self) -> None:
         worker = DeepSeekWorker()
         context = _context_packet_with_intake()
@@ -448,6 +490,236 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("Preserve the current promoted incumbent", prompt_context)
         self.assertNotIn("Do not preserve a nonexistent incumbent", prompt_context)
 
+    def test_priority_worker_context_activates_operator_stage_after_legal_incumbent(self) -> None:
+        context = _context_packet_with_intake()
+        context["task"] = {
+            "problem_family": "FJSP",
+            "description": "Improve an agent_generated standard FJSP solver on dp06a.",
+            "instances": [{"id": "dp06a", "path": "instances/fjsp.dauzere.06a.txt"}],
+        }
+        context["iteration_edit_contract"] = {"mode": "incremental_after_baseline"}
+        context["loop_feedback"] = {
+            "incumbent_key_before": [-2603.0],
+            "previous_rounds": [],
+            "agent_generated_baseline_memory": {"accepted_as_incumbent": True},
+        }
+        context["evaluator_protocol"] = {
+            "solver_command_template": (
+                "python examples/agent_generated_fjsp_solver.py --input {instance} "
+                "--output {solution} --seed {seed}"
+            )
+        }
+
+        payload = json.loads(priority_worker_context(context))
+
+        stage = payload["operator_improvement_stage"]
+        self.assertTrue(stage["active"])
+        self.assertEqual("new_operator_direction", stage["mode"])
+        self.assertTrue(any("priority_knowledge_cards" in item for item in stage["must_do"]))
+        self.assertTrue(any("critical path" in item for item in stage["must_do"]))
+        self.assertTrue(any("diversification" in item for item in stage["must_do"]))
+        self.assertIn("agent_generated_method_skeleton_rule", payload)
+        self.assertIn("assignment plus machine_sequences", payload["agent_generated_method_skeleton_rule"])
+        self.assertIn("pure improving random hill climber", payload["agent_generated_method_skeleton_rule"])
+
+    def test_operator_stage_stays_active_for_no_change_repair_with_progress_decoder(self) -> None:
+        context = _context_packet_with_intake()
+        context["task"] = {
+            "problem_family": "FJSP",
+            "description": "Improve an agent_generated standard FJSP solver on dp06a.",
+            "instances": [{"id": "dp06a", "path": "instances/fjsp.dauzere.06a.txt"}],
+        }
+        context["iteration_edit_contract"] = {"mode": "incremental_after_baseline"}
+        context["evaluator_protocol"] = {
+            "solver_command_template": (
+                "python examples/agent_generated_fjsp_solver.py --input {instance} "
+                "--output {solution} --seed {seed}"
+            )
+        }
+        context["loop_feedback"] = {
+            "incumbent_key_before": [-2878.0],
+            "agent_generated_baseline_memory": {"accepted_as_incumbent": True},
+            "current_round_repair": {
+                "status": "repair_required",
+                "previous_attempts": [
+                    {
+                        "failure_signatures": ["no_changed_files_after_apply"],
+                        "summary": {
+                            "validation_summary": {
+                                "agentic_judgment": {
+                                    "issues": ["no_changed_files_after_apply"],
+                                    "checks": {"proposal_audit_warnings": []},
+                                }
+                            }
+                        },
+                    }
+                ],
+                "avoid": ["no_changed_files_after_apply"],
+            },
+        }
+        context["incumbent_code_context"] = {
+            "files": [
+                {
+                    "relative_path": "examples/agent_generated_fjsp_solver.py",
+                    "snippet": _agent_generated_progress_decoder_without_structured_neighbors(),
+                }
+            ]
+        }
+
+        method_stage = incumbent_method_stage_for_worker(context)
+        stage = operator_improvement_stage_for_worker(context)
+
+        self.assertEqual("stage_4_basic_sequence_moves_without_structured_neighborhood", method_stage["stage"])
+        self.assertTrue(stage["active"])
+        self.assertEqual("same_direction_repair", stage["mode"])
+        self.assertEqual(
+            "stage_4_basic_sequence_moves_without_structured_neighborhood",
+            stage["incumbent_method_stage"]["stage"],
+        )
+        self.assertIn(
+            "critical_blocks(schedule) or critical_path/critical_ops extraction",
+            stage["required_next_operator_capabilities"],
+        )
+        self.assertTrue(any("do not satisfy" in item.lower() for item in stage["must_do"]))
+
+    def test_priority_cards_force_strong_neighborhood_templates_for_decoder_incumbent(self) -> None:
+        context = _context_packet_with_intake()
+        context["task"] = {
+            "problem_family": "FJSP",
+            "description": "Improve an agent_generated standard FJSP solver on dp06a.",
+        }
+        context["iteration_edit_contract"] = {"mode": "incremental_after_baseline"}
+        context["evaluator_protocol"] = {
+            "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance}",
+        }
+        context["loop_feedback"] = {
+            "incumbent_key_before": [-2878.0],
+            "agent_generated_baseline_memory": {"accepted_as_incumbent": True},
+            "current_round_repair": {
+                "status": "repair_required",
+                "previous_attempts": [{"failure_signatures": ["no_changed_files_after_apply"]}],
+            },
+        }
+        context["incumbent_code_context"] = {
+            "files": [
+                {
+                    "relative_path": "examples/agent_generated_fjsp_solver.py",
+                    "snippet": _agent_generated_progress_decoder_without_structured_neighbors(),
+                }
+            ]
+        }
+        context["knowledge_cards"] = [
+            {
+                "path": "knowledge/papers/fjsp_agent_current_capability_20260704.md",
+                "chars": 12000,
+                "truncated": False,
+                "snippet": "score report with benchmark numbers " * 120,
+            },
+            {
+                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_reference_skeleton.md",
+                "chars": 9000,
+                "truncated": False,
+                "snippet": "agent-generated reference skeleton with ready-list parser and decode_state",
+            },
+            {
+                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_neighborhood_templates.md",
+                "chars": 9000,
+                "truncated": False,
+                "snippet": (
+                    "critical_blocks apply_sequence_move generate_critical_block_moves "
+                    "generate_k_insertion_neighbors tabu_best_improvement"
+                ),
+            },
+            {
+                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/hgtsa_fjsp_n8_k_insertion_blueprint.md",
+                "chars": 5000,
+                "truncated": False,
+                "snippet": "N8 k-insertion critical path blueprint",
+            },
+        ]
+
+        cards = compact_priority_knowledge_cards(context, limit=3, max_chars_per_card=500)
+        selected_names = [Path(card["path"]).name for card in cards]
+
+        self.assertEqual("standard_fjsp_agent_generated_neighborhood_templates.md", selected_names[0])
+        self.assertIn("hgtsa_fjsp_n8_k_insertion_blueprint.md", selected_names)
+        self.assertNotIn("fjsp_agent_current_capability_20260704.md", selected_names)
+
+    def test_priority_knowledge_cards_prefers_operator_cards_in_improvement_stage(self) -> None:
+        context = _context_packet_with_intake()
+        context["task"] = {
+            "problem_family": "FJSP",
+            "description": "Improve an agent_generated standard FJSP solver on dp06a.",
+            "instances": [{"id": "dp06a", "path": "instances/fjsp.dauzere.06a.txt"}],
+        }
+        context["iteration_edit_contract"] = {"mode": "incremental_after_baseline"}
+        context["loop_feedback"] = {
+            "incumbent_key_before": [-2603.0],
+            "previous_rounds": [],
+            "agent_generated_baseline_memory": {"accepted_as_incumbent": True},
+        }
+        context["knowledge_cards"] = [
+            {
+                "path": "knowledge/principles/agent_generated_variant_quality_contracts.md",
+                "chars": 2000,
+                "truncated": False,
+                "snippet": "agent-generated solver legality evidence and self-check contract",
+            },
+            {
+                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_awls_hgtsa_execution_skeleton.md",
+                "chars": 5000,
+                "truncated": False,
+                "snippet": (
+                    "standard FJSP AWLS HGTSA execution skeleton with assignment plus machine_sequences, "
+                    "decode_state, N7 N8 NK k-insertion, and tabu local search"
+                ),
+            },
+            {
+                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_reference_skeleton.md",
+                "chars": 9000,
+                "truncated": False,
+                "snippet": (
+                    "agent-generated reference skeleton with parse_instance, initial_ready_list_state, "
+                    "assignment, machine_sequences, decode_state, coverage_ok, and validate_schedule"
+                ),
+            },
+            {
+                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_neighborhood_templates.md",
+                "chars": 9000,
+                "truncated": False,
+                "snippet": (
+                    "agent-generated neighborhood templates with critical_blocks, apply_sequence_move, "
+                    "generate_critical_block_moves, k-insertion, and tabu_best_improvement"
+                ),
+            },
+            {
+                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/critical_path_machine_block_neighborhood.md",
+                "chars": 3000,
+                "truncated": False,
+                "snippet": "critical-path machine-block local-search makespan neighborhood",
+            },
+            {
+                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/operation_machine_reassignment.md",
+                "chars": 3000,
+                "truncated": False,
+                "snippet": "candidate machine reassignment local-search for flexible job shop",
+            },
+            {
+                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
+                "chars": 3000,
+                "truncated": False,
+                "snippet": "tabu-search local-search loop with neighborhood generator and incumbent preservation",
+            },
+        ]
+
+        cards = compact_priority_knowledge_cards(context, limit=5, max_chars_per_card=800)
+        selected_paths = [str(card["path"]) for card in cards]
+
+        self.assertTrue(any("standard_fjsp_agent_generated_neighborhood_templates" in path for path in selected_paths))
+        self.assertTrue(any("standard_fjsp_agent_generated_reference_skeleton" in path for path in selected_paths))
+        self.assertTrue(any("standard_fjsp_awls_hgtsa_execution_skeleton" in path for path in selected_paths))
+        self.assertTrue(any("critical_path_machine_block_neighborhood" in path for path in selected_paths))
+
     def test_priority_worker_context_keeps_full_generated_solver_edit_site(self) -> None:
         context = _context_packet_with_intake()
         context["iteration_edit_contract"] = {"mode": "incremental_after_baseline"}
@@ -514,6 +786,17 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                         "active_features": ["alternative_machines"],
                         "capabilities": ["stable_operation_identity"],
                     },
+                    "agent_generated_solver_repair_plan": {
+                        "schema_version": 1,
+                        "repair_mode": "method_stage_migration",
+                        "reason": "structured_neighborhood_claim_unimplemented",
+                        "target_stage": "stage_5_structured_neighborhood",
+                        "missing_components": ["critical_block_extraction"],
+                    },
+                    "agent_generated_repair_escalation": {
+                        "mode": "repair_only_stage_gate",
+                        "reason": "repeated_structured_neighborhood_claim_unimplemented",
+                    },
                 },
                 "previous_attempts": [
                     {
@@ -549,6 +832,9 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("best_schedule, best_makespan = local_search_insertion(best_schedule)", prompt_context)
         self.assertIn("repair_targets", prompt_context)
         self.assertIn("stable_operation_identity", prompt_context)
+        self.assertIn("method_stage_migration", prompt_context)
+        self.assertIn("repair_only_stage_gate", prompt_context)
+        self.assertIn("agent_generated_method_stage_repair_rule", prompt_context)
 
     def test_compact_loop_feedback_keeps_solver_self_check_audit_details(self) -> None:
         audit = {
@@ -900,8 +1186,67 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("generated_solver_call_flow_rule", prompt_context)
         self.assertIn("A helper that is only defined or cited", prompt_context)
         self.assertIn("baseline_or_single_round", prompt_context)
+        self.assertIn("This is baseline generation, not a promoted-incumbent improvement round", prompt_context)
+        self.assertIn("Do not claim or cite AWLS", prompt_context)
+        self.assertIn("honest ready-list/multi-start constructive baseline", prompt_context)
         self.assertIn("Do not preserve a nonexistent incumbent", prompt_context)
         self.assertNotIn("Preserve the current promoted incumbent", prompt_context)
+
+    def test_baseline_priority_cards_do_not_promote_strong_neighborhood_cards(self) -> None:
+        context = _context_packet_with_intake()
+        context["task"] = {
+            "problem_family": "FJSP",
+            "description": "Generate an agent_generated standard FJSP baseline solver from IO documents.",
+        }
+        context["evaluator_protocol"] = {
+            "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance} --output {solution} --seed {seed}",
+        }
+        context["knowledge_cards"] = [
+            {
+                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_reference_skeleton.md",
+                "chars": 9000,
+                "truncated": False,
+                "snippet": "agent-generated reference skeleton with ready-list constructor and decode_state",
+            },
+            {
+                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_neighborhood_templates.md",
+                "chars": 9000,
+                "truncated": False,
+                "snippet": "critical_blocks apply_sequence_move generate_critical_block_moves k-insertion tabu_best_improvement",
+            },
+            {
+                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_awls_hgtsa_execution_skeleton.md",
+                "chars": 9000,
+                "truncated": False,
+                "snippet": "AWLS HGTSA N7 N8 NK k-insertion tabu local search",
+            },
+        ]
+
+        selected = compact_priority_knowledge_cards(context, limit=2, max_chars_per_card=500)
+        selected_names = [Path(card["path"]).name for card in selected]
+
+        self.assertIn("standard_fjsp_agent_generated_reference_skeleton.md", selected_names)
+        self.assertNotIn("standard_fjsp_agent_generated_neighborhood_templates.md", selected_names)
+        self.assertNotIn("standard_fjsp_awls_hgtsa_execution_skeleton.md", selected_names)
+
+    def test_priority_worker_context_includes_standard_fjsp_machine_id_base_rule(self) -> None:
+        context = _context_packet_with_intake()
+        context["task"] = {
+            "problem_family": "FJSP",
+            "description": "Generate an agent-generated standard FJSP solver from IO documents.",
+            "instances": [{"id": "dp06a", "path": "instances/fjsp.dauzere.06a.txt"}],
+        }
+        context["evaluator_protocol"] = {
+            "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance} --output {solution} --seed {seed}",
+            "evaluator_command_template": "python examples/standard_fjsp_evaluator.py --instance {instance} --solution {solution} --metrics {metrics}",
+        }
+
+        payload = json.loads(priority_worker_context(context))
+
+        self.assertIn("standard_fjsp_machine_id_base_rule", payload)
+        self.assertIn("Collect all raw machine ids", payload["standard_fjsp_machine_id_base_rule"])
+        self.assertIn("Do not unconditionally subtract 1", payload["standard_fjsp_machine_id_base_rule"])
+        self.assertIn("machine 0 out-of-range", payload["standard_fjsp_machine_id_base_rule"])
 
     def test_code_edit_prompt_schema_avoids_variant_and_file_bias(self) -> None:
         worker = DeepSeekWorker()
@@ -1521,6 +1866,52 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("agent_generated_variant_quality_contracts.md", selected_names)
         self.assertNotIn("fjsp_agent_current_capability_20260704.md", selected_names)
 
+    def test_priority_cards_suppress_sdst_when_diagnostics_are_standard_fjsp(self) -> None:
+        context = _context_packet_with_intake()
+        context["task"] = {
+            "problem_family": "standard_fjsp",
+            "description": "Improve an agent_generated standard FJSP solver on dp06a.",
+            "instances": [{"id": "dp06a", "path": "instances/dp06a.fjs"}],
+        }
+        context["evaluator_protocol"] = {
+            "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance}",
+        }
+        context["instance_diagnostics"] = {
+            "status": "available",
+            "summary": {
+                "instance_count": 1,
+                "profiled_count": 1,
+                "sdst_instance_count": 0,
+                "setup_time_kinds": ["none"],
+            },
+            "instances": [{"variant": "standard_fjsp", "setup_time_kind": "none"}],
+        }
+        context["problem_family_capability"] = {
+            "supported_variants": ["standard_fjsp", "fjsp_sdst"],
+            "knowledge_tags": ["fjsp", "sdst", "sequence_dependent_setup"],
+            "specialization_hooks": ["setup_aware_dispatch_or_insertion"],
+        }
+        context["knowledge_cards"] = [
+            {
+                "path": "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "chars": 5400,
+                "truncated": False,
+                "snippet": "agent-generated FJSP-SDST setup-aware decoder memory " * 40,
+            },
+            {
+                "path": "knowledge/principles/agent_generated_variant_quality_contracts.md",
+                "chars": 4200,
+                "truncated": False,
+                "snippet": "Agent-generated standard FJSP quality contract and operation-level ready list.",
+            },
+        ]
+
+        selected = compact_priority_knowledge_cards(context, limit=2, max_chars_per_card=400)
+        selected_names = [Path(card["path"]).name for card in selected]
+
+        self.assertIn("agent_generated_variant_quality_contracts.md", selected_names)
+        self.assertNotIn("fjsp_sdst_agent_generated_search_memory_20260707.md", selected_names)
+
     def test_proposal_audit_warns_when_priority_knowledge_is_ignored(self) -> None:
         worker = DeepSeekWorker()
         context = _context_packet_with_intake()
@@ -1743,6 +2134,45 @@ def _minimal_agent_generated_solver_symbols() -> str:
             "    best_schedule = decode_schedule(instance)",
             "    for _iteration in range(max_iterations):",
             "        candidate_makespan = 0",
+            "    return best_schedule",
+        ]
+    )
+
+
+def _agent_generated_progress_decoder_without_structured_neighbors() -> str:
+    return "\n".join(
+        [
+            "def initial_ready_list_state(instance, rng):",
+            "    assignment = {}",
+            "    machine_sequences = {m: [] for m in range(instance['machine_count'])}",
+            "    return assignment, machine_sequences",
+            "",
+            "def decode_state(instance, assignment, machine_sequences):",
+            "    job_next_op = {j: 0 for j in range(instance['job_count'])}",
+            "    machine_pos = {m: 0 for m in range(instance['machine_count'])}",
+            "    scheduled = set()",
+            "    schedule = []",
+            "    while len(scheduled) < instance['operation_count']:",
+            "        progressed = False",
+            "        for machine_id, seq in machine_sequences.items():",
+            "            if machine_pos[machine_id] >= len(seq):",
+            "                continue",
+            "            op_key = seq[machine_pos[machine_id]]",
+            "            job_id, op_id = op_key",
+            "            if job_next_op[job_id] != op_id:",
+            "                continue",
+            "            schedule.append({'job_id': job_id, 'op_id': op_id, 'machine_id': machine_id, 'start': 0, 'end': 1})",
+            "            scheduled.add(op_key)",
+            "            job_next_op[job_id] += 1",
+            "            machine_pos[machine_id] += 1",
+            "            progressed = True",
+            "        if not progressed:",
+            "            return None",
+            "    return schedule",
+            "",
+            "def improve(instance, rng):",
+            "    assignment, machine_sequences = initial_ready_list_state(instance, rng)",
+            "    best_schedule = decode_state(instance, assignment, machine_sequences)",
             "    return best_schedule",
         ]
     )

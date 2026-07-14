@@ -26,8 +26,9 @@ class DomainPackTests(unittest.TestCase):
         self.assertEqual("standard_fjsp", pack.family_id)
         self.assertTrue(pack.source_path)
         self.assertTrue(str(pack.source_path).endswith("domain_packs\\standard_fjsp\\domain_pack.json") or str(pack.source_path).endswith("domain_packs/standard_fjsp/domain_pack.json"))
-        self.assertIn("fjsp_sdst", pack.aliases)
-        self.assertIn("sdst", pack.capability.knowledge_tags)
+        self.assertNotIn("fjsp_sdst", pack.aliases)
+        self.assertNotIn("sdst", pack.capability.knowledge_tags)
+        self.assertNotIn("sequence_dependent_setup", pack.capability.knowledge_tags)
         strategy = pack.edit_strategy("slot_based_edit")
         self.assertIsNotNone(strategy)
         assert strategy is not None
@@ -35,9 +36,9 @@ class DomainPackTests(unittest.TestCase):
         self.assertTrue(strategy.asset_path("slot_manifest"))
         self.assertTrue(strategy.asset_path("slot_repair_guidance"))
 
-        capability = get_problem_family("fjsp_sdst")
+        capability = get_problem_family("FJSP")
         self.assertEqual("standard_fjsp", capability.family_id)
-        self.assertIn("FJSP-SDST", " ".join(capability.io_contract_notes))
+        self.assertNotIn("FJSP-SDST", " ".join(capability.io_contract_notes))
 
     def test_domain_pack_declares_knowledge_retrieval_without_backend_tables(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -195,11 +196,12 @@ class DomainPackTests(unittest.TestCase):
             packet = json.loads(output.read_text(encoding="utf-8"))
 
         self.assertEqual("standard_fjsp", packet["problem_family_capability"]["family_id"])
+        self.assertEqual("standard_fjsp", packet["knowledge_selection"]["active_variant"])
         auto_cards = {Path(path).name for path in packet["auto_knowledge_cards"]}
         self.assertIn("standard_fjsp_format.md", auto_cards)
         self.assertIn("fjsp_variant_domain_pack_rag.md", auto_cards)
-        self.assertIn("fjsp_sdst_agent_generated_search_memory_20260707.md", auto_cards)
-        self.assertIn("awls_sdst_hudata20_baseline_notes.md", auto_cards)
+        self.assertNotIn("fjsp_sdst_agent_generated_search_memory_20260707.md", auto_cards)
+        self.assertNotIn("awls_sdst_hudata20_baseline_notes.md", auto_cards)
 
     def test_context_packet_adds_agent_generated_solver_quality_cards(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -242,6 +244,54 @@ class DomainPackTests(unittest.TestCase):
         auto_cards = {Path(path).name for path in packet["auto_knowledge_cards"]}
         self.assertIn("agent_generated_variant_quality_contracts.md", auto_cards)
         self.assertIn("solver_contract.md", auto_cards)
+        self.assertIn("standard_fjsp_agent_generated_reference_skeleton.md", auto_cards)
+        self.assertIn("standard_fjsp_agent_generated_neighborhood_templates.md", auto_cards)
+        self.assertIn("standard_fjsp_awls_hgtsa_execution_skeleton.md", auto_cards)
+        self.assertNotIn("fjsp_sdst_agent_generated_search_memory_20260707.md", auto_cards)
+        self.assertNotIn("decoder_neighborhood.md", auto_cards)
+
+    def test_standard_fjsp_agent_generated_code_template_cards_exist(self) -> None:
+        skeleton = (
+            ROOT
+            / "knowledge"
+            / "imported_huawei_fjsp_knowledge"
+            / "operators"
+            / "standard_fjsp_agent_generated_reference_skeleton.md"
+        )
+        neighborhood = (
+            ROOT
+            / "knowledge"
+            / "imported_huawei_fjsp_knowledge"
+            / "operators"
+            / "standard_fjsp_agent_generated_neighborhood_templates.md"
+        )
+
+        skeleton_text = skeleton.read_text(encoding="utf-8")
+        neighborhood_text = neighborhood.read_text(encoding="utf-8")
+
+        self.assertIn("def parse_instance", skeleton_text)
+        self.assertIn("def initial_ready_list_state", skeleton_text)
+        self.assertIn("def decode_state", skeleton_text)
+        self.assertIn("def coverage_ok", skeleton_text)
+        self.assertIn("def apply_sequence_move", neighborhood_text)
+        self.assertIn("def critical_blocks", neighborhood_text)
+        self.assertIn("def tabu_best_improvement", neighborhood_text)
+
+    def test_standard_fjsp_skeleton_card_contains_executable_neighborhood_templates(self) -> None:
+        card = (
+            ROOT
+            / "knowledge"
+            / "imported_huawei_fjsp_knowledge"
+            / "operators"
+            / "standard_fjsp_awls_hgtsa_execution_skeleton.md"
+        )
+        text = card.read_text(encoding="utf-8")
+
+        self.assertIn("def generate_n8_like_neighbors", text)
+        self.assertIn("def generate_k_insertion_neighbors", text)
+        self.assertIn("def tabu_search", text)
+        self.assertIn("def perturb_state", text)
+        self.assertIn("diversification", text)
 
 
 if __name__ == "__main__":

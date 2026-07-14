@@ -8,12 +8,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .knowledge_registry import auto_knowledge_cards
+from .context_compaction import (
+    ROUND_CONTEXT_MAX_CHARS,
+    ROUND_FEEDBACK_MAX_CHARS,
+    compact_json,
+    compact_source_records,
+)
+from .context_loader import load_context_packet
+from .domain_context import get_domain_context_provider
+from .knowledge_registry import select_knowledge_cards
 from .models import TaskContract
 from .problem_families import get_problem_family
 from .slot_contract import ResolvedCodeSlot
 from .slot_manifest import load_slot_manifest
-from .standard_fjsp import parse_standard_fjsp
 
 
 SECTION_ROLE_PRIORITY = {
@@ -45,6 +52,7 @@ class ContextPacketRequest:
 def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
     contract = TaskContract.load(request.contract_path)
     contract_raw = json.loads(request.contract_path.read_text(encoding="utf-8-sig"))
+    domain_context_provider = get_domain_context_provider(contract.problem_family)
     docs = [_source_payload(path, request.max_chars_per_source) for path in request.docs]
     previous_report = (
         _source_payload(request.previous_report, request.max_chars_per_source)
@@ -56,7 +64,10 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         if request.previous_pipeline_memory
         else None
     )
-    instance_diagnostics = _instance_diagnostics_payload(contract, project_root=request.project_root)
+    instance_diagnostics = domain_context_provider.inspect_instances(
+        contract,
+        project_root=request.project_root,
+    )
     project_intake = (
         _project_intake_payload(request.project_intake_manifest, request.max_chars_per_source)
         if request.project_intake_manifest
@@ -67,18 +78,26 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         if request.slot_manifest
         else None
     )
+    contract_review_evidence = _contract_review_payload(contract.review)
     problem_family_capability = get_problem_family(contract.problem_family).to_payload()
     problem_family_tags = list(problem_family_capability.get("knowledge_tags") or [])
     if _uses_agent_generated_solver(contract):
         problem_family_tags.append("agent_generated_solver")
-    auto_cards = auto_knowledge_cards(
+    active_features = domain_context_provider.active_features(
+        contract=contract,
+        instance_diagnostics=instance_diagnostics,
+        contract_review_evidence=contract_review_evidence,
+    )
+    knowledge_selection = select_knowledge_cards(
         problem_family=contract.problem_family,
         problem_family_tags=problem_family_tags,
         slot_manifest=slot_manifest,
+        instance_diagnostics=instance_diagnostics,
+        active_features=active_features,
     )
+    auto_cards = knowledge_selection.cards
     knowledge_card_paths = _unique_paths([*request.knowledge_cards, *auto_cards])
     knowledge_cards = [_source_payload(path, request.max_chars_per_source) for path in knowledge_card_paths]
-    contract_review_evidence = _contract_review_payload(contract.review)
     required_order = [
         "Read this context packet.",
         "State a natural-language strategy before editing code.",
@@ -175,6 +194,7 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         "documents": docs,
         "knowledge_cards": knowledge_cards,
         "auto_knowledge_cards": [str(path) for path in auto_cards],
+        "knowledge_selection": knowledge_selection.audit,
         "previous_report": previous_report,
         "previous_pipeline_memory": previous_pipeline_memory,
     }
@@ -205,14 +225,30 @@ def write_refreshed_context_packet(
     hash.
     """
 
-    packet = json.loads(base_context_packet_path.read_text(encoding="utf-8-sig"))
-    parent_hash = packet.get("packet_hash") or _hash_text(json.dumps(packet, ensure_ascii=False, sort_keys=True))
+    loaded_packet = load_context_packet(base_context_packet_path)
+    packet = loaded_packet.effective_context
+    parent_hash = loaded_packet.raw.get("packet_hash") or loaded_packet.integrity["actual_packet_hash"]
 
     refreshed = dict(packet)
     refreshed.pop("packet_hash", None)
     refreshed["created_at"] = datetime.now(timezone.utc).isoformat()
     refreshed["parent_packet_hash"] = parent_hash
     refreshed["refresh_reason"] = "worker_loop_round_feedback"
+    refreshed["base_context_ref"] = {
+        "path": str(base_context_packet_path.resolve()),
+        "packet_hash": parent_hash,
+        "immutable": True,
+    }
+    refreshed["documents"] = compact_source_records(
+        refreshed.get("documents"),
+        max_items=8,
+        max_snippet_chars=6000,
+    )
+    refreshed["knowledge_cards"] = compact_source_records(
+        refreshed.get("knowledge_cards"),
+        max_items=40,
+        max_snippet_chars=2400,
+    )
     refreshed["iteration_edit_contract"] = {
         "mode": "incremental_after_baseline",
         "preserve_incumbent_rule": (
@@ -232,7 +268,8 @@ def write_refreshed_context_packet(
     incumbent_code_context = _incumbent_code_context(refreshed, project_root=project_root)
     if incumbent_code_context:
         refreshed["incumbent_code_context"] = incumbent_code_context
-    refreshed["loop_feedback"] = loop_feedback
+    compacted_feedback = compact_json(loop_feedback, max_chars=ROUND_FEEDBACK_MAX_CHARS)
+    refreshed["loop_feedback"] = compacted_feedback.payload
     refreshed["hypothesis"] = _improvement_round_hypothesis(str(refreshed.get("hypothesis") or ""))
     if project_root is not None:
         refreshed["slot_manifest"] = _refresh_slot_manifest_sources(
@@ -259,10 +296,34 @@ def write_refreshed_context_packet(
         "A full-file rewrite of an existing solver is not an acceptable improvement-round edit."
     )
     refreshed["worker_instruction"] = worker_instruction
+    refreshed["context_compaction"] = {
+        "mode": "bounded_round_context",
+        "max_context_chars": ROUND_CONTEXT_MAX_CHARS,
+        "max_feedback_chars": ROUND_FEEDBACK_MAX_CHARS,
+        "feedback_original_chars": compacted_feedback.original_chars,
+        "feedback_stored_chars": len(compacted_feedback.text),
+        "feedback_compacted": compacted_feedback.compacted,
+        "feedback_profile": compacted_feedback.profile,
+        "history_policy": "keep_recent_items_and_artifact_references",
+    }
+
+    bounded_packet = compact_json(refreshed, max_chars=ROUND_CONTEXT_MAX_CHARS - 256)
+    refreshed = bounded_packet.payload
+    compaction = refreshed.get("context_compaction")
+    if isinstance(compaction, dict):
+        compaction["packet_original_chars_before_final_bound"] = bounded_packet.original_chars
+        compaction["packet_profile"] = bounded_packet.profile
+        compaction["packet_compacted"] = bounded_packet.compacted
     refreshed["packet_hash"] = _hash_text(json.dumps(refreshed, ensure_ascii=False, sort_keys=True))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(refreshed, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    output_text = json.dumps(refreshed, ensure_ascii=False, indent=2) + "\n"
+    if len(output_text) > ROUND_CONTEXT_MAX_CHARS:
+        final_packet = compact_json(refreshed, max_chars=ROUND_CONTEXT_MAX_CHARS - 256)
+        refreshed = final_packet.payload
+        refreshed["packet_hash"] = _hash_text(json.dumps(refreshed, ensure_ascii=False, sort_keys=True))
+        output_text = json.dumps(refreshed, ensure_ascii=False, indent=2) + "\n"
+    output_path.write_text(output_text, encoding="utf-8")
     return output_path
 
 
@@ -357,358 +418,6 @@ def _source_payload(path: Path, max_chars: int) -> dict[str, Any]:
 def _uses_agent_generated_solver(contract: TaskContract) -> bool:
     solver = contract.commands.solver.replace("\\", "/").lower()
     return "agent_generated" in solver or "generated_fjsp" in solver
-
-
-def _instance_diagnostics_payload(contract: TaskContract, *, project_root: Path | None) -> dict[str, Any]:
-    """Summarize parsed instance shape for worker strategy selection.
-
-    This payload is prompt material only.  It must not change scoring,
-    evaluator semantics, or the solver command; Core still promotes only by the
-    fixed evaluator objective.
-    """
-
-    best_known_csv = _resolve_optional_context_path(
-        contract.resources.get("best_known_csv"),
-        project_root=project_root,
-        base_dir=contract.source_path.parent,
-    )
-    detailed: list[dict[str, Any]] = []
-    profiled: list[dict[str, Any]] = []
-    for instance_spec in contract.instances:
-        instance_path = _resolve_context_path(
-            instance_spec.path,
-            project_root=project_root,
-            base_dir=contract.source_path.parent,
-        )
-        payload = _single_instance_diagnostics(
-            instance_id=instance_spec.id,
-            path=instance_path,
-            best_known_csv=best_known_csv,
-        )
-        detailed.append(payload)
-        if payload.get("parsed"):
-            profiled.append(payload)
-
-    status = "available" if profiled and len(profiled) == len(contract.instances) else "partial" if profiled else "unavailable"
-    sdst_instances = [item for item in profiled if item.get("variant") == "fjsp_sdst"]
-    best_known_count = sum(1 for item in profiled if item.get("best_known_makespan") is not None)
-    summary = {
-        "instance_count": len(contract.instances),
-        "profiled_count": len(profiled),
-        "sdst_instance_count": len(sdst_instances),
-        "shape_group_count": len(_instance_shape_groups(profiled)),
-        "setup_time_kinds": sorted({str(item.get("setup_time_kind")) for item in profiled if item.get("setup_time_kind")}),
-        "max_operation_count": max((int(item.get("operation_count", 0) or 0) for item in profiled), default=0),
-        "max_scale": max((int(item.get("scale", 0) or 0) for item in profiled), default=0),
-        "avg_candidate_count": _rounded_average(
-            float(item.get("avg_candidate_count", 0.0) or 0.0) for item in profiled
-        ),
-        "max_setup_to_processing_avg_ratio": max(
-            (float(item.get("setup_to_processing_avg_ratio", 0.0) or 0.0) for item in profiled),
-            default=0.0,
-        ),
-        "best_known_available_count": best_known_count,
-        "best_known_semantics": "diagnostic_only_score_remains_negative_makespan",
-    }
-    return {
-        "status": status,
-        "summary": summary,
-        "direction_hints": _instance_direction_hints(summary, profiled),
-        "best_known_csv": str(best_known_csv) if best_known_csv else None,
-        "shape_groups": _instance_shape_group_summaries(profiled),
-        "instances": _representative_instance_diagnostics(detailed, limit=12),
-        "truncated": len(detailed) > 12,
-    }
-
-
-def _single_instance_diagnostics(
-    *,
-    instance_id: str,
-    path: Path,
-    best_known_csv: Path | None,
-) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "id": instance_id,
-        "path": str(path),
-        "exists": path.exists(),
-        "parsed": False,
-    }
-    try:
-        instance = parse_standard_fjsp(path)
-    except Exception as exc:  # noqa: BLE001 - diagnostics must not fail context generation.
-        payload["error"] = str(exc)
-        return payload
-
-    candidate_counts = [len(op.candidates) for job in instance.jobs for op in job.operations]
-    durations = [candidate.duration for job in instance.jobs for op in job.operations for candidate in op.candidates]
-    setup_stats = _setup_matrix_stats(instance.setup_times)
-    processing_avg = _rounded_average(float(value) for value in durations)
-    setup_ratio = (
-        _round_float(float(setup_stats["avg_nonzero"]) / processing_avg)
-        if processing_avg > 0 and setup_stats["avg_nonzero"] is not None
-        else 0.0
-    )
-    best_known = _load_best_known_diagnostic(best_known_csv, instance.name)
-    payload.update(
-        {
-            "parsed": True,
-            "name": instance.name,
-            "variant": "fjsp_sdst" if instance.has_sequence_dependent_setup else "standard_fjsp",
-            "job_count": instance.job_count,
-            "machine_count": instance.machine_count,
-            "operation_count": instance.operation_count,
-            "max_candidate_count": instance.max_candidate_count,
-            "scale": instance.job_count * instance.machine_count * instance.operation_count,
-            "avg_candidate_count": _rounded_average(float(value) for value in candidate_counts),
-            "min_candidate_count": min(candidate_counts, default=0),
-            "max_observed_candidate_count": max(candidate_counts, default=0),
-            "processing_time_min": min(durations, default=0),
-            "processing_time_max": max(durations, default=0),
-            "processing_time_avg": processing_avg,
-            "setup_time_kind": instance.setup_time_kind,
-            "setup_entry_count": setup_stats["entry_count"],
-            "setup_nonzero_count": setup_stats["nonzero_count"],
-            "setup_density": setup_stats["density"],
-            "setup_time_min_positive": setup_stats["min_positive"],
-            "setup_time_max": setup_stats["max"],
-            "setup_time_avg_nonzero": setup_stats["avg_nonzero"],
-            "setup_time_avg_all": setup_stats["avg_all"],
-            "setup_to_processing_avg_ratio": setup_ratio,
-            "best_known_makespan": best_known,
-            "best_known_diagnostic_only": best_known is not None,
-        }
-    )
-    return payload
-
-
-def _setup_matrix_stats(setup_times: Any) -> dict[str, Any]:
-    entry_count = 0
-    total = 0
-    nonzero_count = 0
-    nonzero_total = 0
-    min_positive: int | None = None
-    max_value = 0
-    for machine_matrix in setup_times or ():
-        for row in machine_matrix:
-            for raw_value in row:
-                value = int(raw_value)
-                entry_count += 1
-                total += value
-                max_value = max(max_value, value)
-                if value > 0:
-                    nonzero_count += 1
-                    nonzero_total += value
-                    min_positive = value if min_positive is None else min(min_positive, value)
-    return {
-        "entry_count": entry_count,
-        "nonzero_count": nonzero_count,
-        "density": _round_float(nonzero_count / entry_count) if entry_count else 0.0,
-        "min_positive": min_positive,
-        "max": max_value,
-        "avg_nonzero": _round_float(nonzero_total / nonzero_count) if nonzero_count else 0.0,
-        "avg_all": _round_float(total / entry_count) if entry_count else 0.0,
-    }
-
-
-def _instance_shape_groups(profiled: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-    groups: dict[str, list[dict[str, Any]]] = {}
-    for item in profiled:
-        groups.setdefault(_instance_shape_key(item), []).append(item)
-    return groups
-
-
-def _instance_shape_key(item: dict[str, Any]) -> str:
-    return (
-        f"j{int(item.get('job_count', 0) or 0)}_"
-        f"m{int(item.get('machine_count', 0) or 0)}_"
-        f"ops{int(item.get('operation_count', 0) or 0)}_"
-        f"c{int(item.get('max_candidate_count', 0) or 0)}_"
-        f"{item.get('setup_time_kind') or 'none'}"
-    )
-
-
-def _instance_shape_group_summaries(profiled: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    summaries: list[dict[str, Any]] = []
-    for key, items in _instance_shape_groups(profiled).items():
-        first = items[0]
-        best_known_values = [
-            float(item["best_known_makespan"])
-            for item in items
-            if isinstance(item.get("best_known_makespan"), (int, float))
-        ]
-        setup_ratios = [float(item.get("setup_to_processing_avg_ratio", 0.0) or 0.0) for item in items]
-        summaries.append(
-            {
-                "shape_key": key,
-                "count": len(items),
-                "instance_ids": [str(item.get("id") or item.get("name") or "") for item in items],
-                "job_count": int(first.get("job_count", 0) or 0),
-                "machine_count": int(first.get("machine_count", 0) or 0),
-                "operation_count": int(first.get("operation_count", 0) or 0),
-                "max_candidate_count": int(first.get("max_candidate_count", 0) or 0),
-                "scale": int(first.get("scale", 0) or 0),
-                "setup_time_kind": first.get("setup_time_kind"),
-                "avg_candidate_count": _rounded_average(
-                    float(item.get("avg_candidate_count", 0.0) or 0.0) for item in items
-                ),
-                "setup_to_processing_avg_ratio_avg": _rounded_average(setup_ratios),
-                "setup_to_processing_avg_ratio_max": max(setup_ratios, default=0.0),
-                "best_known_min": min(best_known_values) if best_known_values else None,
-                "best_known_max": max(best_known_values) if best_known_values else None,
-            }
-        )
-    return sorted(
-        summaries,
-        key=lambda item: (
-            -int(item.get("scale", 0) or 0),
-            -int(item.get("count", 0) or 0),
-            str(item.get("shape_key") or ""),
-        ),
-    )
-
-
-def _representative_instance_diagnostics(detailed: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
-    """Keep a compact but representative instance sample for worker prompts.
-
-    Earlier packets kept only the first N instances.  On HUdata this hides the
-    later shape groups where the AWLS-SDST baseline is weakest, so sampling must
-    preserve group coverage and scale/setup extremes before filling by order.
-    """
-
-    if len(detailed) <= limit:
-        return detailed
-
-    selected: list[dict[str, Any]] = []
-    seen: set[str] = set()
-
-    def item_key(item: dict[str, Any]) -> str:
-        return str(item.get("path") or item.get("id") or item.get("name") or len(seen))
-
-    def add(item: dict[str, Any]) -> None:
-        if len(selected) >= limit:
-            return
-        key = item_key(item)
-        if key in seen:
-            return
-        selected.append(item)
-        seen.add(key)
-
-    unparsed = [item for item in detailed if not item.get("parsed")]
-    for item in unparsed[:2]:
-        add(item)
-
-    parsed = [item for item in detailed if item.get("parsed")]
-    for group_items in _instance_shape_groups(parsed).values():
-        ordered = sorted(group_items, key=lambda item: str(item.get("id") or item.get("name") or item.get("path") or ""))
-        if not ordered:
-            continue
-        candidate_indices = {0, len(ordered) // 2, len(ordered) - 1}
-        for index in sorted(candidate_indices):
-            add(ordered[index])
-
-    for item in sorted(
-        parsed,
-        key=lambda item: (
-            float(item.get("setup_to_processing_avg_ratio", 0.0) or 0.0),
-            int(item.get("scale", 0) or 0),
-            float(item.get("best_known_makespan", 0.0) or 0.0),
-        ),
-        reverse=True,
-    ):
-        add(item)
-
-    for item in detailed:
-        add(item)
-        if len(selected) >= limit:
-            break
-    return selected
-
-
-def _instance_direction_hints(summary: dict[str, Any], profiled: list[dict[str, Any]]) -> list[str]:
-    if not profiled:
-        return ["Instance parsing failed or no instances were supplied; do not infer scale or SDST setup strength from filenames."]
-
-    hints = ["Use actual parsed instance content, not filename shape, when choosing budget-sensitive slot strategies."]
-    if int(summary.get("shape_group_count", 0) or 0) > 1:
-        hints.append("Multiple instance shapes are present; inspect shape_groups and avoid overfitting a single oddla/seed probe.")
-    if int(summary.get("sdst_instance_count", 0) or 0) > 0:
-        hints.append("SDST setup is present; keep setup_time_between usage inside confirmed slots and preserve parser/evaluator semantics.")
-        setup_ratio = float(summary.get("max_setup_to_processing_avg_ratio", 0.0) or 0.0)
-        if setup_ratio >= 0.75:
-            hints.append("Setup is large relative to processing; prioritize setup-aware insertion, N7/NK scoring, and critical-block ordering over pure processing-time rules.")
-        elif setup_ratio >= 0.25:
-            hints.append("Setup is material; combine setup deltas with tail, criticality, or bottleneck pressure instead of optimizing setup alone.")
-    else:
-        hints.append("No SDST setup matrix was detected; SDST-only setup changes should preserve standard FJSP behavior.")
-
-    avg_candidates = float(summary.get("avg_candidate_count", 0.0) or 0.0)
-    if avg_candidates <= 1.2:
-        hints.append("Machine alternatives are sparse; sequence/neighborhood ordering likely has more leverage than reassignment-only rules.")
-    elif avg_candidates >= 3.0:
-        hints.append("Many machine alternatives exist; machine assignment, insertion, and change-machine NK slots may have useful leverage.")
-
-    has_large_five_machine_group = any(
-        int(item.get("job_count", 0) or 0) >= 20
-        and int(item.get("machine_count", 0) or 0) <= 5
-        and int(item.get("operation_count", 0) or 0) >= 100
-        for item in profiled
-    )
-    if has_large_five_machine_group:
-        hints.append(
-            "A large 20-job/5-machine SDST shape is present; include bottleneck-machine sequencing and load balance evidence, not only la20-style 10x10 behavior."
-        )
-
-    if int(summary.get("best_known_available_count", 0) or 0) > 0:
-        hints.append("Best-known/LB/UB values are gap diagnostics only; promotion remains strict Core makespan improvement.")
-    return hints
-
-
-def _resolve_optional_context_path(
-    path: Path | None,
-    *,
-    project_root: Path | None,
-    base_dir: Path,
-) -> Path | None:
-    if path is None:
-        return None
-    resolved = _resolve_context_path(path, project_root=project_root, base_dir=base_dir)
-    return resolved if resolved.exists() else None
-
-
-def _resolve_context_path(path: Path, *, project_root: Path | None, base_dir: Path) -> Path:
-    if path.is_absolute():
-        return path
-    repo_root = Path(__file__).resolve().parents[1]
-    candidates: list[Path] = []
-    if project_root is not None:
-        candidates.append(project_root / path)
-    candidates.extend([base_dir / path, repo_root / path])
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate.resolve()
-    return candidates[0].resolve()
-
-
-def _load_best_known_diagnostic(path: Path | None, instance_name: str) -> float | None:
-    if path is None:
-        return None
-    try:
-        from examples.standard_fjsp_evaluator import load_best_known
-
-        return load_best_known(path, instance_name)
-    except Exception:  # noqa: BLE001 - diagnostics must not fail context generation.
-        return None
-
-
-def _rounded_average(values: Any) -> float:
-    values_list = [float(value) for value in values]
-    if not values_list:
-        return 0.0
-    return _round_float(sum(values_list) / len(values_list))
-
-
-def _round_float(value: float) -> float:
-    return round(float(value), 6)
 
 
 def _project_intake_payload(path: Path, max_chars: int) -> dict[str, Any]:

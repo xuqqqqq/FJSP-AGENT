@@ -7,6 +7,9 @@ import shlex
 import subprocess
 from pathlib import Path
 
+from ..context_loader import load_context_dict
+from ..deepseek_client import load_local_env, resolve_secret
+from ..worker_context import worker_context_sections
 from ..worker import CodingWorker, ExperimentSpec, WorkerCapabilities, WorkerResult
 
 
@@ -53,6 +56,7 @@ class OpenCodeWorker(CodingWorker):
             completed = subprocess.run(
                 command,
                 cwd=spec.worktree_path,
+                env=opencode_subprocess_environment(),
                 text=True,
                 capture_output=True,
                 timeout=max(1, spec.max_runtime_seconds),
@@ -103,7 +107,7 @@ class OpenCodeWorker(CodingWorker):
         return command
 
     def _prompt(self, spec: ExperimentSpec) -> str:
-        priority_context = self._priority_context(spec)
+        context_sections = self._context_sections(spec)
         return f"""
 You are running inside an AlgoForge worker cycle.
 
@@ -121,6 +125,9 @@ Task:
 - Do not claim benchmark success. The harness will snapshot the worktree, run
   the fixed evaluator, and decide whether this candidate is promoted.
 - Prefer a complete, reversible solver improvement over broad rewrites.
+- Treat `loop_feedback.current_direction_plan` as the Main Agent experiment
+  contract. Implement that direction and keep same-direction repairs inside its
+  change scope instead of switching to an unrelated method.
 - If the priority context says `agent_generated_solver_quality_contract.enabled`
   is true, create or edit the standalone solver entrypoint referenced by the
   context packet's `evaluator_protocol.solver_command_template`. The code must
@@ -151,31 +158,51 @@ Task:
 - Any parser, decoder, schedule builder, or validation/self-check helper you
   define must be called by the runnable flow before the solution file is
   written. Do not leave helper functions unused as evidence-only scaffolding.
+- Keep every quick-test solution, metrics file, and scratch artifact inside the
+  current worktree, for example under `.algoforge_worker_tmp/`. Never use
+  `%TEMP%`, `$env:TEMP`, `/tmp`, or any external directory that would require a
+  permission prompt. Finish after the bounded quick test instead of continuing
+  open-ended exploration.
 
-Priority context:
+Stable task context:
 ```json
-{priority_context}
+{context_sections["stable"]}
+```
+
+Priority context (dynamic tail):
+```json
+{context_sections["dynamic"]}
 ```
 
 If no safe edit is possible, leave the worktree unchanged and explain why in
 stdout.  The harness will record your stdout/stderr and the worktree delta.
 """.strip()
 
-    def _priority_context(self, spec: ExperimentSpec) -> str:
+    def _context_sections(self, spec: ExperimentSpec) -> dict[str, str]:
         try:
-            context = json.loads(Path(spec.context_packet_path).read_text(encoding="utf-8-sig"))
-        except (OSError, json.JSONDecodeError):
-            return "{}"
+            context = load_context_dict(Path(spec.context_packet_path))
+        except (OSError, json.JSONDecodeError, ValueError):
+            return {"stable": "{}", "dynamic": "{}"}
         try:
-            from .deepseek_worker import priority_worker_context
-
-            return priority_worker_context(context)
+            return worker_context_sections(context)
         except Exception as exc:  # noqa: BLE001 - OpenCode can still read the raw context packet.
-            return json_dumps({"status": "unavailable", "reason": str(exc)}).strip()
+            fallback = json_dumps({"status": "unavailable", "reason": str(exc)}).strip()
+            return {"stable": "{}", "dynamic": fallback}
 
 
 def json_dumps(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2) + "\n"
+
+
+def opencode_subprocess_environment() -> dict[str, str]:
+    """Load local provider settings without copying secret files into worktrees."""
+
+    load_local_env()
+    environment = os.environ.copy()
+    deepseek_key = resolve_secret("DEEPSEEK_API_KEY", file_env="DEEPSEEK_API_KEY_FILE")
+    if deepseek_key:
+        environment["DEEPSEEK_API_KEY"] = deepseek_key
+    return environment
 
 
 def opencode_status(returncode: int, stdout: str, stderr: str) -> str:

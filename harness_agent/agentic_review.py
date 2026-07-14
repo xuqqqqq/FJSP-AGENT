@@ -9,6 +9,7 @@ from typing import Any
 from .runner import RunSummary
 from .solver_quality_contract import build_agent_generated_solver_quality_contract
 from .solver_quality_contract import is_agent_generated_solver_context as _contract_agent_generated_context
+from .context_loader import try_load_context_dict
 from .source_reachability import function_call_count
 from .source_reachability import function_is_reachable_from_entry
 from .source_reachability import unreachable_defined_function_helpers
@@ -70,7 +71,7 @@ def judge_worker_result(
 ) -> AgenticJudgment:
     """Run a deterministic code JA pass over a worker proposal and changed files."""
 
-    context = _load_json(context_packet_path)
+    context = try_load_context_dict(context_packet_path)
     proposal = _load_proposal(worker_result)
     proposal_audit = proposal.get("proposal_audit") if isinstance(proposal, dict) else {}
     if not isinstance(proposal_audit, dict):
@@ -90,12 +91,20 @@ def judge_worker_result(
         "skipped",
         "failed",
         "failed_runtime",
-        "timeout",
         "authorization_required",
     }
     if worker_result.status in unusable_worker_statuses:
         issues.append(f"worker_status_not_usable: {worker_result.status}")
         suggestions.append("Configure or repair the coding worker before running evaluator-backed evolution.")
+    elif worker_result.status == "timeout":
+        if worker_result.changed_files:
+            warnings.append("worker_timeout_after_code_change")
+            suggestions.append(
+                "The coding process timed out after producing a diff; rely on deterministic checks and the fixed evaluator, not the timeout alone."
+            )
+        else:
+            issues.append("worker_status_not_usable: timeout")
+            suggestions.append("Increase the worker budget or reduce the requested edit before retrying.")
 
     if apply_worker_changes and not worker_result.changed_files:
         issues.append("no_changed_files_after_apply")
@@ -199,6 +208,18 @@ def judge_worker_result(
         worktree_path=worktree_path,
         changed_files=worker_result.changed_files,
         quality_contract=agent_generated_quality_contract,
+        proposal=proposal if isinstance(proposal, dict) else None,
+    )
+    agent_generated_method_stage = _agent_generated_solver_method_stage(
+        context=context,
+        worktree_path=worktree_path,
+        changed_files=worker_result.changed_files,
+        quality_contract=agent_generated_quality_contract,
+        proposal=proposal if isinstance(proposal, dict) else None,
+    )
+    agent_generated_repair_plan = _agent_generated_solver_repair_plan(
+        quality_risks=agent_generated_quality_risks,
+        method_stage=agent_generated_method_stage,
     )
     if agent_generated_quality_risks:
         issues.append("agent_generated_solver_quality_contract_missing")
@@ -216,6 +237,26 @@ def judge_worker_result(
             "If this is an improvement round, preserve the incumbent parser/skeleton and patch the missing capability "
             "rather than replacing the solver with an unrelated implementation."
         )
+        suggestions.append(
+            "For standard-FJSP local-search claims such as AWLS, N7/N8, NK, k-insertion, or tabu search, "
+            "the generated solver must expose an executable method skeleton: stable operation keys, "
+            "assignment plus machine_sequences, a progress/topological decoder, bounded neighbor generation, "
+            "decoded-candidate rejection, and best-incumbent preservation."
+        )
+        if any("structured_neighborhood_claim_unimplemented" in item for item in agent_generated_quality_risks):
+            suggestions.append(
+                "For the next same-round repair, do not repeat the AWLS/critical-block/N7/N8/NK/k-insertion/tabu "
+                "claim unless the patch actually adds the missing state/decode/move guards named in the risk. "
+                "First migrate the incumbent to assignment + machine_sequences + progress decoder, then add the "
+                "claimed neighborhood; otherwise remove the strong-neighborhood wording and submit a smaller honest "
+                "operator for evaluator comparison."
+            )
+        if any("shallow_local_search_operator" in item for item in agent_generated_quality_risks):
+            suggestions.append(
+                "Do not repair this by adding another random operation-to-machine reassignment loop. "
+                "Patch the existing incumbent with critical-path or critical-block move selection, "
+                "N8/k-insertion candidate generation, tabu or aspiration memory, and a bounded perturbation path."
+            )
 
     agent_generated_self_check_risks = _detect_agent_generated_solver_self_check_risks(
         proposal=proposal if isinstance(proposal, dict) else None,
@@ -258,6 +299,8 @@ def judge_worker_result(
         "agent_generated_runtime_import_risks": agent_generated_import_risks,
         "agent_generated_solver_quality_contract": agent_generated_quality_contract,
         "agent_generated_solver_quality_risks": agent_generated_quality_risks,
+        "agent_generated_solver_method_stage": agent_generated_method_stage,
+        "agent_generated_solver_repair_plan": agent_generated_repair_plan,
         "agent_generated_solver_self_check_risks": agent_generated_self_check_risks,
         "protected_promoted_fact_regressions": protected_fact_regressions,
     }
@@ -413,14 +456,6 @@ def render_error_analysis_markdown(analysis: ErrorAnalysis) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _load_json(path: Path) -> dict[str, Any]:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
 def _load_proposal(worker_result: WorkerResult) -> dict[str, Any] | None:
     proposal_path = (worker_result.artifacts or {}).get("proposal")
     if not proposal_path:
@@ -518,6 +553,7 @@ def _detect_agent_generated_solver_quality_risks(
     worktree_path: Path,
     changed_files: list[str],
     quality_contract: dict[str, Any],
+    proposal: dict[str, Any] | None = None,
 ) -> list[str]:
     if not quality_contract.get("enabled"):
         return []
@@ -530,14 +566,21 @@ def _detect_agent_generated_solver_quality_risks(
         return ["agent_generated_solver: no generated solver source was available for quality review"]
 
     combined_text = "\n\n".join(f"# FILE {path}\n{text}" for path, text in sources.items())
+    proposal_text = _agent_generated_method_claim_text(proposal)
     combined_lower = combined_text.lower()
     risks: list[str] = []
     hardcoded_parser_risks = _detect_hardcoded_agent_generated_parser_risks(combined_text)
     risks.extend(hardcoded_parser_risks)
+    if _is_standard_fjsp_without_setup_context(context, quality_contract):
+        risks.extend(_detect_standard_fjsp_packed_line_parser_risks(combined_text))
+    risks.extend(_detect_agent_generated_output_schema_mismatch_risks(combined_text))
+    risks.extend(_detect_machine_major_decoder_precedence_risks(combined_text))
     risks.extend(_detect_agent_generated_dead_function_risks(combined_text))
     missing = _missing_agent_generated_base_capabilities(combined_text)
     if missing:
         risks.append(f"agent_generated_solver: missing base capabilities: {', '.join(missing)}")
+        if "operation_level_ready_list_constructor" in missing:
+            risks.extend(_detect_random_ready_machine_selection_risks(combined_text))
 
     active_features = set(quality_contract.get("active_features") or [])
     if "sequence_dependent_setup" in active_features:
@@ -563,12 +606,277 @@ def _detect_agent_generated_solver_quality_risks(
         if move_missing:
             risks.append(f"agent_generated_solver: sequence/neighborhood move lacks: {', '.join(move_missing)}")
 
+    if _is_standard_fjsp_without_setup_context(context, quality_contract):
+        if _is_incremental_after_baseline_context(context):
+            risks.extend(
+                _detect_shallow_standard_fjsp_local_search_risks(
+                    combined_text,
+                    proposal_text=proposal_text,
+                )
+            )
+        risks.extend(
+            _detect_structured_standard_fjsp_neighborhood_claim_risks(
+                combined_text,
+                proposal_text=proposal_text,
+            )
+        )
+
     for feature, terms in _VARIANT_FEATURE_CODE_TERMS.items():
         if feature not in active_features:
             continue
         if not any(term in combined_lower for term in terms):
             risks.append(f"agent_generated_solver: active feature `{feature}` is not reflected in solver code")
     return risks
+
+
+def _agent_generated_solver_method_stage(
+    *,
+    context: dict[str, Any],
+    worktree_path: Path,
+    changed_files: list[str],
+    quality_contract: dict[str, Any],
+    proposal: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not quality_contract.get("enabled"):
+        return {}
+    changed = [item.replace("\\", "/") for item in changed_files]
+    if not any(_is_agent_generated_example_path(path) for path in changed):
+        return {}
+    sources = _agent_generated_solver_sources(worktree_path, changed)
+    if not sources:
+        return {
+            "schema_version": 1,
+            "stage_index": 0,
+            "stage_name": "stage_0_contract_repair_required",
+            "missing_for_next_stage": ["agent_generated_solver_source"],
+        }
+    combined_text = "\n\n".join(f"# FILE {path}\n{text}" for path, text in sources.items())
+    proposal_text = _agent_generated_method_claim_text(proposal)
+    return _method_stage_snapshot(
+        combined_text,
+        quality_contract=quality_contract,
+        proposal_text=proposal_text,
+        standard_fjsp_without_setup=_is_standard_fjsp_without_setup_context(context, quality_contract),
+    )
+
+
+def _method_stage_snapshot(
+    text: str,
+    *,
+    quality_contract: dict[str, Any],
+    proposal_text: str,
+    standard_fjsp_without_setup: bool,
+) -> dict[str, Any]:
+    lowered = text.lower()
+    base_missing = _missing_agent_generated_base_capabilities(text)
+    has_assignment = bool(re.search(r"\bassignment\b", lowered))
+    has_machine_sequences = bool(re.search(r"\bmachine_sequences?\b", lowered))
+    has_progress_decoder = _has_machine_sequence_decoder_shape(lowered)
+    has_move_application = _has_move_application_shape(lowered)
+    has_coverage_guard = _has_operation_coverage_guard(text)
+    has_candidate_rejection = _has_decoded_candidate_rejection_shape(lowered)
+    has_critical_blocks = _has_critical_block_extraction_shape(lowered)
+    has_n8_or_k_insertion = _has_n8_or_k_insertion_generation_shape(lowered)
+    has_tabu_or_perturbation = bool(re.search(r"\btabu(?:_until|_list|_tenure|_memory)?\b|\bperturb", lowered))
+    claimed_terms = (
+        _claimed_structured_neighborhood_terms(f"{lowered}\n{proposal_text.lower()}")
+        if standard_fjsp_without_setup
+        else []
+    )
+
+    evidence = {
+        "base_missing": base_missing,
+        "has_assignment": has_assignment,
+        "has_machine_sequences": has_machine_sequences,
+        "has_progress_decoder": has_progress_decoder,
+        "has_move_application": has_move_application,
+        "has_coverage_guard": has_coverage_guard,
+        "has_decoded_candidate_rejection": has_candidate_rejection,
+        "has_critical_block_extraction": has_critical_blocks,
+        "has_n8_or_k_insertion_generation": has_n8_or_k_insertion,
+        "has_tabu_or_perturbation_memory": has_tabu_or_perturbation,
+        "claimed_structured_neighborhood_terms": claimed_terms,
+        "active_features": (quality_contract.get("active_features") or [])[:16],
+    }
+    if base_missing:
+        stage_index = 0
+        stage_name = "stage_0_contract_repair_required"
+        missing_for_next = base_missing[:8]
+    elif not (has_assignment and has_machine_sequences):
+        stage_index = 1
+        stage_name = "stage_1_legal_constructor_without_sequence_state"
+        missing_for_next = [
+            item
+            for item, present in (
+                ("operation_to_machine_assignment", has_assignment),
+                ("machine_sequences", has_machine_sequences),
+            )
+            if not present
+        ]
+    elif not has_progress_decoder:
+        stage_index = 2
+        stage_name = "stage_2_sequence_state_without_progress_decoder"
+        missing_for_next = ["progress_or_topological_decoder"]
+    elif not (has_move_application and has_coverage_guard and has_candidate_rejection):
+        stage_index = 3
+        stage_name = "stage_3_progress_decoder_without_guarded_moves"
+        missing_for_next = [
+            item
+            for item, present in (
+                ("apply_move_on_assignment_and_machine_sequences", has_move_application),
+                ("post_move_coverage_guard", has_coverage_guard),
+                ("decoded_candidate_rejection", has_candidate_rejection),
+            )
+            if not present
+        ]
+    elif not (has_critical_blocks and has_n8_or_k_insertion):
+        stage_index = 4
+        stage_name = "stage_4_basic_sequence_moves_without_structured_neighborhood"
+        missing_for_next = [
+            item
+            for item, present in (
+                ("critical_block_extraction", has_critical_blocks),
+                ("n8_or_k_insertion_neighbor_generation", has_n8_or_k_insertion),
+            )
+            if not present
+        ]
+    else:
+        stage_index = 5
+        stage_name = "stage_5_structured_neighborhood_ready"
+        missing_for_next = []
+
+    return {
+        "schema_version": 1,
+        "stage_index": stage_index,
+        "stage_name": stage_name,
+        "missing_for_next_stage": missing_for_next,
+        "evidence": evidence,
+    }
+
+
+def _agent_generated_solver_repair_plan(
+    *,
+    quality_risks: list[str],
+    method_stage: dict[str, Any],
+) -> dict[str, Any]:
+    if not quality_risks:
+        return {}
+    structured = [risk for risk in quality_risks if "structured_neighborhood_claim_unimplemented" in risk]
+    missing_components = _structured_claim_missing_components(structured)
+    claim_terms = _structured_claim_terms_from_risks(structured)
+    if structured:
+        target_stage = _target_stage_for_structured_missing(missing_components)
+        must_add = _repair_must_add_for_missing_components(missing_components)
+        return {
+            "schema_version": 1,
+            "repair_mode": "method_stage_migration",
+            "reason": "structured_neighborhood_claim_unimplemented",
+            "current_stage": method_stage,
+            "target_stage": target_stage,
+            "blocking_claim_terms": claim_terms,
+            "missing_components": missing_components,
+            "must_add": must_add,
+            "must_not": [
+                "Do not repeat AWLS/critical-block/N7/N8/NK/k-insertion/tabu claims unless the patch adds the named missing structures.",
+                "Do not replace the whole promoted solver when a bounded representation or decoder migration can repair the stage.",
+                "Do not submit strategy prose or solver_contract_self_check evidence without matching reachable source symbols.",
+            ],
+            "acceptance_checks": [
+                "Submitted code contains the missing state/decode/move guard symbols named in missing_components.",
+                "Every candidate move is decoded and rejected on None, partial coverage, ineligible machine, precedence violation, or overlap.",
+                "The incumbent schedule is replaced only after a strict evaluator-side improvement candidate exists.",
+            ],
+        }
+    must_add = [
+        "Repair the earliest missing parser, representation, constructor, decoder, coverage, eligibility, precedence, non-overlap, runtime, or incumbent-preservation capability before adding another optimization idea."
+    ]
+    if any("random_machine_choice_without_ready_machine_evaluation" in risk for risk in quality_risks):
+        must_add.insert(
+            0,
+            "Replace random eligible-machine selection with an operation-level ready-choice loop: for every ready operation, iterate every eligible machine, compute start/finish from job_ready and machine_ready, collect scored candidates, then commit one best or seeded tie-break candidate.",
+        )
+    return {
+        "schema_version": 1,
+        "repair_mode": "quality_contract_repair",
+        "reason": "agent_generated_solver_quality_contract_missing",
+        "current_stage": method_stage,
+        "blocking_quality_risks": quality_risks[:8],
+        "must_add": must_add,
+        "must_not": [
+            "Do not satisfy operation_level_ready_list_constructor by selecting one ready operation and then calling rng.choice/random.choice over eligible machines.",
+            "Do not claim a higher-level local-search method until lower-stage legality and representation capabilities are present."
+        ],
+    }
+
+
+def _structured_claim_missing_components(risks: list[str]) -> list[str]:
+    missing: list[str] = []
+    for risk in risks:
+        match = re.search(r"\bmissing\s+(.+)$", risk)
+        if not match:
+            continue
+        for item in match.group(1).split(","):
+            normalized = item.strip()
+            if normalized and normalized not in missing:
+                missing.append(normalized)
+    return missing
+
+
+def _structured_claim_terms_from_risks(risks: list[str]) -> list[str]:
+    terms: list[str] = []
+    for risk in risks:
+        match = re.search(r"\bclaims\s+(.+?)\s+but\s+missing\b", risk)
+        if not match:
+            continue
+        for item in match.group(1).split(","):
+            normalized = item.strip()
+            if normalized and normalized not in terms:
+                terms.append(normalized)
+    return terms
+
+
+def _target_stage_for_structured_missing(missing_components: list[str]) -> str:
+    ordered_targets = [
+        ("machine_sequence_state_and_progress_decoder", "stage_2_sequence_state_and_progress_decoder"),
+        ("decoded_candidate_rejection", "stage_3_guarded_progress_decoder"),
+        ("post_move_coverage_guard", "stage_3_guarded_progress_decoder"),
+        ("apply_move_on_assignment_and_machine_sequences", "stage_4_executable_sequence_move"),
+        ("critical_block_extraction", "stage_5_structured_neighborhood"),
+        ("n8_or_k_insertion_neighbor_generation", "stage_5_structured_neighborhood"),
+    ]
+    for component, target in ordered_targets:
+        if component in missing_components:
+            return target
+    return "stage_5_structured_neighborhood"
+
+
+def _repair_must_add_for_missing_components(missing_components: list[str]) -> list[str]:
+    playbook = {
+        "machine_sequence_state_and_progress_decoder": (
+            "Add reachable assignment plus machine_sequences state and a progress/topological decoder that schedules only predecessor-ready operations."
+        ),
+        "critical_block_extraction": (
+            "Add reachable critical block/path extraction from a decoded schedule and machine sequence view before generating critical-block moves."
+        ),
+        "n8_or_k_insertion_neighbor_generation": (
+            "Add bounded N8/NK/k-insertion-like neighbor generation that emits explicit move records and caps candidate count/runtime."
+        ),
+        "apply_move_on_assignment_and_machine_sequences": (
+            "Add an apply_move path that copies assignment and machine_sequences, applies swap/remove/insert/reassignment consistently, and leaves the incumbent untouched on failure."
+        ),
+        "post_move_coverage_guard": (
+            "Add a post-move guard that compares decoded operation coverage with the expected operation set before scoring makespan."
+        ),
+        "decoded_candidate_rejection": (
+            "Add candidate rejection branches for decode failure, partial schedules, invalid durations, ineligible machines, precedence violations, and machine overlaps."
+        ),
+    }
+    result: list[str] = []
+    for component in missing_components:
+        instruction = playbook.get(component)
+        if instruction and instruction not in result:
+            result.append(instruction)
+    return result
 
 
 def _detect_agent_generated_solver_self_check_risks(
@@ -1035,15 +1343,24 @@ def _has_active_io_parser(text: str) -> bool:
         return False
     derived_operation_terms = [
         "for job_id in range(job_count",
+        "for j in range(job_count",
+        "for job in range(num_jobs",
+        "for job in range(job_count",
         "for job_id, job in enumerate",
         "for job in jobs",
         "for op_id in range(op_count",
+        "for op_id in range(ops_in_job",
+        "for op in range(op_count",
         "for op_id, op in enumerate",
         "candidate_count",
+        "cand_count",
         "candidates.append",
+        "raw_ops.append",
         "eligible = {",
         "op_info[op_key]",
         "op_info[(job_id, op_id)]",
+        "op_info[(job, op)]",
+        "op_info[(j, op_id)]",
     ]
     return sum(1 for term in derived_operation_terms if term in lowered) >= 3
 
@@ -1069,6 +1386,146 @@ def _detect_hardcoded_agent_generated_parser_risks(text: str) -> list[str]:
             "agent_generated_solver: parser appears to hardcode toy operation metadata instead of deriving all jobs/operations/candidates from active IO"
         )
     return risks
+
+
+def _is_standard_fjsp_without_setup_context(context: dict[str, Any], quality_contract: dict[str, Any]) -> bool:
+    active_features = {str(item).strip() for item in quality_contract.get("active_features") or [] if str(item).strip()}
+    variant_features = {
+        "sequence_dependent_setup",
+        "no_wait",
+        "time_lag",
+        "machine_calendar",
+        "batching",
+        "transportation",
+        "release_dates",
+        "due_dates",
+        "multi_objective",
+    }
+    if active_features & variant_features:
+        return False
+
+    diagnostics = context.get("instance_diagnostics") if isinstance(context.get("instance_diagnostics"), dict) else {}
+    summary = diagnostics.get("summary") if isinstance(diagnostics.get("summary"), dict) else {}
+    instances = [item for item in diagnostics.get("instances") or [] if isinstance(item, dict)]
+
+    setup_kinds = [str(item).strip().lower() for item in summary.get("setup_time_kinds") or []]
+    if any(kind not in {"", "none", "null"} for kind in setup_kinds):
+        return False
+    if int(summary.get("sdst_instance_count") or 0) > 0:
+        return False
+    for item in instances:
+        setup_kind = str(item.get("setup_time_kind") or "").strip().lower()
+        if setup_kind not in {"", "none", "null"}:
+            return False
+
+    knowledge_selection = (
+        context.get("knowledge_selection") if isinstance(context.get("knowledge_selection"), dict) else {}
+    )
+    active_variant = str(knowledge_selection.get("active_variant") or "").strip().lower()
+    family = str((context.get("task") or {}).get("problem_family") or context.get("problem_family") or "").strip().lower()
+    instance_variants = {str(item.get("variant") or "").strip().lower() for item in instances}
+    return (
+        active_variant == "standard_fjsp"
+        or family in {"standard_fjsp", "fjsp"}
+        or "standard_fjsp" in instance_variants
+    )
+
+
+def _is_incremental_after_baseline_context(context: dict[str, Any]) -> bool:
+    contract = context.get("iteration_edit_contract") if isinstance(context, dict) else {}
+    return bool(isinstance(contract, dict) and contract.get("mode") == "incremental_after_baseline")
+
+
+def _detect_standard_fjsp_packed_line_parser_risks(text: str) -> list[str]:
+    lowered = text.lower()
+    if not any(term in lowered for term in ("splitlines(", ".readlines(", "readlines(")):
+        return []
+
+    loop_pattern = re.compile(
+        r"for\s+\w+\s+in\s+range\(\s*(?:op_count|num_ops|operation_count|n_ops)[^)]*\)\s*:"
+        r"(?P<body>(?:\n[ \t]+[^\n]*){1,40})",
+        re.I,
+    )
+    cursor_names = ("idx", "line_idx", "line_index", "line_no", "pos")
+    for match in loop_pattern.finditer(text):
+        body = match.group("body")
+        reads_physical_line = re.search(
+            r"\blines\s*\[\s*(?:idx|line_idx|line_index|line_no|pos)\s*\]", body, re.I
+        )
+        advances_line_cursor = any(re.search(rf"\b{name}\s*\+=\s*1\b", body) for name in cursor_names)
+        if reads_physical_line and advances_line_cursor:
+            return [
+                "agent_generated_solver: standard FJSP parser assumes one physical operation line; "
+                "Dauzere/DP/BA/BR/HU instances pack all operations for a job on one line, so parse "
+                "with a token cursor over the job line"
+            ]
+    return []
+
+
+def _detect_agent_generated_output_schema_mismatch_risks(text: str) -> list[str]:
+    """Detect solver files that write a bare schedule list instead of schema object."""
+
+    bare_schedule_names = r"(?:best_schedule|candidate_schedule|decoded_schedule|decoded|schedule|result)"
+    patterns = [
+        rf"json\.dump\s*\(\s*{bare_schedule_names}\s*,",
+        r"json\.dump\s*\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\[\s*['\"]schedule['\"]\s*\]\s*,",
+        rf"json\.dumps\s*\(\s*{bare_schedule_names}\s*\)",
+        r"json\.dumps\s*\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\[\s*['\"]schedule['\"]\s*\]\s*\)",
+    ]
+    if not any(re.search(pattern, text, re.I) for pattern in patterns):
+        return []
+    object_writer_patterns = [
+        r"json\.dump\s*\(\s*\{[^{}]*(?:['\"]schedule['\"])\s*:",
+        r"json\.dumps\s*\(\s*\{[^{}]*(?:['\"]schedule['\"])\s*:",
+    ]
+    if any(re.search(pattern, text, re.I | re.S) for pattern in object_writer_patterns):
+        return []
+    object_variable_patterns = [
+        r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*dict[^=]*)?=\s*\{[^{}]*['\"]schedule['\"]\s*:"
+        r".*?\}\s*.{0,800}?\bjson\.dump\s*\(\s*(?P=name)\s*,",
+        r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*dict[^=]*)?=\s*\{[^{}]*['\"]schedule['\"]\s*:"
+        r".*?\}\s*.{0,800}?\bjson\.dumps\s*\(\s*(?P=name)\s*\)",
+    ]
+    if any(re.search(pattern, text, re.I | re.S) for pattern in object_variable_patterns):
+        return []
+    return [
+        "agent_generated_solver: declared_output_schema_mismatch: solver appears to write a bare schedule list; "
+        "the standard evaluator expects a JSON object with a `schedule` array"
+    ]
+
+
+def _detect_machine_major_decoder_precedence_risks(text: str) -> list[str]:
+    """Detect decoders that replay each machine sequence in machine order only."""
+
+    machine_major_loop = re.search(
+        r"for\s+[^:\n]*,\s*(?P<sequence>[A-Za-z_][A-Za-z0-9_]*)\s+in\s+machine_sequences?\.items\(\)\s*:"
+        r"(?P<body>.*?)(?=\n\S|\Z)",
+        text,
+        re.I | re.S,
+    )
+    if not machine_major_loop:
+        return []
+    sequence_name = re.escape(machine_major_loop.group("sequence"))
+    body = machine_major_loop.group("body")
+    if not re.search(rf"\n[ \t]+for\s+[^:\n]+\s+in\s+{sequence_name}\s*:", body, re.I):
+        return []
+    updates_job_ready = re.search(r"\b(?:job_ready|job_end)\s*\[[^\]]+\]\s*=", body, re.I)
+    if not updates_job_ready:
+        return []
+    has_progress_decoder = re.search(r"\bwhile\s+len\s*\(\s*schedule\s*\)\s*<", text, re.I) and re.search(
+        r"\bprogressed\b", text, re.I
+    )
+    has_predecessor_skip = re.search(
+        r"op_id\s*>\s*0.*(?:op_id\s*-\s*1|prev_op|predecessor).*continue",
+        text,
+        re.I | re.S,
+    )
+    if has_progress_decoder and has_predecessor_skip:
+        return []
+    return [
+        "agent_generated_solver: job_precedence_guard_mismatch: decoder replays machine_sequences in machine-major order; "
+        "decode machine sequences with a progress/topological loop so job successors cannot be scheduled before predecessors"
+    ]
 
 
 def _has_declared_output_schema(text: str) -> bool:
@@ -1116,11 +1573,315 @@ def _missing_sequence_move_capabilities(text: str) -> list[str]:
     return missing
 
 
+def _detect_shallow_standard_fjsp_local_search_risks(text: str, *, proposal_text: str = "") -> list[str]:
+    """Reject local-search proposals that stop at random reassignment climbing.
+
+    This is deliberately not a backend algorithm template.  It only blocks the
+    repeated failure mode where an agent keeps an assignment/sequence decoder
+    but implements the "neighborhood" as random op -> random alternative machine
+    -> random insertion, with no critical-path/block selection, N8/k-insertion
+    candidate generation, tabu/aspiration memory, or diversification path.
+    """
+
+    lowered = text.lower()
+    evidence_lower = f"{lowered}\n{proposal_text.lower()}"
+    if not _has_assignment_sequence_decoder_shape(lowered):
+        return []
+    if not _claims_standard_fjsp_local_search(evidence_lower):
+        return []
+    if not _has_random_reassignment_hill_climber_shape(lowered):
+        return []
+    if _has_structured_standard_fjsp_neighborhood_shape(lowered):
+        return []
+    return [
+        "agent_generated_solver: shallow_local_search_operator: random hill-climbing reassignment lacks "
+        "critical-path/critical-block candidate selection, N8 or k-insertion neighborhood generation, "
+        "tabu/aspiration memory, and bounded perturbation/diversification"
+    ]
+
+
+def _detect_structured_standard_fjsp_neighborhood_claim_risks(text: str, *, proposal_text: str = "") -> list[str]:
+    """Require executable structure when a proposal claims a strong FJSP neighborhood.
+
+    The backend remains algorithm-agnostic: this does not prescribe the scoring
+    formula or exact move set.  It only rejects the mismatch where a proposal
+    claims critical-block, N7/N8/NK, k-insertion, tabu, or AWLS-style local
+    search but edits only a global order or shallow reassignment loop.
+    """
+
+    lowered = text.lower()
+    evidence_lower = f"{lowered}\n{proposal_text.lower()}"
+    claim_terms = _claimed_structured_neighborhood_terms(evidence_lower)
+    if not claim_terms:
+        return []
+
+    missing: list[str] = []
+    if not _has_machine_sequence_decoder_shape(lowered):
+        missing.append("machine_sequence_state_and_progress_decoder")
+    if _claim_requires_critical_block_extraction(claim_terms) and not _has_critical_block_extraction_shape(lowered):
+        missing.append("critical_block_extraction")
+    if _claim_requires_n8_or_k_insertion_generation(claim_terms) and not _has_n8_or_k_insertion_generation_shape(lowered):
+        missing.append("n8_or_k_insertion_neighbor_generation")
+    if not _has_move_application_shape(lowered):
+        missing.append("apply_move_on_assignment_and_machine_sequences")
+    if not _has_operation_coverage_guard(text):
+        missing.append("post_move_coverage_guard")
+    if not _has_decoded_candidate_rejection_shape(lowered):
+        missing.append("decoded_candidate_rejection")
+    if not missing:
+        return []
+    return [
+        "agent_generated_solver: structured_neighborhood_claim_unimplemented: claims "
+        f"{', '.join(claim_terms)} but missing {', '.join(missing)}"
+    ]
+
+
+def _claimed_structured_neighborhood_terms(lowered: str) -> list[str]:
+    terms: list[str] = []
+    patterns = [
+        ("awls", r"\bawls\b"),
+        ("n7", r"\bn7\b"),
+        ("n8", r"\bn8\b"),
+        ("nk", r"\bnk\b"),
+        ("k_insertion", r"\bk[_\s-]*insertion\b"),
+        ("critical_block", r"\bcritical[_\s-]*(?:block|blocks)\b"),
+        ("tabu", r"\btabu(?:[_\s-]*(?:list|until|tenure|search|memory))?\b"),
+    ]
+    for label, pattern in patterns:
+        if any(not _structured_term_is_negated(lowered, match.start()) for match in re.finditer(pattern, lowered, re.S)):
+            terms.append(label)
+    return terms
+
+
+def _structured_term_is_negated(text: str, start: int) -> bool:
+    prefix = text[max(0, start - 90) : start]
+    return bool(
+        re.search(
+            r"\b(?:without|omit|omits|omitted|avoid|avoids|avoided|remove|removes|removed|no|not|never|do\s+not|don't|unsupported|unimplemented)\b.{0,80}$",
+            prefix,
+            re.S,
+        )
+    )
+
+
+def _agent_generated_method_claim_text(proposal: dict[str, Any] | None) -> str:
+    """Extract proposal text that can be a method claim, excluding evidence paths and full code."""
+
+    if not isinstance(proposal, dict):
+        return ""
+    parts = [
+        str(proposal.get("summary") or ""),
+        str(proposal.get("strategy_intent") or ""),
+        str(proposal.get("quick_test_plan") or ""),
+    ]
+    for item in proposal.get("rule_operator_hypotheses") or []:
+        if not isinstance(item, dict):
+            continue
+        parts.extend(
+            [
+                str(item.get("name") or ""),
+                str(item.get("type") or ""),
+                str(item.get("novelty") or ""),
+                str(item.get("expected_effect") or ""),
+                str(item.get("ablation_plan") or ""),
+            ]
+        )
+    for item in proposal.get("changes") or []:
+        if isinstance(item, dict):
+            parts.append(str(item.get("rationale") or ""))
+    for item in proposal.get("risk_notes") or []:
+        parts.append(str(item))
+    context_usage = proposal.get("context_usage") if isinstance(proposal.get("context_usage"), dict) else {}
+    parts.append(str(context_usage.get("notes") or ""))
+    self_check = proposal.get("solver_contract_self_check") if isinstance(proposal.get("solver_contract_self_check"), dict) else {}
+    parts.extend(
+        [
+            str(self_check.get("representation") or ""),
+            str(self_check.get("decoder") or ""),
+            str(self_check.get("runtime_bounds") or ""),
+            str(self_check.get("incumbent_preservation") or ""),
+        ]
+    )
+    for item in self_check.get("variant_handling") or []:
+        parts.append(str(item))
+    for item in self_check.get("remaining_gaps") or []:
+        parts.append(str(item))
+    return "\n".join(part for part in parts if part).lower()
+
+
+def _claim_requires_critical_block_extraction(claim_terms: list[str]) -> bool:
+    return any(term in {"awls", "n7", "n8", "nk", "k_insertion", "critical_block"} for term in claim_terms)
+
+
+def _claim_requires_n8_or_k_insertion_generation(claim_terms: list[str]) -> bool:
+    return any(term in {"awls", "n7", "n8", "nk", "k_insertion"} for term in claim_terms)
+
+
+def _has_machine_sequence_decoder_shape(lowered: str) -> bool:
+    return bool(
+        re.search(r"\bdef\s+\w*decode\w*\s*\([^)]*machine_sequences?", lowered, re.S)
+        or (
+            re.search(r"\bfor\s+[^:\n]*,\s*\w+\s+in\s+machine_sequences?\.items\s*\(\s*\)\s*:", lowered)
+            and re.search(r"\bprogress(?:ed)?\b|\bwhile\s+len\s*\(", lowered, re.S)
+        )
+    )
+
+
+def _has_critical_block_extraction_shape(lowered: str) -> bool:
+    if re.search(r"\bdef\s+\w*critical\w*(?:block|path)\w*\s*\(", lowered):
+        return True
+    if re.search(r"\bcritical_blocks?\s*=", lowered) and "machine_sequences" in lowered:
+        return True
+    return bool(
+        re.search(r"\bby_machine\b", lowered)
+        and re.search(r"\bcritical\b", lowered)
+        and re.search(r"\bmachine_sequences?\b", lowered)
+    )
+
+
+def _has_n8_or_k_insertion_generation_shape(lowered: str) -> bool:
+    return bool(
+        re.search(r"\bdef\s+\w*(?:n7|n8|nk)\w*(?:neighbor|neighbour|move|candidate)", lowered)
+        or re.search(r"\bgenerate[_\s-]*(?:n7|n8|nk)", lowered)
+        or re.search(r"\bdef\s+\w*k[_\s-]*insertion\w*", lowered)
+        or re.search(r"\bgenerate[_\s-]*k[_\s-]*insertion", lowered)
+        or re.search(r"\binsertion_positions?\b", lowered)
+    )
+
+
+def _has_move_application_shape(lowered: str) -> bool:
+    return bool(
+        "apply_move" in lowered
+        or (
+            "machine_sequences" in lowered
+            and re.search(r"\.remove\s*\(", lowered)
+            and re.search(r"\.insert\s*\(", lowered)
+        )
+        or (
+            "machine_sequences" in lowered
+            and re.search(r"\bnew_machine_sequences\b", lowered)
+            and re.search(r"\bif\s+\w+\s*!=\s*op_key\b", lowered)
+            and re.search(r"\.append\s*\(\s*op_key\s*\)", lowered)
+        )
+        or (
+            "machine_sequences" in lowered
+            and re.search(r"\bsequence\s*\[[^\]]+\]\s*,\s*sequence\s*\[[^\]]+\]\s*=", lowered)
+        )
+        or (
+            "machine_sequences" in lowered
+            and re.search(r"\bsequences?\s*=\s*\{[^}]*machine_sequences", lowered, re.S)
+            and re.search(r"\bsearchstate\b|\bstate\b", lowered)
+        )
+    )
+
+
+def _has_decoded_candidate_rejection_shape(lowered: str) -> bool:
+    return bool(
+        re.search(r"\bcandidate(?:_schedule|_decoded)?\s+is\s+none\b", lowered)
+        or re.search(r"\b(?:res|result|trial|trial_schedule|cand_schedule)\s+is\s+none\s*:\s*continue\b", lowered)
+        or re.search(r"\bif\s+not\s+(?:validate|is_valid|check)", lowered)
+        or re.search(r"\bdecode\w*\([^)]*\).*?\bcontinue\b", lowered, re.S)
+    )
+
+
+def _has_assignment_sequence_decoder_shape(lowered: str) -> bool:
+    return (
+        "assignment" in lowered
+        and "machine_sequences" in lowered
+        and bool(re.search(r"\bdecode\w*\s*\(", lowered))
+    )
+
+
+def _claims_standard_fjsp_local_search(lowered: str) -> bool:
+    claim_terms = [
+        "local_search",
+        "local search",
+        "neighborhood",
+        "neighbourhood",
+        "hill climb",
+        "hill-climb",
+        "reassignment",
+        "relocation",
+        "awls",
+        "n7",
+        "n8",
+        "nk",
+        "k-insertion",
+        "k_insertion",
+        "tabu",
+    ]
+    return any(term in lowered for term in claim_terms)
+
+
+def _has_random_reassignment_hill_climber_shape(lowered: str) -> bool:
+    random_op = bool(
+        re.search(
+            r"\b(?:rng|random)\.(?:choice|sample)\s*\(\s*"
+            r"(?:ops|all_ops|operations|op_keys|list\s*\(\s*assignment\.keys\s*\(\s*\)\s*\))",
+            lowered,
+        )
+    )
+    random_machine = bool(
+        re.search(r"\b(?:rng|random)\.(?:choice|sample)\s*\(\s*(?:alt_machines|eligible_machines)", lowered)
+    )
+    random_insert = bool(re.search(r"\b(?:rng|random)\.(?:randint|randrange)\s*\(", lowered) and ".insert(" in lowered)
+    mutates_assignment = bool(re.search(r"\b(?:new_)?assignment\s*\[[^\]]+\]\s*=", lowered))
+    mutates_machine_sequence = "machine_sequences" in lowered and ".remove(" in lowered and ".insert(" in lowered
+    has_alt_machine_loop = "alt_machines" in lowered or "alternative machine" in lowered
+    return (
+        (random_op or (has_alt_machine_loop and "choice(" in lowered))
+        and (random_machine or random_insert or has_alt_machine_loop)
+        and mutates_assignment
+        and mutates_machine_sequence
+    )
+
+
+def _has_structured_standard_fjsp_neighborhood_shape(lowered: str) -> bool:
+    critical_terms = [
+        r"\bcritical[_\s-]*(?:path|block|blocks)\b",
+        r"\bcritical\b.{0,80}\b(?:path|block|blocks|operation|operations)\b",
+        r"\b(?:longest|makespan)[_\s-]*path\b",
+        r"\bbottleneck[_\s-]*(?:machine|block|blocks)\b",
+    ]
+    n8_or_insertion_terms = [
+        r"\bn[78]\b",
+        r"\bgenerate[_\s-]*n[78]",
+        r"\bn[78][_\s-]*(?:move|neighbor|neighbour|candidate|block)",
+        r"\bk[_\s-]*insertion\b",
+        r"\binsertion[_\s-]*positions\b",
+        r"\bblock[_\s-]*(?:insert|insertion|relocate|relocation|swap)\b",
+    ]
+    memory_terms = [
+        r"\btabu(?:[_\s-]*(?:list|until|tenure|search|memory))?\b",
+        r"\baspiration\b",
+    ]
+    diversification_terms = [
+        r"\bperturb(?:_state|ation)?\b",
+        r"\bdiversif(?:y|ication)?\b",
+        r"\bstagnation\b",
+        r"\bno[_\s-]*improve\b",
+        r"\brestart[_\s-]*after[_\s-]*no[_\s-]*improve\b",
+    ]
+    has_critical = any(re.search(pattern, lowered, re.S) for pattern in critical_terms)
+    has_n8_or_insertion = any(re.search(pattern, lowered, re.S) for pattern in n8_or_insertion_terms)
+    has_memory = any(re.search(pattern, lowered, re.S) for pattern in memory_terms)
+    has_diversification = any(re.search(pattern, lowered, re.S) for pattern in diversification_terms)
+    return (
+        (has_critical and has_n8_or_insertion)
+        or (has_n8_or_insertion and has_memory)
+        or (has_critical and (has_memory or has_diversification))
+        or (has_memory and has_diversification and "decode" in lowered)
+    )
+
+
 def _has_stable_operation_identity(text: str) -> bool:
     lowered = text.lower()
     pair_like = (
         "(job_id, op_id)" in lowered
         or "(job, op)" in lowered
+        or "(j, op)" in lowered
+        or "(j, op_id)" in lowered
+        or "(j, next_op)" in lowered
         or "op_key" in lowered
         or "operation_key" in lowered
     )
@@ -1134,30 +1895,115 @@ def _has_operation_level_ready_list_constructor(text: str) -> bool:
         "ready_operations",
         "ready_candidates",
         "ready_choices",
+        "ready_list",
+        "ready =",
+        "candidates:",
+        "candidates =",
         "next_op_by_job",
+        "job_next_op",
         "next_operation",
         "job_next",
         "remaining_jobs",
     ]
     next_operation_terms = [
         "next_op_by_job[job_id]",
+        "next_op[job_id]",
         "job_next[job_id]",
+        "job_next_op[j]",
+        "job_next_op[job]",
+        "job_next_op.items",
+        "next_op < job_ops",
+        "op = (j, next_op)",
+        "nxt = job_next_op",
         "next_operation[job_id]",
         "op_id = next",
         "op_id == next",
         "op_id > 0",
+        "nxt < job_op_counts",
     ]
     eligible_machine_terms = [
         "for machine_id, duration in eligible.items()",
         "for machine_id, processing_time in eligible.items()",
         "for machine_id, proc_time in eligible.items()",
         "for machine_id in eligible",
+        "for machine in eligible",
+        "for m in eligible",
+        "for m_id in eligible",
         "for machine_id, duration in candidates",
+        "for machine_id, duration in candidates.items()",
         "for machine_id, processing_time in candidates",
+        "for machine_id, processing_time in candidates.items()",
+        "for machine_id, proc in candidates.items()",
+        "for m_id, proc in candidates.items()",
+        "for m_id, duration in candidates.items()",
+        "for mach_id, proc in candidates.items()",
+        "for (m, pt) in cands",
+        "for m, pt in cands",
+        "for m, proc in candidates.items()",
+        "for m, dur in candidates.items()",
+        "for (machine_id, processing_time) in cands",
+        "for mach, dur in op_info[op_key]",
+        "for machine, duration in op_info[op_key]",
+        "for machine, duration in op_info[op].items()",
+        "for m, dur in op_info[key]",
+        "for m, dur in op_info[key][\"eligible\"].items()",
+        "for m, dur in op_info[key]['eligible'].items()",
+        "for machine, duration in op_info[key][\"eligible\"].items()",
+        "for machine, duration in op_info[key]['eligible'].items()",
+        "for machine_id, duration in op_info[key][\"eligible\"].items()",
+        "for machine_id, duration in op_info[key]['eligible'].items()",
+        "for machine_id in op_info[op_key][\"eligible\"]",
+        "for machine_id in op_info[op_key]['eligible']",
+        "for machine_id, duration in op_info[op_key][\"processing_times\"].items()",
+        "for machine_id, duration in op_info[op_key]['processing_times'].items()",
+        "for machine_id, proc in op_info[op_key][\"processing_times\"].items()",
+        "for machine_id, proc in op_info[op_key]['processing_times'].items()",
+        "for machine_id in op_info[op_key][\"candidates\"]",
+        "for machine_id in op_info[op_key]['candidates']",
+        "for machine in op_info[op_key][\"eligible\"]",
+        "for machine in op_info[op_key]['eligible']",
+        "for machine, duration in op_info[op_key][\"processing_times\"].items()",
+        "for machine, duration in op_info[op_key]['processing_times'].items()",
+        "for machine in op_info[op_key][\"candidates\"]",
+        "for machine in op_info[op_key]['candidates']",
+        "for m in op_info[op_key][\"eligible\"]",
+        "for m in op_info[op_key]['eligible']",
+        "for m, dur in op_info[op_key][\"processing_times\"].items()",
+        "for m, dur in op_info[op_key]['processing_times'].items()",
+        "for m in op_info[op_key][\"candidates\"]",
+        "for m in op_info[op_key]['candidates']",
+        "for m_id in op_info[op_key][\"eligible\"]",
+        "for m_id in op_info[op_key]['eligible']",
+        "for m_id in op_info[op_key][\"candidates\"]",
+        "for m_id in op_info[op_key]['candidates']",
+        "for mach_id in op_info[op_key][\"candidates\"]",
+        "for mach_id in op_info[op_key]['candidates']",
+        "for m, d in op_info[op_key]",
+        "for m, dur in op_info[op_key]",
+        "for m, dur in op_info[op]",
+        "for mach, dur in candidates",
+        "for mach, dur in op_info.get",
+        "for m_idx, machine in enumerate(info['machines'])",
+        'for m_idx, machine in enumerate(info["machines"])',
+        "for machine in info['machines']",
+        'for machine in info["machines"]',
+        "for m_id in info['eligible']",
+        'for m_id in info["eligible"]',
+        "for machine_id in info['eligible']",
+        'for machine_id in info["eligible"]',
+        "for machine in info['eligible']",
+        'for machine in info["eligible"]',
+        "for m in info['eligible']",
+        'for m in info["eligible"]',
+        "for m in op_data['eligible']",
+        'for m in op_data["eligible"]',
+        "for machine_id in op_data['eligible']",
+        'for machine_id in op_data["eligible"]',
     ]
     selection_terms = [
         "best_choice",
         "best_candidate",
+        "best_assignment",
         "min(",
         "sort(",
         ".sort(",
@@ -1168,7 +2014,18 @@ def _has_operation_level_ready_list_constructor(text: str) -> bool:
         "multi_start",
         "restarts",
     ]
-    state_terms = ["job_ready", "machine_ready", "assignment", "machine_sequences", "schedule.append"]
+    state_terms = [
+        "job_ready",
+        "job_ready_time",
+        "machine_ready",
+        "machine_ready_time",
+        "assignment",
+        "machine_sequences",
+        "schedule[",
+        "schedule [",
+        "schedule.append",
+        "scheduled.append",
+    ]
     return (
         any(term in lowered for term in ready_terms)
         and any(term in lowered for term in next_operation_terms)
@@ -1176,6 +2033,38 @@ def _has_operation_level_ready_list_constructor(text: str) -> bool:
         and any(term in lowered for term in selection_terms)
         and sum(1 for term in state_terms if term in lowered) >= 3
     )
+
+
+def _detect_random_ready_machine_selection_risks(text: str) -> list[str]:
+    lowered = text.lower()
+    if not any(term in lowered for term in ("ready_ops", "ready =", "job_next_op", "next_op")):
+        return []
+    random_machine_choice = any(
+        re.search(pattern, lowered, re.S)
+        for pattern in [
+            r"\b(?:chosen_machine|machine_id|machine|mid|m)\s*=\s*(?:rng|random)\.choice\(\s*(?:eligible|machines|eligible_machines)\s*\)",
+            r"\b(?:chosen_machine|machine_id|machine|mid|m)\s*=\s*(?:rng|random)\.choice\(\s*list\(\s*(?:cands|candidates|op_info\[[^\]]+\])\.keys\(\)\s*\)\s*\)",
+            r"\b(?:rng|random)\.choice\(\s*(?:eligible|machines|eligible_machines)\s*\)",
+        ]
+    )
+    candidate_scoring = any(
+        re.search(pattern, lowered, re.S)
+        for pattern in [
+            r"\bready_(?:ops|choices|candidates)\.append\(\s*\((?:finish|end|score|cost|start)",
+            r"\bcandidates\.append\(\s*\((?:finish|end|score|cost|start)",
+            r"\bbest_(?:choice|candidate|candidates|finish|score)\b",
+            r"\b(?:min_f|min_finish)\s*=\s*min\(",
+            r"\b(?:finish|end|score|cost)\s*=.+\n.+\bready_(?:ops|choices|candidates)\.append",
+            r"\b(?:finish|end|score|cost)\s*=.+\n.+\bcandidates\.append",
+        ]
+    )
+    if not random_machine_choice or candidate_scoring:
+        return []
+    return [
+        "agent_generated_solver: random_machine_choice_without_ready_machine_evaluation: "
+        "operation-level ready-list construction must score each ready operation on each eligible machine "
+        "before committing one operation; selecting one ready op and then rng.choice(eligible) is not sufficient"
+    ]
 
 
 def _has_operation_coverage_guard(text: str) -> bool:
@@ -1187,14 +2076,87 @@ def _has_operation_coverage_guard(text: str) -> bool:
         "all_ops",
         "required_ops",
         "seen_ops",
+        "scheduled_ops",
         "missing_ops",
+        "covered",
+        "expected =",
+        "seen =",
     ]
-    duplicate_terms = ["duplicate", "seen_ops", "seen.add", "set(schedule", "len(set("]
-    schedule_terms = ["len(schedule)", "len(result)", "len(decoded)", "len(best_schedule)", "len(candidate_schedule)"]
+    duplicate_terms = [
+        "duplicate",
+        "seen_ops",
+        "decoded_ops",
+        "scheduled_ops",
+        "scheduled = set",
+        "scheduled.add",
+        "unscheduled",
+        "seen =",
+        "seen.add",
+        "decoded_ops.add",
+        "scheduled_ops.add",
+        "covered.add",
+        "set(schedule",
+        "len(set(",
+        "scheduled += 1",
+        "len(trial_schedule) == total_ops",
+    ]
+    schedule_terms = [
+        "len(schedule)",
+        "len(scheduled)",
+        "len(result)",
+        "len(decoded)",
+        "len(validated)",
+        "len(best_schedule)",
+        "len(candidate_schedule)",
+        "len(trial_schedule)",
+        "len(scheduled_ops)",
+        "len(decoded_ops)",
+    ]
+    set_equality_guard = any(
+        term in lowered
+        for term in [
+            "set(schedule) != expected_ops",
+            "set(schedule) == expected_ops",
+            "set(schedule.keys()) != expected_ops",
+            "set(schedule.keys()) == expected_ops",
+            "set(schedule) != set(op_info)",
+            "set(schedule) == set(op_info)",
+            "set(schedule.keys()) != set(op_info)",
+            "set(schedule.keys()) == set(op_info)",
+            "seen_ops != expected_ops",
+            "seen_ops == expected_ops",
+            "scheduled != expected",
+            "scheduled == expected",
+            "scheduled != expected_ops",
+            "scheduled == expected_ops",
+            "decoded_ops != all_ops",
+            "decoded_ops == all_ops",
+            "decoded_ops != set(op_info)",
+            "decoded_ops == set(op_info)",
+            "seen != expected",
+            "seen == expected",
+            "len(scheduled_ops) != sum(job_ops.values())",
+            "len(scheduled_ops) == sum(job_ops.values())",
+            "len(schedule) != total_ops",
+            "len(schedule) == total_ops",
+            "len(scheduled) != total_ops",
+            "len(scheduled) == total_ops",
+            "len(scheduled) < total_ops",
+        ]
+    )
+    unscheduled_guard = (
+        "unscheduled" in lowered
+        and ("if unscheduled" in lowered or "while unscheduled" in lowered)
+        and "return none" in lowered
+    )
     return (
         any(term in lowered for term in coverage_terms)
-        and any(term in lowered for term in schedule_terms)
-        and any(term in lowered for term in duplicate_terms)
+        and (any(term in lowered for term in schedule_terms) or set_equality_guard)
+        and (
+            any(term in lowered for term in duplicate_terms)
+            or ("scheduled < total_ops" in lowered and "if not progress" in lowered and "return none" in lowered)
+            or unscheduled_guard
+        )
     )
 
 
@@ -1202,7 +2164,17 @@ def _has_machine_eligibility_guard(text: str) -> bool:
     lowered = text.lower()
     eligibility_terms = ["eligible", "candidates", "machine_options", "options", "candidate_machines"]
     machine_terms = ["machine_id", "machine"]
-    rejection_terms = ["not in", "continue", "return none", "raise valueerror", "infeasible"]
+    rejection_terms = [
+        "not in",
+        "continue",
+        "return none",
+        "raise valueerror",
+        "infeasible",
+        "return any(",
+        "if not check_machine_eligibility",
+        "if not is_machine_eligible",
+        "ineligible machine",
+    ]
     return (
         any(term in lowered for term in eligibility_terms)
         and any(term in lowered for term in machine_terms)
@@ -1212,13 +2184,44 @@ def _has_machine_eligibility_guard(text: str) -> bool:
 
 def _has_processing_duration_guard(text: str) -> bool:
     lowered = text.lower()
-    duration_terms = ["duration", "processing_time", "proc_time", "eligible[machine_id]", "options[machine_id]"]
-    interval_terms = ["end - start", "start + duration", "start + processing", "start + proc"]
-    rejection_terms = ["return none", "raise valueerror", "continue", "assert", "!="]
+    duration_terms = [
+        "duration",
+        "processing_time",
+        "proc_time",
+        "proc",
+        "op_durations",
+        "dur",
+        "pt",
+        "eligible[machine_id]",
+        "options[machine_id]",
+    ]
+    interval_terms = [
+        "end - start",
+        "e - s",
+        "start + duration",
+        "start + processing",
+        "start + proc",
+        "start + pt",
+        "start + dur",
+        "start_time + duration",
+        "start_time + processing",
+        "start_time + proc",
+        "start_time + dur",
+        "end_time - start_time",
+    ]
+    rejection_terms = ["return none", "return false", "raise valueerror", "raise runtimeerror", "continue", "assert", "!="]
+    direct_duration_construction = bool(
+        re.search(
+            r"\b(?:end|end_time)\s*=\s*(?:start|start_time)\s*\+\s*"
+            r"(?:duration|processing_time|proc_time|proc|dur|pt)\b",
+            lowered,
+        )
+        and ("eligible" in lowered or "op_info" in lowered or "processing_time" in lowered)
+    )
     return (
         any(term in lowered for term in duration_terms)
         and any(term in lowered for term in interval_terms)
-        and any(term in lowered for term in rejection_terms)
+        and (direct_duration_construction or any(term in lowered for term in rejection_terms))
     )
 
 
@@ -1232,8 +2235,23 @@ def _has_job_precedence_guard(text: str) -> bool:
 
 def _has_machine_non_overlap_guard(text: str) -> bool:
     lowered = text.lower()
+    machine_clock_guard = (
+        "machine_ready" in lowered
+        or "mach_ready" in lowered
+        or "machine_end" in lowered
+        or "machine_available" in lowered
+        or "prev_end" in lowered
+    )
+    sequence_pair_guard = (
+        ("machine_sequences" in lowered or "machine_seqs" in lowered or "by_machine" in lowered)
+        and ("prev_op" in lowered or "previous_op" in lowered or "cur_op" in lowered or "current_op" in lowered)
+        and ("end_times" in lowered or "end_time" in lowered)
+        and ("start_times" in lowered or "start_time" in lowered)
+        and ("> start" in lowered or "> start_times" in lowered or "overlap" in lowered)
+        and ("return none" in lowered or "return false" in lowered or "raise" in lowered)
+    )
     return (
-        ("machine_ready" in lowered or "machine_end" in lowered or "machine_available" in lowered or "prev_end" in lowered)
+        (machine_clock_guard or sequence_pair_guard)
         and ("start" in lowered and "end" in lowered)
     )
 
@@ -1273,6 +2291,7 @@ def _has_incumbent_preservation_guard(text: str) -> bool:
         "strictly improves",
         "< best_makespan",
         "candidate_makespan <",
+        "raise runtimeerror",
     ]
     return any(term in lowered for term in keep_terms) and any(term in lowered for term in reject_terms)
 
@@ -1422,9 +2441,58 @@ def _protected_fact_keywords(fact: dict[str, Any]) -> list[str]:
 def _proposal_removes_keyword(proposal_text: str, keyword: str) -> bool:
     escaped = re.escape(keyword)
     removal_verbs = r"(remove|removing|removed|delete|deleting|deleted|eliminate|eliminating|disable|disabling|discard|discarding|drop|dropping|strip|stripping|undo|revert)"
+    patterns = (
+        rf"\b{removal_verbs}\b[\s\S]{{0,120}}\b{escaped}\b",
+        rf"\b{escaped}\b[\s\S]{{0,120}}\b{removal_verbs}\b",
+    )
+    for pattern in patterns:
+        for match in re.finditer(pattern, proposal_text):
+            context = proposal_text[max(0, match.start() - 80) : min(len(proposal_text), match.end() + 160)]
+            if _is_operation_reinsertion_context(context):
+                continue
+            if _is_negated_removal_context(context):
+                continue
+            return True
+    return False
+
+
+def _is_operation_reinsertion_context(text: str) -> bool:
+    lowered = text.replace("_", " ").lower()
+    if not re.search(r"\b(remove|removing|removed)\s+(?:an?\s+|the\s+)?operations?\b", lowered):
+        return False
+    move_terms = ("insert", "inserting", "reinsert", "reinserting", "sequence", "neighborhood", "move")
+    if not any(term in lowered for term in move_terms):
+        return False
+    return True
+
+
+def _is_negated_removal_context(text: str) -> bool:
+    lowered = text.replace("_", " ").lower()
+    removal_verbs = (
+        "remove",
+        "removing",
+        "removed",
+        "delete",
+        "deleting",
+        "deleted",
+        "eliminate",
+        "eliminating",
+        "disable",
+        "disabling",
+        "discard",
+        "discarding",
+        "drop",
+        "dropping",
+        "strip",
+        "stripping",
+        "undo",
+        "revert",
+    )
+    verb_pattern = "|".join(re.escape(verb) for verb in removal_verbs)
+    negation_pattern = r"(without|not|no|never)"
     return bool(
-        re.search(rf"\b{removal_verbs}\b[\s\S]{{0,120}}\b{escaped}\b", proposal_text)
-        or re.search(rf"\b{escaped}\b[\s\S]{{0,120}}\b{removal_verbs}\b", proposal_text)
+        re.search(rf"\b{negation_pattern}\b[\s\S]{{0,80}}\b({verb_pattern})\b", lowered)
+        or re.search(rf"\b({verb_pattern})\b[\s\S]{{0,80}}\b{negation_pattern}\b", lowered)
     )
 
 
@@ -1436,12 +2504,23 @@ def _incomplete_solution_risk_reasons(text: str) -> list[str]:
     compact = " ".join(text.split())
     reasons: list[str] = []
     if "_schedule" in text or "schedule" in text or "route" in text or "solution" in text:
-        if " if new_schedule else 0" in compact or " if schedule else 0" in compact:
+        has_completion_guard = _has_explicit_completion_guard(text)
+        if (" if new_schedule else 0" in compact or " if schedule else 0" in compact) and not has_completion_guard:
             reasons.append("empty_schedule_scored_as_zero")
-        if " if best_schedule else 0" in compact or " if candidate_schedule else 0" in compact:
+        if (" if best_schedule else 0" in compact or " if candidate_schedule else 0" in compact) and not has_completion_guard:
             reasons.append("empty_candidate_scored_as_zero")
+        if re.search(
+            r"if\s+best_schedule\s+is\s+none\s*:\s*"
+            r"(?:(?!\n\S).)*?"
+            r"best_schedule\s*=\s*\[\s*\]"
+            r"(?:(?!\n\S).)*?"
+            r"best_makespan\s*=\s*0\b",
+            text,
+            re.I | re.S,
+        ):
+            reasons.append("empty_schedule_fallback_emitted")
         if "if best_machine is None:" in text and "break" in text and "return schedule" in text:
-            if not _has_explicit_completion_guard(text):
+            if not has_completion_guard:
                 reasons.append("decoder_can_return_partial_schedule")
     return reasons
 
@@ -1452,6 +2531,8 @@ def _has_explicit_completion_guard(text: str) -> bool:
         "len(schedule) != total_ops",
         "len(new_schedule) == total_ops",
         "len(new_schedule) != total_ops",
+        "len(scheduled_ops) == sum(job_ops.values())",
+        "len(scheduled_ops) != sum(job_ops.values())",
         "expected_ops",
         "operation_count",
     ]

@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from ..context_loader import load_context_dict
 from ..deepseek_client import DeepSeekClient, is_deepseek_configured
 from ..edit_strategy_assets import load_edit_strategy_json_asset
 from ..slot_contract import replace_marked_block, validate_slot_manifest_gate
@@ -89,7 +90,7 @@ class DeepSeekSlotWorker(CodingWorker):
                 artifacts={"output_dir": str(output_dir)},
             )
 
-        context = json.loads(Path(spec.context_packet_path).read_text(encoding="utf-8-sig"))
+        context = load_context_dict(Path(spec.context_packet_path))
         selected_slot, slot_error = selected_confirmed_slot(context)
         if selected_slot is None:
             gate_errors = [slot_error]
@@ -605,8 +606,8 @@ Original instructions:
 
 def compact_context(context: dict[str, Any]) -> dict[str, Any]:
     task = context.get("task", {})
-    contract = context.get("contract", {})
-    docs = context.get("docs", [])
+    documents = context.get("documents", [])
+    evaluator_protocol = context.get("evaluator_protocol") or {}
     slot_manifest = context.get("slot_manifest") or {}
     slots = slot_manifest.get("slots") if isinstance(slot_manifest, dict) else []
     if not isinstance(slots, list):
@@ -615,17 +616,21 @@ def compact_context(context: dict[str, Any]) -> dict[str, Any]:
     return {
         "task": task,
         "problem_family_capability": context.get("problem_family_capability") or {},
-        "objectives": contract.get("objectives", []),
-        "instances": contract.get("instances", [])[:3],
-        "commands": contract.get("commands", {}),
-        "evaluator_protocol": context.get("evaluator_protocol") or {},
+        "objectives": task.get("objectives", []) if isinstance(task, dict) else [],
+        "instances": task.get("instances", [])[:3] if isinstance(task, dict) else [],
+        "commands": {
+            "solver": evaluator_protocol.get("solver_command_template"),
+            "evaluator": evaluator_protocol.get("evaluator_command_template"),
+            "quick_test": evaluator_protocol.get("quick_test_command"),
+        },
+        "evaluator_protocol": evaluator_protocol,
         "instance_diagnostics": compact_instance_diagnostics(context.get("instance_diagnostics") or {}),
         "slot_manifest": {
             "status": slot_manifest.get("status") if isinstance(slot_manifest, dict) else None,
             "confirmation_required": slot_manifest.get("confirmation_required") if isinstance(slot_manifest, dict) else None,
             "selected_slot": selected_slot,
         },
-        "docs": docs[:2],
+        "documents": documents[:2] if isinstance(documents, list) else [],
         "knowledge_cards": prioritize_knowledge_cards_for_slot(context, selected_slot, limit=6),
         "selected_slot_failure_memory": selected_slot_failure_memory(context, selected_slot, max_items=8)
         if selected_slot

@@ -18,6 +18,8 @@ from .awls_benchmark import AwlsBenchmarkRequest, effective_time_limit_sec, file
 from .awls_zi_evolution import AwlsZiEvolutionRequest, run_awls_zi_evolution
 from .deepseek_client import is_deepseek_configured, load_local_env, local_env_candidates, normalize_deepseek_model
 from .demo import StandardDemoRequest, run_standard_demo
+from .loop_runner import DEFAULT_IN_ROUND_REPAIR_ATTEMPTS
+from .main_agent import DeepSeekMainAgent, EvidenceDrivenMainAgent
 from .slot_contract import ResolvedCodeSlot
 from .slot_manifest import default_standard_fjsp_slot_manifest, write_selected_slot_manifest
 from .standard_fjsp import parse_standard_fjsp
@@ -25,6 +27,7 @@ from .standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker
 from .standard_worker_loop import SDST_ZI_FEATURES_CONSUMER_FORMULA
 from .workers.deepseek_slot_worker import DeepSeekSlotWorker
 from .workers.deepseek_worker import DeepSeekWorker
+from .workers.opencode_worker import OpenCodeWorker
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -277,7 +280,7 @@ def make_demo_examples() -> dict[str, Any]:
             "strategy_candidates": 2,
             "portfolio_size": 8,
             "timeout_seconds": 60,
-            "max_workers": 1,
+            "max_workers": 2,
             "awls_time_limit_sec": 30,
             "awls_time_policy": "fixed",
             "awls_restarts": 1,
@@ -660,6 +663,9 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         raise ValueError("agent-generated baseline currently requires free code layer; slot mode uses current_project incumbent markers")
     if evolution_mode == "slot":
         solver = "awls"
+    coding_backend = str(payload.get("coding_backend") or "deepseek").strip().lower()
+    if coding_backend not in {"deepseek", "opencode"}:
+        coding_backend = "deepseek"
     selected_slot_id, slot_selection = resolve_agent_selected_slot(
         requested_slot_id=str(payload.get("selected_slot_id") or "agent_auto"),
         requirement_text=str(requirement.get("text") or ""),
@@ -735,6 +741,9 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         "awls_same_machine_eval": awls_same_machine_eval,
         "awls_time_policy": awls_time_policy,
         "deepseek_model": str(payload.get("deepseek_model") or "deepseek-v4-pro"),
+        "coding_backend": coding_backend,
+        "opencode_executable": str(payload.get("opencode_executable") or os.environ.get("OPENCODE_EXECUTABLE") or "opencode"),
+        "opencode_model": str(payload.get("opencode_model") or os.environ.get("OPENCODE_MODEL") or ""),
         "apply_worker_changes": bool(payload.get("apply_worker_changes", True)),
         "worker_max_steps": coerce_int(payload.get("worker_max_steps"), 4, minimum=1, maximum=20),
         "worker_max_runtime_seconds": coerce_int(
@@ -742,6 +751,12 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
             120,
             minimum=10,
             maximum=1800,
+        ),
+        "in_round_repair_attempts": coerce_int(
+            payload.get("in_round_repair_attempts"),
+            DEFAULT_IN_ROUND_REPAIR_ATTEMPTS,
+            minimum=0,
+            maximum=8,
         ),
     }
     config["promotion_repeats"] = coerce_int(
@@ -798,6 +813,18 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         append_event(
             job,
             "基线来源：current_project。平台会用当前仓库已有 solver 作为 incumbent；这不是纯 agent 自写 baseline。",
+        )
+    if config["evolution_mode"] == "code":
+        append_event(
+            job,
+            (
+                f"Coding Agent 运行时：{config['coding_backend']}。"
+                + (
+                    "OpenCode 负责读取和修改工作区，模型由 OpenCode provider 配置。"
+                    if config["coding_backend"] == "opencode"
+                    else "兼容模式下由 DeepSeek API 返回结构化代码补丁。"
+                )
+            ),
         )
     if config["evolution_mode"] == "slot":
         selection = config.get("slot_selection") or {}
@@ -1000,13 +1027,31 @@ def run_job(job_id: str) -> None:
             }
             artifacts = {key: value for key, value in artifacts.items() if value}
         elif config["evolution_mode"] in {"code", "slot"}:
-            if not is_deepseek_configured():
+            is_slot_mode = config["evolution_mode"] == "slot"
+            if (is_slot_mode or config["coding_backend"] == "deepseek") and not is_deepseek_configured():
                 raise RuntimeError(
                     "DeepSeek API is not configured. Set DEEPSEEK_API_KEY or DEEPSEEK_API_KEY_FILE before code evolution."
                 )
-            is_slot_mode = config["evolution_mode"] == "slot"
             is_zi_slot_mode = is_slot_mode and str(config["selected_slot_id"]) == "awls_zi_policy"
             is_zi_features_slot_mode = is_slot_mode and str(config["selected_slot_id"]) == "awls_sdst_zi_features"
+            if is_slot_mode:
+                coding_worker = DeepSeekSlotWorker(model=config["deepseek_model"])
+            elif config["coding_backend"] == "opencode":
+                coding_worker = OpenCodeWorker(
+                    executable=config["opencode_executable"],
+                    model=config["opencode_model"] or None,
+                )
+                if not coding_worker.capabilities().supports_code_generation:
+                    raise RuntimeError(
+                        "OpenCode executable is unavailable. Build/install OpenCode or select the deepseek compatibility backend."
+                    )
+            else:
+                coding_worker = DeepSeekWorker(model=config["deepseek_model"])
+            direction_planner = (
+                DeepSeekMainAgent(model=config["deepseek_model"])
+                if is_deepseek_configured()
+                else EvidenceDrivenMainAgent()
+            )
             worker_loop_root = output_dir / "standard_worker_loop" / "worker_loop"
             progress_stop = threading.Event()
             progress_thread = threading.Thread(
@@ -1037,11 +1082,8 @@ def run_job(job_id: str) -> None:
                         best_known_csv=Path(input_paths["best_known_csv"]) if input_paths.get("best_known_csv") else None,
                         output_dir=output_dir / "standard_worker_loop",
                         project_root=PROJECT_ROOT,
-                        worker=(
-                            DeepSeekSlotWorker(model=config["deepseek_model"])
-                            if is_slot_mode
-                            else DeepSeekWorker(model=config["deepseek_model"])
-                        ),
+                        worker=coding_worker,
+                        main_agent=direction_planner,
                         slot_manifest=slot_manifest_path,
                         max_instances=1,
                         iterations=config["max_rounds"],
@@ -1070,6 +1112,7 @@ def run_job(job_id: str) -> None:
                         awls_portfolio_lanes=config["awls_portfolio_lanes"],
                         max_steps=config["worker_max_steps"],
                         max_runtime_seconds=config["worker_max_runtime_seconds"],
+                        in_round_repair_attempts=config["in_round_repair_attempts"],
                         apply_worker_changes=config["apply_worker_changes"],
                         promotion_repeats=config["promotion_repeats"],
                         baseline_source=config["baseline_source"],
@@ -1170,13 +1213,9 @@ def run_job(job_id: str) -> None:
 
 
 def read_artifact(job: dict[str, Any], name: str) -> dict[str, Any]:
-    allowed: dict[str, str] = {
-        "status": str((Path(job["job_dir"]) / "web_job_status.json").resolve()),
-        **{key: str(value) for key, value in (job.get("artifacts") or {}).items() if value},
-    }
-    if name not in allowed:
+    path = job_artifact_path(job, name)
+    if path is None:
         raise KeyError(f"unknown artifact: {name}")
-    path = Path(allowed[name])
     text = path.read_text(encoding="utf-8", errors="replace")
     truncated = len(text) > MAX_ARTIFACT_CHARS
     return {
@@ -1184,6 +1223,316 @@ def read_artifact(job: dict[str, Any], name: str) -> dict[str, Any]:
         "path": str(path.resolve()),
         "text": text[:MAX_ARTIFACT_CHARS],
         "truncated": truncated,
+    }
+
+
+def job_artifact_path(job: dict[str, Any], name: str) -> Path | None:
+    allowed: dict[str, str] = {
+        "status": str((Path(job["job_dir"]) / "web_job_status.json").resolve()),
+        **{key: str(value) for key, value in (job.get("artifacts") or {}).items() if value},
+    }
+    if name not in allowed:
+        return None
+    return Path(allowed[name])
+
+
+def read_json_artifact(job: dict[str, Any], name: str) -> Any:
+    path = job_artifact_path(job, name)
+    if path is None or not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig", errors="replace"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def job_insights(job: dict[str, Any]) -> dict[str, Any]:
+    context_packet = read_json_artifact(job, "context_packet")
+    if not isinstance(context_packet, dict):
+        context_packet = {}
+    loop_result = read_json_artifact(job, "loop_result")
+    if not isinstance(loop_result, dict):
+        loop_result = {}
+    hypothesis_graph = read_json_artifact(job, "hypothesis_graph")
+    if not isinstance(hypothesis_graph, dict):
+        hypothesis_graph = loop_result.get("hypothesis_graph") if isinstance(loop_result.get("hypothesis_graph"), dict) else {}
+    experience_memory = read_json_artifact(job, "experience_memory")
+    if not isinstance(experience_memory, dict):
+        experience_memory = loop_result.get("experience_memory") if isinstance(loop_result.get("experience_memory"), dict) else {}
+    skill_usage_records = read_json_artifact(job, "skill_usage_records")
+    if not isinstance(skill_usage_records, list):
+        skill_usage_records = loop_result.get("skill_usage_records") if isinstance(loop_result.get("skill_usage_records"), list) else []
+    return {
+        "job_id": job.get("id"),
+        "context": summarize_context_insight(context_packet),
+        "worker": summarize_worker_insight(job, loop_result, hypothesis_graph),
+        "experiments": summarize_experiment_insight(job, loop_result),
+        "knowledge": summarize_knowledge_insight(experience_memory, skill_usage_records),
+    }
+
+
+def summarize_context_insight(packet: dict[str, Any]) -> dict[str, Any]:
+    documents = packet.get("documents") if isinstance(packet.get("documents"), list) else []
+    knowledge_cards = packet.get("knowledge_cards") if isinstance(packet.get("knowledge_cards"), list) else []
+    auto_cards = packet.get("auto_knowledge_cards") if isinstance(packet.get("auto_knowledge_cards"), list) else []
+    diagnostics = packet.get("instance_diagnostics") if isinstance(packet.get("instance_diagnostics"), dict) else {}
+    summary = diagnostics.get("summary") if isinstance(diagnostics.get("summary"), dict) else {}
+    hints = diagnostics.get("direction_hints") if isinstance(diagnostics.get("direction_hints"), list) else []
+    worker_instruction = packet.get("worker_instruction")
+    instruction_order = []
+    if isinstance(worker_instruction, dict):
+        instruction_order = worker_instruction.get("required_order") if isinstance(worker_instruction.get("required_order"), list) else []
+    task = packet.get("task") if isinstance(packet.get("task"), dict) else {}
+    document_chars = sum(json_int(item.get("chars"), 0) for item in documents if isinstance(item, dict))
+    sources = [
+        {
+            "state": "selected",
+            "title": "Task Contract",
+            "detail": f"{task.get('problem_family', 'FJSP')} · {task.get('review_status', 'unknown')}",
+        },
+        {
+            "state": "selected",
+            "title": "Requirement / IO Docs",
+            "detail": f"{len(documents)} 个文档，{document_chars} chars",
+        },
+        {
+            "state": "selected",
+            "title": "Instance Diagnostics",
+            "detail": context_instance_detail(summary),
+        },
+        {
+            "state": "selected",
+            "title": "Knowledge / Skills",
+            "detail": f"{len(knowledge_cards)} 张固定知识卡，{len(auto_cards)} 个自动检索候选",
+        },
+    ]
+    if instruction_order:
+        sources.append(
+            {
+                "state": "selected",
+                "title": "Worker Instruction",
+                "detail": summarize_list(instruction_order, limit=2),
+            }
+        )
+    return {
+        "packet_hash": str(packet.get("packet_hash") or "-"),
+        "contract_hash": str(packet.get("contract_hash") or "-"),
+        "document_count": len(documents),
+        "knowledge_card_count": len(knowledge_cards),
+        "auto_knowledge_card_count": len(auto_cards),
+        "selected_source_count": len(sources),
+        "excluded_source_count": 0,
+        "sources": sources,
+        "documents": [compact_document(item) for item in documents if isinstance(item, dict)],
+        "diagnostics": {
+            "status": diagnostics.get("status"),
+            "summary": summary,
+            "direction_hints": [str(item) for item in hints[:5]],
+        },
+    }
+
+
+def context_instance_detail(summary: dict[str, Any]) -> str:
+    parts = [
+        f"{summary.get('profiled_count', summary.get('instance_count', '-'))} 个算例",
+        f"SDST {summary.get('sdst_instance_count', '-')}",
+        f"最大工序 {summary.get('max_operation_count', '-')}",
+    ]
+    setup_kinds = summary.get("setup_time_kinds")
+    if isinstance(setup_kinds, list) and setup_kinds:
+        parts.append(f"setup={','.join(str(item) for item in setup_kinds[:3])}")
+    return " · ".join(parts)
+
+
+def compact_document(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "name": Path(str(item.get("path") or "")).name or "document",
+        "path": str(item.get("path") or ""),
+        "exists": bool(item.get("exists")),
+        "chars": int(item.get("chars", 0) or 0),
+        "sha256": str(item.get("sha256") or "")[:12],
+    }
+
+
+def json_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def summarize_worker_insight(
+    job: dict[str, Any],
+    loop_result: dict[str, Any],
+    hypothesis_graph: dict[str, Any],
+) -> dict[str, Any]:
+    directions = hypothesis_graph.get("directions") if isinstance(hypothesis_graph.get("directions"), list) else []
+    rounds = loop_result.get("rounds") if isinstance(loop_result.get("rounds"), list) else []
+    if directions:
+        compact_rounds = [compact_direction(item, rounds) for item in directions if isinstance(item, dict)]
+    else:
+        compact_rounds = [compact_loop_round(item) for item in rounds if isinstance(item, dict)]
+    summary = (job.get("summary") or {}).get("worker_summary")
+    if not isinstance(summary, dict):
+        summary = {}
+    return {
+        "rounds": compact_rounds,
+        "direction_count": int(hypothesis_graph.get("direction_count", summary.get("direction_count", len(compact_rounds))) or 0),
+        "attempt_count": int(hypothesis_graph.get("attempt_count", summary.get("attempt_count", len(compact_rounds))) or 0),
+        "status_counts": hypothesis_graph.get("status_counts") or summary.get("direction_status_counts") or {},
+        "decision_counts": hypothesis_graph.get("decision_counts") or summary.get("decision_counts") or {},
+        "active_parent_id": hypothesis_graph.get("active_parent_id"),
+    }
+
+
+def compact_direction(item: dict[str, Any], rounds: list[Any]) -> dict[str, Any]:
+    round_index = json_int(item.get("round_index"), 0)
+    matching_round = next(
+        (
+            round_item
+            for round_item in rounds
+            if isinstance(round_item, dict) and json_int(round_item.get("round_index"), -1) == round_index
+        ),
+        {},
+    )
+    candidate_summary = matching_round.get("candidate_summary") if isinstance(matching_round, dict) else {}
+    if not isinstance(candidate_summary, dict):
+        candidate_summary = {}
+    metrics = summary_metrics(candidate_summary)
+    attempts = item.get("attempts") if isinstance(item.get("attempts"), list) else []
+    failures: list[str] = []
+    for attempt in attempts:
+        if not isinstance(attempt, dict):
+            continue
+        for signature in attempt.get("failure_signatures") or []:
+            text = str(signature)
+            if text and text not in failures:
+                failures.append(text)
+    hypotheses = item.get("hypotheses") if isinstance(item.get("hypotheses"), list) else []
+    evidence: list[str] = []
+    if hypotheses and isinstance(hypotheses[0], dict):
+        evidence = [str(value) for value in (hypotheses[0].get("evidence_used") or [])[:4]]
+    return {
+        "round_index": round_index,
+        "title": str(item.get("title") or f"round_{round_index:03d}"),
+        "status": str(item.get("status") or "unknown"),
+        "decision": str(item.get("decision") or "unknown"),
+        "strategy_type": str(item.get("strategy_type") or "-"),
+        "strategy_intent": str(item.get("strategy_intent") or ""),
+        "attempt_count": int(item.get("attempt_count", len(attempts)) or 0),
+        "score_relation": str(item.get("score_relation") or ""),
+        "makespan": metrics.get("makespan"),
+        "gap_pct": metrics.get("gap_pct"),
+        "valid": int(candidate_summary.get("valid", 0) or 0),
+        "total": int(candidate_summary.get("total", 0) or 0),
+        "failure_signatures": failures[:4],
+        "evidence_used": evidence,
+    }
+
+
+def compact_loop_round(item: dict[str, Any]) -> dict[str, Any]:
+    candidate_summary = item.get("candidate_summary") if isinstance(item.get("candidate_summary"), dict) else {}
+    metrics = summary_metrics(candidate_summary)
+    diagnostics = item.get("proposal_diagnostics") if isinstance(item.get("proposal_diagnostics"), dict) else {}
+    summary = str(diagnostics.get("summary") or "")
+    round_index = json_int(item.get("round_index"), 0)
+    return {
+        "round_index": round_index,
+        "title": summary[:80] or f"round_{round_index:03d}",
+        "status": "validated_success" if item.get("decision") == "promoted" else "rolled_back",
+        "decision": str(item.get("decision") or "unknown"),
+        "strategy_type": "-",
+        "strategy_intent": str(diagnostics.get("strategy_intent") or summary),
+        "attempt_count": 1,
+        "score_relation": "",
+        "makespan": metrics.get("makespan"),
+        "gap_pct": metrics.get("gap_pct"),
+        "valid": int(candidate_summary.get("valid", 0) or 0),
+        "total": int(candidate_summary.get("total", 0) or 0),
+        "failure_signatures": [],
+        "evidence_used": [],
+    }
+
+
+def summarize_experiment_insight(job: dict[str, Any], loop_result: dict[str, Any]) -> dict[str, Any]:
+    summary = (job.get("summary") or {}).get("worker_summary")
+    if not isinstance(summary, dict):
+        summary = {}
+    rounds = loop_result.get("rounds") if isinstance(loop_result.get("rounds"), list) else []
+    trend = []
+    baseline_makespan = first_number(summary.get("baseline_makespan"))
+    if baseline_makespan is not None:
+        trend.append(
+            {
+                "label": "baseline",
+                "makespan": baseline_makespan,
+                "decision": "baseline",
+                "valid": summary.get("baseline_valid"),
+                "total": summary.get("baseline_total"),
+                "gap_pct": None,
+            }
+        )
+    for item in rounds:
+        if not isinstance(item, dict):
+            continue
+        candidate_summary = item.get("candidate_summary") if isinstance(item.get("candidate_summary"), dict) else {}
+        metrics = summary_metrics(candidate_summary)
+        trend.append(
+            {
+                "label": f"R{int(item.get('round_index', 0) or 0) + 1}",
+                "makespan": metrics.get("makespan"),
+                "decision": item.get("decision"),
+                "valid": candidate_summary.get("valid"),
+                "total": candidate_summary.get("total"),
+                "gap_pct": metrics.get("gap_pct"),
+            }
+        )
+    return {
+        "baseline_makespan": baseline_makespan,
+        "final_makespan": first_number(summary.get("final_makespan")),
+        "best_makespan": first_number(summary.get("best_makespan_so_far"), summary.get("final_makespan")),
+        "final_gap_pct": first_number(summary.get("final_gap_pct"), summary.get("best_gap_pct_so_far")),
+        "promoted_rounds": int(summary.get("promoted_rounds", 0) or 0),
+        "round_count": int(summary.get("round_count", len(rounds)) or 0),
+        "final_valid": int(summary.get("final_valid", 0) or 0),
+        "final_total": int(summary.get("final_total", 0) or 0),
+        "trend": trend,
+    }
+
+
+def summarize_knowledge_insight(experience_memory: dict[str, Any], skill_usage_records: list[Any]) -> dict[str, Any]:
+    tiers = experience_memory.get("memory_tiers") if isinstance(experience_memory.get("memory_tiers"), dict) else {}
+    candidate_lessons = tiers.get("candidate_lessons") if isinstance(tiers.get("candidate_lessons"), list) else []
+    validated_lessons = tiers.get("validated_lessons") if isinstance(tiers.get("validated_lessons"), list) else []
+    skill_summary = experience_memory.get("skill_usage_summary") if isinstance(experience_memory.get("skill_usage_summary"), dict) else {}
+    return {
+        "purpose": experience_memory.get("purpose") or "运行后按层沉淀经验",
+        "lesson_count": len(candidate_lessons),
+        "validated_lesson_count": len(validated_lessons),
+        "skill_usage_record_count": len(skill_usage_records),
+        "skill_usage_summary": skill_summary,
+        "lessons": [compact_lesson(item) for item in candidate_lessons[:8] if isinstance(item, dict)],
+        "skill_usage_records": [compact_usage_record(item) for item in skill_usage_records[:12] if isinstance(item, dict)],
+    }
+
+
+def compact_lesson(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "lesson_type": str(item.get("lesson_type") or "-"),
+        "strategy": str(item.get("strategy") or "-"),
+        "outcome": str(item.get("outcome") or "-"),
+        "confidence": str(item.get("confidence") or "-"),
+        "recommended_skill_update": str(item.get("recommended_skill_update") or ""),
+    }
+
+
+def compact_usage_record(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "round_index": item.get("round_index"),
+        "source": str(item.get("source") or "-"),
+        "source_kind": str(item.get("source_kind") or "-"),
+        "effect": str(item.get("effect") or "-"),
+        "decision": str(item.get("decision") or "-"),
     }
 
 
@@ -1404,6 +1753,21 @@ def scan_code_attempt_progress(job: dict[str, Any], seen: set[str], attempt_dir:
         raw_response = attempt_dir / "worker" / "deepseek_code_edit_raw.json"
         if raw_response.exists():
             record_progress_event(job, seen, f"{label}:raw", f"{label} DeepSeek 已返回原始代码修改响应。")
+        usage_path = attempt_dir / "worker" / "deepseek_usage.json"
+        if usage_path.exists():
+            usage_payload = read_json_file(usage_path)
+            usage = usage_payload.get("usage") if isinstance(usage_payload.get("usage"), dict) else {}
+            cache_ratio = usage_payload.get("cache_hit_ratio")
+            cache_text = "-" if cache_ratio is None else f"{float(cache_ratio) * 100:.1f}%"
+            record_progress_event(
+                job,
+                seen,
+                f"{label}:usage",
+                (
+                    f"{label} 模型用量：prompt={usage.get('prompt_tokens', '-')}，"
+                    f"completion={usage.get('completion_tokens', '-')}，缓存命中={cache_text}。"
+                ),
+            )
         proposal = attempt_dir / "worker" / "proposal.md"
         if proposal.exists():
             record_progress_event(job, seen, f"{label}:proposal", f"{label} 已生成结构化代码修改 proposal。")
@@ -1780,6 +2144,9 @@ class AlgoForgeWebHandler(BaseHTTPRequestHandler):
                     return
                 if len(parts) == 3:
                     self._json(200, public_job(job))
+                    return
+                if len(parts) == 4 and parts[3] == "insights":
+                    self._json(200, job_insights(job))
                     return
                 if len(parts) == 4 and parts[3] == "artifact":
                     name = parse_qs(parsed.query).get("name", ["demo_report"])[0]

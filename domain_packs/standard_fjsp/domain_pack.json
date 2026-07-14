@@ -3,8 +3,7 @@
   "family_id": "standard_fjsp",
   "aliases": [
     "FJSP",
-    "fjsp",
-    "fjsp_sdst"
+    "fjsp"
   ],
   "capability": {
     "display_name": "Standard Flexible Job-Shop Scheduling",
@@ -13,8 +12,7 @@
       "standard_fjsp",
       "fjsp_with_best_known_gap",
       "fjsp_dispatch_rule_baseline",
-      "fjsp_awls_local_search",
-      "fjsp_sdst"
+      "fjsp_awls_local_search"
     ],
     "canonical_objectives": [
       {
@@ -38,14 +36,12 @@
     "io_contract_notes": [
       "Instances use the common text format: job_count machine_count max_candidate_count followed by jobs.",
       "Solutions must use standard_fjsp_schedule_v1 JSON with one record per operation.",
-      "Evaluator owns all legality checks: precedence, machine eligibility, duration, and machine overlap.",
-      "FJSP-SDST instances require the dedicated setup-matrix IO contract; setup time is evaluated between consecutive operations on the same machine."
+      "Evaluator owns all legality checks: precedence, machine eligibility, duration, and machine overlap."
     ],
     "evaluator_invariants": [
       "Do not modify examples/standard_fjsp_evaluator.py when evolving solver code.",
       "Do not modify harness_agent/standard_fjsp.py parser or validator without a new user-confirmed IO contract.",
-      "Candidate solvers may self-check, but promotion depends only on Core evaluator output.",
-      "Do not use the AWLS standard-FJSP backend for FJSP-SDST unless setup-aware decoding and neighborhood evaluation are selected."
+      "Candidate solvers may self-check, but promotion depends only on Core evaluator output."
     ],
     "solver_entrypoints": [
       "examples/standard_fjsp_portfolio_solver.py",
@@ -57,9 +53,7 @@
       "slot_manifest_guided_edits",
       "awls_zi_formula_or_slot",
       "neighborhood_operator_slots",
-      "best_known_gap_feedback",
-      "setup_aware_dispatch_or_insertion",
-      "sdst_io_contract"
+      "best_known_gap_feedback"
     ],
     "knowledge_tags": [
       "fjsp",
@@ -68,9 +62,7 @@
       "critical_block_neighborhood",
       "machine_reassignment",
       "tabu_search",
-      "awls",
-      "sdst",
-      "sequence_dependent_setup"
+      "awls"
     ]
   },
   "knowledge": {
@@ -80,8 +72,7 @@
       "knowledge/benchmarks/fjsp_benchmark_scope.md",
       "knowledge/papers/fjsp_agent_current_capability_20260704.md",
       "knowledge/principles/harness_agent_design.md",
-      "knowledge/principles/fjsp_variant_domain_pack_rag.md",
-      "knowledge/papers/fjsp_scene_survey_2025_10_17.md"
+      "knowledge/principles/fjsp_variant_domain_pack_rag.md"
     ],
     "tagged_cards": {
       "adaptive_weight": [
@@ -90,6 +81,9 @@
         "knowledge/papers/awls_sdst_weight_update_notes.md"
       ],
       "awls": [
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_reference_skeleton.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_neighborhood_templates.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_awls_hgtsa_execution_skeleton.md",
         "knowledge/papers/fjsp_agent_current_capability_20260704.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
         "knowledge/imported_huawei_fjsp_knowledge/lessons/profile_driven_local_search_20260615.md"
@@ -104,15 +98,19 @@
         "knowledge/papers/awls_sdst_neighborhood_selection_notes.md"
       ],
       "change_machine": [
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_awls_hgtsa_execution_skeleton.md",
         "knowledge/papers/awls_sdst_move_evaluation_notes.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/operation_machine_reassignment.md"
       ],
       "critical_block": [
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_neighborhood_templates.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/critical_path_machine_block_neighborhood.md",
         "knowledge/papers/awls_sdst_literature_direction_notes.md",
         "knowledge/papers/awls_sdst_neighborhood_selection_notes.md"
       ],
       "critical_path": [
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_neighborhood_templates.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_awls_hgtsa_execution_skeleton.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/critical_path_machine_block_neighborhood.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/xiejin_hgtsa_n8_k_insertion_tabu_spec.md"
       ],
@@ -125,11 +123,14 @@
         "knowledge/papers/fjsp_scene_survey_2025_10_17.md"
       ],
       "machine_reassignment": [
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_reference_skeleton.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_awls_hgtsa_execution_skeleton.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/operation_machine_reassignment.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/hgtsa_fjsp_n8_k_insertion_blueprint.md",
         "knowledge/papers/awls_sdst_literature_direction_notes.md"
       ],
       "move_scoring": [
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_awls_hgtsa_execution_skeleton.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/xiejin_hgtsa_n8_k_insertion_tabu_spec.md",
         "knowledge/papers/awls_sdst_move_evaluation_notes.md",
         "knowledge/papers/awls_sdst_move_selection_notes.md"
@@ -145,6 +146,8 @@
         "knowledge/papers/awls_sdst_same_machine_notes.md"
       ],
       "neighborhood": [
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_neighborhood_templates.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_awls_hgtsa_execution_skeleton.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/hgtsa_fjsp_n8_k_insertion_blueprint.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/xiejin_hgtsa_n8_k_insertion_tabu_spec.md",
         "knowledge/papers/awls_sdst_literature_direction_notes.md"
@@ -181,10 +184,13 @@
       ],
       "agent_generated_solver": [
         "knowledge/principles/agent_generated_variant_quality_contracts.md",
-        "knowledge/papers/awls_sdst_agent_generated_transfer_notes.md",
         ".codex/skills/fjsp-agent-generated-solver/references/solver_contract.md",
-        ".codex/skills/fjsp-agent-generated-solver/references/decoder_neighborhood.md",
-        "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md"
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_reference_skeleton.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_neighborhood_templates.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_awls_hgtsa_execution_skeleton.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/critical_path_machine_block_neighborhood.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/operation_machine_reassignment.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/hgtsa_fjsp_n8_k_insertion_blueprint.md"
       ],
       "agent_generated_transfer": [
         "knowledge/papers/awls_sdst_agent_generated_transfer_notes.md"
@@ -211,6 +217,8 @@
         "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md"
       ],
       "tabu_search": [
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_neighborhood_templates.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_awls_hgtsa_execution_skeleton.md",
         "knowledge/papers/awls_sdst_search_transition_notes.md",
         "knowledge/papers/awls_sdst_tabu_memory_notes.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md"
