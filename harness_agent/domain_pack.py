@@ -71,6 +71,7 @@ class DomainPack:
     base_cards: list[Path] = field(default_factory=list)
     tagged_cards: dict[str, list[Path]] = field(default_factory=dict)
     edit_strategies: list[DomainEditStrategy] = field(default_factory=list)
+    semantic_review_cards: list[Path] = field(default_factory=list)
     agent_generated_baseline_preserve_paths: list[str] = field(default_factory=list)
     agent_generated_baseline_hidden_paths: list[str] = field(default_factory=list)
     source_path: Path | None = None
@@ -93,6 +94,7 @@ def load_domain_pack(path: Path, *, project_root: Path = PROJECT_ROOT) -> Domain
     aliases = [str(alias) for alias in payload.get("aliases") or [] if str(alias).strip()]
     capability_payload = payload.get("capability") or {}
     knowledge = payload.get("knowledge") or {}
+    semantic_review = payload.get("semantic_review") or {}
     agent_generated_baseline = payload.get("agent_generated_baseline") or {}
     tagged_cards_payload = knowledge.get("tagged_cards") or {}
 
@@ -130,6 +132,11 @@ def load_domain_pack(path: Path, *, project_root: Path = PROJECT_ROOT) -> Domain
             _load_edit_strategy(value, project_root=project_root)
             for value in payload.get("edit_strategies") or []
             if _loadable_edit_strategy(value)
+        ],
+        semantic_review_cards=[
+            _resolve_pack_path(value, project_root=project_root)
+            for value in semantic_review.get("cards") or []
+            if str(value).strip()
         ],
         agent_generated_baseline_preserve_paths=[
             str(value).replace("\\", "/")

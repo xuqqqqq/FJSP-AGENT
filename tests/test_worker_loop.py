@@ -17,10 +17,14 @@ from harness_agent.loop_runner import (
     worker_proposal_diagnostics,
 )
 from harness_agent.models import TaskContract
-from harness_agent.standard_worker_loop import worker_loop_agent_quality_summary
+from harness_agent.standard_worker_loop import (
+    worker_loop_agent_quality_summary,
+    worker_loop_semantic_review_summary,
+)
 from harness_agent.worker import NullWorker, WorkerCapabilities, WorkerResult
 from harness_agent.agentic_review import AgenticJudgment
 from harness_agent.runner import RunSummary
+from harness_agent.semantic_review import AlgorithmSemanticReviewResult
 from harness_agent.worker_cycle import (
     render_worktree_patch,
     run_worker_cycle,
@@ -618,6 +622,116 @@ class PromotingProposalWorker:
             changed_files=["examples/dummy_solver.py"],
             summary="Improved dummy solver and emitted proposal diagnostics.",
             artifacts={"proposal": str(proposal_path)},
+        )
+
+
+class SemanticRepairWorker:
+    """Improve a legal candidate, then repair one semantic finding in the same direction."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.saw_semantic_repair = False
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="semantic-repair",
+            supports_code_generation=True,
+            supports_repair=True,
+            supports_structured_output=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001 - follows the worker protocol surface.
+        self.calls += 1
+        context = json.loads(Path(spec.context_packet_path).read_text(encoding="utf-8"))
+        repair = (context.get("loop_feedback") or {}).get("current_round_repair") or {}
+        semantic_target = (repair.get("repair_targets") or {}).get("algorithm_semantic_review") or {}
+        output_dir = Path(spec.output_dir or spec.worktree_path)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        solver_path = Path(spec.worktree_path) / "examples" / "dummy_solver.py"
+        source = solver_path.read_text(encoding="utf-8")
+        if semantic_target:
+            self.saw_semantic_repair = bool(
+                semantic_target.get("blocking_findings")
+                and semantic_target["blocking_findings"][0].get("required_test")
+            )
+            source = source.replace("8 + args.seed", "7 + args.seed")
+            name = "repair_inverse_tabu_attribute"
+            evidence = ["loop_feedback.current_round_repair.repair_targets.algorithm_semantic_review"]
+        else:
+            source = source.replace("10 + args.seed", "8 + args.seed")
+            name = "add_tabu_direction"
+            evidence = ["knowledge_cards"]
+        solver_path.write_text(source, encoding="utf-8")
+        proposal_path = output_dir / "proposal.json"
+        proposal_path.write_text(
+            json.dumps(
+                {
+                    "summary": "Implement or repair one measured tabu direction.",
+                    "strategy_intent": "Keep the same direction and consume semantic evidence before promotion.",
+                    "rule_operator_hypotheses": [
+                        {
+                            "name": name,
+                            "type": "local_search_operator",
+                            "target_files": ["examples/dummy_solver.py"],
+                            "evidence_used": evidence,
+                        }
+                    ],
+                    "changes": [{"path": "examples/dummy_solver.py", "action": "text_replace"}],
+                    "quick_test_plan": "python -m compileall examples/dummy_solver.py",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return WorkerResult(
+            status="applied",
+            changed_files=["examples/dummy_solver.py"],
+            summary="Applied semantic repair candidate.",
+            artifacts={"proposal": str(proposal_path)},
+        )
+
+
+class SequencedSemanticReviewer:
+    def __init__(self, statuses: list[str]) -> None:
+        self.statuses = list(statuses)
+        self.requests = []
+
+    def review(self, request) -> AlgorithmSemanticReviewResult:  # noqa: ANN001 - protocol-compatible test double.
+        self.requests.append(request)
+        status = self.statuses.pop(0) if self.statuses else "pass"
+        if status == "repair_required":
+            findings = [
+                {
+                    "finding_id": "reverse_move_memory",
+                    "category": "reverse_move_memory",
+                    "severity": "blocking",
+                    "blocking": True,
+                    "confidence": 0.95,
+                    "source_path": "examples/dummy_solver.py",
+                    "line_start": 1,
+                    "line_end": 3,
+                    "knowledge_path": "knowledge/tabu_contract.md",
+                    "knowledge_quote": "Store the inverse move attribute.",
+                    "explanation": "The accepted forward attribute is stored unchanged.",
+                    "repair": "Store the inverse attribute and preserve global best.",
+                    "required_test": "Accept one move and prove its inverse remains tabu until expiry.",
+                }
+            ]
+            accepted = False
+        else:
+            findings = []
+            accepted = True
+        return AlgorithmSemanticReviewResult(
+            status=status,
+            accepted=accepted,
+            summary="Semantic review test result.",
+            findings=findings,
+            reviewed_files=["examples/dummy_solver.py"],
+            knowledge_paths=["knowledge/tabu_contract.md"],
+            reviewer="sequenced_test_reviewer",
+            artifacts={"review": str(request.output_dir / "review.json")},
         )
 
 
@@ -1416,6 +1530,91 @@ class WorkerLoopTests(unittest.TestCase):
             )
             self.assertIn("repair current_round_repair.previous_attempts", repair_context["loop_feedback"]["instructions"][0])
 
+    def test_semantic_review_blocks_then_repairs_inside_same_direction(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+            worker = SemanticRepairWorker()
+            reviewer = SequencedSemanticReviewer(["repair_required", "pass"])
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=worker,
+                semantic_reviewer=reviewer,
+                experiment_id="test_semantic_repair",
+                iterations=1,
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+                in_round_repair_attempts=1,
+            )
+
+            self.assertEqual(2, worker.calls)
+            self.assertTrue(worker.saw_semantic_repair)
+            self.assertEqual("promoted", result.rounds[0].decision)
+            self.assertEqual("pass", result.rounds[0].semantic_review["status"])
+            repair = result.rounds[0].proposal_diagnostics["in_round_repair"]
+            self.assertTrue(repair["recovered"])
+            self.assertIn(
+                "algorithm_semantic_review_repair_required",
+                repair["attempts"][0]["failure_signatures"],
+            )
+
+            repair_context = json.loads(
+                (tmp_path / "loop" / "round_000" / "repair_001" / "context_packet.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            target = repair_context["loop_feedback"]["current_round_repair"]["repair_targets"][
+                "algorithm_semantic_review"
+            ]
+            self.assertEqual("reverse_move_memory", target["blocking_findings"][0]["category"])
+            self.assertIn("inverse remains tabu", target["blocking_findings"][0]["required_test"])
+
+            loop_payload = json.loads((tmp_path / "loop" / "loop_result.json").read_text(encoding="utf-8"))
+            semantic_memory = loop_payload["experience_memory"]["algorithm_semantic_memory"]
+            self.assertEqual(1, semantic_memory["repair_required_attempt_count"])
+            self.assertEqual(1, semantic_memory["recovered_direction_count"])
+            self.assertIn("reverse_move_memory", semantic_memory["recurring_categories"][0]["text"])
+
+    def test_semantic_review_exhaustion_rolls_back_even_when_objective_improves(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+            reviewer = SequencedSemanticReviewer(["repair_required", "repair_required"])
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=PromotingProposalWorker(),
+                semantic_reviewer=reviewer,
+                experiment_id="test_semantic_rollback",
+                iterations=2,
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+                in_round_repair_attempts=2,
+            )
+
+            self.assertEqual(["rolled_back", "rolled_back"], [item.decision for item in result.rounds])
+            self.assertEqual("algorithm_semantic_review_repair_required", result.rounds[0].promotion_check["reason"])
+            self.assertEqual(result.baseline_key, result.final_key)
+            payload = json.loads((tmp_path / "loop" / "loop_result.json").read_text(encoding="utf-8"))
+            self.assertEqual("repair_required", payload["rounds"][0]["semantic_review"]["status"])
+            round_one_context = json.loads(
+                (tmp_path / "loop" / "round_001" / "context_packet.json").read_text(encoding="utf-8")
+            )
+            failure_memory = round_one_context["loop_feedback"]["failure_memory"]
+            self.assertIn("algorithm_semantic_review_repair_required", failure_memory["must_avoid"])
+            self.assertNotIn("legal_but_not_strictly_better", failure_memory["must_avoid"])
+
     def test_legal_no_improvement_refines_inside_same_direction(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -1862,6 +2061,53 @@ class WorkerLoopTests(unittest.TestCase):
                     for item in feedback["next_round_guidance"]["must_do"]
                 )
             )
+
+    def test_agent_generated_baseline_semantic_review_repairs_before_acceptance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract_path = _write_standard_agent_generated_contract(tmp_path)
+            contract = TaskContract.load(contract_path)
+            context_path = _write_test_context(tmp_path, contract_path=contract_path)
+            reviewer = SequencedSemanticReviewer(["repair_required", "pass"])
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=NullWorker(),
+                baseline_worker=AgentBaselineRepairWorker(),
+                baseline_source="agent_generated",
+                semantic_reviewer=reviewer,
+                experiment_id="test_agent_generated_baseline_semantic_repair",
+                iterations=0,
+                max_steps=2,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+                in_round_repair_attempts=2,
+            )
+
+            generation = result.baseline_generation or {}
+            self.assertEqual("pass", generation["semantic_review"]["status"])
+            self.assertEqual(2, generation["selected_attempt_index"])
+            self.assertTrue(generation["in_round_repair"]["recovered"])
+            repair_context = json.loads(
+                (
+                    tmp_path
+                    / "loop"
+                    / "agent_generated_baseline"
+                    / "repair_002"
+                    / "context_packet.json"
+                ).read_text(encoding="utf-8")
+            )
+            semantic_target = repair_context["loop_feedback"]["current_round_repair"]["repair_targets"][
+                "algorithm_semantic_review"
+            ]
+            self.assertEqual("reverse_move_memory", semantic_target["blocking_findings"][0]["category"])
+            semantic_summary = worker_loop_semantic_review_summary(result)
+            self.assertEqual(3, semantic_summary["baseline_review_attempt_count"])
+            self.assertEqual(1, semantic_summary["status_counts"]["repair_required"])
+            self.assertEqual(1, semantic_summary["blocking_finding_count"])
 
     def test_invalid_agent_generated_baseline_stops_before_improvement_rounds(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

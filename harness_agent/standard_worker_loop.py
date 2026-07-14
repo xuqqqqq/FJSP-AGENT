@@ -18,6 +18,7 @@ from .loop_runner import (
 )
 from .loop_runner import normalize_baseline_source
 from .models import TaskContract
+from .semantic_review import AlgorithmSemanticReviewer
 from .slot_manifest import load_slot_manifest
 from .worker import CodingWorker
 
@@ -36,6 +37,7 @@ class StandardWorkerLoopRequest:
     project_root: Path
     worker: CodingWorker
     main_agent: DirectionPlanningAgent | None = None
+    semantic_reviewer: AlgorithmSemanticReviewer | None = None
     best_known_csv: Path | None = None
     knowledge_cards: list[Path] | None = None
     slot_manifest: Path | None = None
@@ -116,6 +118,7 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
         context_packet_path=context_path,
         worker=request.worker,
         main_agent=request.main_agent,
+        semantic_reviewer=request.semantic_reviewer,
         experiment_id=request.experiment_id,
         iterations=max(0, request.iterations),
         max_steps=max(1, request.max_steps),
@@ -320,6 +323,7 @@ def standard_worker_manifest(
     )
     repair_stats = worker_loop_repair_stats(loop_result.rounds)
     agent_quality = worker_loop_agent_quality_summary(loop_result)
+    semantic_review = worker_loop_semantic_review_summary(loop_result)
     return {
         "status": "ok",
         "evaluation_mode": (
@@ -343,6 +347,9 @@ def standard_worker_manifest(
             "apply_worker_changes": bool(request.apply_worker_changes),
             "promotion_repeats": max(1, request.promotion_repeats),
             "in_round_repair_attempts": max(0, request.in_round_repair_attempts),
+            "semantic_reviewer": (
+                type(request.semantic_reviewer).__name__ if request.semantic_reviewer is not None else None
+            ),
             "awls_zi_policy": request.awls_zi_policy,
             "awls_critical_block_exhaustive_pct": max(0, min(100, request.awls_critical_block_exhaustive_pct)),
             "awls_same_machine_eval": request.awls_same_machine_eval,
@@ -365,6 +372,7 @@ def standard_worker_manifest(
         "skill_usage_records": skill_usage_records,
         "in_round_repair": repair_stats,
         "agent_generated_quality": agent_quality,
+        "algorithm_semantic_review": semantic_review,
         "final_worktree": str(loop_result.final_worktree),
         "baseline_summary": summary_payload(loop_result.baseline_summary),
         "final_summary": final_summary,
@@ -411,6 +419,8 @@ def worker_loop_agent_quality_summary(loop_result: WorkerLoopResult) -> dict[str
     baseline_judgment = baseline.get("agentic_judgment") if isinstance(baseline, dict) else {}
     baseline_checks = baseline_judgment.get("checks") if isinstance(baseline_judgment, dict) else {}
     baseline_repair = baseline.get("in_round_repair") if isinstance(baseline, dict) else {}
+    if not isinstance(baseline_repair, dict):
+        baseline_repair = {}
     round_summaries: list[dict[str, Any]] = []
     ja_rejected_rounds = 0
     quality_rejected_rounds = 0
@@ -473,6 +483,84 @@ def worker_loop_agent_quality_summary(loop_result: WorkerLoopResult) -> dict[str
     }
 
 
+def worker_loop_semantic_review_summary(loop_result: WorkerLoopResult) -> dict[str, Any]:
+    baseline = loop_result.baseline_generation or {}
+    baseline_review = baseline.get("semantic_review") if isinstance(baseline, dict) else {}
+    baseline_repair = baseline.get("in_round_repair") if isinstance(baseline, dict) else {}
+    if not isinstance(baseline_repair, dict):
+        baseline_repair = {}
+    baseline_reviews = [
+        attempt.get("semantic_review")
+        for attempt in (baseline_repair.get("attempts") or [])
+        if isinstance(attempt, dict)
+        and isinstance(attempt.get("semantic_review"), dict)
+        and attempt.get("semantic_review")
+    ]
+    if not baseline_reviews and isinstance(baseline_review, dict) and baseline_review:
+        baseline_reviews = [baseline_review]
+    round_reviews: list[dict[str, Any]] = []
+    for item in loop_result.rounds:
+        repair = (
+            item.proposal_diagnostics.get("in_round_repair")
+            if isinstance(item.proposal_diagnostics, dict)
+            else {}
+        )
+        attempt_reviews = [
+            attempt.get("semantic_review")
+            for attempt in ((repair or {}).get("attempts") or [])
+            if isinstance(attempt, dict)
+            and isinstance(attempt.get("semantic_review"), dict)
+            and attempt.get("semantic_review")
+        ]
+        if attempt_reviews:
+            round_reviews.extend(attempt_reviews)
+        elif isinstance(item.semantic_review, dict) and item.semantic_review:
+            round_reviews.append(item.semantic_review)
+    reviews = baseline_reviews + round_reviews
+    statuses: dict[str, int] = {}
+    blocking_finding_count = 0
+    warning_finding_count = 0
+    for review in reviews:
+        status = str(review.get("status") or "unknown")
+        statuses[status] = statuses.get(status, 0) + 1
+        for finding in review.get("findings") or []:
+            if not isinstance(finding, dict):
+                continue
+            if finding.get("blocking"):
+                blocking_finding_count += 1
+            else:
+                warning_finding_count += 1
+    return {
+        "configured": any(str(review.get("reviewer") or "") != "none" for review in reviews)
+        or (
+            isinstance(baseline_review, dict)
+            and bool(baseline_review)
+            and str(baseline_review.get("reviewer") or "") != "none"
+        ),
+        "baseline": baseline_review if isinstance(baseline_review, dict) else {},
+        "review_attempt_count": len(reviews),
+        "baseline_review_attempt_count": len(baseline_reviews),
+        "round_review_attempt_count": len(round_reviews),
+        "reviewed_attempt_count": sum(
+            1
+            for review in reviews
+            if review.get("status") in {"pass", "warning", "repair_required"}
+        ),
+        "reviewed_round_count": sum(
+            1
+            for review in round_reviews
+            if review.get("status") in {"pass", "warning", "repair_required"}
+        ),
+        "status_counts": statuses,
+        "blocking_finding_count": blocking_finding_count,
+        "warning_finding_count": warning_finding_count,
+        "repair_required_attempt_count": statuses.get("repair_required", 0),
+        "repair_required_round_count": sum(
+            1 for review in round_reviews if review.get("status") == "repair_required"
+        ),
+    }
+
+
 def _quality_risk_count_from_judgment(judgment: Any, key: str) -> int:
     if not isinstance(judgment, dict):
         return 0
@@ -503,6 +591,7 @@ def render_standard_worker_report(manifest: dict[str, Any]) -> str:
         f"- Candidate lessons: `{len(((manifest.get('experience_memory') or {}).get('memory_tiers') or {}).get('candidate_lessons') or [])}`",
         f"- In-round repair: `{json.dumps(manifest.get('in_round_repair') or {}, ensure_ascii=False)}`",
         f"- Agent quality: `{json.dumps(manifest.get('agent_generated_quality') or {}, ensure_ascii=False)}`",
+        f"- Algorithm semantic review: `{json.dumps(manifest.get('algorithm_semantic_review') or {}, ensure_ascii=False)}`",
         f"- Final worktree: `{manifest.get('final_worktree')}`",
         "",
         (
@@ -534,8 +623,8 @@ def render_standard_worker_report(manifest: dict[str, Any]) -> str:
             "",
             "## Rounds",
             "",
-            "| Round | Decision | Worker | Duplicate | Promotion Check | Proposal Audit | Candidate Key | Changed Files | Patch |",
-            "| ---: | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| Round | Decision | Worker | Duplicate | Semantic Review | Promotion Check | Proposal Audit | Candidate Key | Changed Files | Patch |",
+            "| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for item in manifest.get("rounds", []):
@@ -545,6 +634,7 @@ def render_standard_worker_report(manifest: dict[str, Any]) -> str:
         lines.append(
             f"| {item.get('round_index')} | {item.get('decision')} | {item.get('worker_status')} | "
             f"{item.get('duplicate_proposal')} | "
+            f"`{json.dumps(item.get('semantic_review') or {}, ensure_ascii=False)}` | "
             f"`{json.dumps(compact_promotion_check(promotion_check), ensure_ascii=False)}` | "
             f"`{json.dumps(proposal_audit, ensure_ascii=False)}` | "
             f"`{json.dumps(item.get('candidate_key'), ensure_ascii=False)}` | "

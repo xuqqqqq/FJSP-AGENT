@@ -38,12 +38,12 @@ def op_key_of(item: dict) -> OpKey:
     return (item["job_id"], item["op_id"])
 
 
-def critical_blocks(schedule: list[dict]) -> list[dict]:
-    """Extract compact machine blocks on the current makespan-critical tail.
+def critical_tail_windows(schedule: list[dict]) -> list[dict]:
+    """Extract compact machine windows near the current makespan tail.
 
     This deliberately uses a conservative, portable signal: operations that end
     close to the current makespan plus adjacent operations on the same machine.
-    A stronger implementation may compute exact longest-path critical arcs.
+    It is not an exact critical-path or critical-block implementation.
     """
     if not schedule:
         return []
@@ -119,10 +119,13 @@ def apply_sequence_move(
     return None
 ```
 
-## N8/K-Insertion-Like Candidate Generation
+## Critical-Tail Candidate Generation
+
+This bounded generator is useful before an exact disjunctive-DAG implementation
+exists. Do not label it N7, N8, k-insertion, or exact critical-block search.
 
 ```python
-def generate_critical_block_moves(
+def generate_critical_tail_moves(
     instance: dict,
     assignment: dict[OpKey, int],
     machine_sequences: dict[int, list[OpKey]],
@@ -131,7 +134,7 @@ def generate_critical_block_moves(
     max_moves: int = 200,
 ) -> list[dict]:
     moves: list[dict] = []
-    for block in critical_blocks(schedule):
+    for block in critical_tail_windows(schedule):
         machine_id = block["machine"]
         block_ops = block["ops"]
         seq = machine_sequences.get(machine_id, [])
@@ -164,7 +167,40 @@ def generate_critical_block_moves(
 
 ```python
 def move_signature(move: dict) -> tuple:
-    return tuple((key, str(value)) for key, value in sorted(move.items()))
+    kind = move.get("kind")
+    if kind == "same_machine_swap":
+        return (kind, int(move["machine"]), tuple(move["left"]), tuple(move["right"]))
+    if kind == "same_machine_insert":
+        return (kind, int(move["machine"]), tuple(move["op"]), int(move["pos"]))
+    if kind == "change_machine_insert":
+        return (kind, tuple(move["op"]), int(move["machine"]), int(move["pos"]))
+    return (str(kind),)
+
+
+def reverse_move_signature(
+    move: dict,
+    assignment: dict[OpKey, int],
+    machine_sequences: dict[int, list[OpKey]],
+) -> tuple | None:
+    """Return the signature of the move that would undo the accepted move."""
+    kind = move.get("kind")
+    if kind == "same_machine_swap":
+        return (kind, int(move["machine"]), tuple(move["right"]), tuple(move["left"]))
+    if kind == "same_machine_insert":
+        machine_id = int(move["machine"])
+        op_key = tuple(move["op"])
+        seq = machine_sequences.get(machine_id, [])
+        if op_key not in seq:
+            return None
+        return (kind, machine_id, op_key, seq.index(op_key))
+    if kind == "change_machine_insert":
+        op_key = tuple(move["op"])
+        old_machine = assignment.get(op_key)
+        old_seq = machine_sequences.get(old_machine, []) if old_machine is not None else []
+        if old_machine is None or op_key not in old_seq:
+            return None
+        return (kind, op_key, int(old_machine), old_seq.index(op_key))
+    return None
 
 
 def tabu_best_improvement(
@@ -188,7 +224,7 @@ def tabu_best_improvement(
 
     while time.perf_counter() < deadline and iteration < 1500:
         iteration += 1
-        moves = generate_critical_block_moves(
+        moves = generate_critical_tail_moves(
             instance,
             current_assignment,
             current_sequences,
@@ -200,9 +236,14 @@ def tabu_best_improvement(
         rng.shuffle(moves)
         best_trial = None
         best_trial_value = None
-        best_move = None
+        best_reverse_signature = None
         for move in moves:
             signature = move_signature(move)
+            reverse_signature = reverse_move_signature(
+                move,
+                current_assignment,
+                current_sequences,
+            )
             trial_state = apply_sequence_move(current_assignment, current_sequences, move)
             if trial_state is None:
                 continue
@@ -220,7 +261,7 @@ def tabu_best_improvement(
             if best_trial_value is None or trial_value < best_trial_value:
                 best_trial_value = trial_value
                 best_trial = (trial_assignment, trial_sequences, trial_schedule)
-                best_move = signature
+                best_reverse_signature = reverse_signature
         if best_trial is None:
             no_improve += 1
             if no_improve >= 20:
@@ -228,8 +269,8 @@ def tabu_best_improvement(
             continue
 
         current_assignment, current_sequences, current_schedule = best_trial
-        if best_move is not None:
-            tabu_until[best_move] = iteration + 9 + (iteration % 5)
+        if best_reverse_signature is not None:
+            tabu_until[best_reverse_signature] = iteration + 9 + (iteration % 5)
 
         if best_trial_value is not None and best_trial_value < best_value:
             best_assignment, best_sequences = clone_state(current_assignment, current_sequences)
@@ -246,6 +287,11 @@ def tabu_best_improvement(
 
 - Never score a move before `decode_state` returns a full schedule.
 - Never replace the incumbent on equal or worse makespan.
-- Never claim `critical_block`, `N8`, `k_insertion`, or `tabu` unless the
-  submitted solver has reachable versions of the functions above.
+- The critical-tail window selector above is a bounded heuristic, not proof of
+  exact critical-path, critical-block, N7, N8, or k-insertion semantics.
+- Never claim exact critical-block/N7/N8/k-insertion until the selector uses the
+  active disjunctive DAG, zero-slack operations, tight machine arcs, and the
+  neighborhood's documented feasibility bounds.
+- A claimed tabu loop must store the inverse signature, prove immediate reversal
+  is forbidden before tenure expiry, and return the global best state.
 - Keep candidate caps and deadlines small enough for evaluator smoke.

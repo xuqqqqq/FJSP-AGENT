@@ -797,6 +797,19 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                         "mode": "repair_only_stage_gate",
                         "reason": "repeated_structured_neighborhood_claim_unimplemented",
                     },
+                    "algorithm_semantic_review": {
+                        "status": "repair_required",
+                        "blocking_findings": [
+                            {
+                                "category": "reverse_move_memory",
+                                "source_path": "examples/agent_generated_fjsp_solver.py",
+                                "line_start": 240,
+                                "knowledge_path": "knowledge/tabu_contract.md",
+                                "repair": "Store the inverse move attribute.",
+                                "required_test": "Prove immediate reversal remains tabu until expiry.",
+                            }
+                        ],
+                    },
                 },
                 "previous_attempts": [
                     {
@@ -834,6 +847,8 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("stable_operation_identity", prompt_context)
         self.assertIn("method_stage_migration", prompt_context)
         self.assertIn("repair_only_stage_gate", prompt_context)
+        self.assertIn("reverse_move_memory", prompt_context)
+        self.assertIn("immediate reversal remains tabu", prompt_context)
         self.assertIn("agent_generated_method_stage_repair_rule", prompt_context)
 
     def test_compact_loop_feedback_keeps_solver_self_check_audit_details(self) -> None:
@@ -1317,6 +1332,16 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                     ],
                     "next_prompt_rule": "Resolve recurring agent-generated quality gaps before objective tuning.",
                 },
+                "algorithm_semantic_memory": {
+                    "attempt_count": 2,
+                    "repair_required_attempt_count": 1,
+                    "recovered_direction_count": 1,
+                    "recurring_categories": [{"text": "reverse_move_memory", "count": 1}],
+                    "required_behavioral_tests": [
+                        "Accept one move and prove its inverse remains tabu until expiry."
+                    ],
+                    "next_prompt_rule": "Preserve repaired tabu semantics before repeating the claim.",
+                },
             }
         }
 
@@ -1328,6 +1353,9 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("Preserve generated baseline parser", prompt_context)
         self.assertIn("operation_level_ready_list_constructor", prompt_context)
         self.assertIn("experience_quality_memory_rule", prompt_context)
+        self.assertIn("algorithm_semantic_memory", prompt_context)
+        self.assertIn("reverse_move_memory", prompt_context)
+        self.assertIn("algorithm_semantic_memory_rule", prompt_context)
         self.assertIn("before objective tuning", prompt_context)
 
     def test_proposal_audit_requires_solver_contract_self_check_for_generated_solver(self) -> None:

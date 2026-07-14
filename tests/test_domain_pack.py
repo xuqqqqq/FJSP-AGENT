@@ -43,6 +43,10 @@ class DomainPackTests(unittest.TestCase):
             "examples/standard_fjsp_local_search_solver.py",
             pack.agent_generated_baseline_hidden_paths,
         )
+        self.assertTrue(pack.semantic_review_cards)
+        self.assertTrue(
+            any(path.name == "standard_fjsp_algorithm_semantic_review_contract.md" for path in pack.semantic_review_cards)
+        )
         self.assertIn(
             "examples/standard_fjsp_evaluator.py",
             pack.agent_generated_baseline_preserve_paths,
@@ -286,7 +290,8 @@ class DomainPackTests(unittest.TestCase):
         self.assertIn("def decode_state", skeleton_text)
         self.assertIn("def coverage_ok", skeleton_text)
         self.assertIn("def apply_sequence_move", neighborhood_text)
-        self.assertIn("def critical_blocks", neighborhood_text)
+        self.assertIn("def critical_tail_windows", neighborhood_text)
+        self.assertIn("def reverse_move_signature", neighborhood_text)
         self.assertIn("def tabu_best_improvement", neighborhood_text)
 
     def test_standard_fjsp_skeleton_card_contains_executable_neighborhood_templates(self) -> None:

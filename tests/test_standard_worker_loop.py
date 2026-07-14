@@ -71,6 +71,8 @@ class StandardWorkerLoopTests(unittest.TestCase):
             self.assertEqual("rolled_back", manifest["rounds"][0]["decision"])
             self.assertEqual("missing", manifest["rounds"][0]["proposal_diagnostics"]["status"])
             self.assertIn("agent_generated_quality", manifest)
+            self.assertIn("algorithm_semantic_review", manifest)
+            self.assertIn("status_counts", manifest["algorithm_semantic_review"])
             self.assertFalse(manifest["agent_generated_quality"]["baseline"]["enabled"])
             self.assertEqual(1, manifest["agent_generated_quality"]["round_count"])
             self.assertEqual(str(slot_manifest), manifest["request"]["slot_manifest"])

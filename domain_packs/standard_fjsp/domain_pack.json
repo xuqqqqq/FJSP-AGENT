@@ -88,6 +88,11 @@
       "harness_agent/strategy_variants.py"
     ]
   },
+  "semantic_review": {
+    "cards": [
+      "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_algorithm_semantic_review_contract.md"
+    ]
+  },
   "knowledge": {
     "base_cards": [
       "knowledge/benchmarks/standard_fjsp_format.md",
@@ -126,12 +131,14 @@
         "knowledge/imported_huawei_fjsp_knowledge/operators/operation_machine_reassignment.md"
       ],
       "critical_block": [
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_algorithm_semantic_review_contract.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_neighborhood_templates.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/critical_path_machine_block_neighborhood.md",
         "knowledge/papers/awls_sdst_literature_direction_notes.md",
         "knowledge/papers/awls_sdst_neighborhood_selection_notes.md"
       ],
       "critical_path": [
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_algorithm_semantic_review_contract.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_neighborhood_templates.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_awls_hgtsa_execution_skeleton.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/critical_path_machine_block_neighborhood.md",
@@ -240,6 +247,7 @@
         "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md"
       ],
       "tabu_search": [
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_algorithm_semantic_review_contract.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_neighborhood_templates.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_awls_hgtsa_execution_skeleton.md",
         "knowledge/papers/awls_sdst_search_transition_notes.md",

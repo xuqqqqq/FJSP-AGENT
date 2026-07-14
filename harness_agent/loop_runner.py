@@ -24,6 +24,10 @@ from .ledger import ExperimentRecord
 from .main_agent import DirectionPlanRequest, DirectionPlanningAgent, EvidenceDrivenMainAgent
 from .models import ObjectiveSpec, TaskContract
 from .runner import RunSummary
+from .semantic_review import (
+    AlgorithmSemanticReviewer,
+    AlgorithmSemanticReviewRequest,
+)
 from .worker import CodingWorker, WorkerResult
 from .worker_cycle import prepare_candidate_worktree, run_worker_cycle
 
@@ -55,6 +59,7 @@ class LoopRoundRecord:
     patch_path: str
     promoted_worktree: str | None
     direction_plan: dict[str, Any] | None = None
+    semantic_review: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -76,6 +81,7 @@ def run_worker_loop(
     context_packet_path: Path,
     worker: CodingWorker,
     main_agent: DirectionPlanningAgent | None = None,
+    semantic_reviewer: AlgorithmSemanticReviewer | None = None,
     experiment_id: str,
     iterations: int,
     max_steps: int,
@@ -102,6 +108,7 @@ def run_worker_loop(
             experiment_id=experiment_id,
             max_steps=max_steps,
             max_runtime_seconds=max_runtime_seconds,
+            semantic_reviewer=semantic_reviewer,
             repair_attempts=worker_loop_repair_attempt_budget(
                 baseline_worker_for_generation,
                 in_round_repair_attempts,
@@ -202,6 +209,7 @@ def run_worker_loop(
                 previous_rounds=round_records,
                 repair_attempts=effective_repair_attempts,
                 direction_plan=direction_plan,
+                semantic_reviewer=semantic_reviewer,
             )
         except Exception as exc:  # noqa: BLE001 - failed worker rounds are feedback, not loop-ending failures.
             exception_path = cycle_dir / "cycle_exception.txt"
@@ -269,6 +277,7 @@ def run_worker_loop(
                     patch_path=str(patch_path),
                     promoted_worktree=None,
                     direction_plan=direction_plan,
+                    semantic_review=None,
                 )
             )
             continue
@@ -280,16 +289,32 @@ def run_worker_loop(
         repair_summary = in_round_repair_summary(in_round_attempts)
         if repair_summary["repair_attempt_count"]:
             proposal_diagnostics["in_round_repair"] = repair_summary
-        candidate_key = summary_objective_key(cycle.summary, contract.objectives)
-        promotion_check = evaluate_promotion_check(
-            contract=contract,
-            incumbent_worktree=incumbent_worktree,
-            candidate_worktree=cycle.worktree_path,
-            output_dir=cycle_dir / "promotion_check",
-            incumbent_key=incumbent_key,
-            candidate_key=candidate_key,
-            promotion_repeats=promotion_repeats,
+        semantic_review = (
+            in_round_attempts[-1].get("semantic_review")
+            if in_round_attempts and isinstance(in_round_attempts[-1], dict)
+            else None
         )
+        if isinstance(semantic_review, dict):
+            proposal_diagnostics["algorithm_semantic_review"] = semantic_review
+        candidate_key = summary_objective_key(cycle.summary, contract.objectives)
+        if semantic_review_blocks_promotion(semantic_review):
+            promotion_check = {
+                "status": "skipped",
+                "reason": "algorithm_semantic_review_repair_required",
+                "promoted": False,
+                "required_repeats": max(1, promotion_repeats),
+                "semantic_review": semantic_review,
+            }
+        else:
+            promotion_check = evaluate_promotion_check(
+                contract=contract,
+                incumbent_worktree=incumbent_worktree,
+                candidate_worktree=cycle.worktree_path,
+                output_dir=cycle_dir / "promotion_check",
+                incumbent_key=incumbent_key,
+                candidate_key=candidate_key,
+                promotion_repeats=promotion_repeats,
+            )
         promoted = bool(promotion_check.get("promoted"))
         if promoted:
             incumbent_key = tuple(float(item) for item in promotion_check.get("accepted_key", candidate_key))
@@ -314,6 +339,7 @@ def run_worker_loop(
                 patch_path=str(cycle.patch_path),
                 promoted_worktree=str(cycle.worktree_path) if promoted else None,
                 direction_plan=direction_plan,
+                semantic_review=semantic_review if isinstance(semantic_review, dict) else None,
             )
         )
 
@@ -348,6 +374,7 @@ def run_worker_cycle_with_in_round_repairs(
     previous_rounds: list[LoopRoundRecord],
     repair_attempts: int,
     direction_plan: dict[str, Any] | None = None,
+    semantic_reviewer: AlgorithmSemanticReviewer | None = None,
 ) -> tuple[Any, Path, list[dict[str, Any]]]:
     """Run one round, retrying repairable illegal candidates inside the same round."""
 
@@ -395,17 +422,28 @@ def run_worker_cycle_with_in_round_repairs(
             max_runtime_seconds=max_runtime_seconds,
             apply_worker_changes=apply_worker_changes,
         )
+        semantic_review = run_algorithm_semantic_review(
+            reviewer=semantic_reviewer,
+            cycle=last_cycle,
+            context_packet_path=last_context_packet_path,
+            direction_plan=direction_plan or {},
+            round_index=round_index,
+            attempt_index=attempt_index,
+            output_dir=attempt_dir / "semantic_review",
+        )
         attempts.append(
             round_attempt_payload(
                 last_cycle,
                 attempt_index=attempt_index,
                 context_packet_path=last_context_packet_path,
                 incumbent_key=incumbent_key,
+                semantic_review=semantic_review,
             )
         )
         if attempt_index >= max_repair_attempts or not should_attempt_in_round_repair(
             last_cycle,
             incumbent_key=incumbent_key,
+            semantic_review=semantic_review,
         ):
             break
         direction_project_root = Path(last_cycle.worktree_path)
@@ -428,11 +466,79 @@ def worker_loop_repair_attempt_budget(worker: CodingWorker, requested_attempts: 
     return requested
 
 
-def should_attempt_in_round_repair(cycle: Any, *, incumbent_key: tuple[float, ...] | None = None) -> bool:
+def run_algorithm_semantic_review(
+    *,
+    reviewer: AlgorithmSemanticReviewer | None,
+    cycle: Any,
+    context_packet_path: Path,
+    direction_plan: dict[str, Any],
+    round_index: int,
+    attempt_index: int,
+    output_dir: Path,
+) -> dict[str, Any]:
+    if reviewer is None:
+        return {
+            "schema_version": 1,
+            "status": "skipped",
+            "accepted": True,
+            "summary": "No algorithm semantic reviewer was configured.",
+            "findings": [],
+            "reviewer": "none",
+        }
+    judgment = getattr(cycle, "agentic_judgment", None)
+    summary = getattr(cycle, "summary", None)
+    if judgment is None or not bool(getattr(judgment, "accepted", False)):
+        return {
+            "schema_version": 1,
+            "status": "skipped",
+            "accepted": True,
+            "summary": "Semantic review waits for JA-accepted source.",
+            "findings": [],
+            "reviewer": type(reviewer).__name__,
+        }
+    if summary is None or summary.total <= 0 or summary.valid != summary.total:
+        return {
+            "schema_version": 1,
+            "status": "skipped",
+            "accepted": True,
+            "summary": "Semantic review waits for a Core-valid candidate.",
+            "findings": [],
+            "reviewer": type(reviewer).__name__,
+        }
+    result = reviewer.review(
+        AlgorithmSemanticReviewRequest(
+            round_index=round_index,
+            attempt_index=attempt_index,
+            context_packet_path=context_packet_path,
+            worktree_path=Path(cycle.worktree_path),
+            changed_files=list(getattr(cycle.worker_result, "changed_files", []) or []),
+            direction_plan=direction_plan,
+            candidate_summary=summary_payload(summary),
+            output_dir=output_dir,
+        )
+    )
+    return result.to_payload()
+
+
+def semantic_review_blocks_promotion(value: dict[str, Any] | None) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return value.get("status") == "repair_required" or value.get("accepted") is False
+
+
+def should_attempt_in_round_repair(
+    cycle: Any,
+    *,
+    incumbent_key: tuple[float, ...] | None = None,
+    semantic_review: dict[str, Any] | None = None,
+) -> bool:
     """Return whether the same direction should spend another bounded attempt."""
 
     if is_nonrepairable_worker_failure(cycle):
         return False
+
+    if semantic_review_blocks_promotion(semantic_review):
+        return True
 
     judgment = getattr(cycle, "agentic_judgment", None)
     if judgment is not None and not bool(getattr(judgment, "accepted", False)):
@@ -506,6 +612,10 @@ def current_round_repair_feedback(
     if repair_targets.get("agent_generated_repair_escalation"):
         must_do.append(
             "Repeated agent-generated solver quality failure detected; switch this attempt to repair-only stage-gate mode and do not optimize makespan until the listed structural gate is satisfied."
+        )
+    if repair_targets.get("algorithm_semantic_review"):
+        must_do.append(
+            "Repair every evidence-backed blocking finding in repair_targets.algorithm_semantic_review. Preserve Core legality, keep the same direction, and add the required behavioral tests before restating the method claim."
         )
     return {
         "status": status,
@@ -592,6 +702,20 @@ def collect_current_round_repair_targets(attempts: list[dict[str, Any]]) -> dict
         )
         add_list("diagnostic_smoke_top_errors", diagnostic_validation.get("top_errors"))
 
+        semantic_review = attempt.get("semantic_review") if isinstance(attempt.get("semantic_review"), dict) else {}
+        if semantic_review_blocks_promotion(semantic_review):
+            targets["algorithm_semantic_review"] = {
+                "status": semantic_review.get("status"),
+                "summary": semantic_review.get("summary"),
+                "blocking_findings": [
+                    finding
+                    for finding in semantic_review.get("findings") or []
+                    if isinstance(finding, dict) and finding.get("blocking")
+                ][:8],
+                "knowledge_paths": (semantic_review.get("knowledge_paths") or [])[:12],
+                "artifacts": semantic_review.get("artifacts") or {},
+            }
+
         quality_contract = checks.get("agent_generated_solver_quality_contract")
         if isinstance(quality_contract, dict) and quality_contract.get("enabled"):
             expected_capabilities: list[str] = []
@@ -627,6 +751,7 @@ def round_attempt_payload(
     attempt_index: int,
     context_packet_path: Path,
     incumbent_key: tuple[float, ...] | None = None,
+    semantic_review: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     judgment = getattr(cycle, "agentic_judgment", None)
     analysis = getattr(cycle, "agentic_error_analysis", None)
@@ -644,7 +769,13 @@ def round_attempt_payload(
         "agentic_judgment": judgment.to_payload() if judgment else None,
         "agentic_error_analysis": analysis.to_payload() if analysis else None,
         "proposal_diagnostics": diagnostics,
-        "failure_signatures": attempt_failure_signatures(cycle, diagnostics, incumbent_key=incumbent_key),
+        "semantic_review": semantic_review or {},
+        "failure_signatures": attempt_failure_signatures(
+            cycle,
+            diagnostics,
+            incumbent_key=incumbent_key,
+            semantic_review=semantic_review,
+        ),
         "patch_path": str(getattr(cycle, "patch_path", "")),
         "delta_path": str(getattr(cycle, "delta_path", "")),
     }
@@ -697,6 +828,7 @@ def attempt_failure_signatures(
     diagnostics: dict[str, Any],
     *,
     incumbent_key: tuple[float, ...] | None = None,
+    semantic_review: dict[str, Any] | None = None,
 ) -> list[str]:
     signatures: list[str] = []
     if is_nonrepairable_worker_failure(cycle):
@@ -733,6 +865,11 @@ def attempt_failure_signatures(
         signatures.extend(str(item) for item in (audit.get("warnings") or []) if item)
         if audit.get("rejected_change_count"):
             signatures.append("proposal_changes_rejected")
+    if semantic_review_blocks_promotion(semantic_review):
+        signatures.append("algorithm_semantic_review_repair_required")
+        for finding in semantic_review.get("findings") or []:
+            if isinstance(finding, dict) and finding.get("blocking"):
+                signatures.append(f"algorithm_semantic_{finding.get('category') or 'method_semantics'}")
     return _dedupe([_normalize_failure_token(item) for item in signatures if item])
 
 
@@ -740,6 +877,7 @@ def in_round_repair_summary(attempts: list[dict[str, Any]]) -> dict[str, Any]:
     repair_attempt_count = max(0, len(attempts) - 1)
     final_attempt = attempts[-1] if attempts else {}
     final_judgment = final_attempt.get("agentic_judgment") if isinstance(final_attempt, dict) else {}
+    final_semantic_review = final_attempt.get("semantic_review") if isinstance(final_attempt, dict) else {}
     final_summary = final_attempt.get("summary") if isinstance(final_attempt, dict) else {}
     final_accepted = bool(isinstance(final_judgment, dict) and final_judgment.get("accepted"))
     final_total = int((final_summary or {}).get("total", 0) or 0) if isinstance(final_summary, dict) else 0
@@ -747,7 +885,14 @@ def in_round_repair_summary(attempts: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "attempt_count": len(attempts),
         "repair_attempt_count": repair_attempt_count,
-        "recovered": bool(repair_attempt_count and final_accepted and (final_total == 0 or final_valid == final_total)),
+        "recovered": bool(
+            repair_attempt_count
+            and final_accepted
+            and not semantic_review_blocks_promotion(
+                final_semantic_review if isinstance(final_semantic_review, dict) else {}
+            )
+            and (final_total == 0 or final_valid == final_total)
+        ),
         "final_attempt_index": final_attempt.get("attempt_index"),
         "attempts": attempts,
     }
@@ -773,9 +918,15 @@ def agent_generated_baseline_is_accepted(
         if isinstance(baseline_generation.get("agentic_judgment"), dict)
         else {}
     )
+    semantic_review = (
+        baseline_generation.get("semantic_review")
+        if isinstance(baseline_generation.get("semantic_review"), dict)
+        else {}
+    )
     return (
         baseline_generation.get("status") == "ok"
         and bool(judgment.get("accepted"))
+        and not semantic_review_blocks_promotion(semantic_review)
         and baseline_summary.total > 0
         and baseline_summary.valid == baseline_summary.total
         and not _all_negative_infinity(baseline_key)
@@ -795,10 +946,10 @@ def agent_generated_baseline_cycle_is_core_accepted(cycle: Any) -> bool:
 
 
 def select_agent_generated_baseline_cycle(
-    cycles: list[tuple[int, Any, Path]],
+    cycles: list[tuple[int, Any, Path, dict[str, Any]]],
     *,
     objectives: list[ObjectiveSpec],
-) -> tuple[int, Any, Path]:
+) -> tuple[int, Any, Path, dict[str, Any]]:
     if not cycles:
         raise RuntimeError("agent-generated baseline did not record any attempts")
     return max(
@@ -807,6 +958,7 @@ def select_agent_generated_baseline_cycle(
             item[1],
             attempt_index=item[0],
             objectives=objectives,
+            semantic_review=item[3],
         ),
     )
 
@@ -816,6 +968,7 @@ def agent_generated_baseline_cycle_rank(
     *,
     attempt_index: int,
     objectives: list[ObjectiveSpec],
+    semantic_review: dict[str, Any] | None = None,
 ) -> tuple[float, ...]:
     judgment = getattr(cycle, "agentic_judgment", None)
     summary = getattr(cycle, "summary", None)
@@ -833,7 +986,8 @@ def agent_generated_baseline_cycle_rank(
     scored_summary = summary if core_total > 0 and core_valid == core_total else diagnostic
     objective_key = summary_objective_key(scored_summary, objectives) if scored_summary is not None else ()
     if agentic_accepted and core_total > 0 and core_valid == core_total:
-        return (500, *objective_key, attempt_index)
+        semantic_rank = 900 if semantic_review_blocks_promotion(semantic_review) else 1000
+        return (semantic_rank, *objective_key, attempt_index)
     if agentic_accepted and has_changed_files:
         return (400, *objective_key, attempt_index)
     if core_total > 0 and core_valid == core_total and has_changed_files:
@@ -847,8 +1001,13 @@ def agent_generated_baseline_cycle_rank(
     return (0, *objective_key, attempt_index)
 
 
-def agent_generated_baseline_selection_reason(cycle: Any) -> str:
+def agent_generated_baseline_selection_reason(
+    cycle: Any,
+    semantic_review: dict[str, Any] | None = None,
+) -> str:
     if agent_generated_baseline_cycle_is_core_accepted(cycle):
+        if semantic_review_blocks_promotion(semantic_review):
+            return "core_evaluator_valid_but_algorithm_semantic_repair_required"
         return "agentic_judgment_accepted_and_core_evaluator_valid"
     worker_result = getattr(cycle, "worker_result", None)
     diagnostic = getattr(cycle, "diagnostic_smoke_summary", None)
@@ -877,6 +1036,7 @@ def run_agent_generated_baseline(
     experiment_id: str,
     max_steps: int,
     max_runtime_seconds: int,
+    semantic_reviewer: AlgorithmSemanticReviewer | None = None,
     repair_attempts: int = DEFAULT_IN_ROUND_REPAIR_ATTEMPTS,
 ) -> tuple[RunSummary, Path, dict[str, Any]]:
     """Ask the worker to create the initial solver before measuring baseline.
@@ -899,7 +1059,7 @@ def run_agent_generated_baseline(
     attempts: list[dict[str, Any]] = []
     try:
         cycle: Any | None = None
-        cycle_attempts: list[tuple[int, Any, Path]] = []
+        cycle_attempts: list[tuple[int, Any, Path, dict[str, Any]]] = []
         repair_project_root = source_project
         for attempt_index in range(max_repair_attempts + 1):
             attempt_dir = baseline_dir if attempt_index == 0 else baseline_dir / f"repair_{attempt_index:03d}"
@@ -929,28 +1089,46 @@ def run_agent_generated_baseline(
                 max_runtime_seconds=max_runtime_seconds,
                 apply_worker_changes=True,
             )
+            semantic_review = run_algorithm_semantic_review(
+                reviewer=semantic_reviewer,
+                cycle=cycle,
+                context_packet_path=baseline_context_path,
+                direction_plan=baseline_semantic_direction_plan(baseline_context_path),
+                round_index=-1,
+                attempt_index=attempt_index,
+                output_dir=attempt_dir / "semantic_review",
+            )
             attempts.append(
                 round_attempt_payload(
                     cycle,
                     attempt_index=attempt_index,
                     context_packet_path=baseline_context_path,
+                    semantic_review=semantic_review,
                 )
             )
-            cycle_attempts.append((attempt_index, cycle, baseline_context_path))
-            if agent_generated_baseline_cycle_is_core_accepted(cycle):
+            cycle_attempts.append((attempt_index, cycle, baseline_context_path, semantic_review))
+            if agent_generated_baseline_cycle_is_core_accepted(cycle) and not semantic_review_blocks_promotion(
+                semantic_review
+            ):
                 break
-            if attempt_index >= max_repair_attempts or not should_attempt_in_round_repair(cycle):
+            if attempt_index >= max_repair_attempts or not should_attempt_in_round_repair(
+                cycle,
+                semantic_review=semantic_review,
+            ):
                 break
             repair_project_root = Path(cycle.worktree_path)
         if cycle is None:
             raise RuntimeError("agent-generated baseline did not produce a candidate")
-        selected_attempt_index, selected_cycle, selected_context_path = select_agent_generated_baseline_cycle(
+        selected_attempt_index, selected_cycle, selected_context_path, selected_semantic_review = select_agent_generated_baseline_cycle(
             cycle_attempts,
             objectives=contract.objectives,
         )
         repair_summary = in_round_repair_summary(attempts)
         repair_summary["selected_attempt_index"] = selected_attempt_index
-        repair_summary["selection_reason"] = agent_generated_baseline_selection_reason(selected_cycle)
+        repair_summary["selection_reason"] = agent_generated_baseline_selection_reason(
+            selected_cycle,
+            selected_semantic_review,
+        )
         if selected_attempt_index != repair_summary.get("final_attempt_index"):
             repair_summary["final_attempt_superseded"] = True
         generation_payload = {
@@ -972,6 +1150,7 @@ def run_agent_generated_baseline(
             "agentic_error_analysis": selected_cycle.agentic_error_analysis.to_payload()
             if selected_cycle.agentic_error_analysis
             else None,
+            "semantic_review": selected_semantic_review,
         }
         return selected_cycle.summary, selected_cycle.worktree_path, generation_payload
     except Exception as exc:  # noqa: BLE001 - invalid generated baselines should become evaluator feedback.
@@ -1012,6 +1191,20 @@ def run_agent_generated_baseline(
             "summary": summary_payload(summary),
         }
         return summary, fallback_worktree, generation_payload
+
+
+def baseline_semantic_direction_plan(context_packet_path: Path) -> dict[str, Any]:
+    """Describe baseline review without embedding problem-family algorithm rules."""
+
+    loaded = load_context_packet(context_packet_path).effective_context
+    return {
+        "schema_version": 1,
+        "direction_id": "agent_generated_baseline",
+        "title": "Verify generated baseline method claims against retrieved contracts",
+        "strategy_type": "baseline_constructor",
+        "hypothesis": str(loaded.get("hypothesis") or "Generate a legal standalone baseline solver.")[:1200],
+        "knowledge_paths": list(loaded.get("auto_knowledge_cards") or [])[:12],
+    }
 
 
 def prepare_agent_generated_baseline_source_project(
@@ -1432,12 +1625,18 @@ def agent_generated_baseline_memory_payload(
         if isinstance(baseline_generation.get("agentic_judgment"), dict)
         else {}
     )
+    semantic_review = (
+        baseline_generation.get("semantic_review")
+        if isinstance(baseline_generation.get("semantic_review"), dict)
+        else {}
+    )
     final_key = list(baseline_key)
     valid = int(summary.get("valid", 0) or 0)
     total = int(summary.get("total", 0) or 0)
     accepted_as_incumbent = (
         baseline_generation.get("status") == "ok"
         and bool(agentic_judgment.get("accepted"))
+        and not semantic_review_blocks_promotion(semantic_review)
         and total > 0
         and valid == total
         and not _all_negative_infinity(final_key)
@@ -1473,6 +1672,7 @@ def agent_generated_baseline_memory_payload(
         "delta_path": "",
         "patch_path": "",
         "promoted_worktree": baseline_generation.get("worktree") if accepted_as_incumbent else None,
+        "semantic_review": semantic_review,
     }
     return {
         "status": baseline_generation.get("status"),
@@ -1484,6 +1684,7 @@ def agent_generated_baseline_memory_payload(
         "repair_recovered": bool(repair.get("recovered")),
         "agentic_accepted": agentic_judgment.get("accepted"),
         "agentic_issues": (agentic_judgment.get("issues") or [])[:8],
+        "semantic_review": semantic_review,
         "proposal_summary": diagnostics.get("summary"),
         "strategy_intent": diagnostics.get("strategy_intent"),
         "rule_operator_hypotheses": (diagnostics.get("rule_operator_hypotheses") or [])[:6],
@@ -1557,6 +1758,7 @@ def round_record_payload(item: LoopRoundRecord) -> dict[str, Any]:
         "patch_path": item.patch_path,
         "promoted_worktree": item.promoted_worktree,
         "direction_plan": item.direction_plan or {},
+        "semantic_review": item.semantic_review or {},
     }
 
 
@@ -1658,6 +1860,7 @@ def next_round_guidance(
         for item in rolled_back
         if not _all_negative_infinity(item.candidate_key)
         and (item.smoke_gate or {}).get("passed")
+        and not semantic_review_blocks_promotion(item.semantic_review)
     ]
     must_do = [
         "Start from the current promoted incumbent; make one small incremental edit.",
@@ -1677,6 +1880,10 @@ def next_round_guidance(
         must_do.append("Prefer a small helper file or insert_before a top-level def; avoid fragile indentation-heavy patches.")
     if any("protected_promoted_fact_regression" in item for item in recent_signatures):
         must_do.append("Do not remove the promoted setup-aware dispatch/list-scheduler mechanism.")
+    if any("algorithm_semantic_review_repair_required" in item for item in recent_signatures):
+        must_do.append(
+            "Repair the evidence-backed algorithm semantic findings and run their required behavioral tests before restating the method claim."
+        )
     if len(valid_non_improving) >= 1:
         must_do.append(
             "A legal no-improvement round means tiny tie-break or cosmetic repair is saturated; try a materially different "
@@ -1725,7 +1932,18 @@ def round_failure_signatures(item: LoopRoundRecord) -> list[str]:
             signatures.append("proposal_changes_rejected")
         for warning in audit.get("warnings") or []:
             signatures.append(_failure_token(str(warning)))
-    if item.decision == "rolled_back" and not _all_negative_infinity(item.candidate_key):
+    if semantic_review_blocks_promotion(item.semantic_review):
+        signatures.append("algorithm_semantic_review_repair_required")
+        for finding in (item.semantic_review or {}).get("findings") or []:
+            if isinstance(finding, dict) and finding.get("blocking"):
+                signatures.append(
+                    _failure_token(f"algorithm_semantic_{finding.get('category') or 'method_semantics'}")
+                )
+    if (
+        item.decision == "rolled_back"
+        and not _all_negative_infinity(item.candidate_key)
+        and not semantic_review_blocks_promotion(item.semantic_review)
+    ):
         signatures.append("legal_but_not_strictly_better")
     return _dedupe([signature for signature in signatures if signature])
 
@@ -2044,8 +2262,8 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult, problem_fam
         "",
         "## Rounds",
         "",
-        "| Round | Decision | Worker | Duplicate Proposal | Smoke Gate | Promotion Check | Proposal Audit | Candidate Key | Incumbent Key After | Context Packet | Worktree Delta | Changed Files |",
-        "| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Round | Decision | Worker | Duplicate Proposal | Smoke Gate | Semantic Review | Promotion Check | Proposal Audit | Candidate Key | Incumbent Key After | Context Packet | Worktree Delta | Changed Files |",
+        "| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for item in result.rounds:
         proposal_audit = compact_proposal_audit(item.proposal_diagnostics)
@@ -2053,6 +2271,7 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult, problem_fam
             f"| {item.round_index} | {item.decision} | {item.worker_status} | "
             f"{'yes' if item.duplicate_proposal else 'no'} | "
             f"`{json.dumps(compact_smoke_gate(item.smoke_gate), ensure_ascii=False)}` | "
+            f"`{json.dumps(compact_semantic_review(item.semantic_review), ensure_ascii=False)}` | "
             f"`{json.dumps(compact_promotion_check(item.promotion_check), ensure_ascii=False)}` | "
             f"`{json.dumps(proposal_audit, ensure_ascii=False)}` | "
             f"`{json.dumps(item.candidate_key, ensure_ascii=False)}` | "
@@ -2088,6 +2307,27 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult, problem_fam
         ]
     )
     (output_dir / "loop_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def compact_semantic_review(value: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(value, dict) or not value:
+        return {}
+    return {
+        "status": value.get("status"),
+        "accepted": value.get("accepted"),
+        "summary": str(value.get("summary") or "")[:240],
+        "blocking_finding_count": sum(
+            1
+            for finding in value.get("findings") or []
+            if isinstance(finding, dict) and finding.get("blocking")
+        ),
+        "warning_finding_count": sum(
+            1
+            for finding in value.get("findings") or []
+            if isinstance(finding, dict) and not finding.get("blocking")
+        ),
+        "artifacts": value.get("artifacts") or {},
+    }
 
 
 def compact_proposal_audit(diagnostics: dict[str, Any]) -> dict[str, Any]:

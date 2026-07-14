@@ -12,6 +12,7 @@ from .awls_compare import AwlsCompareRequest, compare_awls_benchmarks
 from .awls_zi_evolution import AwlsZiEvolutionRequest, run_awls_zi_evolution
 from .benchmark_suite import BenchmarkSuiteRequest, run_benchmark_suite
 from .context_packet import ContextPacketRequest, write_context_packet
+from .deepseek_client import is_deepseek_configured
 from .contract_builder import (
     DraftContractRequest,
     draft_review_report_path,
@@ -25,6 +26,7 @@ from .health_check import HealthCheckRequest, run_health_check
 from .intent_alignment import IntentAlignmentRequest, write_intent_alignment
 from .loop_runner import DEFAULT_IN_ROUND_REPAIR_ATTEMPTS, run_worker_loop
 from .models import TaskContract
+from .semantic_review import DeepSeekAlgorithmSemanticReviewer
 from .project_intake import ProjectIntakeRequest, write_project_intake
 from .problem_families import write_problem_family_card
 from .runner import HarnessRunner
@@ -594,6 +596,17 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--health-allow-draft", action="store_true")
     pipeline.add_argument("--benchmark-source", default="user_provided")
     pipeline.add_argument("--worker", choices=["null", "deepseek", "opencode"], default="null")
+    pipeline.add_argument(
+        "--worker-baseline-source",
+        choices=["current_project", "agent_generated"],
+        default="current_project",
+        help="Use agent_generated to evaluate pipeline worker capability from a worker-written baseline.",
+    )
+    pipeline.add_argument(
+        "--worker-agent-generated-solver-path",
+        default="examples/agent_generated_fjsp_solver.py",
+        help="Standalone worker solver entrypoint when --worker-baseline-source agent_generated.",
+    )
     pipeline.add_argument("--worker-doc", action="append", type=Path, default=[])
     pipeline.add_argument("--worker-knowledge-card", action="append", type=Path, default=[])
     pipeline.add_argument("--previous-memory", type=Path, help="previous standard_pipeline_memory.json handoff")
@@ -1352,6 +1365,12 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
         opencode_model=args.opencode_model,
         slot_manifest=args.slot_manifest,
     )
+    semantic_reviewer = (
+        DeepSeekAlgorithmSemanticReviewer(model=args.deepseek_model)
+        if str(args.baseline_source).strip().lower().replace("-", "_") == "agent_generated"
+        and is_deepseek_configured()
+        else None
+    )
     manifest = run_standard_worker_loop(
         StandardWorkerLoopRequest(
             docs=args.doc,
@@ -1361,6 +1380,7 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
             output_dir=args.output_dir,
             project_root=args.project_root,
             worker=worker,
+            semantic_reviewer=semantic_reviewer,
             best_known_csv=args.best_known_csv,
             slot_manifest=args.slot_manifest,
             previous_pipeline_memory=args.previous_memory,
@@ -1429,11 +1449,18 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
 def run_standard_pipeline_cmd(args: argparse.Namespace) -> int:
     seeds = [int(item.strip()) for item in str(args.worker_seeds).split(",") if item.strip()]
     worker = make_worker(args.worker, deepseek_model=args.deepseek_model, opencode_model=args.opencode_model)
+    semantic_reviewer = (
+        DeepSeekAlgorithmSemanticReviewer(model=args.deepseek_model)
+        if str(args.worker_baseline_source).strip().lower().replace("-", "_") == "agent_generated"
+        and is_deepseek_configured()
+        else None
+    )
     request = StandardPipelineRequest(
         suite_config=args.suite_config,
         output_dir=args.output_dir,
         project_root=args.project_root,
         worker=worker,
+        worker_semantic_reviewer=semantic_reviewer,
         worker_docs=args.worker_doc,
         worker_knowledge_cards=args.worker_knowledge_card,
         previous_pipeline_memory=args.previous_memory,
@@ -1481,6 +1508,8 @@ def run_standard_pipeline_cmd(args: argparse.Namespace) -> int:
         worker_in_round_repair_attempts=max(0, args.worker_in_round_repair_attempts),
         worker_apply_changes=bool(args.worker_apply),
         worker_promotion_repeats=max(1, args.worker_promotion_repeats),
+        worker_baseline_source=args.worker_baseline_source,
+        worker_agent_generated_solver_path=args.worker_agent_generated_solver_path,
         worker_experiment_id=args.worker_experiment_id,
         worker_hypothesis=args.worker_hypothesis
         or "Improve the standard FJSP solver under the fixed evaluator. State the rule-level idea before editing code.",

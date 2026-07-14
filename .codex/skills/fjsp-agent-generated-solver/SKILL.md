@@ -41,9 +41,19 @@ strong legality and search-quality guardrails.
 11. Self-check standalone CLI (`--input`, `--output`, `--seed`), active IO
    parsing, declared output schema, processing-time equality, full operation
    coverage, machine eligibility, precedence, non-overlap, variant constraints,
-   incumbent preservation, and runtime before claiming a candidate is ready for
-   Core evaluation.
-12. When loop feedback contains `agent_generated_quality_memory`, repair its
+    incumbent preservation, and runtime before claiming a candidate is ready for
+    Core evaluation.
+12. After Core confirms legality, compare every claimed search method with the
+    full candidate source and the active semantic-review knowledge contract.
+    For standard FJSP, read
+    `knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_algorithm_semantic_review_contract.md`
+    when it is present.
+    In particular, verify current/global-best separation, reverse-move tabu
+    attributes, aspiration, exact critical-path propagation, tight critical
+    blocks, and named-neighborhood fidelity. Treat evidence-backed blocking
+    findings as same-direction repair targets before promotion.
+13. When loop feedback contains `agent_generated_quality_memory` or
+    `algorithm_semantic_memory`, repair its
    recurring parser, representation, constructor, decoder, variant-handling, or
    self-check gaps before proposing a new objective-improvement operator.
 

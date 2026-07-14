@@ -11,6 +11,7 @@ from .health_check import HealthCheckRequest, run_health_check
 from .intent_alignment import IntentAlignmentRequest, write_intent_alignment
 from .loop_runner import DEFAULT_IN_ROUND_REPAIR_ATTEMPTS, compact_rule_operator_hypotheses
 from .project_intake import ProjectIntakeRequest, write_project_intake
+from .semantic_review import AlgorithmSemanticReviewer
 from .standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop
 from .worker import CodingWorker
 
@@ -71,6 +72,9 @@ class StandardPipelineRequest:
     worker_in_round_repair_attempts: int = DEFAULT_IN_ROUND_REPAIR_ATTEMPTS
     worker_apply_changes: bool = False
     worker_promotion_repeats: int = 1
+    worker_baseline_source: str = "current_project"
+    worker_agent_generated_solver_path: str = "examples/agent_generated_fjsp_solver.py"
+    worker_semantic_reviewer: AlgorithmSemanticReviewer | None = None
     worker_experiment_id: str = "standard_pipeline_worker_loop"
     worker_hypothesis: str = (
         "Improve the standard FJSP solver under the fixed evaluator. "
@@ -167,6 +171,7 @@ def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
                 output_dir=worker_dir,
                 project_root=request.project_root,
                 worker=request.worker,
+                semantic_reviewer=request.worker_semantic_reviewer,
                 best_known_csv=request.worker_best_known_csv,
                 max_instances=request.worker_max_instances,
                 project_intake_manifest=Path(str(intake_manifest["artifacts"]["manifest"]))
@@ -204,6 +209,8 @@ def run_standard_pipeline(request: StandardPipelineRequest) -> dict[str, Any]:
                 in_round_repair_attempts=max(0, request.worker_in_round_repair_attempts),
                 apply_worker_changes=bool(request.worker_apply_changes),
                 promotion_repeats=max(1, request.worker_promotion_repeats),
+                baseline_source=request.worker_baseline_source,
+                agent_generated_solver_path=request.worker_agent_generated_solver_path,
                 experiment_id=request.worker_experiment_id,
                 hypothesis=request.worker_hypothesis,
             )
@@ -549,6 +556,13 @@ def standard_pipeline_manifest(
             "worker_solver": request.worker_solver,
             "worker_iterations": max(0, request.worker_iterations),
             "worker_apply_changes": bool(request.worker_apply_changes),
+            "worker_baseline_source": request.worker_baseline_source,
+            "worker_agent_generated_solver_path": request.worker_agent_generated_solver_path,
+            "worker_semantic_reviewer": (
+                type(request.worker_semantic_reviewer).__name__
+                if request.worker_semantic_reviewer is not None
+                else None
+            ),
         },
         "stage_status": {
             "admission_gate": "passed" if admission_passed else "blocked",
@@ -594,6 +608,9 @@ def standard_pipeline_manifest(
             "hypothesis_graph": worker_manifest.get("hypothesis_graph") if worker_manifest else {},
             "experience_memory": worker_manifest.get("experience_memory") if worker_manifest else {},
             "skill_usage_records": worker_manifest.get("skill_usage_records") if worker_manifest else [],
+            "algorithm_semantic_review": (
+                worker_manifest.get("algorithm_semantic_review") if worker_manifest else {}
+            ),
             "rounds": worker_manifest.get("rounds", []) if worker_manifest else [],
             "artifacts": worker_manifest.get("artifacts") if worker_manifest else {},
         },
@@ -1170,6 +1187,7 @@ def compact_experience_memory_signal(memory: dict[str, Any]) -> dict[str, Any]:
             if isinstance(item, dict)
         ],
         "self_evolution_metrics": memory.get("self_evolution_metrics") or {},
+        "algorithm_semantic_memory": memory.get("algorithm_semantic_memory") or {},
         "next_context_guidance": (memory.get("next_context_guidance") or [])[:8],
     }
 

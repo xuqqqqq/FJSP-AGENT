@@ -633,6 +633,7 @@ def _compact_experience_memory_signal(signal: dict[str, Any]) -> dict[str, Any]:
         "candidate_lesson_count": signal.get("candidate_lesson_count", 0),
         "candidate_lessons": _compact_lesson_records(signal.get("candidate_lessons") or [], limit=10),
         "self_evolution_metrics": signal.get("self_evolution_metrics") or {},
+        "algorithm_semantic_memory": signal.get("algorithm_semantic_memory") or {},
         "next_context_guidance": (signal.get("next_context_guidance") or [])[:8],
     }
 

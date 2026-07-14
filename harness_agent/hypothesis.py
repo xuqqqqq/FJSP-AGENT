@@ -365,9 +365,16 @@ def build_experience_memory(
         )
         if quality_lesson:
             candidate_lessons.append(quality_lesson)
+        semantic_lesson = algorithm_semantic_lesson_from_direction(
+            direction,
+            problem_family=problem_family,
+        )
+        if semantic_lesson:
+            candidate_lessons.append(semantic_lesson)
 
     usage_records = skill_usage_records_from_directions(graph.get("directions") or [])
     quality_memory = agent_generated_quality_memory_from_directions(graph.get("directions") or [])
+    semantic_memory = algorithm_semantic_memory_from_directions(graph.get("directions") or [])
     return {
         "schema_version": 1,
         "purpose": "Run-local learning memory for future context selection; not a curated long-term knowledge write.",
@@ -392,6 +399,7 @@ def build_experience_memory(
             "curated_skills": [],
         },
         "agent_generated_quality_memory": quality_memory,
+        "algorithm_semantic_memory": semantic_memory,
         "skill_usage_records": usage_records,
         "skill_usage_summary": summarize_skill_usage_records(usage_records),
         "self_evolution_metrics": {
@@ -407,8 +415,18 @@ def build_experience_memory(
             ),
             "agent_quality_rejected_attempt_count": quality_memory.get("rejected_attempt_count", 0),
             "agent_quality_recovered_direction_count": quality_memory.get("recovered_direction_count", 0),
+            "semantic_repair_required_attempt_count": semantic_memory.get(
+                "repair_required_attempt_count",
+                0,
+            ),
+            "semantic_recovered_direction_count": semantic_memory.get("recovered_direction_count", 0),
         },
-        "next_context_guidance": experience_guidance(candidate_lessons, usage_records, quality_memory),
+        "next_context_guidance": experience_guidance(
+            candidate_lessons,
+            usage_records,
+            quality_memory,
+            semantic_memory,
+        ),
     }
 
 
@@ -446,6 +464,7 @@ def render_experience_memory_markdown(memory: dict[str, Any]) -> str:
     tiers = _dict(memory.get("memory_tiers"))
     lessons = _list(tiers.get("candidate_lessons"))
     quality = _dict(memory.get("agent_generated_quality_memory"))
+    semantic = _dict(memory.get("algorithm_semantic_memory"))
     lines = [
         "# Experience Memory",
         "",
@@ -476,6 +495,18 @@ def render_experience_memory_markdown(memory: dict[str, Any]) -> str:
                 f"- Recovered directions: `{quality.get('recovered_direction_count', 0)}`",
                 f"- Recurring quality risks: `{json.dumps(quality.get('recurring_quality_risks') or [], ensure_ascii=False)}`",
                 f"- Recurring self-check risks: `{json.dumps(quality.get('recurring_self_check_risks') or [], ensure_ascii=False)}`",
+            ]
+        )
+    if semantic:
+        lines.extend(
+            [
+                "",
+                "## Algorithm Semantic Memory",
+                "",
+                f"- Repair-required attempts: `{semantic.get('repair_required_attempt_count', 0)}`",
+                f"- Recovered directions: `{semantic.get('recovered_direction_count', 0)}`",
+                f"- Recurring categories: `{json.dumps(semantic.get('recurring_categories') or [], ensure_ascii=False)}`",
+                f"- Required behavioral tests: `{json.dumps(semantic.get('required_behavioral_tests') or [], ensure_ascii=False)}`",
             ]
         )
     lines.extend(["", "## Next Context Guidance", ""])
@@ -521,6 +552,9 @@ def direction_status(round_record: dict[str, Any]) -> str:
     candidate_key = _number_list(round_record.get("candidate_key"))
     if candidate_key and all(value == float("-inf") for value in candidate_key):
         return "strategy_infeasible"
+    semantic_review = _dict(round_record.get("semantic_review"))
+    if semantic_review.get("status") == "repair_required" or semantic_review.get("accepted") is False:
+        return "semantic_repair_required"
     smoke = _dict(round_record.get("smoke_gate"))
     if smoke and smoke.get("passed") is False:
         return "strategy_infeasible"
@@ -548,6 +582,9 @@ def direction_attempts(round_record: dict[str, Any]) -> list[dict[str, Any]]:
             "changed_files": _bounded_strings(round_record.get("worker_changed_files"), limit=12),
             "candidate_key_relation": objective_relation(round_record),
             "failure_signatures": [],
+            "algorithm_semantic_review": compact_algorithm_semantic_review(
+                round_record.get("semantic_review")
+            ),
             "context_packet_path": round_record.get("context_packet_path"),
             "patch_path": round_record.get("patch_path"),
         }
@@ -566,9 +603,44 @@ def compact_attempt_payload(attempt: dict[str, Any]) -> dict[str, Any]:
         "failure_signatures": _bounded_strings(attempt.get("failure_signatures"), limit=16),
         "agentic_accepted": judgment.get("accepted"),
         "agent_generated_quality": compact_agent_generated_quality_gate(judgment, checks),
+        "algorithm_semantic_review": compact_algorithm_semantic_review(attempt.get("semantic_review")),
         "context_packet_path": attempt.get("context_packet_path"),
         "patch_path": attempt.get("patch_path"),
         "delta_path": attempt.get("delta_path"),
+    }
+
+
+def compact_algorithm_semantic_review(value: Any) -> dict[str, Any]:
+    review = _dict(value)
+    if not review:
+        return {}
+    findings: list[dict[str, Any]] = []
+    for item in _list(review.get("findings")):
+        if not isinstance(item, dict):
+            continue
+        findings.append(
+            {
+                "finding_id": item.get("finding_id"),
+                "category": item.get("category"),
+                "blocking": bool(item.get("blocking")),
+                "confidence": item.get("confidence"),
+                "source_path": item.get("source_path"),
+                "line_start": item.get("line_start"),
+                "line_end": item.get("line_end"),
+                "knowledge_path": item.get("knowledge_path"),
+                "repair": _bounded_text(item.get("repair"), limit=700),
+                "required_test": _bounded_text(item.get("required_test"), limit=500),
+            }
+        )
+        if len(findings) >= 8:
+            break
+    return {
+        "status": review.get("status"),
+        "accepted": review.get("accepted"),
+        "summary": _bounded_text(review.get("summary"), limit=700),
+        "findings": findings,
+        "knowledge_paths": _bounded_strings(review.get("knowledge_paths"), limit=12),
+        "artifacts": _dict(review.get("artifacts")),
     }
 
 
@@ -609,6 +681,8 @@ def attempt_kind(attempt: dict[str, Any]) -> str:
     if _int(attempt.get("attempt_index"), default=0) == 0:
         return "initial"
     signatures = " ".join(_bounded_strings(attempt.get("failure_signatures"), limit=16))
+    if "algorithm_semantic_review_repair_required" in signatures:
+        return "semantic_repair"
     if "legal_but_not_strictly_better" in signatures:
         return "same_direction_refinement"
     return "repair"
@@ -636,6 +710,9 @@ def objective_relation(round_record: dict[str, Any]) -> str:
         return "accepted_as_agent_generated_baseline"
     if round_record.get("decision") == "promoted":
         return "improved_and_promoted"
+    semantic_review = _dict(round_record.get("semantic_review"))
+    if semantic_review.get("status") == "repair_required" or semantic_review.get("accepted") is False:
+        return "semantic_review_blocked"
     promotion = _dict(round_record.get("promotion_check"))
     if promotion.get("reason") == "repeat_objective_not_strictly_better":
         return "initially_better_but_unstable"
@@ -684,7 +761,7 @@ def candidate_lesson_from_direction(
         outcome = "legal_but_not_promoted"
         applicability = ["when a similar idea repeats without strict improvement"]
         contraindications = ["avoid repeating the same tie-break or cosmetic change unchanged"]
-    elif status in {"strategy_infeasible", "worker_failed"}:
+    elif status in {"strategy_infeasible", "worker_failed", "semantic_repair_required"}:
         lesson_type = "failure_pattern"
         outcome = status
         applicability = ["when similar files, warnings, or failure signatures appear"]
@@ -807,6 +884,166 @@ def agent_generated_quality_lesson_from_direction(
             quality_risks=quality_risks,
             self_check_risks=self_check_risks,
             runtime_import_risks=runtime_import_risks,
+        ),
+    }
+
+
+def algorithm_semantic_lesson_from_direction(
+    direction: dict[str, Any],
+    *,
+    problem_family: str | None,
+) -> dict[str, Any] | None:
+    reviews = algorithm_semantic_reviews_from_direction(direction)
+    findings = [
+        finding
+        for review in reviews
+        for finding in _list(review.get("findings"))
+        if isinstance(finding, dict)
+    ]
+    if not findings:
+        return None
+    categories = _dedupe_strings(
+        str(finding.get("category") or "method_semantics")
+        for finding in findings
+    )
+    repairs = _dedupe_strings(
+        str(finding.get("repair") or "")
+        for finding in findings
+        if str(finding.get("repair") or "").strip()
+    )
+    required_tests = _dedupe_strings(
+        str(finding.get("required_test") or "")
+        for finding in findings
+        if str(finding.get("required_test") or "").strip()
+    )
+    blocking = any(bool(finding.get("blocking")) for finding in findings)
+    recovered = algorithm_semantic_direction_recovered(direction)
+    return {
+        "lesson_id": make_lesson_id(direction, "algorithm_semantic_gap"),
+        "lesson_type": "algorithm_semantic_gap",
+        "problem_family": problem_family,
+        "strategy": str(direction.get("title") or "")[:160],
+        "strategy_type": direction.get("strategy_type"),
+        "outcome": (
+            "recovered_after_semantic_repair"
+            if recovered
+            else ("blocked_by_semantic_review" if blocking else "semantic_warning_observed")
+        ),
+        "applicability": [
+            "when generated code claims the same named method or invariant",
+            "when the cited knowledge contract is active for the current problem family",
+        ],
+        "contraindications": [
+            "do not generalize benchmark scores or schedules into reusable method knowledge",
+            "do not block on a semantic claim without source lines and an exact knowledge quote",
+        ],
+        "evidence": {
+            "direction_id": direction.get("direction_id"),
+            "round_index": direction.get("round_index"),
+            "categories": categories[:8],
+            "repairs": repairs[:8],
+            "required_tests": required_tests[:8],
+            "knowledge_paths": _dedupe_strings(
+                str(finding.get("knowledge_path") or "")
+                for finding in findings
+                if str(finding.get("knowledge_path") or "").strip()
+            )[:12],
+            "artifact_refs": direction.get("artifact_refs") or {},
+        },
+        "confidence": "candidate",
+        "recommended_skill_update": (
+            "Preserve the reviewed invariant and its behavioral test in the domain knowledge card; "
+            "keep instance scores out of the reusable rule."
+        ),
+    }
+
+
+def algorithm_semantic_reviews_from_direction(direction: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        review
+        for attempt in _list(direction.get("attempts"))
+        if isinstance(attempt, dict)
+        for review in [_dict(attempt.get("algorithm_semantic_review"))]
+        if review
+    ]
+
+
+def algorithm_semantic_direction_recovered(direction: dict[str, Any]) -> bool:
+    reviews = algorithm_semantic_reviews_from_direction(direction)
+    first_blocked = next(
+        (
+            index
+            for index, review in enumerate(reviews)
+            if review.get("status") == "repair_required" or review.get("accepted") is False
+        ),
+        None,
+    )
+    if first_blocked is None:
+        return False
+    return any(
+        review.get("status") in {"pass", "warning"} and review.get("accepted") is not False
+        for review in reviews[first_blocked + 1 :]
+    )
+
+
+def algorithm_semantic_memory_from_directions(directions: list[Any]) -> dict[str, Any]:
+    reviews: list[dict[str, Any]] = []
+    recovered_direction_count = 0
+    for direction in directions:
+        if not isinstance(direction, dict):
+            continue
+        direction_reviews = algorithm_semantic_reviews_from_direction(direction)
+        if not direction_reviews:
+            continue
+        reviews.extend(direction_reviews)
+        if algorithm_semantic_direction_recovered(direction):
+            recovered_direction_count += 1
+    if not reviews:
+        return {}
+
+    findings = [
+        finding
+        for review in reviews
+        for finding in _list(review.get("findings"))
+        if isinstance(finding, dict)
+    ]
+    categories = [str(item.get("category") or "method_semantics") for item in findings]
+    repairs = [str(item.get("repair") or "") for item in findings if str(item.get("repair") or "").strip()]
+    required_tests = _dedupe_strings(
+        str(item.get("required_test") or "")
+        for item in findings
+        if str(item.get("required_test") or "").strip()
+    )
+    knowledge_paths = _dedupe_strings(
+        str(item.get("knowledge_path") or "")
+        for item in findings
+        if str(item.get("knowledge_path") or "").strip()
+    )
+    repair_required_count = sum(
+        1
+        for review in reviews
+        if review.get("status") == "repair_required" or review.get("accepted") is False
+    )
+    warning_count = sum(1 for review in reviews if review.get("status") == "warning")
+    return {
+        "schema_version": 1,
+        "purpose": (
+            "Run-local method-semantic memory backed by candidate source and domain knowledge evidence; "
+            "contains no benchmark-specific solution or target score."
+        ),
+        "attempt_count": len(reviews),
+        "repair_required_attempt_count": repair_required_count,
+        "warning_attempt_count": warning_count,
+        "recovered_direction_count": recovered_direction_count,
+        "recurring_categories": counted_items(categories, limit=8),
+        "recurring_repairs": counted_items(repairs, limit=8),
+        "required_behavioral_tests": required_tests[:10],
+        "knowledge_paths": knowledge_paths[:12],
+        "next_prompt_rule": (
+            "Preserve repaired algorithm invariants in later directions. Before repeating a named method claim, "
+            "run the remembered behavioral tests and cite matching source evidence against the active knowledge contract."
+            if findings
+            else ""
         ),
     }
 
@@ -1025,6 +1262,7 @@ def experience_guidance(
     lessons: list[dict[str, Any]],
     usage_records: list[dict[str, Any]],
     quality_memory: dict[str, Any] | None = None,
+    semantic_memory: dict[str, Any] | None = None,
 ) -> list[str]:
     guidance = [
         "Inject only candidate lessons whose applicability matches the current contract and problem family.",
@@ -1040,6 +1278,11 @@ def experience_guidance(
     if int(quality_memory.get("rejected_attempt_count", 0) or 0) > 0:
         guidance.append(
             "Repair recurring agent-generated parser/representation/constructor/decoder/self-check gaps before spending another direction on objective tuning."
+        )
+    semantic_memory = semantic_memory or {}
+    if int(semantic_memory.get("repair_required_attempt_count", 0) or 0) > 0:
+        guidance.append(
+            "Preserve recovered algorithm semantics and rerun remembered behavioral tests before repeating named-method claims."
         )
     return guidance
 

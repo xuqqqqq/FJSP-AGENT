@@ -20,6 +20,7 @@ from .deepseek_client import is_deepseek_configured, load_local_env, local_env_c
 from .demo import StandardDemoRequest, run_standard_demo
 from .loop_runner import DEFAULT_IN_ROUND_REPAIR_ATTEMPTS
 from .main_agent import DeepSeekMainAgent, EvidenceDrivenMainAgent
+from .semantic_review import DeepSeekAlgorithmSemanticReviewer
 from .slot_contract import ResolvedCodeSlot
 from .slot_manifest import default_standard_fjsp_slot_manifest, write_selected_slot_manifest
 from .standard_fjsp import parse_standard_fjsp
@@ -1057,6 +1058,12 @@ def run_job(job_id: str) -> None:
                 if is_deepseek_configured()
                 else EvidenceDrivenMainAgent()
             )
+            semantic_reviewer = (
+                DeepSeekAlgorithmSemanticReviewer(model=config["deepseek_model"])
+                if str(config["baseline_source"]).strip().lower().replace("-", "_") == "agent_generated"
+                and is_deepseek_configured()
+                else None
+            )
             worker_loop_root = output_dir / "standard_worker_loop" / "worker_loop"
             progress_stop = threading.Event()
             progress_thread = threading.Thread(
@@ -1089,6 +1096,7 @@ def run_job(job_id: str) -> None:
                         project_root=PROJECT_ROOT,
                         worker=coding_worker,
                         main_agent=direction_planner,
+                        semantic_reviewer=semantic_reviewer,
                         slot_manifest=slot_manifest_path,
                         max_instances=1,
                         iterations=config["max_rounds"],
@@ -1404,6 +1412,11 @@ def compact_direction(item: dict[str, Any], rounds: list[Any]) -> dict[str, Any]
     if not isinstance(candidate_summary, dict):
         candidate_summary = {}
     metrics = summary_metrics(candidate_summary)
+    semantic_review = (
+        matching_round.get("semantic_review")
+        if isinstance(matching_round.get("semantic_review"), dict)
+        else {}
+    )
     attempts = item.get("attempts") if isinstance(item.get("attempts"), list) else []
     failures: list[str] = []
     for attempt in attempts:
@@ -1432,6 +1445,8 @@ def compact_direction(item: dict[str, Any], rounds: list[Any]) -> dict[str, Any]
         "total": int(candidate_summary.get("total", 0) or 0),
         "failure_signatures": failures[:4],
         "evidence_used": evidence,
+        "semantic_review_status": semantic_review.get("status"),
+        "semantic_finding_count": len(semantic_review.get("findings") or []),
     }
 
 
@@ -1441,6 +1456,7 @@ def compact_loop_round(item: dict[str, Any]) -> dict[str, Any]:
     diagnostics = item.get("proposal_diagnostics") if isinstance(item.get("proposal_diagnostics"), dict) else {}
     summary = str(diagnostics.get("summary") or "")
     round_index = json_int(item.get("round_index"), 0)
+    semantic_review = item.get("semantic_review") if isinstance(item.get("semantic_review"), dict) else {}
     return {
         "round_index": round_index,
         "title": summary[:80] or f"round_{round_index:03d}",
@@ -1455,6 +1471,8 @@ def compact_loop_round(item: dict[str, Any]) -> dict[str, Any]:
         "valid": int(candidate_summary.get("valid", 0) or 0),
         "total": int(candidate_summary.get("total", 0) or 0),
         "failure_signatures": [],
+        "semantic_review_status": semantic_review.get("status"),
+        "semantic_finding_count": len(semantic_review.get("findings") or []),
         "evidence_used": [],
     }
 
@@ -1510,12 +1528,18 @@ def summarize_knowledge_insight(experience_memory: dict[str, Any], skill_usage_r
     candidate_lessons = tiers.get("candidate_lessons") if isinstance(tiers.get("candidate_lessons"), list) else []
     validated_lessons = tiers.get("validated_lessons") if isinstance(tiers.get("validated_lessons"), list) else []
     skill_summary = experience_memory.get("skill_usage_summary") if isinstance(experience_memory.get("skill_usage_summary"), dict) else {}
+    semantic_memory = (
+        experience_memory.get("algorithm_semantic_memory")
+        if isinstance(experience_memory.get("algorithm_semantic_memory"), dict)
+        else {}
+    )
     return {
         "purpose": experience_memory.get("purpose") or "运行后按层沉淀经验",
         "lesson_count": len(candidate_lessons),
         "validated_lesson_count": len(validated_lessons),
         "skill_usage_record_count": len(skill_usage_records),
         "skill_usage_summary": skill_summary,
+        "algorithm_semantic_memory": semantic_memory,
         "lessons": [compact_lesson(item) for item in candidate_lessons[:8] if isinstance(item, dict)],
         "skill_usage_records": [compact_usage_record(item) for item in skill_usage_records[:12] if isinstance(item, dict)],
     }
@@ -1590,6 +1614,7 @@ def summarize_worker_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         "attempt_count": int(hypothesis_graph.get("attempt_count", manifest.get("round_count", 0)) or 0),
         "candidate_lesson_count": len(candidate_lessons),
         "skill_usage_record_count": len(skill_usage_records),
+        "semantic_review": manifest.get("algorithm_semantic_review") or {},
         "direction_status_counts": hypothesis_graph.get("status_counts") or {},
         "direction_decision_counts": hypothesis_graph.get("decision_counts") or {},
         "promoted_rounds": int(manifest.get("promoted_rounds", 0) or 0),
@@ -1746,6 +1771,17 @@ def scan_code_evolution_progress(job: dict[str, Any], worker_root: Path, seen: s
     if (worker_root / "baseline_harness" / "report.md").exists():
         record_progress_event(job, seen, "baseline-report", "基线 evaluator 已完成，开始进入 DeepSeek 代码演进轮次。")
 
+    generated_baseline_dir = worker_root / "agent_generated_baseline"
+    if generated_baseline_dir.exists():
+        record_progress_event(
+            job,
+            seen,
+            "agent-generated-baseline-started",
+            "Agent 正在从需求、IO 与知识卡生成初始 solver，并执行基线审查。",
+        )
+        for attempt_dir, label in worker_attempt_dirs(generated_baseline_dir):
+            scan_code_attempt_progress(job, seen, attempt_dir, label)
+
     for round_dir in sorted(path for path in worker_root.glob("round_*") if path.is_dir()):
         for attempt_dir, label in worker_attempt_dirs(round_dir):
             scan_code_attempt_progress(job, seen, attempt_dir, label)
@@ -1823,6 +1859,21 @@ def scan_code_attempt_progress(job: dict[str, Any], seen: set[str], attempt_dir:
                     f"{label} evaluator 已完成：worker={worker.get('status', 'unknown')}，"
                     f"valid={summary.get('valid', '-')}，makespan={format_progress_value(makespan)}。"
                 ),
+            )
+        semantic_review = attempt_dir / "semantic_review" / "algorithm_semantic_review.json"
+        if semantic_review.exists():
+            review_payload = read_json_file(semantic_review)
+            review_status = str(review_payload.get("status") or "unknown")
+            findings = review_payload.get("findings") if isinstance(review_payload.get("findings"), list) else []
+            record_progress_event(
+                job,
+                seen,
+                f"{label}:semantic-review",
+                (
+                    f"{label} 算法语义审查={review_status}，"
+                    f"证据项={len(findings)}。"
+                ),
+                level="error" if review_status == "repair_required" else "info",
             )
         patch = attempt_dir / "worker_changes.patch"
         if patch.exists() and patch.stat().st_size > 0:

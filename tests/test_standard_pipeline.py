@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from harness_agent.cli import build_parser
+from harness_agent.semantic_review import EvidenceOnlySemanticReviewer
 from harness_agent.standard_pipeline import (
     StandardPipelineAblationRequest,
     StandardPipelineLoopRequest,
@@ -86,6 +88,7 @@ class StandardPipelineTests(unittest.TestCase):
                     output_dir=output_dir,
                     project_root=ROOT,
                     worker=NullWorker(),
+                    worker_semantic_reviewer=EvidenceOnlySemanticReviewer(),
                     worker_docs=[ROOT / "README.md"],
                     worker_instance_dir=ROOT / "examples",
                     previous_pipeline_memory=previous_memory,
@@ -118,6 +121,11 @@ class StandardPipelineTests(unittest.TestCase):
             self.assertTrue(manifest["health_check"]["stability_probe"]["stable"])
             self.assertEqual(1, manifest["benchmark_suite"]["aggregate"]["valid_experiments"])
             self.assertEqual(1, manifest["standard_worker_loop"]["round_count"])
+            self.assertEqual(
+                "EvidenceOnlySemanticReviewer",
+                manifest["request"]["worker_semantic_reviewer"],
+            )
+            self.assertIn("algorithm_semantic_review", manifest["standard_worker_loop"])
             self.assertEqual(1, len(manifest["standard_worker_loop"]["rounds"]))
             self.assertEqual(
                 "missing",
@@ -153,6 +161,29 @@ class StandardPipelineTests(unittest.TestCase):
                 ]["pipeline_status"],
             )
             self.assertTrue((output_dir / "evidence_index" / "evidence_index.json").exists())
+
+    def test_standard_pipeline_cli_accepts_agent_generated_semantic_review_options(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "run-standard-pipeline",
+                "--suite-config",
+                "configs/standard_fjsp_suite.example.json",
+                "--output-dir",
+                "outputs/pipeline",
+                "--worker-instance-dir",
+                "examples",
+                "--worker-baseline-source",
+                "agent_generated",
+                "--worker-agent-generated-solver-path",
+                "examples/pipeline_generated_solver.py",
+            ]
+        )
+
+        self.assertEqual("agent_generated", args.worker_baseline_source)
+        self.assertEqual(
+            "examples/pipeline_generated_solver.py",
+            args.worker_agent_generated_solver_path,
+        )
 
     def test_standard_pipeline_skips_optimization_when_admission_is_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

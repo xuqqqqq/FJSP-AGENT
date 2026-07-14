@@ -992,6 +992,11 @@ def priority_worker_context(context: dict[str, Any]) -> str:
             "while the generated solver still lacks parser, representation, constructor, decoder, or active "
             "variant evidence from the prior memory."
         ),
+        "algorithm_semantic_memory_rule": (
+            "If loop_feedback.experience_memory.algorithm_semantic_memory is present, preserve repaired method "
+            "semantics and address recurring categories with the cited behavioral tests before restating a named "
+            "algorithm claim. A legal score does not override evidence-backed semantic findings."
+        ),
         "main_agent_direction_rule": (
             "When loop_feedback.current_direction_plan is present, implement its change_scope, preserve, avoid, "
             "knowledge_paths, acceptance_checks, and stop_conditions. Worker hypotheses may refine the plan into "
@@ -1319,6 +1324,9 @@ def compact_loop_feedback_for_prompt(loop_feedback: dict[str, Any]) -> dict[str,
                 "solver_contract_self_check_audit": compact_solver_contract_self_check_audit_for_prompt(
                     ((diagnostics.get("proposal_audit") or {}).get("solver_contract_self_check") or {})
                 ),
+                "algorithm_semantic_review": compact_algorithm_semantic_review_for_prompt(
+                    item.get("semantic_review") or diagnostics.get("algorithm_semantic_review") or {}
+                ),
                 "smoke_gate": {
                     "passed": smoke_gate.get("passed"),
                     "full_evaluation_started": smoke_gate.get("full_evaluation_started"),
@@ -1449,6 +1457,9 @@ def compact_experience_memory_for_prompt(value: dict[str, Any]) -> dict[str, Any
         "agent_generated_quality_memory": compact_agent_generated_quality_memory(
             value.get("agent_generated_quality_memory") or {}
         ),
+        "algorithm_semantic_memory": compact_algorithm_semantic_memory(
+            value.get("algorithm_semantic_memory") or {}
+        ),
         "skill_usage_summary": value.get("skill_usage_summary") or {},
         "self_evolution_metrics": value.get("self_evolution_metrics") or {},
         "next_context_guidance": (value.get("next_context_guidance") or [])[:6],
@@ -1466,6 +1477,22 @@ def compact_agent_generated_quality_memory(value: dict[str, Any]) -> dict[str, A
         "recurring_self_check_risks": (value.get("recurring_self_check_risks") or [])[:5],
         "recurring_runtime_import_risks": (value.get("recurring_runtime_import_risks") or [])[:5],
         "next_prompt_rule": str(value.get("next_prompt_rule") or "")[:1000],
+    }
+
+
+def compact_algorithm_semantic_memory(value: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, dict) or not value:
+        return {}
+    return {
+        "attempt_count": value.get("attempt_count"),
+        "repair_required_attempt_count": value.get("repair_required_attempt_count"),
+        "warning_attempt_count": value.get("warning_attempt_count"),
+        "recovered_direction_count": value.get("recovered_direction_count"),
+        "recurring_categories": (value.get("recurring_categories") or [])[:6],
+        "recurring_repairs": (value.get("recurring_repairs") or [])[:6],
+        "required_behavioral_tests": (value.get("required_behavioral_tests") or [])[:8],
+        "knowledge_paths": (value.get("knowledge_paths") or [])[:10],
+        "next_prompt_rule": str(value.get("next_prompt_rule") or "")[:1200],
     }
 
 
@@ -1505,6 +1532,9 @@ def compact_current_round_repair(value: dict[str, Any]) -> dict[str, Any]:
                 "agent_generated_unwired_helpers": (audit.get("agent_generated_unwired_helpers") or [])[:8],
                 "solver_contract_self_check_audit": compact_solver_contract_self_check_audit_for_prompt(
                     audit.get("solver_contract_self_check") or {}
+                ),
+                "algorithm_semantic_review": compact_algorithm_semantic_review_for_prompt(
+                    attempt.get("semantic_review") or {}
                 ),
                 "proposal_diagnostics": {
                     "apply_rejections": (diagnostics.get("apply_rejections") or [])[:8],
@@ -1546,11 +1576,48 @@ def compact_repair_targets_for_prompt(value: dict[str, Any]) -> dict[str, Any]:
         "agent_generated_solver_method_stage",
         "agent_generated_solver_repair_plan",
         "agent_generated_repair_escalation",
+        "algorithm_semantic_review",
     ):
         item = value.get(key)
         if isinstance(item, dict) and item:
             compact[key] = item
     return compact
+
+
+def compact_algorithm_semantic_review_for_prompt(value: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, dict) or not value:
+        return {}
+    findings = []
+    for item in value.get("findings") or []:
+        if not isinstance(item, dict):
+            continue
+        findings.append(
+            {
+                "finding_id": item.get("finding_id"),
+                "category": item.get("category"),
+                "severity": item.get("severity"),
+                "blocking": item.get("blocking"),
+                "confidence": item.get("confidence"),
+                "source_path": item.get("source_path"),
+                "line_start": item.get("line_start"),
+                "line_end": item.get("line_end"),
+                "knowledge_path": item.get("knowledge_path"),
+                "knowledge_quote": str(item.get("knowledge_quote") or "")[:1200],
+                "explanation": str(item.get("explanation") or "")[:1200],
+                "repair": str(item.get("repair") or "")[:1200],
+                "required_test": str(item.get("required_test") or "")[:900],
+            }
+        )
+        if len(findings) >= 8:
+            break
+    return {
+        "status": value.get("status"),
+        "accepted": value.get("accepted"),
+        "summary": str(value.get("summary") or "")[:800],
+        "findings": findings,
+        "knowledge_paths": (value.get("knowledge_paths") or [])[:12],
+        "artifacts": value.get("artifacts") or {},
+    }
 
 
 def compact_solver_contract_self_check_audit_for_prompt(value: dict[str, Any]) -> dict[str, Any]:

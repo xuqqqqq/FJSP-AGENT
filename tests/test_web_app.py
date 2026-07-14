@@ -665,6 +665,18 @@ class WebAppTests(unittest.TestCase):
                 "Traceback\njson.decoder.JSONDecodeError: bad json\n",
                 encoding="utf-8",
             )
+            generated_baseline = worker_root / "agent_generated_baseline"
+            (generated_baseline / "semantic_review").mkdir(parents=True)
+            (generated_baseline / "context_packet.json").write_text("{}", encoding="utf-8")
+            (generated_baseline / "semantic_review" / "algorithm_semantic_review.json").write_text(
+                json.dumps(
+                    {
+                        "status": "repair_required",
+                        "findings": [{"category": "reverse_move_memory"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             job = {
                 "id": "job",
@@ -686,6 +698,8 @@ class WebAppTests(unittest.TestCase):
             self.assertIn("round_000 已生成上下文包", messages)
             self.assertIn("round_000 DeepSeek 已返回原始代码修改响应", messages)
             self.assertIn("round_000 执行异常", messages)
+            self.assertIn("Agent 正在从需求、IO 与知识卡生成初始 solver", messages)
+            self.assertIn("agent_generated_baseline 算法语义审查=repair_required", messages)
             self.assertTrue((job_dir / "web_job_status.json").exists())
 
     def test_code_progress_summary_tracks_best_so_far_metrics(self) -> None:

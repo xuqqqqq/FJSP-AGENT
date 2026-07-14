@@ -98,6 +98,24 @@ class HypothesisGraphTests(unittest.TestCase):
                                         },
                                     },
                                 },
+                                "semantic_review": {
+                                    "status": "repair_required",
+                                    "accepted": False,
+                                    "findings": [
+                                        {
+                                            "finding_id": "reverse_move",
+                                            "category": "reverse_move_memory",
+                                            "blocking": True,
+                                            "confidence": 0.95,
+                                            "source_path": "examples/solver.py",
+                                            "line_start": 10,
+                                            "line_end": 12,
+                                            "knowledge_path": "knowledge/tabu_contract.md",
+                                            "repair": "Store the inverse move attribute.",
+                                            "required_test": "Prove immediate reversal remains tabu.",
+                                        }
+                                    ],
+                                },
                             },
                             {
                                 "attempt_index": 1,
@@ -105,6 +123,11 @@ class HypothesisGraphTests(unittest.TestCase):
                                 "changed_files": ["examples/solver.py"],
                                 "candidate_key": [-90.0],
                                 "failure_signatures": [],
+                                "semantic_review": {
+                                    "status": "pass",
+                                    "accepted": True,
+                                    "findings": [],
+                                },
                             },
                         ]
                     },
@@ -127,6 +150,7 @@ class HypothesisGraphTests(unittest.TestCase):
         self.assertTrue(any(item["lesson_type"] == "successful_strategy" for item in lessons))
         self.assertTrue(any(item["lesson_type"] == "repair_recovery" for item in lessons))
         self.assertTrue(any(item["lesson_type"] == "agent_generated_quality_gap" for item in lessons))
+        self.assertTrue(any(item["lesson_type"] == "algorithm_semantic_gap" for item in lessons))
         self.assertTrue(memory["write_policy"]["no_instance_score_as_method"])
         quality_memory = memory["agent_generated_quality_memory"]
         self.assertEqual(1, quality_memory["rejected_attempt_count"])
@@ -134,6 +158,10 @@ class HypothesisGraphTests(unittest.TestCase):
         self.assertIn("active_io_parser", quality_memory["recurring_quality_risks"][0]["text"])
         self.assertIn("parser/representation/constructor", quality_memory["next_prompt_rule"])
         self.assertEqual(1, memory["self_evolution_metrics"]["agent_quality_rejected_attempt_count"])
+        semantic_memory = memory["algorithm_semantic_memory"]
+        self.assertEqual(1, semantic_memory["repair_required_attempt_count"])
+        self.assertEqual(1, semantic_memory["recovered_direction_count"])
+        self.assertIn("reverse_move_memory", semantic_memory["recurring_categories"][0]["text"])
         self.assertGreaterEqual(memory["skill_usage_summary"]["promoted_usage_count"], 1)
 
 
