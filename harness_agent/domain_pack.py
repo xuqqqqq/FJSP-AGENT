@@ -71,6 +71,8 @@ class DomainPack:
     base_cards: list[Path] = field(default_factory=list)
     tagged_cards: dict[str, list[Path]] = field(default_factory=dict)
     edit_strategies: list[DomainEditStrategy] = field(default_factory=list)
+    agent_generated_baseline_preserve_paths: list[str] = field(default_factory=list)
+    agent_generated_baseline_hidden_paths: list[str] = field(default_factory=list)
     source_path: Path | None = None
 
     @property
@@ -91,6 +93,7 @@ def load_domain_pack(path: Path, *, project_root: Path = PROJECT_ROOT) -> Domain
     aliases = [str(alias) for alias in payload.get("aliases") or [] if str(alias).strip()]
     capability_payload = payload.get("capability") or {}
     knowledge = payload.get("knowledge") or {}
+    agent_generated_baseline = payload.get("agent_generated_baseline") or {}
     tagged_cards_payload = knowledge.get("tagged_cards") or {}
 
     capability = DomainCapability(
@@ -127,6 +130,16 @@ def load_domain_pack(path: Path, *, project_root: Path = PROJECT_ROOT) -> Domain
             _load_edit_strategy(value, project_root=project_root)
             for value in payload.get("edit_strategies") or []
             if _loadable_edit_strategy(value)
+        ],
+        agent_generated_baseline_preserve_paths=[
+            str(value).replace("\\", "/")
+            for value in agent_generated_baseline.get("preserve_paths") or []
+            if str(value).strip()
+        ],
+        agent_generated_baseline_hidden_paths=[
+            str(value).replace("\\", "/")
+            for value in agent_generated_baseline.get("hidden_reference_paths") or []
+            if str(value).strip()
         ],
         source_path=path,
     )

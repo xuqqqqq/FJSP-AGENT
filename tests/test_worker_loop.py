@@ -1640,6 +1640,10 @@ class WorkerLoopTests(unittest.TestCase):
             source_project = Path(result.baseline_generation["source_project"])
             self.assertFalse((source_project / "examples" / "standard_fjsp_awls_solver.py").exists())
             self.assertFalse((source_project / "examples" / "standard_fjsp_portfolio_solver.py").exists())
+            self.assertFalse((source_project / "harness_agent" / "awls_benchmark.py").exists())
+            self.assertFalse((source_project / "harness_agent" / "standard_agent.py").exists())
+            self.assertFalse((source_project / "harness_agent" / "strategy_variants.py").exists())
+            self.assertTrue((source_project / "harness_agent" / "standard_fjsp.py").exists())
             self.assertTrue((result.final_worktree / "examples" / "agent_generated_solver.py").exists())
             baseline_context = json.loads(
                 (tmp_path / "loop" / "agent_generated_baseline" / "context_packet.json").read_text(encoding="utf-8")

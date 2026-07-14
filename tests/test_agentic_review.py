@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from harness_agent.agentic_review import (
+    _detect_agent_generated_source_self_check_risks,
     _detect_agent_generated_output_schema_mismatch_risks,
     _has_machine_non_overlap_guard,
     _has_operation_coverage_guard,
@@ -397,6 +398,85 @@ def initial_ready_list_state(instance, rng):
         job_next_op[op_key[0]] += 1
 """
         self.assertTrue(_has_operation_level_ready_list_constructor(source))
+
+    def test_ready_list_detector_accepts_op_info_eligible_items_loop(self) -> None:
+        source = """
+def initial_ready_list_state(instance):
+    op_info = instance["op_info"]
+    job_op_counts = instance["job_op_counts"]
+    assignment = {}
+    machine_sequences = {m: [] for m in range(instance["machine_count"])}
+    job_next_op = {j: 0 for j in job_op_counts}
+    job_ready = {j: 0 for j in job_op_counts}
+    machine_ready = {m: 0 for m in range(instance["machine_count"])}
+    while len(assignment) < instance["operation_count"]:
+        ready_ops = [(j, op) for j, op in job_next_op.items() if op < job_op_counts[j]]
+        best_choices = []
+        best_finish = None
+        for op_key in ready_ops:
+            job_id, _ = op_key
+            for machine_id, duration in op_info[op_key]["eligible"].items():
+                finish = max(job_ready[job_id], machine_ready[machine_id]) + duration
+                if best_finish is None or finish < best_finish:
+                    best_finish = finish
+                    best_choices = [(op_key, machine_id, finish)]
+        op_key, machine_id, finish = min(best_choices, key=lambda item: item[2])
+        assignment[op_key] = machine_id
+        machine_sequences[machine_id].append(op_key)
+        job_next_op[op_key[0]] += 1
+"""
+        self.assertTrue(_has_operation_level_ready_list_constructor(source))
+
+    def test_source_self_check_follows_coverage_helper_and_sorted_interval_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            solver = root / "examples" / "agent_generated_fjsp_solver.py"
+            solver.parent.mkdir(parents=True)
+            solver.write_text(
+                """
+def coverage_ok(instance, schedule):
+    seen = {(item["job_id"], item["op_id"]) for item in schedule}
+    return len(schedule) == instance["operation_count"] and seen == set(instance["op_info"])
+
+def validate_schedule(instance, schedule):
+    if not coverage_ok(instance, schedule):
+        return False
+    by_machine = {}
+    for item in schedule:
+        op_key = (item["job_id"], item["op_id"])
+        machine_id = item["machine_id"]
+        duration = instance["op_info"].get(op_key, {}).get("eligible", {}).get(machine_id)
+        if duration is None or item["end"] - item["start"] != duration:
+            return False
+        by_machine.setdefault(machine_id, []).append((item["start"], item["end"]))
+    for intervals in by_machine.values():
+        intervals.sort()
+        for left, right in zip(intervals, intervals[1:]):
+            if left[1] > right[0]:
+                return False
+    return True
+
+def solve(instance, schedule):
+    if not validate_schedule(instance, schedule):
+        raise RuntimeError("invalid")
+""",
+                encoding="utf-8",
+            )
+            risks = _detect_agent_generated_source_self_check_risks(
+                worktree_path=root,
+                changed_files=["examples/agent_generated_fjsp_solver.py"],
+                quality_contract={
+                    "required_code_capabilities": [
+                        "complete_schedule_coverage_guard",
+                        "machine_eligibility_guard",
+                        "processing_duration_guard",
+                        "machine_non_overlap_guard",
+                    ],
+                    "variant_required_code_capabilities": [],
+                },
+            )
+
+        self.assertEqual([], risks)
 
     def test_coverage_detector_accepts_seen_expected_return(self) -> None:
         source = """

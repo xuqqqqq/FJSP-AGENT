@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import re
 from dataclasses import dataclass
@@ -983,6 +984,7 @@ def _detect_agent_generated_source_self_check_risks(
             "agent-generated solver edit has no solver_contract_self_check proposal and no source-level validate_schedule/self_check function"
         ]
     name, block = self_check
+    evidence_text = _source_self_check_evidence_text(combined_text, root_name=name, fallback=block)
     risks: list[str] = []
     reachable = function_is_reachable_from_entry(combined_text, name)
     if reachable is False or (reachable is None and function_call_count(combined_text, name) < 2):
@@ -1008,7 +1010,7 @@ def _detect_agent_generated_source_self_check_risks(
     missing = [
         capability
         for capability, detector in capability_detectors
-        if capability in expected_capabilities and not detector(block)
+        if capability in expected_capabilities and not detector(evidence_text)
     ]
     if missing:
         risks.append(
@@ -1029,6 +1031,42 @@ def _source_self_check_block(text: str) -> tuple[str, str] | None:
     next_def = re.search(r"^def\s+", text[match.end() :], re.M)
     end = match.end() + next_def.start() if next_def else len(text)
     return match.group(1), text[match.start() : end]
+
+
+def _source_self_check_evidence_text(text: str, *, root_name: str, fallback: str) -> str:
+    """Include directly reachable validation helpers in source-level evidence."""
+
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return fallback
+    functions = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    if root_name not in functions:
+        return fallback
+    lines = text.splitlines()
+    selected: list[str] = []
+    pending = [root_name]
+    visited: set[str] = set()
+    while pending and len(visited) < 12:
+        name = pending.pop(0)
+        if name in visited:
+            continue
+        node = functions.get(name)
+        if node is None:
+            continue
+        visited.add(name)
+        end_lineno = getattr(node, "end_lineno", None) or node.lineno
+        selected.append("\n".join(lines[node.lineno - 1 : end_lineno]))
+        for child in ast.walk(node):
+            if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
+                called_name = child.func.id
+                if called_name in functions and called_name not in visited:
+                    pending.append(called_name)
+    return "\n\n".join(selected) or fallback
 
 
 def _detect_agent_generated_dead_function_risks(text: str) -> list[str]:
@@ -1954,6 +1992,8 @@ def _has_operation_level_ready_list_constructor(text: str) -> bool:
         "for machine_id, duration in op_info[key]['eligible'].items()",
         "for machine_id in op_info[op_key][\"eligible\"]",
         "for machine_id in op_info[op_key]['eligible']",
+        "for machine_id, duration in op_info[op_key][\"eligible\"].items()",
+        "for machine_id, duration in op_info[op_key]['eligible'].items()",
         "for machine_id, duration in op_info[op_key][\"processing_times\"].items()",
         "for machine_id, duration in op_info[op_key]['processing_times'].items()",
         "for machine_id, proc in op_info[op_key][\"processing_times\"].items()",
@@ -2168,6 +2208,7 @@ def _has_machine_eligibility_guard(text: str) -> bool:
         "not in",
         "continue",
         "return none",
+        "return false",
         "raise valueerror",
         "infeasible",
         "return any(",
@@ -2218,10 +2259,17 @@ def _has_processing_duration_guard(text: str) -> bool:
         )
         and ("eligible" in lowered or "op_info" in lowered or "processing_time" in lowered)
     )
+    record_duration_guard = bool(
+        re.search(
+            r"\b([a-z_][a-z0-9_]*)\[['\"]end['\"]\]\s*-\s*\1\[['\"]start['\"]\]"
+            r"\s*!=\s*(?:duration|processing_time|proc_time|proc|dur|pt)\b",
+            lowered,
+        )
+    )
     return (
         any(term in lowered for term in duration_terms)
-        and any(term in lowered for term in interval_terms)
-        and (direct_duration_construction or any(term in lowered for term in rejection_terms))
+        and (any(term in lowered for term in interval_terms) or record_duration_guard)
+        and (direct_duration_construction or record_duration_guard or any(term in lowered for term in rejection_terms))
     )
 
 
@@ -2250,8 +2298,15 @@ def _has_machine_non_overlap_guard(text: str) -> bool:
         and ("> start" in lowered or "> start_times" in lowered or "overlap" in lowered)
         and ("return none" in lowered or "return false" in lowered or "raise" in lowered)
     )
+    sorted_interval_guard = (
+        "by_machine" in lowered
+        and ("intervals.sort" in lowered or "sorted(intervals" in lowered)
+        and "zip(intervals" in lowered
+        and any(term in lowered for term in ["left[1] > right[0]", "prev[1] > curr[0]", "overlap"])
+        and ("return none" in lowered or "return false" in lowered or "raise" in lowered)
+    )
     return (
-        (machine_clock_guard or sequence_pair_guard)
+        (machine_clock_guard or sequence_pair_guard or sorted_interval_guard)
         and ("start" in lowered and "end" in lowered)
     )
 

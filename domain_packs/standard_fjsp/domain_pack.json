@@ -65,6 +65,29 @@
       "awls"
     ]
   },
+  "agent_generated_baseline": {
+    "preserve_paths": [
+      "harness_agent/__init__.py",
+      "harness_agent/standard_fjsp.py",
+      "harness_agent/benchmark_bounds.py",
+      "examples/standard_fjsp_evaluator.py"
+    ],
+    "hidden_reference_paths": [
+      "examples/standard_fjsp_solver.py",
+      "examples/standard_fjsp_portfolio_solver.py",
+      "examples/standard_fjsp_local_search_solver.py",
+      "examples/standard_fjsp_awls_solver.py",
+      "examples/standard_fjsp_awls_cpp_backend.py",
+      "examples/awls_evolved_slots.py",
+      "harness_agent/awls_benchmark.py",
+      "harness_agent/awls_compare.py",
+      "harness_agent/awls_merge.py",
+      "harness_agent/awls_zi_evolution.py",
+      "harness_agent/standard_agent.py",
+      "harness_agent/standard_pipeline.py",
+      "harness_agent/strategy_variants.py"
+    ]
+  },
   "knowledge": {
     "base_cards": [
       "knowledge/benchmarks/standard_fjsp_format.md",

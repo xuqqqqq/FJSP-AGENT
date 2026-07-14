@@ -39,6 +39,18 @@ class DomainPackTests(unittest.TestCase):
         capability = get_problem_family("FJSP")
         self.assertEqual("standard_fjsp", capability.family_id)
         self.assertNotIn("FJSP-SDST", " ".join(capability.io_contract_notes))
+        self.assertIn(
+            "examples/standard_fjsp_local_search_solver.py",
+            pack.agent_generated_baseline_hidden_paths,
+        )
+        self.assertIn(
+            "examples/standard_fjsp_evaluator.py",
+            pack.agent_generated_baseline_preserve_paths,
+        )
+        self.assertNotIn(
+            "harness_agent/awls_benchmark.py",
+            pack.agent_generated_baseline_preserve_paths,
+        )
 
     def test_domain_pack_declares_knowledge_retrieval_without_backend_tables(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

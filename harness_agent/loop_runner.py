@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shlex
 import traceback
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -11,6 +12,7 @@ from typing import Any
 
 from .context_loader import load_context_packet
 from .context_packet import write_refreshed_context_packet
+from .domain_pack import get_domain_pack
 from .graph_runner import GraphHarnessRunner
 from .hypothesis import (
     build_experience_memory,
@@ -25,15 +27,6 @@ from .runner import RunSummary
 from .worker import CodingWorker, WorkerResult
 from .worker_cycle import prepare_candidate_worktree, run_worker_cycle
 
-
-AGENT_GENERATED_BASELINE_HIDDEN_INCUMBENT_FILES = (
-    "examples/standard_fjsp_solver.py",
-    "examples/standard_fjsp_portfolio_solver.py",
-    "examples/standard_fjsp_local_search_solver.py",
-    "examples/standard_fjsp_awls_solver.py",
-    "examples/standard_fjsp_awls_cpp_backend.py",
-    "examples/awls_evolved_slots.py",
-)
 
 DEFAULT_IN_ROUND_REPAIR_ATTEMPTS = 3
 
@@ -801,13 +794,29 @@ def agent_generated_baseline_cycle_is_core_accepted(cycle: Any) -> bool:
     )
 
 
-def select_agent_generated_baseline_cycle(cycles: list[tuple[int, Any, Path]]) -> tuple[int, Any, Path]:
+def select_agent_generated_baseline_cycle(
+    cycles: list[tuple[int, Any, Path]],
+    *,
+    objectives: list[ObjectiveSpec],
+) -> tuple[int, Any, Path]:
     if not cycles:
         raise RuntimeError("agent-generated baseline did not record any attempts")
-    return max(cycles, key=lambda item: agent_generated_baseline_cycle_rank(item[1], attempt_index=item[0]))
+    return max(
+        cycles,
+        key=lambda item: agent_generated_baseline_cycle_rank(
+            item[1],
+            attempt_index=item[0],
+            objectives=objectives,
+        ),
+    )
 
 
-def agent_generated_baseline_cycle_rank(cycle: Any, *, attempt_index: int) -> tuple[int, int]:
+def agent_generated_baseline_cycle_rank(
+    cycle: Any,
+    *,
+    attempt_index: int,
+    objectives: list[ObjectiveSpec],
+) -> tuple[float, ...]:
     judgment = getattr(cycle, "agentic_judgment", None)
     summary = getattr(cycle, "summary", None)
     worker_result = getattr(cycle, "worker_result", None)
@@ -821,19 +830,21 @@ def agent_generated_baseline_cycle_rank(cycle: Any, *, attempt_index: int) -> tu
     diagnostic_valid = int(getattr(diagnostic, "valid", 0) or 0) if diagnostic is not None else 0
     artifacts = getattr(worker_result, "artifacts", None) or {}
 
+    scored_summary = summary if core_total > 0 and core_valid == core_total else diagnostic
+    objective_key = summary_objective_key(scored_summary, objectives) if scored_summary is not None else ()
     if agentic_accepted and core_total > 0 and core_valid == core_total:
-        return (500, attempt_index)
+        return (500, *objective_key, attempt_index)
     if agentic_accepted and has_changed_files:
-        return (400, attempt_index)
+        return (400, *objective_key, attempt_index)
     if core_total > 0 and core_valid == core_total and has_changed_files:
-        return (350, attempt_index)
+        return (350, *objective_key, attempt_index)
     if diagnostic_total > 0 and diagnostic_valid == diagnostic_total and has_changed_files:
-        return (300, attempt_index)
+        return (300, *objective_key, attempt_index)
     if has_changed_files:
-        return (200, attempt_index)
+        return (200, *objective_key, attempt_index)
     if artifacts.get("proposal"):
-        return (100, attempt_index)
-    return (0, attempt_index)
+        return (100, *objective_key, attempt_index)
+    return (0, *objective_key, attempt_index)
 
 
 def agent_generated_baseline_selection_reason(cycle: Any) -> str:
@@ -934,7 +945,8 @@ def run_agent_generated_baseline(
         if cycle is None:
             raise RuntimeError("agent-generated baseline did not produce a candidate")
         selected_attempt_index, selected_cycle, selected_context_path = select_agent_generated_baseline_cycle(
-            cycle_attempts
+            cycle_attempts,
+            objectives=contract.objectives,
         )
         repair_summary = in_round_repair_summary(attempts)
         repair_summary["selected_attempt_index"] = selected_attempt_index
@@ -1009,17 +1021,33 @@ def prepare_agent_generated_baseline_source_project(
     output_dir: Path,
 ) -> tuple[Path, list[str]]:
     source_project = output_dir / "source_project_without_incumbent_solvers"
+    domain_pack = get_domain_pack(contract.problem_family)
+    if domain_pack is None or not domain_pack.agent_generated_baseline_preserve_paths:
+        raise ValueError(
+            f"problem family {contract.problem_family!r} does not declare an agent-generated baseline workspace"
+        )
+    preserve_paths = list(domain_pack.agent_generated_baseline_preserve_paths)
+    preserve_paths.extend(_contract_relative_baseline_inputs(contract))
+    baseline_contract = replace(
+        contract,
+        paths=replace(
+            contract.paths,
+            allowed_paths=sorted(set(preserve_paths)),
+        ),
+    )
     prepare_candidate_worktree(
         project_root=project_root.resolve(),
-        contract=contract,
+        contract=baseline_contract,
         worktree_path=source_project,
     )
     hidden: list[str] = []
-    for relative in AGENT_GENERATED_BASELINE_HIDDEN_INCUMBENT_FILES:
+    for relative in domain_pack.agent_generated_baseline_hidden_paths:
+        source_reference = project_root / relative
         target = source_project / relative
+        if source_reference.exists() and source_reference.is_file():
+            hidden.append(relative)
         if target.exists() and target.is_file():
             target.unlink()
-            hidden.append(relative)
     note_path = source_project / "examples" / "AGENT_GENERATED_BASELINE.md"
     note_path.parent.mkdir(parents=True, exist_ok=True)
     note_path.write_text(
@@ -1036,6 +1064,30 @@ def prepare_agent_generated_baseline_source_project(
         encoding="utf-8",
     )
     return source_project, hidden
+
+
+def _contract_relative_baseline_inputs(contract: TaskContract) -> list[str]:
+    """Keep non-algorithm task inputs that are stored inside the project."""
+
+    paths = _relative_python_entrypoints(contract.commands.evaluator)
+    for instance in contract.instances:
+        if not instance.path.is_absolute():
+            paths.append(instance.path.as_posix())
+    for resource_path in contract.resources.values():
+        if not resource_path.is_absolute():
+            paths.append(resource_path.as_posix())
+    return paths
+
+
+def _relative_python_entrypoints(command: str) -> list[str]:
+    paths: list[str] = []
+    for token in shlex.split(command, posix=False):
+        normalized = token.strip("\"'")
+        path = Path(normalized)
+        if path.suffix.lower() != ".py" or path.is_absolute() or ".." in path.parts:
+            continue
+        paths.append(path.as_posix())
+    return paths
 
 
 def write_baseline_generation_context_packet(
