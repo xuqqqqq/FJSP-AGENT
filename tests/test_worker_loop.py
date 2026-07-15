@@ -1761,6 +1761,40 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertFalse(anchor["promotion_eligible"])
         self.assertTrue(memory["accepted_as_incumbent"])
 
+    def test_baseline_memory_prefers_semantic_pass_on_equal_core_key(self) -> None:
+        generation = {
+            "source": "agent_generated",
+            "status": "ok",
+            "summary": {"total": 1, "valid": 1},
+            "agentic_judgment": {"accepted": True, "issues": []},
+            "semantic_review": {"status": "pass", "accepted": True},
+            "in_round_repair": {
+                "repair_attempt_count": 1,
+                "recovered": True,
+                "attempts": [
+                    {
+                        "attempt_index": 0,
+                        "candidate_key": [-2751.0],
+                        "summary": {"total": 1, "valid": 1},
+                        "semantic_review": {"status": "repair_required", "accepted": False},
+                    },
+                    {
+                        "attempt_index": 1,
+                        "candidate_key": [-2751.0],
+                        "summary": {"total": 1, "valid": 1},
+                        "semantic_review": {"status": "pass", "accepted": True},
+                    },
+                ],
+            },
+        }
+
+        memory = agent_generated_baseline_memory_payload(generation, baseline_key=(-2751.0,))
+        anchor = memory["best_core_valid_anchor"]
+
+        self.assertEqual(1, anchor["attempt_index"])
+        self.assertEqual([-2751.0], anchor["objective_key"])
+        self.assertTrue(anchor["promotion_eligible"])
+
     def test_regressed_semantic_repair_cannot_supersede_better_core_anchor(self) -> None:
         def cycle(makespan: int):
             return SimpleNamespace(

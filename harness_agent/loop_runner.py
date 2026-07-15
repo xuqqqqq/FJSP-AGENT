@@ -1858,13 +1858,6 @@ def loop_feedback_payload(
             0,
             "This is an in-round repair attempt. First repair current_round_repair.previous_attempts before trying a new optimization idea.",
         )
-    best_core_anchor = baseline_memory.get("best_core_valid_anchor") if isinstance(baseline_memory, dict) else {}
-    if isinstance(best_core_anchor, dict) and best_core_anchor and not best_core_anchor.get("promotion_eligible"):
-        payload["instructions"].insert(
-            0,
-            "Preserve effective search mechanisms from agent_generated_baseline_memory.best_core_valid_anchor while "
-            "repairing its evidence-backed semantic gaps; the anchor is not promotion-eligible until review passes.",
-        )
     return payload
 
 
@@ -1981,7 +1974,7 @@ def best_core_valid_baseline_anchor(repair: dict[str, Any]) -> dict[str, Any]:
     promotion candidate.  Promotion still requires a passing semantic review.
     """
 
-    best_key: tuple[float, ...] | None = None
+    best_rank: tuple[float, ...] | None = None
     best_attempt: dict[str, Any] | None = None
     for value in repair.get("attempts") or []:
         if not isinstance(value, dict):
@@ -1996,10 +1989,14 @@ def best_core_valid_baseline_anchor(repair: dict[str, Any]) -> dict[str, Any]:
             continue
         if total <= 0 or valid != total or not key or not all(math.isfinite(item) for item in key):
             continue
-        if best_key is None or key > best_key:
-            best_key = key
+        semantic = value.get("semantic_review") if isinstance(value.get("semantic_review"), dict) else {}
+        semantic_accepted = not semantic_review_blocks_promotion(semantic)
+        attempt_index = int(value.get("attempt_index", -1) or 0)
+        rank = (*key, 1.0 if semantic_accepted else 0.0, float(attempt_index))
+        if best_rank is None or rank > best_rank:
+            best_rank = rank
             best_attempt = value
-    if best_key is None or best_attempt is None:
+    if best_rank is None or best_attempt is None:
         return {}
 
     semantic = (
@@ -2011,7 +2008,7 @@ def best_core_valid_baseline_anchor(repair: dict[str, Any]) -> dict[str, Any]:
     worktree = str((Path(context_path).parent / "candidate_worktree").resolve()) if context_path else ""
     return {
         "attempt_index": best_attempt.get("attempt_index"),
-        "objective_key": list(best_key),
+        "objective_key": list(best_rank[:-2]),
         "core_valid": True,
         "semantic_status": semantic.get("status"),
         "promotion_eligible": not semantic_review_blocks_promotion(semantic),
