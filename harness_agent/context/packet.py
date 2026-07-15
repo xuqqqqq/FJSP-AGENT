@@ -38,6 +38,13 @@ SECTION_ROLE_PRIORITY = {
 
 @dataclass(frozen=True)
 class ContextPacketRequest:
+    """构建 Context Packet 所需的所有外部输入。
+
+    这里汇总的是稳定任务材料：确认后的 Task Contract、补充文档、知识卡、项目
+    intake、slot manifest、上一轮报告/经验等。真正的求解结果与回滚信息则在
+    `write_refreshed_context_packet()` 里以动态区方式追加。
+    """
+
     contract_path: Path
     output_path: Path
     docs: list[Path] = field(default_factory=list)
@@ -52,6 +59,13 @@ class ContextPacketRequest:
 
 
 def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
+    """构建首轮完整 Context Packet。
+
+    这个函数是多路上下文的汇合点：Task Contract 文档抽取证据、问题族能力、
+    实例特征诊断、知识卡选择、Method Package 候选、项目地图和 slot 编辑边界
+    都会在这里合并成同一份首轮上下文。
+    """
+
     contract = TaskContract.load(request.contract_path)
     contract_raw = json.loads(request.contract_path.read_text(encoding="utf-8-sig"))
     domain_context_provider = get_domain_context_provider(contract.problem_family)
@@ -93,6 +107,8 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         instance_diagnostics=instance_diagnostics,
         contract_review_evidence=contract_review_evidence,
     )
+    # 知识卡选择和 Method Package 推荐都建立在“领域能力 + 当前实例特征”之上。
+    # Domain Pack 提供边界与素材，实例诊断/slot 确认决定当前 round 实际可用什么。
     knowledge_selection = select_knowledge_cards(
         problem_family=contract.problem_family,
         problem_family_tags=problem_family_tags,
@@ -117,6 +133,8 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
     )
     knowledge_card_paths = _unique_paths([*request.knowledge_cards, *auto_cards])
     knowledge_cards = [_source_payload(path, request.max_chars_per_source) for path in knowledge_card_paths]
+    # `required_order` 是 worker 的最小阅读顺序控制，用于把“先看契约/实例/slot，
+    # 再改代码”这种流程固化在上下文里，而不是依赖模型自行猜顺序。
     required_order = [
         "Read this context packet.",
         "State a natural-language strategy before editing code.",
@@ -373,7 +391,11 @@ def activate_method_package_context(
     direction_plan: dict[str, Any] | None,
     max_chars_per_asset: int = 16000,
 ) -> dict[str, Any] | None:
-    """Attach one selected method package to a worker context."""
+    """把一个选中的 Method Package 注入 worker 上下文。
+
+    约束是“一轮只激活一个包”。这样可以避免不同算法流派的资料被同时混入，
+    导致 worker 在同一 direction 中拼接出不可审计的混合策略。
+    """
 
     task = context.get("task") if isinstance(context.get("task"), dict) else {}
     catalog = (
@@ -503,6 +525,11 @@ def _python_paths_from_command(command: str) -> list[Path]:
 
 
 def _source_payload(path: Path, max_chars: int) -> dict[str, Any]:
+    """把文档/知识卡文件变成可嵌入 packet 的源记录。
+
+    统一保留路径、存在性、文本摘要和 sha256，方便后续压缩、去重和人工审计。
+    """
+
     try:
         text = path.read_text(encoding="utf-8-sig", errors="replace")
         exists = True
@@ -556,6 +583,12 @@ def _project_intake_payload(path: Path, max_chars: int) -> dict[str, Any]:
 
 
 def _slot_manifest_payload(path: Path, *, project_root: Path | None = None) -> dict[str, Any]:
+    """把 slot manifest 转成上下文记录。
+
+    slot 插件是可选能力，不是默认执行路径；因此这里既携带 manifest 元数据，也尽量
+    补齐已确认 slot 的块位置信息，供需要 slot-based edit 的 worker 使用。
+    """
+
     try:
         manifest = load_slot_manifest(path)
         exists = True
@@ -924,6 +957,12 @@ def _compact_lineage_records(records: list[Any], *, limit: int) -> list[dict[str
 
 
 def _contract_review_payload(review: dict[str, Any]) -> dict[str, Any]:
+    """压缩 Task Contract review 证据。
+
+    目标不是重复整份 review，而是保留 worker 最先该看的证据骨架：不确定字段、
+    特征/指标提示、文档结构和推荐阅读 section。
+    """
+
     document_schema = _compact_document_schema(review.get("document_schema") or {})
     role_prioritized_sections = _role_prioritized_sections(document_schema, limit=16)
     return {
@@ -939,6 +978,12 @@ def _contract_review_payload(review: dict[str, Any]) -> dict[str, Any]:
 
 
 def _compact_document_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """压缩文档结构抽取结果。
+
+    文档 section 数量可能远大于 worker 首轮可读预算，因此这里保留结构化骨架，
+    再由 `_role_prioritized_sections()` 导出一个更短的优先阅读列表。
+    """
+
     if not schema:
         return {}
     compact_documents = []

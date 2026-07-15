@@ -1,4 +1,12 @@
-"""本地 Web 服务：提交 Agent 自写任务、持久化历史并展示闭环证据。"""
+"""本地 Web 服务：把浏览器操作映射到同一套 Agent/Core 闭环。
+
+Web 层只负责输入落盘、后台任务生命周期、状态轮询和产物摘要。它不选择
+具体算法，也不参与 promotion/rollback。一次任务的正式判断仍由
+`orchestration.standard -> orchestration.loop -> core` 完成。
+
+数据目录约定：`outputs/web_runs/<job_id>/inputs` 保存用户输入，`run` 保存
+不可变实验产物，`web_job_status.json` 是浏览器和重启恢复共同读取的快照。
+"""
 
 from __future__ import annotations
 
@@ -26,6 +34,7 @@ from harness_agent.orchestration.standard import StandardWorkerLoopRequest, run_
 from harness_agent.workers.opencode_worker import OpenCodeWorker
 
 
+# 路径与显示上限集中在这里，避免 HTTP handler 和任务线程各自推导目录。
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "web_runs"
@@ -58,6 +67,10 @@ _LOCK = threading.Lock()
 _ACTIVE_OUTPUT_ROOT = DEFAULT_OUTPUT_ROOT
 
 
+# ---------------------------------------------------------------------------
+# Web 状态模型：所有写操作最终落到 web_job_status.json，内存字典只是缓存。
+# ---------------------------------------------------------------------------
+
 def utc_timestamp() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -89,6 +102,8 @@ def coerce_int(value: Any, default: int, *, minimum: int = 1, maximum: int | Non
 
 
 def append_event(job: dict[str, Any], message: str, *, level: str = "info") -> None:
+    """向前端事件流追加一条面向用户的阶段消息。"""
+
     job.setdefault("events", []).append(
         {
             "time": utc_timestamp(),
@@ -99,6 +114,8 @@ def append_event(job: dict[str, Any], message: str, *, level: str = "info") -> N
 
 
 def public_job(job: dict[str, Any]) -> dict[str, Any]:
+    """过滤内部字段，并限制事件数量，形成浏览器可轮询的任务快照。"""
+
     return {
         "id": job["id"],
         "title": job["title"],
@@ -129,6 +146,8 @@ def browser_safe_json(value: Any) -> Any:
 
 
 def write_job_status(job: dict[str, Any]) -> None:
+    """同步更新时间并覆盖当前任务的持久化状态快照。"""
+
     job["updated_at"] = utc_timestamp()
     status_path = Path(job["job_dir"]) / "web_job_status.json"
     status_path.parent.mkdir(parents=True, exist_ok=True)
@@ -136,6 +155,8 @@ def write_job_status(job: dict[str, Any]) -> None:
 
 
 def load_persisted_jobs(output_root: Path, *, limit: int = 30) -> None:
+    """服务重启时恢复最近任务；残留 running 状态会标记为已中断。"""
+
     if not output_root.exists():
         return
     status_paths = sorted(output_root.glob("*/web_job_status.json"), key=lambda path: path.stat().st_mtime, reverse=True)
@@ -240,6 +261,10 @@ def enrich_worker_manifest_from_loop_result(manifest: dict[str, Any]) -> dict[st
     enriched["latest_candidate_summary"] = latest_candidate_summary
     return enriched
 
+
+# ---------------------------------------------------------------------------
+# 示例与 provider 配置：只向 UI 暴露非敏感诊断，不返回任何密钥内容。
+# ---------------------------------------------------------------------------
 
 def make_demo_examples() -> dict[str, Any]:
     """返回可直接运行的 SDST 示例；配置只包含平台资源预算。"""
@@ -391,7 +416,17 @@ def deepseek_config_diagnosis(
     return "没有检测到 DEEPSEEK_API_KEY，也没有可读取的 DEEPSEEK_API_KEY_FILE。"
 
 
+# ---------------------------------------------------------------------------
+# 任务生命周期：create_job 负责固化输入，run_job 负责组装并执行正式闭环。
+# ---------------------------------------------------------------------------
+
 def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> dict[str, Any]:
+    """验证并固化一次 Web 提交，返回尚未开始执行的任务记录。
+
+    上传文本会先复制到任务私有目录，后续 Context Packet 和 Core 始终引用
+    这份快照，避免用户再次修改表单后影响正在运行的实验。
+    """
+
     output_root = output_root or _ACTIVE_OUTPUT_ROOT
     job_id = time.strftime("%Y%m%d_%H%M%S", time.localtime()) + "_" + uuid.uuid4().hex[:8]
     title = str(payload.get("title") or "AlgoForge Web Run").strip() or "AlgoForge Web Run"
@@ -484,11 +519,15 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
 
 
 def start_job(job_id: str) -> None:
+    """用守护线程启动长任务，使 HTTP 请求可以立即返回 202。"""
+
     thread = threading.Thread(target=run_job, args=(job_id,), daemon=True)
     thread.start()
 
 
 def inspect_instance_profile(instance_path: Path) -> dict[str, Any]:
+    """用正式 parser 提取算例规模和变种特征，失败时保留可展示错误。"""
+
     profile: dict[str, Any] = {
         "path": str(instance_path.resolve()),
         "file_name": instance_path.name,
@@ -599,6 +638,13 @@ def append_instance_profile_events(job: dict[str, Any]) -> None:
 
 
 def run_job(job_id: str) -> None:
+    """执行一次 Web 任务并持续写入可恢复状态。
+
+    这里完成角色装配：OpenCode 是唯一默认 Coding Agent；DeepSeek Main
+    Agent 负责方向规划；DeepSeek Semantic Reviewer 负责方法语义复核。
+    `run_standard_worker_loop` 返回后，本函数只整理前端摘要，不二次裁决。
+    """
+
     with _LOCK:
         job = _JOBS[job_id]
         job["status"] = "running"
@@ -617,6 +663,8 @@ def run_job(job_id: str) -> None:
             ),
         )
         write_job_status(job)
+        # OpenCode 是代码编辑运行时，model/provider 通过其配置注入；它和
+        # DeepSeek 不是两个并列修改代码的 Agent。
         coding_worker = OpenCodeWorker(
             executable=config["opencode_executable"],
             model=config["opencode_model"] or None,
@@ -633,6 +681,7 @@ def run_job(job_id: str) -> None:
             if is_deepseek_configured()
             else None
         )
+        # 跨任务记忆只召回同变种、同方法包且已经过 Core/语义验证的经验。
         previous_memory_path = latest_compatible_experience_memory(job)
         if previous_memory_path:
             append_event(job, f"已召回同问题族上一任务的语义验证方法经验：{previous_memory_path}")
@@ -720,7 +769,13 @@ def run_job(job_id: str) -> None:
             write_job_status(job)
 
 
+# ---------------------------------------------------------------------------
+# 产物与洞察视图：把原始 JSON/Markdown 压缩成前端可扫描摘要，不改变证据。
+# ---------------------------------------------------------------------------
+
 def read_artifact(job: dict[str, Any], name: str) -> dict[str, Any]:
+    """读取白名单中的任务产物，并限制浏览器预览体积。"""
+
     path = job_artifact_path(job, name)
     if path is None:
         raise KeyError(f"unknown artifact: {name}")
@@ -735,6 +790,8 @@ def read_artifact(job: dict[str, Any], name: str) -> dict[str, Any]:
 
 
 def job_artifact_path(job: dict[str, Any], name: str) -> Path | None:
+    """只允许读取任务清单登记过的产物，避免任意路径读取。"""
+
     allowed: dict[str, str] = {
         "status": str((Path(job["job_dir"]) / "web_job_status.json").resolve()),
         **{key: str(value) for key, value in (job.get("artifacts") or {}).items() if value},
@@ -755,6 +812,8 @@ def read_json_artifact(job: dict[str, Any], name: str) -> Any:
 
 
 def job_insights(job: dict[str, Any]) -> dict[str, Any]:
+    """汇总上下文、Worker、实验和知识四个前端面板的数据。"""
+
     context_packet = read_json_artifact(job, "context_packet")
     if not isinstance(context_packet, dict):
         context_packet = {}
@@ -1197,8 +1256,12 @@ def objective_key_to_makespan(key: list[Any]) -> float | None:
     return -value
 
 
+# ---------------------------------------------------------------------------
+# 进度扫描：仅观察正在生成的文件并写事件，不参与任何实验或晋升决策。
+# ---------------------------------------------------------------------------
+
 def monitor_code_evolution_progress(job: dict[str, Any], worker_root: Path, stop_event: threading.Event) -> None:
-    """Mirror coding-worker filesystem progress into the web event stream."""
+    """轮询 Worker 产物目录，把新阶段转换为 Web 事件，直到任务线程结束。"""
 
     seen: set[str] = set()
     while True:
@@ -1507,6 +1570,12 @@ def format_progress_value(value: Any) -> str:
 
 
 class AlgoForgeWebHandler(BaseHTTPRequestHandler):
+    """无框架本地 HTTP 路由；业务逻辑委托给上面的纯函数。
+
+    GET 提供静态页面、任务历史、洞察和产物；POST `/api/jobs` 是唯一创建
+    任务的写入口。长任务由后台线程执行，不阻塞 HTTP 请求线程。
+    """
+
     server_version = "AlgoForgeWeb/0.1"
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib handler API
@@ -1610,6 +1679,8 @@ class AlgoForgeWebHandler(BaseHTTPRequestHandler):
 
 
 def run_web_server(host: str = "127.0.0.1", port: int = 7860, *, output_root: Path = DEFAULT_OUTPUT_ROOT) -> None:
+    """恢复历史任务并启动多线程本地 HTTP 服务。"""
+
     global _ACTIVE_OUTPUT_ROOT
     _ACTIVE_OUTPUT_ROOT = output_root.resolve()
     output_root.mkdir(parents=True, exist_ok=True)

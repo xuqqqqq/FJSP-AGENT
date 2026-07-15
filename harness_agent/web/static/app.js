@@ -1,3 +1,5 @@
+// 浏览器只保存当前选中任务和视图状态；任务事实以服务端
+// web_job_status.json 和正式 artifacts 为准，刷新页面不会改变实验。
 const state = {
   currentJobId: null,
   pollTimer: null,
@@ -25,6 +27,10 @@ const VIEW_TITLES = {
   resources: "知识库 / Skills",
   setup: "任务配置",
 };
+
+// ---------------------------------------------------------------------------
+// 页面导航与本地文件镜像
+// ---------------------------------------------------------------------------
 
 function setActiveView(view) {
   const targetView = VIEW_TITLES[view] ? view : "overview";
@@ -79,6 +85,10 @@ async function loadDemo(options = {}) {
     setActiveView("setup");
   }
 }
+
+// ---------------------------------------------------------------------------
+// 运行环境与历史任务
+// ---------------------------------------------------------------------------
 
 async function loadDeepSeekStatus() {
   const response = await fetch("/api/deepseek-status");
@@ -184,6 +194,10 @@ async function selectHistoryJob(jobId, options = {}) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 任务提交：前端只提交文档、算例和资源预算，不提交具体算法选择。
+// ---------------------------------------------------------------------------
+
 function formatShortTime(value) {
   const text = String(value || "");
   if (!text) return "-";
@@ -268,6 +282,11 @@ async function submitCurrentJob() {
   startPolling();
 }
 
+// ---------------------------------------------------------------------------
+// 对话式操作入口：当前负责把自然操作意图映射为载入、启动、查看等 UI 命令。
+// 真正的 Main Agent 方向规划发生在后端任务闭环中。
+// ---------------------------------------------------------------------------
+
 function initializeChat() {
   $("chat-thread").innerHTML = "";
   appendChatMessage("assistant", "请提供需求、IO 和算例。Main Agent 会自动匹配知识，OpenCode Coding Agent 负责写 solver，Core 负责复验。");
@@ -342,6 +361,10 @@ async function handleChatCommand(message, options = {}) {
   }
   appendChatMessage("assistant", "我可以处理：载入示例、历史任务、参数配置、启动和刷新。算法方向由 Main Agent 自动决定。");
 }
+
+// ---------------------------------------------------------------------------
+// 状态轮询：终态后自动加载正式报告，运行中只展示服务端已持久化的事件。
+// ---------------------------------------------------------------------------
 
 function startPolling() {
   if (state.pollTimer) clearInterval(state.pollTimer);
@@ -481,6 +504,11 @@ function renderJob(job) {
   }
   loadAndRenderInsights(job).catch(() => {});
 }
+
+// ---------------------------------------------------------------------------
+// 证据视图：把 Context Packet、方向图、Core 结果和经验分层渲染成面板。
+// 这里只做展示，不会在浏览器端重新计算 promotion 或合法性。
+// ---------------------------------------------------------------------------
 
 async function loadAndRenderInsights(job) {
   if (!job?.id) return;
@@ -685,6 +713,10 @@ function renderInspectorInsight(insights, job) {
   setText("inspector-artifacts", `${Object.keys(job.artifacts || {}).length} 个 · 方向 ${worker.direction_count ?? 0}`);
 }
 
+// ---------------------------------------------------------------------------
+// 产物预览与纯显示辅助函数
+// ---------------------------------------------------------------------------
+
 function workerRepairText(workerSummary) {
   const repair = workerSummary.in_round_repair || {};
   const parts = [];
@@ -809,6 +841,10 @@ function escapeHtml(text) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
 }
+
+// ---------------------------------------------------------------------------
+// 页面启动：集中绑定事件，随后加载环境状态、示例和最近任务。
+// ---------------------------------------------------------------------------
 
 setupFileMirror("requirement-file", "requirement-text");
 setupFileMirror("io-file", "io-text");

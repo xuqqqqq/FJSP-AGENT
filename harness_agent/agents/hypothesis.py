@@ -275,6 +275,10 @@ def _decision_counts(decisions: list[dict[str, Any]]) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
+# ---------------------------------------------------------------------------
+# 当前闭环使用的“方向图”：一个方向包含首次候选和全部同轮修补 attempt。
+# ---------------------------------------------------------------------------
+
 def summarize_direction_graph(rounds: list[dict[str, Any]]) -> dict[str, Any]:
     """Summarize worker-loop records as user-facing improvement directions.
 
@@ -298,6 +302,7 @@ def summarize_direction_graph(rounds: list[dict[str, Any]]) -> dict[str, Any]:
         decision = str(item.get("decision") or "unknown")
         status = direction_status(item)
         attempts = direction_attempts(item)
+        # 图节点保留方向语义和产物引用，不复制 solver 源码或实例具体解。
         direction = {
             "direction_id": direction_id,
             "parent_id": latest_promoted_id or previous_direction_id,
@@ -353,6 +358,8 @@ def build_experience_memory(
     score values as reusable knowledge.
     """
 
+    # 第一步：每个方向先生成候选经验。成功、失败、未提升和修补恢复都会
+    # 保留，但它们的可信等级不同。
     graph = summarize_direction_graph(rounds)
     candidate_lessons: list[dict[str, Any]] = []
     for direction in graph.get("directions") or []:
@@ -380,6 +387,8 @@ def build_experience_memory(
     usage_records = skill_usage_records_from_directions(graph.get("directions") or [])
     quality_memory = agent_generated_quality_memory_from_directions(graph.get("directions") or [])
     semantic_memory = algorithm_semantic_memory_from_directions(graph.get("directions") or [])
+    # 第二步：只有 Core promoted 且最终语义审查通过/警告的成功策略，才会
+    # 进入 validated_lessons。一次合法但未提升的尝试不能冒充长期方法经验。
     validated_lessons = [
         {**lesson, "confidence": "core_and_semantic_validated"}
         for lesson in candidate_lessons
@@ -763,6 +772,10 @@ def compact_hypothesis_payload(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# 经验条目构造：把不同方向结局转成有适用条件和禁忌的可召回记录。
+# ---------------------------------------------------------------------------
+
 def candidate_lesson_from_direction(
     direction: dict[str, Any],
     *,
@@ -835,6 +848,8 @@ def repair_lesson_from_direction(
     *,
     problem_family: str | None,
 ) -> dict[str, Any] | None:
+    """仅在同一方向从失败恢复时生成修补经验。"""
+
     attempts = _list(direction.get("attempts"))
     if len(attempts) < 2 or not direction_recovered(direction):
         return None
@@ -867,6 +882,8 @@ def agent_generated_quality_lesson_from_direction(
     *,
     problem_family: str | None,
 ) -> dict[str, Any] | None:
+    """总结 parser/decoder/self-check 等工程质量门禁及其恢复情况。"""
+
     gates = [
         _dict(attempt.get("agent_generated_quality"))
         for attempt in _list(direction.get("attempts"))
@@ -931,6 +948,8 @@ def algorithm_semantic_lesson_from_direction(
     *,
     problem_family: str | None,
 ) -> dict[str, Any] | None:
+    """沉淀有源码与知识双重证据的方法语义缺口，不保存实例分数。"""
+
     reviews = algorithm_semantic_reviews_from_direction(direction)
     findings = [
         finding
@@ -1032,6 +1051,10 @@ def algorithm_semantic_direction_recovered(direction: dict[str, Any]) -> bool:
         for review in reviews[first_blocked + 1 :]
     )
 
+
+# ---------------------------------------------------------------------------
+# 聚合记忆：为下一轮提供高频质量缺口、语义修复和行为测试，而非原始长日志。
+# ---------------------------------------------------------------------------
 
 def algorithm_semantic_memory_from_directions(directions: list[Any]) -> dict[str, Any]:
     reviews: list[dict[str, Any]] = []
@@ -1216,6 +1239,10 @@ def recommended_skill_update(lesson_type: str, direction: dict[str, Any]) -> str
     return "Keep as candidate memory until more evaluator-backed evidence exists."
 
 
+# ---------------------------------------------------------------------------
+# 知识/Skill 使用追踪：记录“被引用并与什么结果关联”，不宣称严格因果。
+# ---------------------------------------------------------------------------
+
 def skill_usage_records_from_directions(directions: list[Any]) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for direction in directions:
@@ -1275,6 +1302,8 @@ def classify_usage_source(source: str) -> str:
 
 
 def usage_effect(direction: dict[str, Any]) -> str:
+    """按方向结局标注关联效果，供后续审计知识是否被有效使用。"""
+
     if direction.get("decision") == "promoted":
         return "associated_with_promotion"
     if direction.get("status") == "strategy_infeasible":

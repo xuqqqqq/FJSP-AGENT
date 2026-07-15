@@ -12,7 +12,11 @@ ProblemFamilyCapability = DomainCapability
 
 
 def default_problem_families() -> dict[str, ProblemFamilyCapability]:
-    """Return problem-family capability cards from external domain packs."""
+    """从外部 Domain Pack 生成问题族能力卡。
+
+    能力卡只描述该问题族的公共约束、目标和入口约定，不承诺当前任务一定启用
+    了其中每一项能力；具体激活情况仍要结合实例诊断与 Task Contract。
+    """
 
     packs = load_domain_packs()
     families: dict[str, ProblemFamilyCapability] = {}
@@ -29,6 +33,8 @@ def default_problem_families() -> dict[str, ProblemFamilyCapability]:
 
 
 def get_problem_family(family_id: str) -> ProblemFamilyCapability:
+    """按别名获取问题族能力卡。"""
+
     pack = get_domain_pack(family_id)
     if pack is not None:
         return pack.capability

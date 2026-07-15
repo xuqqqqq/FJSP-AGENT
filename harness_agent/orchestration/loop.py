@@ -44,6 +44,12 @@ def _utc_now_iso() -> str:
 
 @dataclass(frozen=True)
 class LoopRoundRecord:
+    """一个用户可见“方向轮”的最终证据快照。
+
+    一轮内部可以有多次 Worker attempt，但这里只记录该方向最终用于
+    promotion 判断的候选，以及方向计划、语义审查、patch 和 Core 指标。
+    """
+
     round_index: int
     decision: str
     candidate_key: tuple[float, ...]
@@ -67,6 +73,8 @@ class LoopRoundRecord:
 
 @dataclass(frozen=True)
 class WorkerLoopResult:
+    """完整闭环的返回值：初始 incumbent、最终 incumbent 和每轮证据。"""
+
     baseline_key: tuple[float, ...]
     final_key: tuple[float, ...]
     final_worktree: Path
@@ -95,12 +103,19 @@ def run_worker_loop(
     baseline_worker: CodingWorker | None = None,
     in_round_repair_attempts: int = DEFAULT_IN_ROUND_REPAIR_ATTEMPTS,
 ) -> WorkerLoopResult:
-    """运行完整闭环；每轮只推进一个方向，incumbent 始终由 Core 证据保护。"""
+    """运行完整闭环；每轮只推进一个方向，incumbent 始终由 Core 证据保护。
+
+    主流程分成三段：先建立可运行 baseline，再按 Main Agent 方向生成候选，
+    最后将 promotion/rollback 结果写入经验。函数不会把失败候选覆盖到仓库，
+    `incumbent_worktree` 只有在 promotion check 通过时才前移。
+    """
 
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     direction_planner = main_agent or EvidenceDrivenMainAgent()
 
+    # 阶段 1：建立初始 incumbent。Web 标准流程强制 agent_generated，确保
+    # baseline 也是 Coding Agent 根据 IO/知识写出的，而不是后端预埋 solver。
     normalized_baseline_source = normalize_baseline_source(baseline_source)
     baseline_generation: dict[str, Any] | None = None
     if normalized_baseline_source == "agent_generated":
@@ -158,6 +173,7 @@ def run_worker_loop(
         )
         write_loop_report(output_dir=output_dir, result=result, problem_family=contract.problem_family)
         return result
+    # 阶段 2：每个外层 round 对应一个改进方向；repair attempt 不额外消耗轮数。
     effective_repair_attempts = worker_loop_repair_attempt_budget(worker, in_round_repair_attempts)
     round_records: list[LoopRoundRecord] = []
     seen_proposal_fingerprints: set[str] = set()
@@ -165,6 +181,7 @@ def run_worker_loop(
         cycle_dir = output_dir / f"round_{round_index:03d}"
         round_context_packet_path = cycle_dir / "context_packet.json"
         in_round_attempts: list[dict[str, Any]] = []
+        # Main Agent 先读取 incumbent 和历史成败，只规划方向，不直接写代码。
         planning_feedback = loop_feedback_payload(
             round_index=round_index,
             contract=contract,
@@ -176,6 +193,8 @@ def run_worker_loop(
             previous_rounds=round_records,
             current_round_repair=None,
         )
+        # Coding Agent/JA/Core/语义审查的任意异常都转为本轮失败证据，
+        # 不允许一次坏候选终止后续方向。
         try:
             direction_plan = direction_planner.plan_direction(
                 DirectionPlanRequest(
@@ -291,6 +310,7 @@ def run_worker_loop(
             )
             continue
 
+        # 阶段 3：将最终 attempt 归一化为轮级证据，并判断是否更新 incumbent。
         proposal_fingerprint = worker_proposal_fingerprint(cycle.worker_result)
         duplicate_proposal = proposal_fingerprint in seen_proposal_fingerprints
         seen_proposal_fingerprints.add(proposal_fingerprint)
@@ -325,6 +345,7 @@ def run_worker_loop(
                 promotion_repeats=promotion_repeats,
             )
         promoted = bool(promotion_check.get("promoted"))
+        # 只有 promotion check 能修改 incumbent 指针；rollback 只保留产物。
         if promoted:
             incumbent_key = tuple(float(item) for item in promotion_check.get("accepted_key", candidate_key))
             incumbent_worktree = cycle.worktree_path
@@ -385,9 +406,12 @@ def run_worker_cycle_with_in_round_repairs(
     direction_plan: dict[str, Any] | None = None,
     semantic_reviewer: AlgorithmSemanticReviewer | None = None,
 ) -> tuple[Any, Path, list[dict[str, Any]]]:
-    """在同一方向内修补非法候选，修补耗尽后才把该方向记为失败。"""
+    """在同一方向内修补候选，修补耗尽后才把该方向记为失败。
 
-    """Run one round, retrying repairable illegal candidates inside the same round."""
+    触发修补的不只是语法/合法性错误；合法但不优于 incumbent 的候选也可
+    在剩余预算内继续细化。后续 attempt 从上一 attempt 的 worktree 出发，
+    因而修的是同一实现方向，而不是重新生成无关 solver。
+    """
 
     max_repair_attempts = max(0, int(repair_attempts))
     attempts: list[dict[str, Any]] = []
@@ -396,6 +420,7 @@ def run_worker_cycle_with_in_round_repairs(
     direction_project_root = project_root
     for attempt_index in range(max_repair_attempts + 1):
         attempt_dir = output_dir if attempt_index == 0 else output_dir / f"repair_{attempt_index:03d}"
+        # repair feedback 只带最近失败、精确门禁和 patch 证据，控制上下文增长。
         repair_feedback = (
             current_round_repair_feedback(
                 attempt_index=attempt_index,
@@ -453,6 +478,7 @@ def run_worker_cycle_with_in_round_repairs(
                 semantic_review=semantic_review,
             )
         )
+        # 严格提升且各门禁通过时立即结束；不可修复的 provider 故障也不盲重试。
         if attempt_index >= max_repair_attempts or not should_attempt_in_round_repair(
             last_cycle,
             incumbent_key=incumbent_key,
@@ -466,7 +492,13 @@ def run_worker_cycle_with_in_round_repairs(
     return last_cycle, last_context_packet_path, attempts
 
 
+# ---------------------------------------------------------------------------
+# 同轮修补与语义审查
+# ---------------------------------------------------------------------------
+
 def worker_loop_repair_attempt_budget(worker: CodingWorker, requested_attempts: int) -> int:
+    """同时受用户预算和 Worker 能力约束，得到实际可用修补次数。"""
+
     requested = max(0, int(requested_attempts))
     if requested == 0:
         return 0
@@ -491,6 +523,12 @@ def run_algorithm_semantic_review(
     incumbent_key: tuple[float, ...] | None = None,
     candidate_key: tuple[float, ...] | None = None,
 ) -> dict[str, Any]:
+    """只对 JA 接受、Core 合法且可能晋升的候选执行昂贵语义审查。
+
+    非法或不优于 incumbent 的候选无需证明方法完整性，因为它本来就没有
+    promotion 资格；这样既节省模型调用，也避免语义结果掩盖 Core 事实。
+    """
+
     if reviewer is None:
         return {
             "schema_version": 1,
@@ -1136,6 +1174,10 @@ def agent_generated_baseline_selection_reason(
     return "last_recorded_candidate"
 
 
+# ---------------------------------------------------------------------------
+# Agent-generated baseline：从空 solver 起步，并保护修补过程中最强合法锚点。
+# ---------------------------------------------------------------------------
+
 def run_agent_generated_baseline(
     *,
     contract: TaskContract,
@@ -1209,6 +1251,8 @@ def run_agent_generated_baseline(
                 max_runtime_seconds=max_runtime_seconds,
                 apply_worker_changes=True,
             )
+            # baseline 尚无正式 incumbent，因此单独保存迄今最强的 Core 合法
+            # attempt。后续修补若退化，会回到该锚点继续，而不是越修越差。
             prior_core_anchor = select_best_core_valid_baseline_cycle(
                 cycle_attempts,
                 objectives=contract.objectives,
@@ -1295,6 +1339,7 @@ def run_agent_generated_baseline(
                 repair_project_root = Path(cycle.worktree_path)
         if cycle is None:
             raise RuntimeError("agent-generated baseline did not produce a candidate")
+        # 最终选择最强且可接受的 baseline attempt，不简单采用最后一次修补。
         selected_attempt_index, selected_cycle, selected_context_path, selected_semantic_review = select_agent_generated_baseline_cycle(
             cycle_attempts,
             objectives=contract.objectives,
@@ -1585,7 +1630,17 @@ def write_baseline_generation_context_packet(
     return output_path
 
 
+# ---------------------------------------------------------------------------
+# 目标比较与晋升复验
+# ---------------------------------------------------------------------------
+
 def summary_objective_key(summary: RunSummary, objectives: list[ObjectiveSpec]) -> tuple[float, ...]:
+    """把多目标指标统一成“字典序越大越好”的可比较 key。
+
+    minimize 指标取负，maximize 保持原值；缺失指标、不完整算例覆盖或违反
+    threshold 都变成 `-inf`，从而天然失去 promotion 资格。
+    """
+
     metrics = summary.best_candidate_metrics or summary.best_metrics or {}
     if not metrics:
         return tuple(float("-inf") for _ in objectives)
@@ -1632,6 +1687,7 @@ def evaluate_promotion_check(
     probe, using the mean objective key across all repeated records.
     """
 
+    # 首次比较不过就无需重复运行；只有看起来严格提升时才支付复验成本。
     repeats = max(1, int(promotion_repeats))
     initially_better = candidate_key > incumbent_key
     if not initially_better:
@@ -1656,6 +1712,7 @@ def evaluate_promotion_check(
         }
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    # incumbent 与 candidate 使用完全相同的重复契约，避免比较预算不一致。
     repeat_contract = replace(
         contract,
         task_id=f"{contract.task_id}_promotion_check",
@@ -1730,6 +1787,10 @@ def summary_payload(summary: RunSummary) -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# 轮间记忆：把完整历史压缩成下一轮真正需要的保护项、失败项和经验层级。
+# ---------------------------------------------------------------------------
+
 def loop_feedback_payload(
     *,
     round_index: int,
@@ -1743,6 +1804,12 @@ def loop_feedback_payload(
     current_round_repair: dict[str, Any] | None = None,
     current_direction_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """构建 Main/Coding Agent 共用的 evaluator-backed 动态反馈。
+
+    这里不复制历史 solver，也不把具体分数沉淀为方法知识；只保留方向、
+    门禁、promotion 事实、失败签名和产物引用。
+    """
+
     ordered_objectives = sorted(contract.objectives, key=lambda item: item.priority)
     previous_round_payloads = [round_record_payload(item) for item in previous_rounds]
     baseline_memory = agent_generated_baseline_memory_payload(
@@ -2490,7 +2557,13 @@ def rejected_proposal_edits(
     return result[:limit]
 
 
+# ---------------------------------------------------------------------------
+# 报告与持久化：同一批轮记录派生方向图、经验分层和知识使用记录。
+# ---------------------------------------------------------------------------
+
 def write_loop_report(*, output_dir: Path, result: WorkerLoopResult, problem_family: str | None = None) -> None:
+    """写出闭环的机器可读 JSON 和面向人的 Markdown，不再重新运行实验。"""
+
     round_payloads = [round_record_payload(item) for item in result.rounds]
     direction_graph = summarize_direction_graph(round_payloads)
     experience_memory = build_experience_memory(round_payloads, problem_family=problem_family)

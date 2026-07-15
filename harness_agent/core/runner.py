@@ -21,6 +21,8 @@ SUBPROCESS_ERROR_EXCERPT_MAX_CHARS = 900
 
 @dataclass(frozen=True)
 class RunSummary:
+    """一批 Core 实验的聚合结果；保留合法率、最佳候选和错误分类。"""
+
     total: int
     valid: int
     failed: int
@@ -47,9 +49,13 @@ class HarnessRunner:
         self.ledger.close()
 
     def run(self) -> RunSummary:
+        """执行 quick test、展开实验矩阵、汇总并写报告。"""
+
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.experiment_root.mkdir(parents=True, exist_ok=True)
         self._run_quick_test()
+        # 每个 instance/seed 都是独立可复验原子实验；rounds 用于稳定性或
+        # promotion 重复探测，不等同于外层 Agent 改进方向。
         planned_runs = [
             {
                 "round_index": round_index,
@@ -80,6 +86,8 @@ class HarnessRunner:
         self.ledger.record(self._run_one_to_record(round_index, instance_id, instance_path, seed))
 
     def _run_many(self, planned_runs: list[dict[str, object]]) -> None:
+        """并行执行子进程，但让主线程串行写 SQLite，避免写锁竞争。"""
+
         if not planned_runs:
             return
         max_workers = max(1, self.contract.budget.max_workers)
@@ -110,6 +118,8 @@ class HarnessRunner:
                 self.ledger.record(future.result())
 
     def _run_one_to_record(self, round_index: int, instance_id: str, instance_path: Path, seed: int) -> ExperimentRecord:
+        """运行一次 solver + evaluator，并把所有异常转换为失败记录。"""
+
         experiment_id = f"round_{round_index:03d}__{instance_id}__seed_{seed}"
         work_dir = self.experiment_root / experiment_id
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -138,6 +148,8 @@ class HarnessRunner:
         for name, resource_path in self.contract.resources.items():
             placeholders[name] = str(resolve_project_path(self.project_root, resource_path))
 
+        # solver 只负责写 solution；evaluator 重新读取 solution 并写 metrics。
+        # 两者 stderr/stdout 分开保存，便于判断是生成失败还是判卷失败。
         try:
             solver_cmd = self.contract.commands.solver.format(**placeholders)
             solver_result = run_shell_command(
@@ -199,6 +211,8 @@ class HarnessRunner:
         return {path.stem: str(path) for path in paths}
 
     def _summarize(self) -> RunSummary:
+        """按实验和 candidate 两个粒度汇总，残缺算例覆盖不能成为最佳候选。"""
+
         records = self.ledger.list_records()
         valid_records = [record for record in records if record.valid]
         best = max(valid_records, key=lambda item: item.objective_key, default=None)
@@ -366,6 +380,8 @@ def run_shell_command(
 def solver_time_limit_seconds(timeout_seconds: int | float) -> float:
     """Reserve process-exit headroom inside the Core wall-clock timeout."""
 
+    # solver 获得大部分预算，但必须给 Python 退出、文件落盘和 Core 回收
+    # 进程留出余量，否则内部“准时结束”仍可能触发外层硬超时。
     timeout = max(0.1, float(timeout_seconds))
     if timeout <= 2.0:
         return round(max(0.05, timeout * 0.5), 3)

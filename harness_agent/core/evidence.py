@@ -28,6 +28,8 @@ class EvidenceIndexRequest:
 
 
 def build_evidence_index(request: EvidenceIndexRequest) -> dict[str, Any]:
+    """发现多个输出目录中的正式 manifest，生成统一证据索引。"""
+
     output_dir = request.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     entries = discover_evidence_entries(request.input_dirs)
@@ -51,6 +53,8 @@ def build_evidence_index(request: EvidenceIndexRequest) -> dict[str, Any]:
 
 
 def discover_evidence_entries(input_dirs: list[Path]) -> list[dict[str, Any]]:
+    """按已知 manifest 文件名递归发现并去重实验产物。"""
+
     entries: list[dict[str, Any]] = []
     seen: set[Path] = set()
     for input_dir in input_dirs:
@@ -66,6 +70,8 @@ def discover_evidence_entries(input_dirs: list[Path]) -> list[dict[str, Any]]:
 
 
 def evidence_entry(manifest_path: Path, entry_type: str) -> dict[str, Any]:
+    """把一种 manifest 归一成索引公共字段，并检查引用产物是否缺失。"""
+
     payload = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
     artifacts = dict(payload.get("artifacts") or {})
     missing_artifacts = [
@@ -96,6 +102,8 @@ def evidence_entry(manifest_path: Path, entry_type: str) -> dict[str, Any]:
 
 
 def project_intake_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    """提取项目扫描条目的索引字段。"""
+
     return {
         "primary_language": (payload.get("language_summary") or {}).get("primary_language"),
         "entry_file_count": len(payload.get("entry_files") or []),
@@ -110,6 +118,8 @@ def project_intake_fields(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def intent_alignment_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    """提取目标一致性条目的索引字段。"""
+
     return {
         "ready_for_optimization": payload.get("ready_for_optimization"),
         "blocker_count": len(payload.get("blockers") or []),
@@ -121,6 +131,8 @@ def intent_alignment_fields(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def health_check_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    """提取健康检查和稳定性条目的索引字段。"""
+
     quick_test = dict(payload.get("quick_test") or {})
     probe = dict(payload.get("stability_probe") or {})
     return {
@@ -159,6 +171,8 @@ def benchmark_suite_fields(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def standard_worker_loop_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    """提取闭环轮数、晋升和最终 key 等可比较字段。"""
+
     return {
         "round_count": payload.get("round_count"),
         "promoted_rounds": payload.get("promoted_rounds"),
@@ -172,6 +186,8 @@ def standard_worker_loop_fields(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def summarize_entries(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    """跨条目聚合状态、实验合法数、gap 和有效提升次数。"""
+
     type_counts: dict[str, int] = {}
     status_counts: dict[str, int] = {}
     total_experiments = 0
@@ -203,6 +219,8 @@ def summarize_entries(entries: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def render_evidence_index_markdown(index: dict[str, Any]) -> str:
+    """将证据索引渲染为可点击的 Markdown 总表。"""
+
     summary = index.get("summary") or {}
     lines = [
         f"# {index.get('title') or 'Loop Engineering Evidence Index'}",

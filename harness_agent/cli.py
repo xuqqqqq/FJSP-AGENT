@@ -1,4 +1,9 @@
-"""命令行入口：只组装平台能力，不在命令中选择或实现具体算法。"""
+"""命令行入口：把各层能力暴露为可脚本化命令。
+
+本文件只做参数解析和依赖组装，不负责算法决策。真实业务逻辑分别位于
+`context/`、`orchestration/`、`core/` 和 `agents/`；因此 CLI 与 Web 可以
+共享同一套闭环，而不会形成两套评价口径。
+"""
 
 from __future__ import annotations
 
@@ -37,6 +42,10 @@ from harness_agent.orchestration.cycle import run_worker_cycle
 DEFAULT_STANDARD_SEEDS = "0,1,2,3,4,5,6,7,8,9"
 
 
+# ---------------------------------------------------------------------------
+# 参数定义：这里只描述平台资源、路径和契约，不暴露具体邻域或求解算法参数。
+# ---------------------------------------------------------------------------
+
 def add_worker_options(parser: argparse.ArgumentParser, *, default_worker: str = "opencode") -> None:
     """为直接调用 Coding Agent 的命令注册统一参数。"""
 
@@ -46,7 +55,11 @@ def add_worker_options(parser: argparse.ArgumentParser, *, default_worker: str =
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """构建算法无关的命令行入口。"""
+    """注册从准备、单次 Worker 到完整闭环的全部命令。
+
+    命令大致分为四组：契约/上下文准备、Worker 调试、固定 Core 执行、
+    Agent 自写 solver 闭环。每个 handler 只把 argparse 值转换成领域对象。
+    """
 
     parser = argparse.ArgumentParser(description="FJSP Harness Agent CLI")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -212,16 +225,26 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# ---------------------------------------------------------------------------
+# 公共参数转换与依赖装配
+# ---------------------------------------------------------------------------
+
 def print_json(payload: dict[str, Any]) -> None:
+    """统一 CLI 的 UTF-8 友好 JSON 输出，便于脚本和 Web 外部工具读取。"""
+
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 def parse_seed_list(value: str) -> list[int]:
+    """把逗号分隔 seed 转为列表；空输入仍保证至少有 seed=0。"""
+
     seeds = [int(item.strip()) for item in str(value).split(",") if item.strip()]
     return seeds or [0]
 
 
 def load_runnable_contract(args: argparse.Namespace) -> TaskContract | None:
+    """加载并执行运行前门禁；返回 None 表示命令不应进入 Core。"""
+
     contract = TaskContract.load(args.contract)
     errors = contract.validate(args.project_root)
     if errors:
@@ -250,6 +273,8 @@ def make_worker(name: str, *, deepseek_model: str, opencode_model: str | None = 
 
 
 def worker_result_payload(result: WorkerResult) -> dict[str, object]:
+    """把 Worker 过程结果序列化；该结果本身不代表候选已被 Core 接受。"""
+
     return {
         "status": result.status,
         "changed_files": result.changed_files,
@@ -258,6 +283,10 @@ def worker_result_payload(result: WorkerResult) -> dict[str, object]:
         "artifacts": result.artifacts or {},
     }
 
+
+# ---------------------------------------------------------------------------
+# Handler：以下函数保持“解析参数 -> 调用一个业务入口 -> 输出摘要”的薄结构。
+# ---------------------------------------------------------------------------
 
 def validate_contract(args: argparse.Namespace) -> int:
     contract = TaskContract.load(args.contract)
@@ -351,6 +380,8 @@ def build_slot_manifest_cmd(args: argparse.Namespace) -> int:
 
 
 def run_worker_cmd(args: argparse.Namespace) -> int:
+    """只调用一次 Coding Worker，适合检查 prompt、provider 和代码应用。"""
+
     worker = make_worker(args.worker, deepseek_model=args.deepseek_model, opencode_model=args.opencode_model)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     result = worker.run_experiment(
@@ -374,6 +405,8 @@ def run_worker_cmd(args: argparse.Namespace) -> int:
 
 
 def run_worker_cycle_cmd(args: argparse.Namespace) -> int:
+    """执行一次隔离候选周期：Worker、JA、smoke 和固定 evaluator。"""
+
     contract = load_runnable_contract(args)
     if contract is None:
         return 1
@@ -393,6 +426,8 @@ def run_worker_cycle_cmd(args: argparse.Namespace) -> int:
 
 
 def run_worker_loop_cmd(args: argparse.Namespace) -> int:
+    """在已有契约和 Context Packet 上运行通用多轮闭环。"""
+
     contract = load_runnable_contract(args)
     if contract is None:
         return 1
@@ -489,6 +524,8 @@ def intent_alignment_cmd(args: argparse.Namespace) -> int:
 
 
 def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
+    """运行当前 Web 同款的“文档驱动、Agent 自写 FJSP solver”闭环。"""
+
     worker = make_worker(args.worker, deepseek_model=args.deepseek_model, opencode_model=args.opencode_model)
     main_agent = (
         DeepSeekMainAgent(model=args.deepseek_model) if is_deepseek_configured() else EvidenceDrivenMainAgent()
@@ -551,6 +588,7 @@ def serve_web_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
+# 命令名到薄 handler 的唯一分发表，避免在 main 中堆积业务分支。
 HANDLERS = {
     "validate-contract": validate_contract,
     "confirm-contract": confirm_contract,
@@ -573,6 +611,8 @@ HANDLERS = {
 
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI 进程入口；可预期的输入/路径错误转为结构化错误而非堆栈。"""
+
     args = build_parser().parse_args(argv)
     try:
         return HANDLERS[args.command](args)

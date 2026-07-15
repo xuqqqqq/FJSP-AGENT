@@ -46,6 +46,12 @@ def build_function_reachability(
     primary_entry_names: Iterable[str] = PRIMARY_ENTRY_FUNCTION_NAMES,
     fallback_entry_names: Iterable[str] = FALLBACK_ENTRY_FUNCTION_NAMES,
 ) -> FunctionReachability | None:
+    """建立顶层函数调用图，判断 helper 是否从 solver 入口真实可达。
+
+    静态分析只处理当前文件可见的直接调用；语法错误时返回 None，让调用方
+    使用更保守的调用次数回退，而不是把分析失败误报成确定性缺陷。
+    """
+
     try:
         tree = ast.parse(text)
     except SyntaxError:
@@ -80,6 +86,8 @@ def unreachable_defined_function_helpers(
     text: str,
     helper_patterns: Iterable[tuple[str, str]],
 ) -> list[tuple[str, str]]:
+    """找出名称像关键 helper、但没有接入任何入口调用链的定义。"""
+
     helpers = _defined_helpers_by_pattern(text, helper_patterns)
     reachability = build_function_reachability(text)
     if reachability is None:

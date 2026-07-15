@@ -11,6 +11,12 @@ from harness_agent.core.models import TaskContract
 
 
 class DomainContextProvider(Protocol):
+    """问题族到 Context Packet 的适配接口。
+
+    上游 Harness 只关心“实例长什么样、当前激活了哪些特征”，不关心底层是
+    FJSP、SDST 还是别的族，因此通过这个协议收敛领域差异。
+    """
+
     def inspect_instances(self, contract: TaskContract, *, project_root: Path | None) -> dict[str, Any]:
         ...
 
@@ -26,6 +32,12 @@ class DomainContextProvider(Protocol):
 
 @dataclass(frozen=True)
 class GenericContextProvider:
+    """默认兜底适配器。
+
+    当某个问题族没有专门 provider 时，系统仍能生成 Context Packet，只是不会
+    给出实例特征和变体判定，worker 需更多依赖确认后的契约与 evaluator。
+    """
+
     def inspect_instances(self, contract: TaskContract, *, project_root: Path | None) -> dict[str, Any]:
         return {
             "status": "unavailable",
@@ -54,11 +66,18 @@ _GENERIC_PROVIDER = GenericContextProvider()
 
 
 def get_domain_context_provider(problem_family: str) -> DomainContextProvider:
+    """按问题族解析上下文 provider。
+
+    这里做的只是名称规范化和注册表查找，不在此处引入任何算法分派逻辑。
+    """
+
     normalized = str(problem_family or "").strip().lower().replace("-", "_").replace(" ", "_")
     return _PROVIDERS.get(normalized, _GENERIC_PROVIDER)
 
 
 def register_domain_context_provider(problem_family: str, provider: DomainContextProvider) -> None:
+    """注册新的问题族上下文适配器。"""
+
     normalized = str(problem_family or "").strip().lower().replace("-", "_").replace(" ", "_")
     if not normalized:
         raise ValueError("problem_family is required")

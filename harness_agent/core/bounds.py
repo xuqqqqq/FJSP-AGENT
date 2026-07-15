@@ -29,6 +29,8 @@ OPTIMUM_COLUMNS = ("optimum", "optimal", "opt")
 
 @dataclass(frozen=True)
 class BenchmarkBounds:
+    """一个算例的可选 LB/UB/BKS 诊断元数据。"""
+
     instance: str
     lower_bound: float | None = None
     upper_bound: float | None = None
@@ -84,6 +86,8 @@ def load_bounds_table(path: Path | None) -> dict[str, BenchmarkBounds]:
 
 
 def find_bounds(bounds: dict[str, BenchmarkBounds], instance_name: str) -> BenchmarkBounds | None:
+    """使用统一别名集合查找算例边界记录。"""
+
     for key in instance_name_keys(instance_name):
         entry = bounds.get(key)
         if entry is not None:
@@ -92,6 +96,8 @@ def find_bounds(bounds: dict[str, BenchmarkBounds], instance_name: str) -> Bench
 
 
 def benchmark_family_label(instance_name: str) -> str:
+    """把常见标准库文件名归一为 BA/BR/DP/HU/HUdata 标签。"""
+
     normalized = normalize_instance_name(instance_name)
     parts = normalized.split(".")
     if len(parts) > 2 and parts[0] == "fjsp":
@@ -111,12 +117,16 @@ def benchmark_family_label(instance_name: str) -> str:
 
 
 def instance_family_name(instance_name: str) -> str:
+    """从规范化文件名提取原始问题族片段。"""
+
     normalized = normalize_instance_name(instance_name)
     parts = normalized.split(".")
     return parts[1] if len(parts) > 2 and parts[0] == "fjsp" else parts[0]
 
 
 def normalize_instance_name(name: str) -> str:
+    """去除目录、大小写和常见扩展名，形成匹配主键。"""
+
     normalized = str(name).strip().replace("\\", "/").split("/")[-1].lower()
     for suffix in (".txt", ".fjs", ".json"):
         if normalized.endswith(suffix):
@@ -125,6 +135,8 @@ def normalize_instance_name(name: str) -> str:
 
 
 def instance_name_keys(name: str) -> set[str]:
+    """生成 DP、HUdata 等数据集中常见的同义算例名集合。"""
+
     normalized = normalize_instance_name(name)
     keys = {normalized}
 
@@ -157,6 +169,8 @@ def instance_name_keys(name: str) -> set[str]:
 
 
 def read_csv_text(path: Path) -> str:
+    """兼容 UTF-8 BOM 与 GB18030 的 benchmark CSV。"""
+
     raw = path.read_bytes()
     for encoding in ("utf-8-sig", "gb18030"):
         try:
@@ -167,6 +181,8 @@ def read_csv_text(path: Path) -> str:
 
 
 def bounds_from_values(raw_name: str, values: dict[str, str], path: Path) -> BenchmarkBounds:
+    """从列名不完全统一的一行 CSV 中提取 LB/UB/optimum。"""
+
     lower = first_number(values, LOWER_COLUMNS)
     upper = first_number(values, UPPER_COLUMNS)
     optimum = first_number(values, OPTIMUM_COLUMNS)
@@ -183,6 +199,8 @@ def bounds_from_values(raw_name: str, values: dict[str, str], path: Path) -> Ben
 
 
 def first_value(values: dict[str, str], columns: tuple[str, ...]) -> str | None:
+    """按候选列名优先级返回首个非空文本。"""
+
     for column in columns:
         value = values.get(normalize_column(column))
         if value is not None and str(value).strip():
@@ -191,6 +209,8 @@ def first_value(values: dict[str, str], columns: tuple[str, ...]) -> str | None:
 
 
 def first_number(values: dict[str, str], columns: tuple[str, ...]) -> float | None:
+    """按候选列名优先级返回首个可解析数值。"""
+
     for column in columns:
         parsed = parse_float(values.get(normalize_column(column)))
         if parsed is not None:
@@ -199,6 +219,8 @@ def first_number(values: dict[str, str], columns: tuple[str, ...]) -> float | No
 
 
 def parse_float(value: Any) -> float | None:
+    """宽容解析可选浮点值，缺失或非法时返回 None。"""
+
     if value is None:
         return None
     stripped = str(value).strip()
@@ -211,4 +233,6 @@ def parse_float(value: Any) -> float | None:
 
 
 def normalize_column(column: str) -> str:
+    """统一空格、下划线和连字符，兼容不同来源表头。"""
+
     return str(column).strip().lower().replace("_", " ").replace("-", " ")

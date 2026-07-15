@@ -67,6 +67,8 @@ def write_intent_alignment(request: IntentAlignmentRequest) -> dict[str, Any]:
 
 
 def load_optional_json(path: Path | None) -> dict[str, Any] | None:
+    """读取可选前置 manifest；未提供时保持 None 以区分“空报告”。"""
+
     if not path:
         return None
     return json.loads(path.read_text(encoding="utf-8-sig"))
@@ -80,6 +82,8 @@ def readiness_summary(
     allow_draft: bool,
     require_health: bool,
 ) -> dict[str, Any]:
+    """汇总能否正式优化的阻塞项和非阻塞风险。"""
+
     blockers: list[str] = []
     warnings: list[str] = []
     if contract_errors:
@@ -104,6 +108,8 @@ def readiness_summary(
 
 
 def task_summary(contract: TaskContract) -> dict[str, Any]:
+    """提取面向评审的任务和算例摘要。"""
+
     return {
         "task_id": contract.task_id,
         "problem_family": contract.problem_family,
@@ -114,6 +120,8 @@ def task_summary(contract: TaskContract) -> dict[str, Any]:
 
 
 def objective_summary(contract: TaskContract) -> list[dict[str, Any]]:
+    """按优先级输出目标，并标记主目标/次目标。"""
+
     return [
         {
             "name": objective.name,
@@ -128,6 +136,8 @@ def objective_summary(contract: TaskContract) -> list[dict[str, Any]]:
 
 
 def constraint_summary(contract: TaskContract) -> dict[str, Any]:
+    """汇总固定 Core 约束、文件权限和外部资源。"""
+
     hard_constraints = [
         "solver command must create a solution artifact",
         "evaluator command must create a metrics artifact",
@@ -147,6 +157,8 @@ def constraint_summary(contract: TaskContract) -> dict[str, Any]:
 
 
 def command_summary(contract: TaskContract) -> dict[str, Any]:
+    """展示将被 Core 执行的三类命令模板。"""
+
     return {
         "solver": contract.commands.solver,
         "evaluator": contract.commands.evaluator,
@@ -155,6 +167,8 @@ def command_summary(contract: TaskContract) -> dict[str, Any]:
 
 
 def budget_summary(contract: TaskContract) -> dict[str, Any]:
+    """计算计划实验数和最坏超时，供用户确认计算成本。"""
+
     planned_runs = contract.budget.rounds * len(contract.instances) * len(contract.budget.seeds)
     return {
         "rounds": contract.budget.rounds,
@@ -172,6 +186,8 @@ def risk_summary(
     benchmark_source: str,
     health_manifest: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    """根据样本数、来源和稳定性评估当前结论的外推风险。"""
+
     overfitting_risk = "high" if len(contract.instances) <= 1 else "medium" if len(contract.instances) < 5 else "lower"
     stability = "unknown"
     if health_manifest:
@@ -197,6 +213,8 @@ def risk_notes(*, overfitting_risk: str, benchmark_source: str, stability: str) 
 
 
 def review_summary(contract: TaskContract) -> dict[str, Any]:
+    """提取人工确认状态和仍不确定的契约字段。"""
+
     return {
         "status": contract.review_status,
         "requires_human_confirmation": contract.requires_human_confirmation,
@@ -206,6 +224,8 @@ def review_summary(contract: TaskContract) -> dict[str, Any]:
 
 
 def health_summary(health_manifest: dict[str, Any] | None) -> dict[str, Any]:
+    """压缩健康检查结果，供 intent card 引用而不复制完整日志。"""
+
     if not health_manifest:
         return {"available": False}
     probe = health_manifest.get("stability_probe") or {}
@@ -223,6 +243,8 @@ def health_summary(health_manifest: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def render_intent_alignment_report(manifest: dict[str, Any]) -> str:
+    """将目标一致性 manifest 渲染为评审报告。"""
+
     task = manifest.get("task") or {}
     budget = manifest.get("budget") or {}
     risk = manifest.get("risk") or {}

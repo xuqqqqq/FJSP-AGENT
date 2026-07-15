@@ -16,6 +16,8 @@ from harness_agent.domains.pack import get_domain_pack
 
 @dataclass(frozen=True)
 class AlgorithmSemanticReviewRequest:
+    """一次候选方法语义复核所需的源码、方向、Core 结果和上下文。"""
+
     round_index: int
     attempt_index: int
     context_packet_path: Path
@@ -28,6 +30,8 @@ class AlgorithmSemanticReviewRequest:
 
 @dataclass(frozen=True)
 class AlgorithmSemanticReviewResult:
+    """证据化语义结论；只有满足严格证据条件的 finding 才能 blocking。"""
+
     status: str
     accepted: bool
     summary: str
@@ -54,6 +58,8 @@ class AlgorithmSemanticReviewResult:
 
 
 class AlgorithmSemanticReviewer(Protocol):
+    """语义审查接口；审查者没有运行代码或修改候选的权限。"""
+
     def review(self, request: AlgorithmSemanticReviewRequest) -> AlgorithmSemanticReviewResult:
         ...
 
@@ -83,6 +89,8 @@ class DeepSeekAlgorithmSemanticReviewer:
         self.fallback = EvidenceOnlySemanticReviewer()
 
     def review(self, request: AlgorithmSemanticReviewRequest) -> AlgorithmSemanticReviewResult:
+        """加载完整候选源码和当前知识契约，调用模型并验证其每条 finding。"""
+
         request.output_dir.mkdir(parents=True, exist_ok=True)
         if not is_deepseek_configured():
             return self.fallback.review(request)
@@ -177,6 +185,8 @@ class DeepSeekAlgorithmSemanticReviewer:
                 artifacts["json_retry_response"] = str(retry_path.resolve())
                 raw = parse_json_object_response(retry.content)
                 usage = merge_usage(response.usage, retry.usage)
+            # 模型返回的 finding 不能直接生效；下面会核对路径、源码行、
+            # 知识原文、置信度、修复方案和行为测试是否全部真实存在。
             result = normalize_semantic_review(
                 raw,
                 sources=sources,
@@ -203,6 +213,10 @@ class DeepSeekAlgorithmSemanticReviewer:
                 artifacts={**artifacts, "exception": str(exception_path.resolve())},
             )
 
+
+# ---------------------------------------------------------------------------
+# Finding 证据归一化：把模型意见转换为可审计、可阻塞的严格事实。
+# ---------------------------------------------------------------------------
 
 def normalize_semantic_review(
     raw: Any,
@@ -264,6 +278,8 @@ def verified_semantic_finding(
     sources: dict[str, str],
     knowledge: dict[str, str],
 ) -> dict[str, Any] | None:
+    """验证单条 finding；任一关键证据缺失时整条丢弃。"""
+
     if not isinstance(value, dict):
         return None
     source_path = resolve_review_path(value.get("source_path"), sources)
@@ -311,6 +327,10 @@ def verified_semantic_finding(
         "required_test": required_test[:1200],
     }
 
+
+# ---------------------------------------------------------------------------
+# Prompt 与有界材料加载
+# ---------------------------------------------------------------------------
 
 def semantic_review_prompt(
     *,
@@ -432,6 +452,8 @@ def load_review_sources(
     changed_files: list[str],
     max_total_chars: int = 600_000,
 ) -> dict[str, str]:
+    """加载 solver 入口和本轮 Python 改动；超预算时拒绝做残缺源码审查。"""
+
     protocol = context.get("evaluator_protocol") if isinstance(context.get("evaluator_protocol"), dict) else {}
     solver_command = str(protocol.get("solver_command_template") or "")
     candidates = {path.as_posix() for path in relative_python_paths(solver_command)}
@@ -467,6 +489,8 @@ def load_review_knowledge(
     direction_plan: dict[str, Any],
     max_total_chars: int = 300_000,
 ) -> dict[str, str]:
+    """只加载 Context Packet/方向计划已允许的知识契约。"""
+
     allowed: dict[str, Path] = {}
     for record in context.get("knowledge_cards") or []:
         if not isinstance(record, dict):

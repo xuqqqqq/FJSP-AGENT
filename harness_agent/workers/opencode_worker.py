@@ -1,4 +1,10 @@
-"""OpenCode Coding Agent 适配器：运行容器并收集可审计产物。"""
+"""OpenCode Coding Agent 适配器。
+
+这里承载的是当前 harness 侧最直接的代码运行时：把 `ExperimentSpec`
+翻译成一次受控的命令行调用，让外部 Coding Agent 在隔离 worktree 内
+直接改文件，然后把 prompt、命令、stdout/stderr 和超时结果落盘，供
+后续审计、diff、smoke gate 与 evaluator 复盘。
+"""
 
 from __future__ import annotations
 
@@ -17,7 +23,15 @@ from ..worker import CodingWorker, ExperimentSpec, WorkerCapabilities, WorkerRes
 
 
 class OpenCodeWorker(CodingWorker):
-    """Run OpenCode as a guarded non-interactive coding backend."""
+    """默认的直接执行型 Worker 运行时。
+
+    与 DeepSeekWorker 返回结构化 proposal 再由 harness 落地不同，
+    OpenCodeWorker 让外部 agent 直接在 `spec.worktree_path` 内编辑。
+    因此这里的职责重点不是 JSON 规范化，而是：
+    1. 固化本轮 prompt 和命令行参数；
+    2. 约束子进程生命周期与超时；
+    3. 保存可审计产物，便于主流程判断是否接受候选。
+    """
 
     def __init__(self, executable: str = "opencode", model: str | None = None) -> None:
         self.executable = executable
@@ -36,6 +50,16 @@ class OpenCodeWorker(CodingWorker):
         )
 
     def run_experiment(self, spec: ExperimentSpec) -> WorkerResult:
+        """执行一次 OpenCode worker 周期并收集审计产物。
+
+        `ExperimentSpec` 中最关键的三段数据流是：
+        - `context_packet_path`：只读上下文，供 prompt 引导 agent；
+        - `worktree_path`：唯一允许被 agent 直接修改的候选目录；
+        - `output_dir`：worker 自己的提示词、命令、日志、stderr 归档位。
+
+        返回值只描述本次 worker 进程是否正常结束，不直接声明候选算法已
+        通过 evaluator。
+        """
         output_dir = Path(spec.output_dir) if spec.output_dir else Path(spec.worktree_path) / ".algoforge_worker" / spec.experiment_id
         output_dir.mkdir(parents=True, exist_ok=True)
         if self.executable_path is None:
@@ -55,6 +79,8 @@ class OpenCodeWorker(CodingWorker):
         command = self._command(prompt_path)
         command_path.write_text(json_dumps(command), encoding="utf-8")
 
+        # OpenCode 直接改 worktree，所以 stdout/stderr 不是装饰性日志，
+        # 而是回溯本轮行为、定位超时/鉴权失败的第一手证据。
         popen_kwargs: dict[str, object] = {
             "cwd": spec.worktree_path,
             "env": opencode_subprocess_environment(),
@@ -70,6 +96,8 @@ class OpenCodeWorker(CodingWorker):
         try:
             stdout, stderr = process.communicate(timeout=max(1, spec.max_runtime_seconds))
         except subprocess.TimeoutExpired as exc:
+            # 超时后必须显式结束整棵进程树，避免子进程继续占用 worktree、
+            # 文件句柄或外部 provider 连接。
             kill_process_tree(process)
             stdout, stderr = process.communicate()
             stdout_path.write_text(stdout or exc.stdout or "", encoding="utf-8")
@@ -106,6 +134,11 @@ class OpenCodeWorker(CodingWorker):
         )
 
     def _command(self, prompt_path: Path) -> list[str]:
+        """构造最终命令行。
+
+        这里不把 prompt 内容直接塞进 argv，而是只传一个“读取某个文件”的
+        指令，确保完整 worker 指令文本能原样保存在产物目录，便于审计。
+        """
         command = [str(self.executable_path)]
         if self.run_command:
             command.extend(shlex.split(self.run_command, posix=False))
@@ -116,6 +149,11 @@ class OpenCodeWorker(CodingWorker):
         return command
 
     def _prompt(self, spec: ExperimentSpec) -> str:
+        """生成给 OpenCode 的完整 worker 提示词。
+
+        stable/dynamic context 在这里以预裁剪后的 JSON 文本注入。该函数
+        只负责编排 worker 可见上下文，不参与任何结果验收逻辑。
+        """
         context_sections = self._context_sections(spec)
         local_inputs = self._local_input_hint(spec)
         return f"""
@@ -218,6 +256,7 @@ stdout.  The harness will record your stdout/stderr and the worktree delta.
 """.strip()
 
     def _local_input_hint(self, spec: ExperimentSpec) -> str:
+        """把本地镜像实例路径压缩成简短提示，避免 agent 请求越界原始路径。"""
         manifest_path = Path(spec.worktree_path) / ".algoforge_worker_inputs" / "manifest.json"
         try:
             payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -231,6 +270,11 @@ stdout.  The harness will record your stdout/stderr and the worktree delta.
         return ", ".join(paths) if paths else ".algoforge_worker_inputs/instances/ (when present)"
 
     def _context_sections(self, spec: ExperimentSpec) -> dict[str, str]:
+        """把上下文包切成 stable/dynamic 两段，供 prompt 明确区分。
+
+        stable 部分偏任务常量，dynamic 部分偏当前轮反馈和修复尾部。即使
+        裁剪失败，也返回兜底 JSON，保证默认运行时仍可继续读取原始包。
+        """
         try:
             context = load_context_dict(Path(spec.context_packet_path))
         except (OSError, json.JSONDecodeError, ValueError):
@@ -247,7 +291,11 @@ def json_dumps(value: object) -> str:
 
 
 def opencode_subprocess_environment() -> dict[str, str]:
-    """Load local provider settings without copying secret files into worktrees."""
+    """为子进程注入 provider 环境，但不把密钥文件复制进 worktree。
+
+    这样 agent 进程能读取所需授权信息，同时隔离目录里只保留代码与日志，
+    不留下额外秘密副本。
+    """
 
     load_local_env()
     environment = os.environ.copy()
@@ -258,6 +306,11 @@ def opencode_subprocess_environment() -> dict[str, str]:
 
 
 def opencode_status(returncode: int, stdout: str, stderr: str) -> str:
+    """把底层退出结果归一成 harness 可消费的 worker 状态。
+
+    这里的 `authorization_required` 是编排层关心的特殊状态：它表示问题更
+    可能出在 provider 登录/API key/余额，而不是候选代码逻辑本身。
+    """
     if returncode == 0:
         return "completed"
     combined = f"{stdout}\n{stderr}".lower()

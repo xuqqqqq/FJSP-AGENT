@@ -1,7 +1,9 @@
 """DeepSeek Coding Worker。
 
-Worker 只负责把主 Agent 给出的上下文转换为可审计代码修改，不内置求解器、
-算法组合或参数模板；具体方法由当前领域包、知识卡和 Skill 提供。
+这是一个“结构化备用适配器”而不是直接改文件的默认运行时：它把主 Agent
+提供的上下文压缩成 prompt，请模型返回受限 JSON proposal，再由 harness
+统一做规范化、审计、路径门禁和 apply。这样即使模型输出波动较大，核心
+编排层仍能保留可追溯、可拒绝、可部分落地的控制面。
 """
 
 from __future__ import annotations
@@ -38,7 +40,14 @@ PRIORITY_KNOWLEDGE_CARD_LIMIT = 3
 PRIORITY_KNOWLEDGE_CARD_MAX_CHARS = 3600
 
 
+# === 响应提取与 Worker 主流程 ==================================================
+
 def extract_json_object(text: str) -> dict[str, Any]:
+    """尽量从模型响应里提取第一个顶层 JSON object。
+
+    DeepSeekWorker 依赖结构化输出做后续审计；这里允许剥离 Markdown fence
+    和前后噪声，是为了把“格式轻微漂移”和“真实内容不可用”区分开来。
+    """
     stripped = text.strip()
     if stripped.startswith("```"):
         stripped = re.sub(r"^```(?:json)?", "", stripped, flags=re.IGNORECASE).strip()
@@ -61,6 +70,14 @@ def extract_json_object(text: str) -> dict[str, Any]:
 
 
 class DeepSeekWorker(CodingWorker):
+    """把 LLM 代码编辑意图转成可审计 proposal 的结构化适配器。
+
+    与 OpenCodeWorker 的“直接在 worktree 内运行子进程”路线不同，这里先
+    产出 JSON proposal，再由 harness 统一校验 `ExperimentSpec` 允许的
+    路径、slot 和 action。这样便于在无直接文件执行权限时保留可控的备用
+    通道，也便于做 proposal 级审计。
+    """
+
     def __init__(self, model: str = "deepseek-v4-pro") -> None:
         self.model = model
         self.available = is_deepseek_configured()
@@ -74,6 +91,18 @@ class DeepSeekWorker(CodingWorker):
         )
 
     def run_experiment(self, spec: ExperimentSpec) -> WorkerResult:
+        """执行一次“上下文 -> proposal -> 可选 apply”的结构化 worker 周期。
+
+        数据流与 OpenCodeWorker 有明显差异：
+        - 输入仍来自 `ExperimentSpec` 的 context packet / worktree / output_dir；
+        - 模型先返回 JSON proposal，而不是直接改 worktree；
+        - harness 在本地完成规范化、审计和 apply，因此 `apply_changes=False`
+          时也能完整保存 proposal 供主流程复核。
+
+        该适配器不管理外部子进程生命周期；授权状态由
+        `is_deepseek_configured()` 和客户端环境决定，未配置时直接返回
+        `unavailable`，避免进入半可用状态。
+        """
         output_dir = Path(spec.output_dir) if spec.output_dir else Path(spec.worktree_path) / ".algoforge_worker" / spec.experiment_id
         output_dir.mkdir(parents=True, exist_ok=True)
         if not self.available:
@@ -121,6 +150,8 @@ class DeepSeekWorker(CodingWorker):
         try:
             raw_proposal = extract_json_object(content)
         except json.JSONDecodeError as exc:
+            # 先修 JSON 外壳，再走同一套规范化/审计流程，避免因格式噪声丢失
+            # 可能仍有价值的代码内容。
             repaired = self._repair_code_edit_json(client, content, str(exc), max_tokens=12000)
             (output_dir / "deepseek_code_edit_repair_response.json").write_text(repaired, encoding="utf-8")
             raw_proposal = extract_json_object(repaired)
@@ -132,6 +163,8 @@ class DeepSeekWorker(CodingWorker):
 
         changed_files: list[str] = []
         if spec.apply_changes:
+            # 是否真正写入 worktree 由编排层决定；proposal 始终先落盘，保证
+            # apply 前后都能追踪“模型原意”和“harness 接受的最终变体”。
             changed_files = apply_code_edit_proposal(
                 proposal=proposal,
                 worktree_path=Path(spec.worktree_path),
@@ -156,6 +189,12 @@ class DeepSeekWorker(CodingWorker):
         )
 
     def _code_edit_prompt(self, *, context: dict[str, Any], max_steps: int) -> str:
+        """生成结构化代码编辑 prompt。
+
+        stable context 放缓存友好的任务常量，dynamic priority context 放当前
+        轮 incumbent、repair、knowledge cards 等易变信息，目的是让模型先
+        吃到稳定约束，再读取本轮最需要响应的动态尾部。
+        """
         stable_context = stable_worker_context_json(context).text
         priority_context = priority_worker_context(context)
         return f"""
@@ -428,6 +467,7 @@ Dynamic round context (incumbent, retrieved methods, and recent feedback):
 """.strip()
 
     def _repair_code_edit_json(self, client: DeepSeekClient, raw: str, error: str, max_tokens: int) -> str:
+        """让模型只修复 JSON 包装层，不重写原始策略意图。"""
         return client.chat(
             [
                 {
@@ -455,6 +495,13 @@ Dynamic round context (incumbent, retrieved methods, and recent feedback):
         )
 
     def _normalize_code_edit_proposal(self, proposal: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+        """把原始 proposal 规整为 harness 可审计、可落地的受限结构。
+
+        这里是 structured adapter 的核心安全带：
+        - 统一 action/path/slot/content 形状；
+        - 把不允许的编辑移入 `rejected_changes`；
+        - 生成 proposal audit，供主流程判断这轮建议是否可信。
+        """
         normalized_changes: list[dict[str, str]] = []
         rejected_changes: list[dict[str, str]] = []
         for item in proposal.get("changes", []):
@@ -596,7 +643,16 @@ Dynamic round context (incumbent, retrieved methods, and recent feedback):
         normalized["proposal_audit"] = build_proposal_audit(normalized, context)
         return normalized
 
+
+# === Priority context：把主流程状态压缩给 Worker =================================
+
 def priority_worker_context(context: dict[str, Any]) -> str:
+    """构造 dynamic priority context。
+
+    这一段承接主编排层的“当前轮状态机”：baseline 还是 improvement、
+    incumbent 是否需要合法性修复、Main Agent 当前方向、quality contract、
+    knowledge cards、repair memory 等都在这里浓缩后提供给 worker。
+    """
     quality_contract = build_agent_generated_solver_quality_contract(context)
     is_improvement_round = bool(context.get("iteration_edit_contract"))
     operator_stage = operator_improvement_stage_for_worker(context, quality_contract=quality_contract)
@@ -710,6 +766,7 @@ def priority_worker_context(context: dict[str, Any]) -> str:
 
 
 def round_learning_contract_for_worker(*, is_improvement_round: bool) -> dict[str, Any]:
+    """按轮次阶段下发不同的学习/修改契约。"""
     if not is_improvement_round:
         return {
             "must_do": [
@@ -746,7 +803,7 @@ def operator_improvement_stage_for_worker(
     *,
     quality_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Describe when a legal incumbent should pivot from construction to search operators."""
+    """判断当前轮是否已经可以从“造出合法解”切到“算子改进”阶段。"""
 
     if not context.get("iteration_edit_contract"):
         return {"active": False, "reason": "not_improvement_round"}
@@ -807,11 +864,10 @@ def operator_improvement_stage_for_worker(
 
 
 def incumbent_method_stage_for_worker(context: dict[str, Any]) -> dict[str, Any]:
-    """Return only evaluator/semantic-review-backed method evidence.
+    """只返回 evaluator / semantic review 真正支撑的方法证据。
 
-    Source identifiers are deliberately ignored here.  Static spelling checks
-    previously turned method-like names into capability evidence and pushed
-    workers into renaming repairs.
+    这里刻意忽略“函数名长得像某算法”之类的静态命名暗示，避免 worker 被
+    错误引导去做重命名式修补，而不是修真实语义缺陷。
     """
 
     loop_feedback = context.get("loop_feedback") if isinstance(context.get("loop_feedback"), dict) else {}
@@ -981,7 +1037,14 @@ def priority_context_max_chars() -> int:
     return max(PRIORITY_CONTEXT_MIN_CHARS, min(PRIORITY_CONTEXT_MAX_CHARS, requested))
 
 
+# === 上下文压缩：把主流程大对象裁成 prompt 可消费的动态尾部 ======================
+
 def compact_loop_feedback_for_prompt(loop_feedback: dict[str, Any]) -> dict[str, Any]:
+    """压缩 loop_feedback，保留 worker 本轮真正需要消费的信号。
+
+    这里重点保留前几轮 proposal 结果、repair、semantic review 和 smoke gate，
+    让 worker 能理解“为什么上轮被拒绝”以及“这一轮还剩什么没修”。
+    """
     if not isinstance(loop_feedback, dict):
         return {}
     baseline_summary = loop_feedback.get("baseline_summary")
@@ -1379,6 +1442,7 @@ def extract_top_level_symbols(snippet: str) -> list[dict[str, Any]]:
 
 
 def compact_incumbent_source_snippet(snippet: str, *, max_chars: int) -> str:
+    """截取 incumbent 代码的高价值窗口，而不是盲目头尾截断。"""
     if max_chars <= 0:
         return ""
     if len(snippet) <= max_chars:
@@ -1436,12 +1500,20 @@ def compact_incumbent_source_snippet(snippet: str, *, max_chars: int) -> str:
     return result[:max_chars]
 
 
+# === 知识卡与变体感知：给 worker 选最相关的局部方法证据 ==========================
+
 def compact_priority_knowledge_cards(
     context: dict[str, Any],
     *,
     limit: int,
     max_chars_per_card: int = 2400,
 ) -> list[dict[str, Any]]:
+    """为本轮挑选少量高相关知识卡。
+
+    这里会同时考虑 active method package、当前方向、query terms 和变体特征。
+    例如 SDST 未激活时，相关知识会被主动降权，避免把不应出现的变体逻辑
+    混进本轮 proposal。
+    """
     cards = context.get("knowledge_cards") or []
     if not isinstance(cards, list):
         return []
@@ -1681,6 +1753,7 @@ def _knowledge_query_terms(context: dict[str, Any]) -> set[str]:
 
 
 def _context_sequence_dependent_setup_active(context: dict[str, Any]) -> bool:
+    """从 slot、实例诊断和上下文文本综合判断 SDST 是否真的激活。"""
     if _slot_manifest_requests_sdst(context.get("slot_manifest")):
         return True
     diagnostics = context.get("instance_diagnostics") if isinstance(context.get("instance_diagnostics"), dict) else {}
@@ -1715,6 +1788,7 @@ def _slot_manifest_requests_sdst(slot_manifest: Any) -> bool:
 
 
 def _sdst_state_from_diagnostics(diagnostics: dict[str, Any]) -> bool | None:
+    """优先信任实例诊断结果，而不是只靠关键词猜测变体。"""
     if not isinstance(diagnostics, dict) or not diagnostics:
         return None
     summary = diagnostics.get("summary") if isinstance(diagnostics.get("summary"), dict) else {}
@@ -1784,7 +1858,10 @@ def _sdst_specific_knowledge_path(path: str) -> bool:
     )
 
 
+# === Proposal 规范化与审计：把模型输出变成编排层可消费事实 ========================
+
 def normalize_context_usage(value: Any) -> dict[str, Any]:
+    """规范化模型声明的上下文使用记录，便于后续审计引用是否真实。"""
     if not isinstance(value, dict):
         return {
             "used_project_intake": False,
@@ -1803,6 +1880,11 @@ def normalize_context_usage(value: Any) -> dict[str, Any]:
 
 
 def normalize_solver_contract_self_check(value: Any, context: dict[str, Any]) -> dict[str, Any]:
+    """把 solver self-check 统一成可比对的结构。
+
+    该结构不是模型自夸文本，而是后续 audit 用来对照 quality contract、
+    检查 active_features / capabilities / narrative evidence 是否齐全的输入。
+    """
     quality_contract = build_agent_generated_solver_quality_contract(context)
     if not isinstance(value, dict):
         return {
@@ -1910,6 +1992,7 @@ def _quality_contract_capabilities(quality_contract: dict[str, Any]) -> list[str
 
 
 def normalize_rule_operator_hypotheses(value: Any) -> list[dict[str, Any]]:
+    """规范化 rule/operator 假设，保留后续 lineage 分析所需字段。"""
     if not isinstance(value, list):
         return []
     hypotheses: list[dict[str, Any]] = []
@@ -1950,6 +2033,13 @@ def normalize_rule_operator_hypotheses(value: Any) -> list[dict[str, Any]]:
 
 
 def build_proposal_audit(proposal: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    """生成 proposal 审计摘要。
+
+    审计的目的不是再次执行代码，而是回答几个编排层问题：
+    - 这轮是否真的引用了 project_intake / knowledge cards；
+    - 触碰了哪些核心文件、validator、benchmark；
+    - self-check 与 helper 可达性是否存在明显风险。
+    """
     project_intake = context.get("project_intake") or {}
     intake_summary = project_intake.get("summary") or {}
     accepted_paths = [normalize_relative_path(str(item.get("path", ""))) for item in proposal.get("changes", [])]
@@ -2073,6 +2163,7 @@ def build_solver_contract_self_check_audit(
     proposal: dict[str, Any],
     accepted_paths: list[str],
 ) -> dict[str, Any]:
+    """审计 agent-generated solver 的 self-check 是否足以支撑可追溯声明。"""
     warnings: list[str] = []
     changed_agent_generated_solver = any(_looks_like_agent_generated_solver_path(path) for path in accepted_paths)
     if not quality_contract.get("enabled") or not changed_agent_generated_solver:
@@ -2502,6 +2593,8 @@ def proposal_search_text(proposal: dict[str, Any]) -> str:
     return "\n".join(parts).replace("\\", "/").lower()
 
 
+# === Path / slot / apply 门禁：把 proposal 安全落到 worktree =====================
+
 def path_matches_any(path: str, roots: set[str]) -> bool:
     return any(_path_is_under(path, root) for root in roots if root)
 
@@ -2512,6 +2605,7 @@ def safe_profile_name(value: str) -> str:
 
 
 def normalize_relative_path(value: str) -> str:
+    """把模型给出的路径统一收敛到 worktree 相对路径表示。"""
     normalized = value.replace("\\", "/").strip().lstrip("/")
     parts = [part for part in normalized.split("/") if part not in {"", "."}]
     return "/".join(parts)
@@ -2531,6 +2625,7 @@ def inserts_top_level_code_after_definition(anchor: str, content: str) -> bool:
 
 
 def create_or_replace_forbidden(path_value: str, context: dict[str, Any]) -> bool:
+    """在增量轮次保护 incumbent，禁止把现有 solver 整体重写掉。"""
     contract = context.get("iteration_edit_contract")
     if not isinstance(contract, dict) or contract.get("mode") != "incremental_after_baseline":
         return False
@@ -2546,6 +2641,7 @@ def create_or_replace_forbidden(path_value: str, context: dict[str, Any]) -> boo
 
 
 def incumbent_requires_legality_repair(context: dict[str, Any]) -> bool:
+    """判断 incumbent 是否已失去“可继续增量修改”的合法基础。"""
     loop_feedback = context.get("loop_feedback")
     if not isinstance(loop_feedback, dict):
         return False
@@ -2584,6 +2680,11 @@ def _looks_like_solver_file(path_value: str) -> bool:
 
 
 def is_path_allowed(path_value: str, context: dict[str, Any]) -> tuple[bool, str]:
+    """执行路径门禁。
+
+    这一步把 edit_policy、保留目录限制和基础路径净化统一成一个布尔判断，
+    是 proposal 从“模型建议”变成“允许尝试 apply 的候选动作”的第一道关。
+    """
     normalized = normalize_relative_path(path_value)
     if not normalized:
         return False, "empty path"
@@ -2609,6 +2710,12 @@ def apply_code_edit_proposal(
     worktree_path: Path,
     context: dict[str, Any],
 ) -> list[str]:
+    """把已规范化 proposal 写入 worktree。
+
+    apply 阶段仍然会重复做路径与 slot 校验，防止上游数据在磁盘往返后被直接
+    信任。若某条动作在落地时发现锚点、slot 或目标文件不满足条件，会记入
+    `apply_rejections`，而不是静默吞掉。
+    """
     worktree_root = worktree_path.resolve()
     changed_files: list[str] = []
     for change in proposal.get("changes", []):
@@ -2625,6 +2732,8 @@ def apply_code_edit_proposal(
         if action == "create_or_replace":
             target.write_text(str(change.get("content", "")), encoding="utf-8")
         elif action == "replace_slot_block":
+            # slot 替换是最严格的落地路径：必须是用户确认过的 slot，且实际
+            # target_file 与 proposal 声明一致，避免模型借 slot 名义越界写别处。
             slot_id = str(change.get("slot_id", "")).strip()
             slot, slot_error = confirmed_context_slot(context, slot_id)
             if slot is None:
@@ -2720,6 +2829,7 @@ def insert_before_anchor(text: str, anchor: str, insert_text: str) -> str:
 
 
 def confirmed_context_slot(context: dict[str, Any], slot_id: str) -> tuple[dict[str, Any] | None, str]:
+    """解析并确认一个允许被 `replace_slot_block` 修改的上下文 slot。"""
     if not slot_id:
         return None, "replace_slot_block requires slot_id"
     errors = validate_slot_manifest_gate(context, slot_id)
@@ -2736,6 +2846,7 @@ def confirmed_context_slot(context: dict[str, Any], slot_id: str) -> tuple[dict[
 
 
 def normalize_slot_replacement_content(content: str, slot: dict[str, Any]) -> str:
+    """清理 slot 替换内容，只保留 marker 之间真正应写回的代码。"""
     normalized = strip_markdown_code_fence(content)
     marker_start = str(slot.get("marker_start", ""))
     marker_end = str(slot.get("marker_end", ""))
@@ -2760,6 +2871,7 @@ def strip_markdown_code_fence(text: str) -> str:
 
 
 def render_code_edit_markdown(proposal: dict[str, Any]) -> str:
+    """把结构化 proposal 渲染成便于人工审阅的 Markdown 报告。"""
     lines = [
         "# Coding Worker Proposal",
         "",

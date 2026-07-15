@@ -70,6 +70,8 @@ def run_health_check(request: HealthCheckRequest) -> dict[str, Any]:
 
 
 def run_quick_test(contract: TaskContract, project_root: Path, output_dir: Path) -> dict[str, Any]:
+    """单独执行契约 quick test，并把 stdout/stderr 固化为健康检查证据。"""
+
     stdout_path = output_dir / "quick_test.stdout.txt"
     stderr_path = output_dir / "quick_test.stderr.txt"
     if not contract.commands.quick_test:
@@ -127,6 +129,8 @@ def run_quick_test(contract: TaskContract, project_root: Path, output_dir: Path)
 
 
 def run_stability_probe(contract: TaskContract, request: HealthCheckRequest, output_dir: Path) -> dict[str, Any]:
+    """用少量算例/seed 重复运行，验证相同输入是否产生稳定指标。"""
+
     selected_instances = contract.instances[: max(1, request.max_instances)]
     selected_seeds = contract.budget.seeds[: max(1, request.max_seeds)]
     probe_contract = replace(
@@ -165,6 +169,8 @@ def run_stability_probe(contract: TaskContract, request: HealthCheckRequest, out
 
 
 def stability_summary(records: list[ExperimentRecord]) -> dict[str, Any]:
+    """按 instance+seed 分组，检查重复记录的合法性、目标和 metrics 一致性。"""
+
     grouped: dict[tuple[str, int], list[ExperimentRecord]] = {}
     for record in records:
         grouped.setdefault((record.instance_id, record.seed), []).append(record)
@@ -198,6 +204,8 @@ def health_status(
     quick_test: dict[str, Any],
     probe_manifest: dict[str, Any] | None,
 ) -> str:
+    """按契约、人工确认、quick test、稳定性顺序返回首个阻塞状态。"""
+
     if contract_errors:
         return "failed_contract"
     if review_blocked:
@@ -210,6 +218,8 @@ def health_status(
 
 
 def render_health_report(manifest: dict[str, Any]) -> str:
+    """将健康检查 manifest 渲染为面向人的 Markdown。"""
+
     probe = manifest.get("stability_probe") or {}
     lines = [
         "# Harness Health Check Report",

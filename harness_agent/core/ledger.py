@@ -11,6 +11,8 @@ from typing import Any
 
 @dataclass(frozen=True)
 class ExperimentRecord:
+    """一个 instance/seed/round 原子实验的不可变事实记录。"""
+
     experiment_id: str
     task_id: str
     round_index: int
@@ -25,6 +27,8 @@ class ExperimentRecord:
 
 
 class ExperimentLedger:
+    """SQLite 实验账本；负责持久化事实，不参与候选优劣判断。"""
+
     def __init__(self, path: Path) -> None:
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)

@@ -14,12 +14,16 @@ SetupTimes = tuple[tuple[tuple[int, ...], ...], ...]
 
 @dataclass(frozen=True)
 class MachineOption:
+    """一次工序在某台候选机器上的加工时长。"""
+
     machine_id: int
     duration: int
 
 
 @dataclass(frozen=True)
 class Operation:
+    """标准 FJSP 工序：只包含候选机集合，不包含任何调度决策。"""
+
     job_id: int
     op_id: int
     candidates: tuple[MachineOption, ...]
@@ -27,12 +31,20 @@ class Operation:
 
 @dataclass(frozen=True)
 class Job:
+    """作业定义，内部按工序先后顺序排列。"""
+
     job_id: int
     operations: tuple[Operation, ...]
 
 
 @dataclass(frozen=True)
 class StandardFjspInstance:
+    """标准 FJSP/FJSP-SDST 算例的只读结构。
+
+    这里是 parser/validator 共用的数据模型，强调“实例语义固定”。任何启发式、
+    邻域、优先规则都不应塞进这个层次。
+    """
+
     name: str
     job_count: int
     machine_count: int
@@ -52,6 +64,8 @@ class StandardFjspInstance:
 
 @dataclass(frozen=True)
 class ScheduleRecord:
+    """调度解中的单条工序排产记录。"""
+
     job_id: int
     op_id: int
     machine_id: int
@@ -171,6 +185,14 @@ def _parse_optional_setup_times(
     machine_count: int,
     operation_count: int,
 ) -> tuple[SetupTimes, str]:
+    """解析 FJSP-SDST 的可选 setup 尾部。
+
+    当前支持两类已确认格式：
+    1. operation-pair 矩阵；
+    2. HUdata 风格的 job-pair 矩阵。
+    如果尾部 token 数不匹配，宁可抛错，也不猜测其语义。
+    """
+
     if not tail:
         return (), "none"
     operation_pair_expected = machine_count * operation_count * operation_count
@@ -202,6 +224,11 @@ def _parse_optional_setup_times(
 
 
 def operation_index_lookup(instance: StandardFjspInstance) -> dict[OpKey, int]:
+    """建立 `(job_id, op_id)` 到全局工序索引的映射。
+
+    operation-pair setup 矩阵按“全局工序顺序”索引，因此 validator 需要这张查表。
+    """
+
     return {
         (job.job_id, op.op_id): index
         for index, (job, op) in enumerate((job, op) for job in instance.jobs for op in job.operations)
@@ -215,6 +242,8 @@ def setup_time_between(
     current_op: OpKey,
     op_index: dict[OpKey, int] | None = None,
 ) -> int:
+    """读取两道工序在同一机器上的 setup 时间。"""
+
     if previous_op is None or not instance.setup_times:
         return 0
     if not 0 <= machine_id < len(instance.setup_times):
@@ -226,6 +255,12 @@ def setup_time_between(
 
 
 def load_solution(path: Path) -> list[ScheduleRecord]:
+    """读取 solver 输出的标准解格式。
+
+    parser 的职责仅限于结构和类型校验；调度可行性仍由 `validate_standard_schedule()`
+    统一判断。
+    """
+
     raw = json.loads(path.read_text(encoding="utf-8"))
     records = raw.get("schedule")
     if not isinstance(records, list):
@@ -248,6 +283,12 @@ def load_solution(path: Path) -> list[ScheduleRecord]:
 
 
 def write_solution(path: Path, instance: StandardFjspInstance, schedule: list[ScheduleRecord], strategy: str) -> None:
+    """按固定 JSON 协议输出解。
+
+    输出里只记录 evaluator 需要的排产事实和少量来源元数据，不嵌入任何“自证最优”
+    之类的求解侧结论。
+    """
+
     payload: dict[str, Any] = {
         "format": "standard_fjsp_schedule_v1",
         "variant": "fjsp_sdst" if instance.has_sequence_dependent_setup else "standard_fjsp",
@@ -274,6 +315,12 @@ def validate_standard_schedule(
     instance: StandardFjspInstance,
     schedule: list[ScheduleRecord],
 ) -> tuple[list[str], dict[str, float]]:
+    """验证标准 FJSP/FJSP-SDST 解的结构与时序合法性。
+
+    这是 parser/validator 层的关键边界：它只判断“这份 schedule 是否满足实例 IO
+    语义”，并返回基础指标；不负责比较算法优劣，也不决定是否 promotion。
+    """
+
     errors: list[str] = []
     seen: dict[tuple[int, int], ScheduleRecord] = {}
 

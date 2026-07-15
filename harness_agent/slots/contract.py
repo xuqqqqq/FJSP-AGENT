@@ -33,6 +33,12 @@ LANGUAGE_BY_SUFFIX = {
 
 @dataclass(frozen=True)
 class ResolvedCodeSlot:
+    """解析后的代码槽。
+
+    Slot 是“可编辑边界”的声明，不是代码生成逻辑本身。解析后对象会把 manifest
+    中的声明和当前文件里的真实 marker 位置拼起来，供 worker 做小范围替换。
+    """
+
     slot_id: str
     title: str
     target_file: str
@@ -56,6 +62,11 @@ class ResolvedCodeSlot:
 
     @classmethod
     def from_manifest_slot(cls, slot: dict[str, Any], *, source_text: str | None = None) -> "ResolvedCodeSlot":
+        """从 manifest 条目构造一个可执行的 slot 视图。
+
+        如果给了 `source_text`，会优先重新定位真实 marker，避免仅依赖旧的行号缓存。
+        """
+
         target_file = str(slot.get("target_file", ""))
         marker_start = str(slot.get("marker_start", ""))
         marker_end = str(slot.get("marker_end", ""))
@@ -110,6 +121,8 @@ class ResolvedCodeSlot:
 
 @dataclass(frozen=True)
 class MarkedBlock:
+    """源文件中由成对 marker 包围的实际代码块。"""
+
     marker_start: str
     marker_end: str
     line_start: int
@@ -128,6 +141,12 @@ def validate_slot_manifest_gate(
     expected_marker_start: str | None = None,
     expected_marker_end: str | None = None,
 ) -> list[str]:
+    """验证 slot 是否满足“允许编辑”的门槛。
+
+    这一步体现 slot 插件的安全边界：只有 manifest 已确认、slot 已 user_confirmed、
+    且目标文件/marker 与预期一致时，后续 replace-slot 才应继续。
+    """
+
     errors: list[str] = []
     manifest, slot, lookup_errors = _lookup_manifest_slot(context, slot_id)
     if lookup_errors:
@@ -154,6 +173,8 @@ def find_confirmed_slot(
     *,
     worktree_path: Path | None = None,
 ) -> ResolvedCodeSlot:
+    """读取并解析一个已确认 slot。"""
+
     errors = validate_slot_manifest_gate(context, slot_id)
     if errors:
         raise ValueError("; ".join(errors))
@@ -174,6 +195,8 @@ def locate_marked_block(
     *,
     context_lines: int = 5,
 ) -> MarkedBlock:
+    """在源文本中定位成对 marker 包围的代码块。"""
+
     lines = text.splitlines(keepends=True)
     start_index = _find_marker_line(lines, marker_start)
     end_index = _find_marker_line(lines, marker_end)
@@ -199,6 +222,8 @@ def extract_marked_block(text: str, marker_start: str, marker_end: str) -> str:
 
 
 def replace_marked_block(text: str, marker_start: str, marker_end: str, replacement: str) -> str:
+    """用新内容替换 marker 之间的原块内容，保留 marker 本身。"""
+
     lines = text.splitlines(keepends=True)
     start_index = _find_marker_line(lines, marker_start)
     end_index = _find_marker_line(lines, marker_end)

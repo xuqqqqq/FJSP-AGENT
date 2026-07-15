@@ -26,6 +26,12 @@ _TAIL_HISTORY_KEYS = {
 
 @dataclass(frozen=True)
 class CompactedJson:
+    """结构化压缩结果。
+
+    `payload` 仍保持 JSON 可解析结构，`text` 是最终写入/发送给 worker 的文本，
+    其余字段用于审计压缩前后规模和采用的压缩档位。
+    """
+
     payload: Any
     text: str
     original_chars: int
@@ -51,6 +57,8 @@ def compact_json(
             profile="none",
         )
 
+    # 按“逐步收紧”的档位尝试压缩，而不是一次性粗暴截断。这样更容易保留
+    # 关键键名、最近历史和证据摘要，便于后续 round 做增量推理。
     profiles = [
         ("light", 2400, 16, 80, 10),
         ("medium", 1400, 10, 60, 8),
@@ -89,7 +97,12 @@ def compact_json(
 
 
 def stable_worker_context(context: dict[str, Any]) -> dict[str, Any]:
-    """Build the cache-friendly task prefix shared by worker providers."""
+    """提取稳定区上下文。
+
+    这里故意只保留任务事实、领域能力、审阅证据、项目扫描、实例诊断等
+    “跨轮次大概率不变”的内容，用作 worker 提示词的缓存友好前缀。
+    与之对应，`loop_feedback`、`hypothesis` 等会留在动态区。
+    """
 
     worker_instruction = context.get("worker_instruction")
     if not isinstance(worker_instruction, dict):
@@ -127,6 +140,12 @@ def compact_source_records(
     max_items: int,
     max_snippet_chars: int,
 ) -> list[dict[str, Any]]:
+    """压缩文档/知识卡记录。
+
+    轮次刷新时不需要重复携带整份大文档，只保留路径、哈希、长度和压缩后的
+    snippet，既能追溯原始来源，又能控制 Context Packet 的动态区大小。
+    """
+
     if not isinstance(records, list):
         return []
     compacted: list[dict[str, Any]] = []

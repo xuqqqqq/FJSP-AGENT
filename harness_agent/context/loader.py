@@ -28,6 +28,8 @@ _DYNAMIC_KEYS = (
     "parent_packet_hash",
     "base_context_ref",
 )
+# `_DYNAMIC_KEYS` 定义了增量包/刷新包中允许随轮次波动的区域。
+# `stable_worker_context()` 会把稳定区剥离出来，用于构建缓存友好的前缀。
 
 
 class ContextPacketLoadError(ValueError):
@@ -36,6 +38,13 @@ class ContextPacketLoadError(ValueError):
 
 @dataclass(frozen=True)
 class LoadedContextPacket:
+    """加载后的 Context Packet 视图。
+
+    一个 packet 可能是完整包，也可能是“基线包 + delta”的增量封装。
+    这里同时给出原始 JSON、合成后的 effective_context、稳定区/动态区拆分、
+    哈希完整性结果和告警诊断，便于上游做安全加载与缓存。
+    """
+
     path: Path
     raw: dict[str, Any]
     schema_version: int
@@ -52,6 +61,12 @@ def load_context_packet(
     artifact_root: Path | None = None,
     resolve_base_ref: bool = True,
 ) -> LoadedContextPacket:
+    """安全加载 Context Packet，并在需要时解析增量引用。
+
+    该函数不信任外部 JSON 中的任何派生字段：会重新计算 packet_hash，并在检测到
+    `context_delta` 时按 envelope 规则还原 effective_context。
+    """
+
     source_path = Path(path).resolve()
     raw = _read_json_object(source_path)
     diagnostics: list[str] = []
@@ -114,6 +129,14 @@ def _effective_context(
     resolve_base_ref: bool,
     diagnostics: list[str],
 ) -> dict[str, Any]:
+    """还原可供 worker 使用的完整上下文。
+
+    支持三种来源：
+    1. 扁平完整包；
+    2. 内嵌 `base_context + context_delta` 的封装；
+    3. 通过 `base_context_ref` 指向外部基线包的增量封装。
+    """
+
     delta = raw.get("context_delta")
     if not isinstance(delta, dict):
         return dict(raw)
@@ -155,6 +178,12 @@ def _trusted_base_path(
     artifact_root: Path | None,
     diagnostics: list[str],
 ) -> Path | None:
+    """验证增量包引用的基线路径是否可信。
+
+    如果没有 `artifact_root`，绝对路径只当作 advisory 信息，不自动信任。
+    这是为了防止上下文加载阶段越界读取任意文件。
+    """
+
     if not isinstance(base_ref, dict) or not base_ref.get("path"):
         diagnostics.append("context_delta has no readable base_context_ref.path")
         return None
@@ -200,6 +229,12 @@ def _packet_integrity(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _packet_hash(payload: dict[str, Any]) -> str:
+    """计算 packet 内容哈希。
+
+    哈希前会移除 `packet_hash` 自身，保证结果只反映其余业务内容，便于做增量链
+    校验和父子包一致性检查。
+    """
+
     canonical = dict(payload)
     canonical.pop("packet_hash", None)
     text = json.dumps(canonical, ensure_ascii=False, sort_keys=True)

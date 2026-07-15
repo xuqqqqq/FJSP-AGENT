@@ -89,7 +89,12 @@ class ProjectIntakeRequest:
 
 
 def write_project_intake(request: ProjectIntakeRequest) -> dict[str, Any]:
-    """Scan a project and write a manifest/report for downstream coding agents."""
+    """扫描项目并生成 intake 清单。
+
+    这一步是 Context Packet 的“工程地图”输入：帮助 worker 快速知道入口文件、
+    validator/evaluator 候选、核心算法文件和可疑风险点，但不运行 solver，也不
+    对求解质量做任何判断。
+    """
 
     output_dir = request.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -513,6 +518,12 @@ def select_context_files(
     files: list[Path],
     max_files: int,
 ) -> list[Path]:
+    """按优先级挑选要写进 intake 的文件。
+
+    选择顺序刻意偏向 command/entry/core/validator 等与执行闭环直接相关的文件，
+    避免把整个仓库塞进上下文，导致真正关键的评测与编辑边界被淹没。
+    """
+
     selected: list[Path] = []
     for group in [command_files, entry_files, core_files, validator_files, benchmark_files, dependency_files]:
         selected.extend(group)

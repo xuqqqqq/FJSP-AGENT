@@ -13,6 +13,8 @@ Direction = Literal["maximize", "minimize"]
 
 @dataclass(frozen=True)
 class ObjectiveSpec:
+    """一个可排序目标；priority 越小，字典序比较时越优先。"""
+
     name: str
     direction: Direction
     priority: int = 1
@@ -35,6 +37,8 @@ class ObjectiveSpec:
 
 @dataclass(frozen=True)
 class InstanceSpec:
+    """任务中的权威算例标识与路径。"""
+
     id: str
     path: Path
 
@@ -45,6 +49,8 @@ class InstanceSpec:
 
 @dataclass(frozen=True)
 class CommandSpec:
+    """Core 唯一允许执行的 solver/evaluator/quick-test 命令模板。"""
+
     solver: str
     evaluator: str
     quick_test: str | None = None
@@ -60,6 +66,8 @@ class CommandSpec:
 
 @dataclass(frozen=True)
 class BudgetSpec:
+    """正式实验预算；与 Coding Worker 的写代码时间预算相互独立。"""
+
     rounds: int = 1
     seeds: list[int] = field(default_factory=lambda: [0])
     timeout_seconds: int = 300
@@ -77,6 +85,8 @@ class BudgetSpec:
 
 @dataclass(frozen=True)
 class PathPolicy:
+    """候选可修改边界；只读 Core 依赖不应混入 allowed_paths。"""
+
     allowed_paths: list[str] = field(default_factory=list)
     forbidden_paths: list[str] = field(default_factory=list)
 
@@ -90,6 +100,12 @@ class PathPolicy:
 
 @dataclass(frozen=True)
 class TaskContract:
+    """一次优化任务的不可变验收合同。
+
+    Contract 只描述目标、实例、命令、预算和路径权限，不携带具体算法。
+    Web、CLI、Worker 与 Core 均围绕同一对象工作，避免评价口径分叉。
+    """
+
     task_id: str
     problem_family: str
     description: str
@@ -128,6 +144,8 @@ class TaskContract:
         return self.review_status == "draft_requires_human_confirmation"
 
     def validate(self, project_root: Path) -> list[str]:
+        """检查运行必需的结构和路径；返回全部错误，便于一次修完。"""
+
         errors: list[str] = []
         if not self.instances:
             errors.append("contract.instances must not be empty")

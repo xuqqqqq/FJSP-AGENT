@@ -11,16 +11,18 @@ from harness_agent.core.runner import HarnessRunner, RunSummary
 
 
 class HarnessGraphState(TypedDict, total=False):
+    """LangGraph 节点之间传递的最小状态。"""
+
     planned_runs: list[dict[str, Any]]
     cursor: int
     summary: RunSummary
 
 
 class GraphHarnessRunner(HarnessRunner):
-    """LangGraph-based orchestration layer for harness experiments.
+    """用 LangGraph 显式编排 Core 阶段。
 
-    The graph keeps orchestration explicit while reusing the deterministic
-    execution, evaluator, ledger, and report logic from HarnessRunner.
+    图只把准备、逐项执行和汇总阶段显式化；执行、evaluator、ledger 和报告
+    仍复用 `HarnessRunner` 的确定性实现，不会形成第二套评价逻辑。
     """
 
     def run(self) -> RunSummary:

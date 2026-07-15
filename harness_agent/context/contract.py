@@ -48,12 +48,19 @@ REQUIRED_EVALUATOR_PLACEHOLDERS = ["{instance}", "{solution}", "{metrics}"]
 
 @dataclass(frozen=True)
 class DraftSource:
+    """原始任务文档及其文本。
+
+    草稿契约构建阶段只做文档抽取和证据引用，不把这类输入直接当成已确认契约。
+    """
+
     path: Path
     text: str
 
 
 @dataclass(frozen=True)
 class DraftObjective:
+    """从文档或命令行覆写推断出的目标草案。"""
+
     name: str
     direction: str
     priority: int = 1
@@ -62,6 +69,12 @@ class DraftObjective:
 
 @dataclass(frozen=True)
 class DraftContractRequest:
+    """Task Contract 草稿的输入。
+
+    这一步的职责是把任务文档、算例位置、solver/evaluator 命令模板抽成统一结构，
+    供人工确认；它不负责证明这些语义一定正确。
+    """
+
     task_id: str
     docs: list[Path]
     instances: list[Path]
@@ -88,6 +101,9 @@ def build_draft_contract(request: DraftContractRequest) -> dict[str, Any]:
     confirmation before the harness can treat it as a formal evaluator contract.
     """
 
+    # Task Contract 的生成遵循“先抽取、后确认”的原则：
+    # 规则只负责把明显线索变成 review 草案，最终 evaluator/validator 语义
+    # 仍需要人工确认后才能进入正式优化闭环。
     sources = _read_sources(request.docs)
     joined_text = "\n\n".join(source.text for source in sources)
     source_references: list[dict[str, Any]] = []
@@ -470,7 +486,12 @@ def _extract_problem_features(text: str) -> list[dict[str, Any]]:
 
 
 def _extract_document_schema(sources: list[DraftSource]) -> dict[str, Any]:
-    """Parse lightweight Markdown structure for review and worker grounding."""
+    """抽取轻量 Markdown 结构。
+
+    这里的目标不是做完整文档解析器，而是把任务文档拆成标题段、行号区间、
+    角色标签（目标/约束/IO/验收等）和证据摘要，供 review 卡与 Context Packet
+    复用，避免 worker 在长文档中盲读。
+    """
 
     documents = []
     total_sections = 0
@@ -498,6 +519,11 @@ def _extract_document_schema(sources: list[DraftSource]) -> dict[str, Any]:
 
 
 def _markdown_sections(source: DraftSource) -> list[dict[str, Any]]:
+    """把单份文档切成可引用 section。
+
+    fenced code block 会被跳过，避免把示例代码中的 `#` 误判成业务标题。
+    """
+
     lines = source.text.splitlines()
     headings: list[tuple[int, int, str]] = []
     in_fenced_code = False

@@ -12,6 +12,12 @@ from harness_agent.domains.pack import get_domain_pack
 
 @dataclass(frozen=True)
 class CodeSlotSpec:
+    """slot manifest 中的单个槽位声明。
+
+    它描述的是“哪里可以改、为什么改、不能破坏什么、需要跑什么验证”，用于把
+    可选插件编辑约束显式化，而不是让 worker 自行在全仓库猜测改动边界。
+    """
+
     slot_id: str
     title: str
     target_file: str
@@ -56,6 +62,12 @@ class CodeSlotSpec:
 
 @dataclass(frozen=True)
 class SlotManifest:
+    """一组代码槽的确认状态。
+
+    一个 manifest 可以列出很多潜在槽位，但只有 `user_confirmed=true` 的槽位才可
+    进入自动编辑闭环，因此这里同时承担“能力声明”和“人工授权”两个角色。
+    """
+
     schema_version: int
     problem_family: str
     status: str
@@ -88,6 +100,12 @@ def load_slot_manifest(path: Path) -> dict[str, Any]:
 
 
 def default_slot_manifest(*, problem_family: str, confirmed: bool = False) -> SlotManifest:
+    """生成某问题族的默认 slot manifest。
+
+    默认 manifest 反映 Domain Pack 提供了哪些可选槽位；除非显式传入 `confirmed`
+    或后续再选中确认，否则它们仍处于锁定状态。
+    """
+
     manifest = _load_domain_slot_manifest(problem_family)
     slots = [_replace_slot_confirmation(slot, confirmed) for slot in manifest.slots]
     return SlotManifest(
@@ -102,6 +120,8 @@ def default_slot_manifest(*, problem_family: str, confirmed: bool = False) -> Sl
 
 
 def selected_slot_manifest(*, problem_family: str, selected_slot_ids: list[str]) -> SlotManifest:
+    """生成“仅部分 slot 被确认”的 manifest。"""
+
     selected = {str(slot_id) for slot_id in selected_slot_ids if str(slot_id).strip()}
     if not selected:
         raise ValueError("at least one selected slot_id is required")
@@ -158,6 +178,11 @@ def _load_domain_slot_manifest(problem_family: str) -> SlotManifest:
 
 
 def _domain_slot_manifest_path(problem_family: str) -> Path | None:
+    """解析问题族的 slot manifest 资产路径。
+
+    优先走 Domain Pack 显式声明的 edit strategy；只有未声明时才尝试约定式路径。
+    """
+
     pack = get_domain_pack(problem_family, fallback_to_standard=False)
     if pack is None:
         return None

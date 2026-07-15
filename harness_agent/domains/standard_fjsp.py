@@ -14,7 +14,19 @@ from harness_agent.domains.io import parse_standard_fjsp
 
 @dataclass(frozen=True)
 class StandardFjspContextProvider:
+    """标准 FJSP/FJSP-SDST 的实例诊断适配器。
+
+    它只负责从算例中抽取规模、候选机稀疏度、setup 形态、best-known 诊断等
+    与“选方法、控预算”相关的特征，不负责生成调度或评价调度优劣。
+    """
+
     def inspect_instances(self, contract: TaskContract, *, project_root: Path | None) -> dict[str, Any]:
+        """读取 contract 中声明的实例并汇总诊断。
+
+        返回结果会进入 Context Packet 的 `instance_diagnostics`，供知识卡选择、
+        Method Package 推荐和 worker 的方向控制使用。
+        """
+
         best_known_csv = _resolve_optional_context_path(
             contract.resources.get("best_known_csv"),
             project_root=project_root,
@@ -83,6 +95,12 @@ class StandardFjspContextProvider:
         instance_diagnostics: dict[str, Any],
         contract_review_evidence: dict[str, Any],
     ) -> list[str]:
+        """根据实例诊断和文档证据判断当前激活特征。
+
+        优先相信真实解析出来的实例形态；只有在实例尚未成功解析时，才回退到
+        Task Contract 文本和 review 证据里的 SDST 关键词。
+        """
+
         summary = instance_diagnostics.get("summary") if isinstance(instance_diagnostics.get("summary"), dict) else {}
         setup_kinds = [str(kind).strip().lower() for kind in summary.get("setup_time_kinds") or []]
         diagnostics_have_shape = (
@@ -116,6 +134,12 @@ def _single_instance_diagnostics(
     path: Path,
     best_known_csv: Path | None,
 ) -> dict[str, Any]:
+    """对单个实例做只读体检。
+
+    输出强调“可供上下文消费的特征”，例如规模、候选机数、setup 密度和
+    best-known 参考值；不会把任何启发式搜索状态混进来。
+    """
+
     payload: dict[str, Any] = {
         "id": instance_id,
         "path": str(path),
@@ -217,6 +241,8 @@ def _instance_shape_key(item: dict[str, Any]) -> str:
 
 
 def _instance_shape_group_summaries(profiled: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """按实例形状聚类，帮助 worker 识别是否存在多模态 benchmark。"""
+
     summaries: list[dict[str, Any]] = []
     for key, items in _instance_shape_groups(profiled).items():
         first = items[0]
@@ -257,6 +283,12 @@ def _instance_shape_group_summaries(profiled: list[dict[str, Any]]) -> list[dict
 
 
 def _representative_instance_diagnostics(detailed: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    """从全部诊断中选一组代表样本。
+
+    Context Packet 不会塞入每个实例的完整诊断，而是优先保留失败样本、每类形状
+    的代表实例和极端 setup/规模样本，兼顾长度与可解释性。
+    """
+
     if len(detailed) <= limit:
         return detailed
 

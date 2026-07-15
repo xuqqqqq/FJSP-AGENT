@@ -9,6 +9,7 @@
   </head>
   <body>
     <div class="app-shell">
+      <!-- 全局导航：只切换本地视图，不改变正在运行的任务。 -->
       <aside class="side-rail" aria-label="主导航">
         <div class="brand-lockup">
           <span class="brand-mark">AF</span>
@@ -65,6 +66,7 @@
 
         <div class="workspace-grid">
           <main class="main-stage">
+            <!-- 任务总览：对话入口、契约边界和当前运行状态。 -->
             <section id="view-overview" class="workspace-view active">
               <div class="round-tabs" aria-label="演进阶段">
                 <button type="button">准备阶段</button>
@@ -167,6 +169,7 @@
               </section>
             </section>
 
+            <!-- Context Packet 可视化：展示来源、选择与排除原因。 -->
             <section id="view-context" class="workspace-view">
               <section class="split-view">
                 <aside class="subnav-panel">
@@ -222,6 +225,7 @@
               </section>
             </section>
 
+            <!-- Worker 过程：显示方向、同轮尝试和可审计产物。 -->
             <section id="view-worker" class="workspace-view">
               <section class="split-view">
                 <aside class="subnav-panel">
@@ -259,6 +263,7 @@
               </section>
             </section>
 
+            <!-- 固定 Core 的实验结果，不展示 Worker 自报分数。 -->
             <section id="view-experiments" class="workspace-view">
               <section class="page-section">
                 <div class="section-head">

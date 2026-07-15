@@ -14,6 +14,8 @@ from harness_agent.deepseek_client import DeepSeekClient, is_deepseek_configured
 
 @dataclass(frozen=True)
 class DirectionPlanRequest:
+    """Main Agent 单次规划输入：稳定任务上下文、动态证据和产物目录。"""
+
     round_index: int
     context_packet_path: Path
     loop_feedback: dict[str, Any]
@@ -21,6 +23,8 @@ class DirectionPlanRequest:
 
 
 class DirectionPlanningAgent(Protocol):
+    """方向规划协议；实现只能返回计划，不能直接修改 solver。"""
+
     def plan_direction(self, request: DirectionPlanRequest) -> dict[str, Any]:
         ...
 
@@ -166,6 +170,8 @@ class DeepSeekMainAgent:
 
 
 def normalize_direction_plan(value: Any, *, round_index: int) -> dict[str, Any]:
+    """将模型自由 JSON 收敛为固定 DirectionPlan schema 和长度上限。"""
+
     raw = value if isinstance(value, dict) else {}
     plan = {
         "schema_version": 1,
@@ -194,6 +200,8 @@ def bind_direction_plan_to_method_catalog(
     *,
     context: dict[str, Any],
 ) -> dict[str, Any]:
+    """把模型请求的方法包约束到当前问题特征允许的 catalog 内。"""
+
     catalog = (
         context.get("method_package_catalog")
         if isinstance(context.get("method_package_catalog"), dict)
@@ -305,6 +313,7 @@ def enforce_improvement_direction_contract(
 ) -> dict[str, Any]:
     """Prevent a post-baseline planning response from discarding the incumbent."""
 
+    # baseline 尚无 incumbent，可以选择完整构造方向；正式轮次则必须增量改进。
     if round_index < 0:
         return plan
     result = dict(plan)
@@ -349,6 +358,8 @@ def enforce_improvement_direction_contract(
 
 
 def write_direction_plan(output_dir: Path, plan: dict[str, Any]) -> dict[str, Any]:
+    """先持久化方向计划，再把 artifact_path 附加给下游审计。"""
+
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / "direction_plan.json"
     path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

@@ -14,7 +14,11 @@ DOMAIN_PACK_ROOT = PROJECT_ROOT / "domain_packs"
 
 @dataclass(frozen=True)
 class DomainCapability:
-    """Machine-readable capability card loaded from an external domain pack."""
+    """问题族能力卡。
+
+    这张卡描述的是某个问题族在平台中的公共契约边界：支持哪些变体、典型目标、
+    IO 备注、evaluator 不变量和可选专用钩子，而不是具体算法实现。
+    """
 
     family_id: str
     display_name: str
@@ -44,7 +48,11 @@ class DomainCapability:
 
 @dataclass(frozen=True)
 class DomainEditStrategy:
-    """Optional editing strategy declared by a domain pack."""
+    """Domain Pack 声明的可选编辑策略。
+
+    它通常指向额外的 manifest/模板/规则资产，例如 slot-based edit 插件；默认
+    闭环可以完全不用这些策略。
+    """
 
     name: str
     description: str = ""
@@ -65,7 +73,11 @@ class DomainEditStrategy:
 
 @dataclass(frozen=True)
 class DomainMethodPackage:
-    """One reusable algorithm method package owned by a domain pack."""
+    """问题族内的一个 Method Package。
+
+    Method Package 是给 worker 看的方法资料组合，不是 Python 插件或运行时对象。
+    它用 `required_features/excluded_features` 指定适用边界，避免错误迁移算法。
+    """
 
     package_id: str
     title: str
@@ -93,7 +105,11 @@ class DomainMethodPackage:
 
 @dataclass(frozen=True)
 class DomainPack:
-    """External domain assets for one optimization problem family."""
+    """一个问题族的外置 Domain Pack。
+
+    Domain Pack 的边界是“提供能力说明、知识卡、方法包和可选编辑资产”。它不承担
+    parser/validator 运行逻辑，也不直接决定当前任务一定使用哪套方法。
+    """
 
     family_id: str
     aliases: list[str]
@@ -127,6 +143,8 @@ class DomainPack:
 
 
 def load_domain_pack(path: Path, *, project_root: Path = PROJECT_ROOT) -> DomainPack:
+    """从 `domain_pack.json` 加载一个问题族包。"""
+
     payload = json.loads(path.read_text(encoding="utf-8-sig"))
     family_id = str(payload.get("family_id") or path.parent.name)
     aliases = [str(alias) for alias in payload.get("aliases") or [] if str(alias).strip()]
@@ -216,6 +234,12 @@ def get_domain_pack(
     packs: dict[str, DomainPack] | None = None,
     fallback_to_standard: bool = True,
 ) -> DomainPack | None:
+    """按 family_id 或别名获取 Domain Pack。
+
+    `fallback_to_standard=True` 时会回退到标准 FJSP 包，目的是保证通用流程可继续，
+    不是在语义上宣称未知问题族等价于 FJSP。
+    """
+
     loaded = packs if packs is not None else load_domain_packs()
     pack = loaded.get(_normalize_key(family_id))
     if pack is not None:

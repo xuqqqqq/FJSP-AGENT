@@ -1,3 +1,4 @@
+/* 设计令牌：颜色、边框和字体集中定义，后续组件不重复硬编码主题值。 */
 :root {
   --bg: #f6f7fb;
   --rail: #f0f1f6;
@@ -55,6 +56,7 @@ button {
   font-weight: 700;
 }
 
+/* 应用骨架与左侧导航 */
 .app-shell {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
@@ -238,6 +240,7 @@ select:focus {
   border-top: 1px solid var(--border);
 }
 
+/* 中央工作区、顶部标题与视图切换 */
 .workspace {
   min-width: 0;
 }
@@ -365,6 +368,7 @@ h3 {
   color: var(--primary-text);
 }
 
+/* 对话式任务入口 */
 .chat-thread {
   display: grid;
   align-content: start;
@@ -475,6 +479,7 @@ h3 {
   background: var(--primary-soft);
 }
 
+/* 任务指标、契约摘要与实验信息块 */
 .contract-strip,
 .metric-grid,
 .summary-strip,
@@ -814,6 +819,7 @@ h3 {
   margin-top: 16px;
 }
 
+/* Worker/Core 产物列表 */
 .artifact-list {
   display: flex;
   flex-wrap: wrap;
@@ -897,6 +903,7 @@ h3 {
   background: var(--danger-soft);
 }
 
+/* 历史任务列表 */
 .history-list {
   display: grid;
   gap: 10px;
@@ -1106,6 +1113,7 @@ pre {
   white-space: pre-wrap;
 }
 
+/* 右侧检查器：只展示 Context/Core/Artifact 证据，不承载编辑操作。 */
 .inspector {
   position: sticky;
   top: 66px;
@@ -1183,6 +1191,7 @@ pre {
   text-align: right;
 }
 
+/* 响应式布局：先收起检查器，再把导航切换为横向区域。 */
 @media (max-width: 1280px) {
   .app-shell {
     grid-template-columns: 240px minmax(0, 1fr);

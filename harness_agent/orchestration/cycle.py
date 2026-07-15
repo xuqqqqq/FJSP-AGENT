@@ -28,6 +28,12 @@ from harness_agent.worker import CodingWorker, ExperimentSpec, WorkerResult
 
 @dataclass(frozen=True)
 class WorkerCycleResult:
+    """一次候选 attempt 的完整结果。
+
+    同时保存 Worker 过程、真实 worktree 差异、JA、smoke/full Core 结果和
+    错误分析。上层 loop 只根据这些证据决定是否修补或进入 promotion check。
+    """
+
     worker_result: WorkerResult
     summary: RunSummary
     worktree_path: Path
@@ -55,7 +61,12 @@ def run_worker_cycle(
     max_runtime_seconds: int,
     apply_worker_changes: bool,
 ) -> WorkerCycleResult:
-    """Run one proposal/apply/evaluate cycle in an isolated candidate tree."""
+    """在隔离候选树中执行一次“写代码、审查、评测”周期。
+
+    候选目录从传入的 `project_root` 复制而来；在正式轮中它就是当前
+    incumbent，在修补中则可能是上一 attempt。无论结果如何，本函数都不会
+    反向覆盖源目录。
+    """
 
     output_dir = output_dir.resolve()
     worktree_path = output_dir / "candidate_worktree"
@@ -63,6 +74,8 @@ def run_worker_cycle(
     harness_output_dir = output_dir / "harness"
     smoke_output_dir = output_dir / "harness_smoke"
     diagnostic_smoke_output_dir = output_dir / "harness_diagnostic_smoke"
+    # 1. 建立候选沙箱并记录修改前快照。只读 Core 依赖会复制进来，但仍不
+    # 属于允许修改范围。
     prepare_candidate_worktree(
         project_root=project_root.resolve(),
         contract=contract,
@@ -79,6 +92,8 @@ def run_worker_cycle(
         output_dir=str(worker_output_dir),
         apply_changes=apply_worker_changes,
     )
+    # 2. Coding Worker 只接触候选 worktree；其 changed_files 自报值稍后会
+    # 与真实文件快照合并，防止漏报。
     worker_result = worker.run_experiment(spec)
     after_snapshot = collect_worktree_snapshot(worktree_path)
     delta = compute_worktree_delta(before_snapshot, after_snapshot)
@@ -95,6 +110,7 @@ def run_worker_cycle(
         delta=delta,
         output_dir=output_dir,
     )
+    # 3. JA 在执行候选前拦截确定性风险。JA 拒绝时默认不进入正式 evaluator。
     agentic_judgment = judge_worker_result(
         worker_result=worker_result,
         worktree_path=worktree_path,
@@ -119,6 +135,8 @@ def run_worker_cycle(
         )
         agentic_error_analysis = analyze_rejected_judgment(judgment=agentic_judgment, output_dir=output_dir)
         smoke_summary = None
+        # 对 Agent 自写 solver 的部分“源码形态”拒绝，可做一次只诊断 smoke。
+        # 它不能直接晋升，只用于判断静态门禁是否过度保守并生成修补事实。
         if should_run_agent_generated_smoke_diagnostic(
             contract=contract,
             worker_result=worker_result,
@@ -165,6 +183,8 @@ def run_worker_cycle(
         else:
             full_evaluation_started = False
     else:
+        # 4. JA 接受后先用一个 seed 做 smoke；只有 smoke 全部合法才支付完整
+        # 多 seed/多算例评测成本。
         smoke_contract = smoke_gate_contract(contract)
         smoke_runner = GraphHarnessRunner(contract=smoke_contract, project_root=worktree_path, output_dir=smoke_output_dir)
         try:
@@ -376,6 +396,7 @@ def write_diagnostic_smoke_report(*, output_dir: Path, summary: RunSummary) -> N
 def prepare_candidate_worktree(*, project_root: Path, contract: TaskContract, worktree_path: Path) -> None:
     """构建候选工作区，并把可修改源码与只读 Core 依赖分开复制。"""
 
+    # worktree 是一次性产物目录，可以安全重建；源 project_root 不会删除。
     if worktree_path.exists():
         shutil.rmtree(worktree_path)
     worktree_path.mkdir(parents=True, exist_ok=True)
@@ -439,11 +460,10 @@ def copy_read_only_core_dependencies(
 
 
 def stage_worker_input_files(*, contract: TaskContract, project_root: Path, worktree_path: Path) -> None:
-    """Mirror one active instance into the worker sandbox for bounded inspection.
+    """把首个算例镜像到沙箱，供 Coding Worker 做有界检查。
 
-    Core evaluation continues to use the contract's authoritative path.  The
-    mirror only prevents non-interactive coding tools from stopping on an
-    external-directory permission prompt during their single short smoke.
+    正式 Core 仍使用契约中的权威路径；镜像只解决非交互工具访问工作区外
+    文件时的授权问题，且通过 manifest 明确标记为只读检查输入。
     """
 
     if not contract.instances:
@@ -476,6 +496,10 @@ def stage_worker_input_files(*, contract: TaskContract, project_root: Path, work
     )
 
 
+# ---------------------------------------------------------------------------
+# 候选证据序列化与真实文件差异
+# ---------------------------------------------------------------------------
+
 def write_cycle_report(
     *,
     output_dir: Path,
@@ -494,6 +518,8 @@ def write_cycle_report(
     diagnostic_smoke_output_dir: Path | None = None,
     full_evaluation_started: bool = False,
 ) -> None:
+    """将 Worker、JA、smoke 和 Core 结果写成同一份 attempt 报告。"""
+
     payload: dict[str, Any] = {
         "worker": {
             "status": worker_result.status,
@@ -629,6 +655,8 @@ def run_summary_payload(summary: RunSummary) -> dict[str, Any]:
 
 
 def collect_worktree_snapshot(root: Path, max_text_bytes: int = 200_000) -> dict[str, dict[str, Any]]:
+    """以哈希记录候选树；小型文本同时保留内容以生成可审计 patch。"""
+
     snapshot: dict[str, dict[str, Any]] = {}
     for path in sorted(root.rglob("*")):
         if not path.is_file():
@@ -651,6 +679,8 @@ def compute_worktree_delta(
     before_snapshot: dict[str, dict[str, Any]],
     after_snapshot: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
+    """比较前后快照，得到 added/modified/deleted 的真实改动清单。"""
+
     before_paths = set(before_snapshot)
     after_paths = set(after_snapshot)
     added = sorted(after_paths - before_paths)

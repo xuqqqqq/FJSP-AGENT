@@ -12,7 +12,11 @@ WORKER_DYNAMIC_CONTEXT_MAX_CHARS = 48_000
 
 
 def worker_context_sections(context: dict[str, Any]) -> dict[str, str]:
-    """Return provider-neutral stable and dynamic worker context sections."""
+    """拆分 worker 视角的稳定区和动态区。
+
+    稳定区复用 `stable_worker_context()` 的缓存友好前缀；动态区只放本轮假设、
+    loop feedback、激活的方法包和增量编辑规则，便于在多轮迭代中缩小重传范围。
+    """
 
     stable = stable_worker_context_json(context).text
     dynamic_payload = {

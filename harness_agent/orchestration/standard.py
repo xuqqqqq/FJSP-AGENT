@@ -66,6 +66,8 @@ class StandardWorkerLoopRequest:
 def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, Any]:
     """构建任务契约和上下文，并运行“生成、审查、评测、晋升”闭环。"""
 
+    # 1. 将 Web/CLI 参数固化为本次运行唯一的 Task Contract。后续所有
+    # Worker、Core 和报告都引用这份文件，避免调用过程中口径漂移。
     output_dir = request.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     contract_path = output_dir / "standard_worker_contract.json"
@@ -77,6 +79,8 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
     if errors:
         raise ValueError(f"generated standard worker contract is invalid: {errors}")
 
+    # 2. 在首次调用 Agent 前构建稳定 Context Packet：任务、文档、算例
+    # 诊断、知识选择和可选历史经验在这里形成同一份输入。
     write_context_packet(
         ContextPacketRequest(
             contract_path=contract_path,
@@ -90,6 +94,7 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
             hypothesis=request.hypothesis,
         )
     )
+    # 3. 标准流程强制 agent_generated baseline；后端不会退回历史 solver。
     loop_result = run_worker_loop(
         contract=contract,
         project_root=request.project_root,
@@ -108,6 +113,7 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
         baseline_source="agent_generated",
         in_round_repair_attempts=max(0, request.in_round_repair_attempts),
     )
+    # 4. 闭环结束后只做报告汇总，不重新解释或改写 Core 的 promotion 结论。
     manifest = standard_worker_manifest(
         request=request,
         contract_path=contract_path,
@@ -136,6 +142,12 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
 
 
 def build_standard_worker_contract_payload(request: StandardWorkerLoopRequest) -> dict[str, Any]:
+    """把文档式 FJSP 请求转换为固定 Core 可执行的契约 JSON。
+
+    此处固定的是 CLI/evaluator 接口和 makespan 目标，不固定任何构造规则、
+    邻域或搜索算法；这些方法内容只能来自知识层并由 Coding Agent 写出。
+    """
+
     instance_dir = resolve_input_path(request.project_root, request.instance_dir)
     paths = sorted(instance_dir.glob(request.pattern))
     if request.max_instances is not None:
@@ -221,6 +233,8 @@ def standard_worker_manifest(
     loop_result: WorkerLoopResult,
     output_dir: Path,
 ) -> dict[str, Any]:
+    """从 WorkerLoopResult 派生 Web/CLI 共享的运行摘要和产物索引。"""
+
     promoted_rounds = sum(1 for item in loop_result.rounds if item.decision == "promoted")
     round_payloads = [round_record_payload(item) for item in loop_result.rounds]
     loop_result_path = output_dir / "worker_loop" / "loop_result.json"

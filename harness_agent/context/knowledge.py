@@ -34,6 +34,12 @@ _SDST_PATH_MARKERS = (
 
 @dataclass(frozen=True)
 class KnowledgeSelection:
+    """知识卡选择结果和审计信息。
+
+    `cards` 给 worker 实际阅读，`audit` 给上游记录“为什么选/为什么没选”，
+    便于解释 SDST 相关知识卡是否被 variant gate 拦住。
+    """
+
     cards: list[Path]
     audit: dict[str, Any]
 
@@ -43,7 +49,11 @@ def method_package_catalog(
     problem_family: str,
     active_features: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Return only method packages compatible with the active task features."""
+    """列出当前特征条件下可用的 Method Package。
+
+    Method Package 是 domain pack 中声明的“算法方法资料包”，不是运行时插件。
+    这里仅做兼容性筛选和推荐顺序计算，不负责真正执行其中的算法。
+    """
 
     pack = get_domain_pack(problem_family)
     if pack is None:
@@ -77,6 +87,12 @@ def resolve_method_package(
     package_id: str | None,
     active_features: list[str] | None = None,
 ) -> dict[str, Any] | None:
+    """解析一个 Method Package 请求。
+
+    如果调用方没有指定或指定了无效 package_id，会回退到当前特征下的推荐包，
+    这样 worker 始终只会拿到一个明确的资料包，而不是混合多套方法。
+    """
+
     catalog = method_package_catalog(problem_family=problem_family, active_features=active_features)
     packages = [item for item in catalog.get("packages") or [] if isinstance(item, dict)]
     requested = str(package_id or "").strip().lower()
@@ -123,9 +139,9 @@ def select_knowledge_cards(
 ) -> KnowledgeSelection:
     """Select knowledge cards and record why variant-specific cards were gated.
 
-    Domain-pack metadata describes what the platform can support.  It is not
-    proof that the current instance has every supported feature, so parsed
-    diagnostics and confirmed slots are used as the stronger signal.
+    Domain Pack 只声明“这个问题族理论上支持什么资料和变体”，并不证明当前实例
+    一定真的启用了这些特征。因此这里把已解析实例特征、已确认 slot 和显式标签
+    当成更强证据，避免错误把 SDST 专用知识注入普通 FJSP。
     """
 
     pack = get_domain_pack(problem_family)
@@ -200,6 +216,12 @@ def _sequence_dependent_setup_active(
     instance_diagnostics: dict[str, Any] | None,
     active_features: list[str] | None,
 ) -> bool:
+    """综合判断当前任务是否真的启用了 SDST。
+
+    判定优先级大致是：已确认 slot 需求 > 已解析实例诊断 > 活跃特征 > 弱标签。
+    这样可最大限度减少仅凭文件名/家族能力误判变体的情况。
+    """
+
     if _slot_requests_sdst(slot_manifest):
         return True
     diagnostic_state = _sdst_state_from_diagnostics(instance_diagnostics)

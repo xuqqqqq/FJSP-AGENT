@@ -12,6 +12,8 @@ from harness_agent.core.models import ObjectiveSpec
 
 @dataclass(frozen=True)
 class EvaluationResult:
+    """从 evaluator metrics 文件读取的单次正式判卷结果。"""
+
     valid: bool
     error_count: int
     errors: list[str]
@@ -53,6 +55,8 @@ class EvaluationResult:
 
 
 def objective_key(result: EvaluationResult, objectives: list[ObjectiveSpec]) -> tuple[float, ...]:
+    """统一为越大越好的目标 key；无效结果直接返回全 `-inf`。"""
+
     if not result.valid:
         return tuple(float("-inf") for _ in objectives)
     ordered = sorted(objectives, key=lambda item: item.priority)

@@ -71,7 +71,12 @@ def judge_worker_result(
     output_dir: Path,
     apply_worker_changes: bool,
 ) -> AgenticJudgment:
-    """Run a deterministic code JA pass over a worker proposal and changed files."""
+    """对 Worker proposal 和真实改动执行确定性代码门禁。
+
+    JA 只拦截无需运行 benchmark 就能证明的问题，例如语法错误、越权修改、
+    硬编码、残缺解接受和明显的状态破坏。它不会按函数名判断算法质量，也
+    没有 promotion 权；不确定的方法语义交给 Semantic Reviewer。
+    """
 
     context = try_load_context_dict(context_packet_path)
     proposal = _load_proposal(worker_result)
@@ -88,6 +93,7 @@ def judge_worker_result(
     suggestions: list[str] = []
     warnings: list[str] = []
 
+    # 第一组：Worker/patch 自身是否可用，避免把 provider 故障当算法失败。
     unusable_worker_statuses = {
         "unavailable",
         "skipped",
@@ -166,6 +172,7 @@ def judge_worker_result(
         issues.append("proposal_artifact_unreadable")
         suggestions.append("Repair the worker output into parseable proposal JSON before applying code.")
 
+    # 第二组：直接从候选源码验证语法、修改边界和确定性安全风险。
     py_compile_errors = _compile_changed_python_files(worktree_path, worker_result.changed_files)
     for path, error in py_compile_errors.items():
         issues.append(f"python_syntax_error: {path}: {error}")
@@ -204,6 +211,8 @@ def judge_worker_result(
             "Keep small setup/decoder helpers self-contained or move the change back into the existing generated solver file."
         )
 
+    # 第三组：Agent 自写 solver 的最低工程质量。大多数“缺少某种源码形态”
+    # 仅作为风险提示，只有可确定证明的硬编码/状态破坏才在 JA 阶段 blocking。
     agent_generated_quality_contract = build_agent_generated_solver_quality_contract(context)
     agent_generated_quality_risks = _detect_agent_generated_solver_quality_risks(
         context=context,
@@ -277,6 +286,7 @@ def judge_worker_result(
         "agent_generated_solver_self_check_risks": agent_generated_self_check_risks,
         "protected_promoted_fact_regressions": protected_fact_regressions,
     }
+    # issues 是阻塞项，warnings 进入 checks 供后续修补/语义审查参考。
     judgment = AgenticJudgment(
         accepted=not issues,
         right=not issues,
@@ -305,6 +315,10 @@ def _blocking_agent_generated_quality_risks(risks: list[str]) -> list[str]:
     )
     return [risk for risk in risks if any(fragment in risk for fragment in hard_fragments)]
 
+
+# ---------------------------------------------------------------------------
+# 错误分析与报告：将门禁/Core 失败整理成下一次同轮修补可消费的事实。
+# ---------------------------------------------------------------------------
 
 def analyze_rejected_judgment(*, judgment: AgenticJudgment, output_dir: Path) -> ErrorAnalysis:
     detailed_diagnosis = _rejected_judgment_detail_lines(judgment)
@@ -364,6 +378,8 @@ def _compact_json_for_diagnosis(value: Any, *, limit: int = 1800) -> str:
 
 
 def analyze_run_summary(*, summary: RunSummary, output_dir: Path) -> ErrorAnalysis | None:
+    """把 Core 的失败统计转换为可执行修补建议；全合法时不生成分析。"""
+
     if summary.total > 0 and summary.valid == summary.total:
         return None
 
@@ -445,6 +461,10 @@ def render_error_analysis_markdown(analysis: ErrorAnalysis) -> str:
     lines.extend(f"- {item}" for item in analysis.suggestions)
     return "\n".join(lines) + "\n"
 
+
+# ---------------------------------------------------------------------------
+# Proposal 与基础源码检查
+# ---------------------------------------------------------------------------
 
 def _load_proposal(worker_result: WorkerResult) -> dict[str, Any] | None:
     proposal_path = (worker_result.artifacts or {}).get("proposal")
@@ -536,6 +556,13 @@ def _detect_agent_generated_runtime_import_risks(
             risky.append(f"{relative}: imports harness_agent from standalone agent-generated solver runtime")
     return risky
 
+
+# ---------------------------------------------------------------------------
+# Agent-generated solver 结构检查
+#
+# 这些辅助函数只识别“实现所必需的数据流和保护条件”，不是具体求解算法。
+# 函数名/变量名只能帮助定位源码，必须结合 AST、调用次数或实际条件判断。
+# ---------------------------------------------------------------------------
 
 def _detect_agent_generated_solver_quality_risks(
     *,
@@ -1068,6 +1095,8 @@ def _agent_generated_solver_sources(worktree_path: Path, changed_files: list[str
 
 
 def _missing_agent_generated_base_capabilities(text: str) -> list[str]:
+    """检查从 IO 到合法输出所需的最小通用能力是否具备。"""
+
     return [
         name
         for name, detector in [
@@ -1320,6 +1349,8 @@ def _missing_setup_aware_capabilities(text: str) -> list[str]:
 
 
 def _missing_sequence_move_capabilities(text: str) -> list[str]:
+    """识别序列 move 是否有状态、应用、重解码和失败回滚闭环。"""
+
     missing: list[str] = []
     if not re.search(r"\b(?:assignment|on_machine)\b", text, re.I):
         missing.append("operation_to_machine_assignment")
@@ -1995,6 +2026,10 @@ _VARIANT_FEATURE_CODE_TERMS = {
     "multi_objective": ["objective", "priority", "weighted"],
 }
 
+
+# ---------------------------------------------------------------------------
+# Incumbent 保护：防止后续轮次无意删除已经由 Core promotion 的机制。
+# ---------------------------------------------------------------------------
 
 def _detect_protected_promoted_fact_regressions(
     context: dict[str, Any],

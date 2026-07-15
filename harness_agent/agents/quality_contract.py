@@ -8,11 +8,12 @@ from typing import Any
 
 
 def build_agent_generated_solver_quality_contract(context: dict[str, Any]) -> dict[str, Any]:
-    """Derive code-quality requirements from the active FJSP/variant context.
+    """从当前任务特征生成 Agent 自写 solver 的最低能力清单。
 
-    This contract is intentionally not a solver template.  It names the
-    invariant capabilities a generated solver must demonstrate before Core
-    spends evaluator time on it.
+    该清单描述 parser、表示、合法 decoder、运行边界等工程能力，不提供
+    具体搜索算法。变种能力只根据当前需求/IO/算例激活，不能因知识库支持
+    某变种就误判当前算例也具有该约束。它要求生成 solver 在 Core 花费正式
+    evaluator 时间前，用源码证明这些不变量确实存在。
     """
 
     if not isinstance(context, dict):
@@ -91,6 +92,8 @@ def build_agent_generated_solver_quality_contract(context: dict[str, Any]) -> di
 
 
 def capability_playbook(capabilities: list[str], *, active_features: set[str]) -> list[dict[str, str]]:
+    """为每项能力提供“应看到什么证据、缺失时怎么修”的提示资料。"""
+
     playbook: list[dict[str, str]] = []
     for name in capabilities:
         spec = _CAPABILITY_PLAYBOOK.get(name)
@@ -245,6 +248,8 @@ def is_real_fjsp_solver_context(context: dict[str, Any]) -> bool:
 
 
 def extract_variant_features(context: dict[str, Any]) -> set[str]:
+    """提取当前任务真正激活的约束特征，实例诊断优先于文档关键词。"""
+
     features = {"alternative_machines", "operation_precedence", "machine_capacity", "makespan_objective"}
 
     diagnostics = context.get("instance_diagnostics") if isinstance(context.get("instance_diagnostics"), dict) else {}
