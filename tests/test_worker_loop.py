@@ -1827,6 +1827,7 @@ class WorkerLoopTests(unittest.TestCase):
                                 "stage_index": 0,
                                 "stage_name": "stage_0_contract_repair_required",
                                 "missing_for_next_stage": ["stable_operation_identity"],
+                                "authoritative": True,
                             },
                             "agent_generated_solver_repair_plan": {
                                 "schema_version": 1,
@@ -1879,6 +1880,44 @@ class WorkerLoopTests(unittest.TestCase):
         )
         self.assertTrue(any("repair_targets" in item for item in feedback["must_do"]))
         self.assertTrue(any("agent_generated_solver_repair_plan" in item for item in feedback["must_do"]))
+
+    def test_non_core_repair_base_is_not_labeled_core_anchor(self) -> None:
+        feedback = current_round_repair_feedback(
+            attempt_index=1,
+            max_repair_attempts=2,
+            previous_attempts=[],
+            repair_anchor={
+                "attempt_index": 0,
+                "candidate_key": [],
+                "summary": {"total": 0, "valid": 0},
+                "semantic_review": {"status": "skipped", "accepted": True},
+            },
+        )
+
+        self.assertNotIn("baseline_core_valid_anchor", feedback["repair_targets"])
+
+    def test_non_authoritative_method_stage_is_not_a_repair_target(self) -> None:
+        feedback = current_round_repair_feedback(
+            attempt_index=1,
+            max_repair_attempts=2,
+            previous_attempts=[
+                {
+                    "agentic_judgment": {
+                        "accepted": False,
+                        "checks": {
+                            "agent_generated_solver_method_stage": {
+                                "authoritative": False,
+                                "evidence_basis": "lexical_static_hint",
+                                "missing_for_next_stage": ["unrequested_neighborhood"],
+                            }
+                        },
+                    }
+                }
+            ],
+        )
+
+        self.assertNotIn("agent_generated_solver_method_stage", feedback["repair_targets"])
+        self.assertNotIn("checks", feedback["previous_attempts"][0]["agentic_judgment"])
 
     def test_current_round_repair_feedback_escalates_repeated_structured_claim_failures(self) -> None:
         structured_risk = (

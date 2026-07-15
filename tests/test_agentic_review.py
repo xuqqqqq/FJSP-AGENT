@@ -568,6 +568,76 @@ def solve(instance, schedule):
 
         self.assertEqual([], risks)
 
+    def test_source_self_check_accepts_record_semantics_without_prescribed_variable_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            solver = root / "examples" / "agent_generated_fjsp_solver.py"
+            solver.parent.mkdir(parents=True)
+            solver.write_text(
+                '''
+def self_check_solution(instance, schedule):
+    errors = []
+    expected = {
+        (job_id, op_id)
+        for job_id, job in enumerate(instance["jobs"])
+        for op_id, _operation in enumerate(job)
+    }
+    seen = {}
+    for rec in schedule:
+        key = (rec["job_id"], rec["op_id"])
+        if key in seen or key not in expected:
+            errors.append("coverage")
+            continue
+        seen[key] = rec
+        eligible = instance["jobs"][rec["job_id"]][rec["op_id"]]["eligible"]
+        if rec["machine_id"] not in eligible:
+            errors.append("machine eligibility")
+        else:
+            expected_dur = eligible[rec["machine_id"]]
+            observed_span = rec["end"] - rec["start"]
+            if observed_span != expected_dur:
+                errors.append("duration mismatch")
+    if set(seen) != expected:
+        errors.append("missing operations")
+    for job_id, job in enumerate(instance["jobs"]):
+        for op_id in range(len(job) - 1):
+            cur = seen.get((job_id, op_id))
+            nxt = seen.get((job_id, op_id + 1))
+            if cur and nxt and nxt["start"] < cur["end"]:
+                errors.append("job precedence violation")
+    grouped = {}
+    for rec in schedule:
+        grouped.setdefault(rec["machine_id"], []).append(rec)
+    for records in grouped.values():
+        ordered = sorted(records, key=lambda item: item["start"])
+        for left, right in zip(ordered, ordered[1:]):
+            if right["start"] < left["end"]:
+                errors.append("machine overlap violation")
+    return errors
+
+def main(instance, schedule):
+    if self_check_solution(instance, schedule):
+        raise RuntimeError("invalid")
+''',
+                encoding="utf-8",
+            )
+            risks = _detect_agent_generated_source_self_check_risks(
+                worktree_path=root,
+                changed_files=["examples/agent_generated_fjsp_solver.py"],
+                quality_contract={
+                    "required_code_capabilities": [
+                        "complete_schedule_coverage_guard",
+                        "machine_eligibility_guard",
+                        "processing_duration_guard",
+                        "job_precedence_guard",
+                        "machine_non_overlap_guard",
+                    ],
+                    "variant_required_code_capabilities": [],
+                },
+            )
+
+        self.assertEqual([], risks)
+
     def test_coverage_detector_accepts_seen_expected_return(self) -> None:
         source = """
 def validate_schedule(instance, schedule):

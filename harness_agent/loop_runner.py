@@ -625,7 +625,14 @@ def current_round_repair_feedback(
     )
     status = "refinement_required" if legal_no_improvement or anchor_quality_regression else "repair_required"
     repair_targets = collect_current_round_repair_targets(previous_attempts)
-    if isinstance(repair_anchor, dict) and repair_anchor:
+    anchor_summary = (
+        repair_anchor.get("summary")
+        if isinstance(repair_anchor, dict) and isinstance(repair_anchor.get("summary"), dict)
+        else {}
+    )
+    anchor_total = int(anchor_summary.get("total", 0) or 0)
+    anchor_valid = int(anchor_summary.get("valid", 0) or 0)
+    if isinstance(repair_anchor, dict) and repair_anchor and anchor_total > 0 and anchor_valid == anchor_total:
         repair_targets["baseline_core_valid_anchor"] = {
             "attempt_index": repair_anchor.get("attempt_index"),
             "candidate_key": repair_anchor.get("candidate_key") or [],
@@ -676,7 +683,7 @@ def current_round_repair_feedback(
         "status": status,
         "attempt_index": attempt_index,
         "max_repair_attempts": max_repair_attempts,
-        "previous_attempts": recent,
+        "previous_attempts": [repair_attempt_context_payload(attempt) for attempt in recent],
         "repair_targets": repair_targets,
         "must_do": must_do,
         "avoid": sorted(
@@ -688,6 +695,25 @@ def current_round_repair_feedback(
             }
         ),
     }
+
+
+def repair_attempt_context_payload(attempt: dict[str, Any]) -> dict[str, Any]:
+    """Keep repair evidence while removing non-blocking static hints.
+
+    `repair_targets` is the authoritative aggregation of JA/Core/semantic
+    blockers.  Repeating the entire JA checks object here lets advisory lexical
+    method-stage hints bypass that filtering and become accidental worker tasks.
+    """
+
+    payload = dict(attempt)
+    judgment = payload.get("agentic_judgment")
+    if isinstance(judgment, dict):
+        payload["agentic_judgment"] = {
+            key: judgment.get(key)
+            for key in ("accepted", "right", "stage", "issues", "suggestions")
+            if key in judgment
+        }
+    return payload
 
 
 def collect_current_round_repair_targets(attempts: list[dict[str, Any]]) -> dict[str, Any]:
@@ -742,7 +768,12 @@ def collect_current_round_repair_targets(attempts: list[dict[str, Any]]) -> dict
             add_list("incomplete_solution_acceptance_risks", checks.get("incomplete_solution_acceptance_risks"))
             add_list("protected_promoted_fact_regressions", checks.get("protected_promoted_fact_regressions"))
         method_stage = checks.get("agent_generated_solver_method_stage")
-        if not judgment_accepted and not static_shape_soft_accepted and isinstance(method_stage, dict) and method_stage:
+        if (
+            not judgment_accepted
+            and not static_shape_soft_accepted
+            and isinstance(method_stage, dict)
+            and method_stage.get("authoritative") is True
+        ):
             targets["agent_generated_solver_method_stage"] = method_stage
         repair_plan = checks.get("agent_generated_solver_repair_plan")
         if not judgment_accepted and not static_shape_soft_accepted and isinstance(repair_plan, dict) and repair_plan:

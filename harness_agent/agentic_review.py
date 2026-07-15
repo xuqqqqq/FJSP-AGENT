@@ -2305,6 +2305,12 @@ def _has_operation_coverage_guard(text: str) -> bool:
             "len(scheduled) == total_ops",
             "len(scheduled) < total_ops",
         ]
+    ) or bool(
+        re.search(
+            r"set\(\s*[a-z_][a-z0-9_]*(?:\.keys\(\))?\s*\)\s*(?:==|!=)\s*"
+            r"[a-z_][a-z0-9_]*",
+            lowered,
+        )
     )
     unscheduled_guard = (
         "unscheduled" in lowered
@@ -2384,10 +2390,10 @@ def _has_processing_duration_guard(text: str) -> bool:
     record_duration_guard = bool(
         re.search(
             r"\b([a-z_][a-z0-9_]*)\[['\"]end['\"]\]\s*-\s*\1\[['\"]start['\"]\]"
-            r"\s*!=\s*(?:duration|processing_time|proc_time|proc|dur|pt)\b",
+            r"\s*!=\s*[^\n:]+",
             lowered,
         )
-    )
+    ) or _has_record_duration_dataflow_guard(text)
     return (
         any(term in lowered for term in duration_terms)
         and (any(term in lowered for term in interval_terms) or record_duration_guard)
@@ -2395,12 +2401,59 @@ def _has_processing_duration_guard(text: str) -> bool:
     )
 
 
+def _has_record_duration_dataflow_guard(text: str) -> bool:
+    """Recognize `delta = record[end] - record[start]; delta != expected` by behavior."""
+
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return False
+    interval_values: set[str] = set()
+    for node in ast.walk(tree):
+        target: ast.expr | None = None
+        value: ast.expr | None = None
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target, value = node.targets[0], node.value
+        elif isinstance(node, ast.AnnAssign):
+            target, value = node.target, node.value
+        if not isinstance(target, ast.Name) or not isinstance(value, ast.BinOp) or not isinstance(value.op, ast.Sub):
+            continue
+        if _record_field_name(value.left) != "end" or _record_field_name(value.right) != "start":
+            continue
+        left_base = value.left.value if isinstance(value.left, ast.Subscript) else None
+        right_base = value.right.value if isinstance(value.right, ast.Subscript) else None
+        if left_base is not None and right_base is not None and ast.dump(left_base) == ast.dump(right_base):
+            interval_values.add(target.id)
+    if not interval_values:
+        return False
+    return any(
+        isinstance(node, ast.Compare)
+        and isinstance(node.left, ast.Name)
+        and node.left.id in interval_values
+        and any(isinstance(operator, (ast.NotEq, ast.Eq)) for operator in node.ops)
+        for node in ast.walk(tree)
+    )
+
+
+def _record_field_name(node: ast.expr) -> str | None:
+    if not isinstance(node, ast.Subscript):
+        return None
+    slice_value = node.slice
+    if isinstance(slice_value, ast.Constant) and isinstance(slice_value.value, str):
+        return slice_value.value.lower()
+    return None
+
+
 def _has_job_precedence_guard(text: str) -> bool:
     lowered = text.lower()
+    record_precedence_guard = bool(
+        _has_record_start_before_record_end_comparison(lowered)
+        and ("precedence" in lowered or re.search(r"for\s+\w*job\w*[^\n]*\bin\b", lowered))
+    )
     return (
         ("job_ready" in lowered or "job_end" in lowered or "predecessor" in lowered or "prev_op" in lowered)
         and ("start" in lowered and "end" in lowered)
-    )
+    ) or record_precedence_guard
 
 
 def _has_machine_non_overlap_guard(text: str) -> bool:
@@ -2427,9 +2480,26 @@ def _has_machine_non_overlap_guard(text: str) -> bool:
         and any(term in lowered for term in ["left[1] > right[0]", "prev[1] > curr[0]", "overlap"])
         and ("return none" in lowered or "return false" in lowered or "raise" in lowered)
     )
+    sorted_record_guard = bool(
+        _has_record_start_before_record_end_comparison(lowered)
+        and "machine" in lowered
+        and "overlap" in lowered
+        and "sorted(" in lowered
+        and "zip(" in lowered
+    )
     return (
-        (machine_clock_guard or sequence_pair_guard or sorted_interval_guard)
+        (machine_clock_guard or sequence_pair_guard or sorted_interval_guard or sorted_record_guard)
         and ("start" in lowered and "end" in lowered)
+    )
+
+
+def _has_record_start_before_record_end_comparison(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b[a-z_][a-z0-9_]*\[['\"]start['\"]\]\s*<\s*"
+            r"[a-z_][a-z0-9_]*\[['\"]end['\"]\]",
+            text,
+        )
     )
 
 
