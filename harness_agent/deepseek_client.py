@@ -1,3 +1,5 @@
+"""DeepSeek API 薄客户端，统一配置、用量和缓存命中信息。"""
+
 from __future__ import annotations
 
 import json

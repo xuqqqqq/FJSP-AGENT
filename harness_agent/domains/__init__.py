@@ -1,1 +1,1 @@
-"""Problem-family context providers loaded by the generic harness."""
+"""由通用 Harness 加载的问题族适配器。"""

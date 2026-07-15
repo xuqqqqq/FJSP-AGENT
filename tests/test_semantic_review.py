@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from harness_agent.deepseek_client import DeepSeekChatResult
-from harness_agent.semantic_review import (
+from harness_agent.agents.semantic import (
     AlgorithmSemanticReviewRequest,
     DeepSeekAlgorithmSemanticReviewer,
     EvidenceOnlySemanticReviewer,
@@ -210,8 +210,8 @@ class SemanticReviewTests(unittest.TestCase):
                 output_dir=Path(tmp) / "review",
             )
             with (
-                patch("harness_agent.semantic_review.is_deepseek_configured", return_value=True),
-                patch("harness_agent.semantic_review.load_context_dict", side_effect=RuntimeError("offline")),
+                patch("harness_agent.agents.semantic.is_deepseek_configured", return_value=True),
+                patch("harness_agent.agents.semantic.load_context_dict", side_effect=RuntimeError("offline")),
             ):
                 result = reviewer.review(request)
 
@@ -265,20 +265,20 @@ class SemanticReviewTests(unittest.TestCase):
                 output_dir=root / "review",
             )
             with (
-                patch("harness_agent.semantic_review.is_deepseek_configured", return_value=True),
-                patch("harness_agent.semantic_review.load_context_dict", return_value={}),
+                patch("harness_agent.agents.semantic.is_deepseek_configured", return_value=True),
+                patch("harness_agent.agents.semantic.load_context_dict", return_value={}),
                 patch(
-                    "harness_agent.semantic_review.load_review_sources",
+                    "harness_agent.agents.semantic.load_review_sources",
                     return_value={"solver.py": "def search():\n    tabu[forward] = expiry\n"},
                 ),
                 patch(
-                    "harness_agent.semantic_review.load_review_knowledge",
+                    "harness_agent.agents.semantic.load_review_knowledge",
                     return_value={
                         "contract.md": "Tabu memory must record the attribute that would undo that move."
                     },
                 ),
                 patch(
-                    "harness_agent.semantic_review.DeepSeekClient.from_env",
+                    "harness_agent.agents.semantic.DeepSeekClient.from_env",
                     return_value=client,
                 ) as client_factory,
             ):

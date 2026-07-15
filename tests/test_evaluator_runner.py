@@ -9,10 +9,10 @@ import time
 import unittest
 from pathlib import Path
 
-from harness_agent.evaluator import EvaluationResult
-from harness_agent.ledger import ExperimentRecord
-from harness_agent.models import ObjectiveSpec
-from harness_agent.runner import command_failure_message, pareto_frontier, run_shell_command, validation_summary
+from harness_agent.core.evaluator import EvaluationResult
+from harness_agent.core.ledger import ExperimentRecord
+from harness_agent.core.models import ObjectiveSpec
+from harness_agent.core.runner import command_failure_message, pareto_frontier, run_shell_command, validation_summary
 
 
 class EvaluatorRunnerTests(unittest.TestCase):

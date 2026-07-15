@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-"""AWLS-style solver for standard Flexible Job-Shop Scheduling instances.
+"""AWLS-style method reference for Flexible Job-Shop Scheduling instances.
 
-This file is intentionally separate from ``standard_fjsp_local_search_solver``.
-The older solver is a lightweight profile portfolio; this implementation keeps
-the stronger AWLS mechanics explicit: a disjunctive graph state, critical-block
-neighborhoods, R/Q move evaluation, sequence tabu, and adaptive operation
-weights.  The implementation is based on the public FJSP instance/evaluator
-contract in this repository, not on a copied C++ source file.
+This knowledge asset keeps the method mechanics explicit: a disjunctive graph
+state, critical-block neighborhoods, R/Q move evaluation, sequence tabu, and
+adaptive operation weights. The platform backend never imports this module;
+the Coding Agent may adapt it only after reconciling it with the active IO and
+evaluator contract.
 """
 
 import argparse
@@ -23,21 +22,15 @@ from pathlib import Path
 
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from harness_agent.standard_fjsp import (
+from harness_agent.domains.io import (
     ScheduleRecord,
     StandardFjspInstance,
     parse_standard_fjsp,
     validate_standard_schedule,
     write_solution,
 )
-
-try:
-    from examples.awls_evolved_slots import safe_evolved_zi
-except Exception:  # pragma: no cover - compile checks surface malformed slots.
-    safe_evolved_zi = None
-
 
 START_NODE = 0
 FRONT = "FRONT"
@@ -100,6 +93,21 @@ ZI_FORMULA_ALLOWED_AST = (
     ast.USub,
     ast.UAdd,
 )
+
+
+def safe_evolved_zi(values: dict[str, float]) -> float:
+    """Bounded default zi policy kept inside this self-contained method asset."""
+
+    try:
+        weight = float(values.get("weight", 0.0))
+        cooldown = float(values.get("cooldown", 0.0))
+        rr = max(1.0e-9, float(values.get("rr", 1.0)))
+        value = max(0.0, 1.0 - cooldown / rr) * weight
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    if not math.isfinite(value):
+        return 0.0
+    return min(ZI_FORMULA_MAX_ABS, max(0.0, value))
 
 
 @dataclass(frozen=True, slots=True)
@@ -427,7 +435,7 @@ class AwlsSchedule:
         end_time = self.end_time
         backward_path_length = self.backward_path_length
 
-        from harness_agent.standard_fjsp import setup_time_between
+        from harness_agent.domains.io import setup_time_between
         instance = self.index.instance
         has_sdst = instance.has_sequence_dependent_setup
         node_to_job = self.index.node_to_job
@@ -828,7 +836,7 @@ def build_zi_feature_values(
         }
     )
     if schedule.index.instance.has_sequence_dependent_setup:
-        from harness_agent.standard_fjsp import setup_time_between
+        from harness_agent.domains.io import setup_time_between
 
         current_op = operation_key(schedule, node)
         predecessor = schedule.machine_predecessor[node]
@@ -887,8 +895,6 @@ def weight_perturbation(schedule: AwlsSchedule, node: int, gamma: int) -> float:
     if policy in {"formula", "slot"}:
         values = build_zi_feature_values(schedule, node, gamma, rr, cooling_factor, perturbation)
         if policy == "slot":
-            if safe_evolved_zi is None:
-                return perturbation
             return safe_evolved_zi(values)
         try:
             return evaluate_zi_formula(schedule.zi_formula, values)
@@ -1277,7 +1283,7 @@ def candidate_tabu_sequence_parts(schedule: AwlsSchedule, method: str, which: in
 
 def add_move_tabu(tabu: SequenceTabuList, schedule: AwlsSchedule, move: Move, iteration: int, tenure_min: int, tenure_max: int) -> None:
     # SLOT awls_sdst_tabu_memory START
-    from harness_agent.standard_fjsp import setup_time_between
+    from harness_agent.domains.io import setup_time_between
 
     machine_id = schedule.on_machine[move.which]
     if move.method == FRONT:

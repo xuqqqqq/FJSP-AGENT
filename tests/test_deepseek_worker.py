@@ -258,7 +258,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         context = _context_packet_with_slot_manifest()
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            target = root / "examples" / "standard_fjsp_local_search_solver.py"
+            target = root / "examples" / "agent_generated_fjsp_solver.py"
             target.parent.mkdir(parents=True)
             target.write_text(
                 "def generate_structured_neighbors():\n"
@@ -280,7 +280,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                             "type": "local_search_operator",
                             "novelty": "Edits only the confirmed slot.",
                             "expected_effect": "Keeps IO and markers stable.",
-                            "target_files": ["examples/standard_fjsp_local_search_solver.py"],
+                            "target_files": ["examples/agent_generated_fjsp_solver.py"],
                         }
                     ],
                     "changes": [
@@ -295,14 +295,14 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                             "rationale": "Small slot replacement.",
                         }
                     ],
-                    "quick_test_plan": "python -m compileall examples/standard_fjsp_local_search_solver.py",
+                    "quick_test_plan": "python -m compileall examples/agent_generated_fjsp_solver.py",
                 },
                 context,
             )
 
             changed = apply_code_edit_proposal(proposal=normalized, worktree_path=root, context=context)
 
-            self.assertEqual(["examples/standard_fjsp_local_search_solver.py"], changed)
+            self.assertEqual(["examples/agent_generated_fjsp_solver.py"], changed)
             self.assertEqual([], normalized["rejected_changes"])
             self.assertEqual(
                 "def generate_structured_neighbors():\n"
@@ -322,7 +322,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
             {
                 "changes": [
                     {
-                        "path": "examples/standard_fjsp_local_search_solver.py",
+                        "path": "examples/agent_generated_fjsp_solver.py",
                         "action": "replace_slot_block",
                         "slot_id": "local_search_neighborhood_actions",
                         "content": "    new_move()\n",
@@ -352,7 +352,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         )
 
         self.assertEqual([], normalized["rejected_changes"])
-        self.assertEqual("examples/standard_fjsp_local_search_solver.py", normalized["changes"][0]["path"])
+        self.assertEqual("examples/agent_generated_fjsp_solver.py", normalized["changes"][0]["path"])
 
     def test_iteration_contract_rejects_full_solver_rewrite(self) -> None:
         worker = DeepSeekWorker()
@@ -515,13 +515,11 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         stage = payload["operator_improvement_stage"]
         self.assertTrue(stage["active"])
         self.assertEqual("new_operator_direction", stage["mode"])
-        self.assertTrue(any("priority_knowledge_cards" in item for item in stage["must_do"]))
-        self.assertTrue(any("critical path" in item for item in stage["must_do"]))
-        self.assertTrue(any("diversification" in item for item in stage["must_do"]))
+        self.assertTrue(any("retrieved method assets" in item for item in stage["must_do"]))
+        self.assertTrue(any("behavioral checks" in item for item in stage["must_do"]))
         self.assertIn("agent_generated_method_skeleton_rule", payload)
-        self.assertIn("operation-to-machine choices", payload["agent_generated_method_skeleton_rule"])
-        self.assertIn("names are arbitrary", payload["agent_generated_method_skeleton_rule"])
-        self.assertIn("random hill climber", payload["agent_generated_method_skeleton_rule"])
+        self.assertIn("active_method_package assets", payload["agent_generated_method_skeleton_rule"])
+        self.assertIn("Identifiers are only source locators", payload["agent_generated_method_skeleton_rule"])
 
     def test_operator_stage_stays_active_for_no_change_repair_with_progress_decoder(self) -> None:
         context = _context_packet_with_intake()
@@ -601,7 +599,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertEqual("semantic_review_available", renamed_stage["stage"])
         self.assertEqual([], renamed_stage["required_capabilities"])
 
-    def test_priority_cards_force_strong_neighborhood_templates_for_decoder_incumbent(self) -> None:
+    def test_priority_cards_follow_main_agent_direction_paths(self) -> None:
         context = _context_packet_with_intake()
         context["task"] = {
             "problem_family": "FJSP",
@@ -614,6 +612,12 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         context["loop_feedback"] = {
             "incumbent_key_before": [-2878.0],
             "agent_generated_baseline_memory": {"accepted_as_incumbent": True},
+            "current_direction_plan": {
+                "knowledge_paths": [
+                    "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_neighborhood_templates.md",
+                    "knowledge/imported_huawei_fjsp_knowledge/operators/hgtsa_fjsp_n8_k_insertion_blueprint.md",
+                ]
+            },
             "current_round_repair": {
                 "status": "repair_required",
                 "previous_attempts": [{"failure_signatures": ["no_changed_files_after_apply"]}],
@@ -864,11 +868,8 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("best_schedule, best_makespan = local_search_insertion(best_schedule)", prompt_context)
         self.assertIn("repair_targets", prompt_context)
         self.assertIn("stable_operation_identity", prompt_context)
-        self.assertIn("method_stage_migration", prompt_context)
-        self.assertIn("repair_only_stage_gate", prompt_context)
         self.assertIn("reverse_move_memory", prompt_context)
         self.assertIn("immediate reversal remains tabu", prompt_context)
-        self.assertIn("agent_generated_method_stage_repair_rule", prompt_context)
 
     def test_compact_loop_feedback_keeps_solver_self_check_audit_details(self) -> None:
         audit = {
@@ -1212,8 +1213,6 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("Cite the parser function", prompt_context)
         self.assertIn("active_io_parser_rule", prompt_context)
         self.assertIn("hardcoding", prompt_context)
-        self.assertIn("constructive_baseline_rule", prompt_context)
-        self.assertIn("operation-level ready list", prompt_context)
         self.assertIn("solver_quality_playbook_rule", prompt_context)
         self.assertIn("narrative fields representation, decoder", prompt_context)
         self.assertIn("cite reachable source locations", prompt_context)
@@ -1221,12 +1220,11 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("generated_solver_call_flow_rule", prompt_context)
         self.assertIn("A helper that is only defined or cited", prompt_context)
         self.assertIn("baseline_or_single_round", prompt_context)
-        self.assertIn("baseline generation without an active method package", prompt_context)
-        self.assertIn("Do not claim strong neighborhoods", prompt_context)
+        self.assertIn("Derive algorithm behavior only from active_method_package assets", prompt_context)
         self.assertIn("Do not preserve a nonexistent incumbent", prompt_context)
         self.assertNotIn("Preserve the current promoted incumbent", prompt_context)
 
-    def test_baseline_priority_cards_do_not_promote_strong_neighborhood_cards(self) -> None:
+    def test_baseline_priority_cards_follow_active_method_package(self) -> None:
         context = _context_packet_with_intake()
         context["task"] = {
             "problem_family": "FJSP",
@@ -1255,15 +1253,18 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                 "snippet": "AWLS HGTSA N7 N8 NK k-insertion tabu local search",
             },
         ]
+        context["active_method_package"] = {
+            "assets": [
+                "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_reference_skeleton.md"
+            ]
+        }
 
-        selected = compact_priority_knowledge_cards(context, limit=2, max_chars_per_card=500)
+        selected = compact_priority_knowledge_cards(context, limit=1, max_chars_per_card=500)
         selected_names = [Path(card["path"]).name for card in selected]
 
-        self.assertIn("standard_fjsp_agent_generated_reference_skeleton.md", selected_names)
-        self.assertNotIn("standard_fjsp_agent_generated_neighborhood_templates.md", selected_names)
-        self.assertNotIn("standard_fjsp_awls_hgtsa_execution_skeleton.md", selected_names)
+        self.assertEqual(["standard_fjsp_agent_generated_reference_skeleton.md"], selected_names)
 
-    def test_priority_worker_context_includes_standard_fjsp_machine_id_base_rule(self) -> None:
+    def test_priority_worker_context_reads_machine_id_rule_from_knowledge(self) -> None:
         context = _context_packet_with_intake()
         context["task"] = {
             "problem_family": "FJSP",
@@ -1274,13 +1275,20 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
             "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance} --output {solution} --seed {seed}",
             "evaluator_command_template": "python examples/standard_fjsp_evaluator.py --instance {instance} --solution {solution} --metrics {metrics}",
         }
+        context["knowledge_cards"] = [
+            {
+                "path": "knowledge/benchmarks/standard_fjsp_format.md",
+                "chars": 2000,
+                "truncated": False,
+                "snippet": "Machine indices may be 0-based or 1-based depending on the dataset.",
+            }
+        ]
 
         payload = json.loads(priority_worker_context(context))
 
-        self.assertIn("standard_fjsp_machine_id_base_rule", payload)
-        self.assertIn("Collect all raw machine ids", payload["standard_fjsp_machine_id_base_rule"])
-        self.assertIn("Do not unconditionally subtract 1", payload["standard_fjsp_machine_id_base_rule"])
-        self.assertIn("machine 0 out-of-range", payload["standard_fjsp_machine_id_base_rule"])
+        self.assertNotIn("standard_fjsp_machine_id_base_rule", payload)
+        self.assertEqual("knowledge/benchmarks/standard_fjsp_format.md", payload["priority_knowledge_cards"][0]["path"])
+        self.assertIn("0-based or 1-based", payload["priority_knowledge_cards"][0]["snippet"])
 
     def test_code_edit_prompt_schema_avoids_variant_and_file_bias(self) -> None:
         worker = DeepSeekWorker()
@@ -1820,7 +1828,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("fjsp_sdst_agent_generated_search_memory_20260707.md", prompt_context)
         self.assertIn("operation-level list scheduler", prompt_context)
 
-    def test_agent_generated_priority_cards_deprioritize_awls_slot_notes(self) -> None:
+    def test_priority_cards_follow_active_method_package_without_name_blacklist(self) -> None:
         context = _context_packet_with_intake()
         context["task"] = {
             "problem_family": "fjsp_sdst",
@@ -1862,15 +1870,22 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                 "snippet": "Variant domain pack RAG contract for FJSP-SDST.",
             },
         ]
+        context["active_method_package"] = {
+            "assets": [
+                "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "knowledge/principles/fjsp_variant_domain_pack_rag.md",
+            ]
+        }
 
-        selected = compact_priority_knowledge_cards(context, limit=3, max_chars_per_card=400)
+        selected = compact_priority_knowledge_cards(context, limit=2, max_chars_per_card=400)
         selected_names = [Path(card["path"]).name for card in selected]
 
-        self.assertEqual("fjsp_sdst_agent_generated_search_memory_20260707.md", selected_names[0])
-        self.assertNotIn("awls_sdst_initialization_notes.md", selected_names)
-        self.assertNotIn("awls_sdst_tabu_memory_notes.md", selected_names)
+        self.assertEqual(
+            {"fjsp_sdst_agent_generated_search_memory_20260707.md", "fjsp_variant_domain_pack_rag.md"},
+            set(selected_names),
+        )
 
-    def test_agent_generated_priority_cards_deprioritize_score_reports(self) -> None:
+    def test_priority_cards_follow_direction_instead_of_report_name_heuristics(self) -> None:
         context = _context_packet_with_intake()
         context["task"] = {
             "problem_family": "fjsp_sdst",
@@ -1905,6 +1920,14 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                 "snippet": "Agent-generated FJSP variant quality contract with source-symbol evidence.",
             },
         ]
+        context["loop_feedback"] = {
+            "current_direction_plan": {
+                "knowledge_paths": [
+                    "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                    "knowledge/principles/agent_generated_variant_quality_contracts.md",
+                ]
+            }
+        }
 
         selected = compact_priority_knowledge_cards(context, limit=2, max_chars_per_card=400)
         selected_names = [Path(card["path"]).name for card in selected]
@@ -2068,7 +2091,7 @@ def _context_packet_with_slot_manifest(*, user_confirmed: bool = True) -> dict[s
                 {
                     "slot_id": "local_search_neighborhood_actions",
                     "title": "局部搜索邻域动作生成",
-                    "target_file": "examples/standard_fjsp_local_search_solver.py",
+                    "target_file": "examples/agent_generated_fjsp_solver.py",
                     "marker_start": "# SLOT neighborhood_actions START",
                     "marker_end": "# SLOT neighborhood_actions END",
                     "purpose": "Generate candidate moves.",
@@ -2077,7 +2100,7 @@ def _context_packet_with_slot_manifest(*, user_confirmed: bool = True) -> dict[s
                     "invariants": ["Keep parser/evaluator/IO fixed."],
                     "allowed_edits": ["Edit only the marked block."],
                     "forbidden_edits": ["Do not edit evaluator semantics."],
-                    "validation_commands": ["python -m compileall examples/standard_fjsp_local_search_solver.py"],
+                    "validation_commands": ["python -m compileall examples/agent_generated_fjsp_solver.py"],
                     "knowledge_tags": ["neighborhood"],
                     "user_confirmed": user_confirmed,
                 }

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from harness_agent.evidence import EvidenceIndexRequest, build_evidence_index
+from harness_agent.core.evidence import EvidenceIndexRequest, build_evidence_index
 
 
 class EvidenceIndexTests(unittest.TestCase):

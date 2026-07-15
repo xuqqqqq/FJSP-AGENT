@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from harness_agent.contract_builder import (
+from harness_agent.context.contract import (
     DraftContractRequest,
     build_draft_contract,
     draft_review_report_path,

@@ -9,8 +9,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from harness_agent.benchmark_bounds import find_bounds, load_bounds_table
-from harness_agent.standard_fjsp import load_solution, parse_standard_fjsp, validate_standard_schedule
+from harness_agent.core.bounds import find_bounds, load_bounds_table
+from harness_agent.domains.io import load_solution, parse_standard_fjsp, validate_standard_schedule
 
 
 NAME_COLUMNS = ("instance", "instance_name", "name", "file", "filename", "id", "problem", "case", "author")

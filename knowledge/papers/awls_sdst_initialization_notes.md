@@ -22,7 +22,7 @@ completion = max(job_ready[job], machine_ready[machine] + setup(last_on_machine,
 Correct setup lookup shape inside this slot:
 
 ```python
-from harness_agent.standard_fjsp import setup_time_between
+from harness_agent.domains.io import setup_time_between
 
 prev_op = (index.node_to_job[last_node], index.node_to_op[last_node])
 cur_op = (index.node_to_job[node], index.node_to_op[node])
@@ -73,7 +73,7 @@ Use these as hypotheses, not as a manual patch:
   one imported `setup_time_between` from `examples.standard_fjsp_awls_solver`
   and called it with separate job/op integers, and another emitted unindented
   code at the start of the function-body slot.  Use
-  `harness_agent.standard_fjsp.setup_time_between`, operation-key tuples, and
+  `harness_agent.domains.io.setup_time_between`, operation-key tuples, and
   preserve function-body indentation.
 - After the setup API contract and indentation normalization were hardened, a
   legal setup-aware greedy dispatch initializer reached `oddla20` makespan

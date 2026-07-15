@@ -1,3 +1,5 @@
+"""OpenCode Coding Agent 适配器：运行容器并收集可审计产物。"""
+
 from __future__ import annotations
 
 import json
@@ -7,10 +9,10 @@ import shlex
 import subprocess
 from pathlib import Path
 
-from ..context_loader import load_context_dict
+from harness_agent.context.loader import load_context_dict
 from ..deepseek_client import load_local_env, resolve_secret
-from ..runner import CREATE_NEW_PROCESS_GROUP, kill_process_tree
-from ..worker_context import worker_context_sections
+from harness_agent.core.runner import CREATE_NEW_PROCESS_GROUP, kill_process_tree
+from harness_agent.context.worker import worker_context_sections
 from ..worker import CodingWorker, ExperimentSpec, WorkerCapabilities, WorkerResult
 
 

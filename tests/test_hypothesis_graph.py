@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from harness_agent.hypothesis import (
+from harness_agent.agents.hypothesis import (
     HypothesisRecord,
     build_experience_memory,
     render_hypothesis_graph_markdown,

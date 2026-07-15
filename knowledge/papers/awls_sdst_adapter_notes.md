@@ -11,7 +11,7 @@ This card is for agent context, not for changing evaluator semantics.
 
 ## Project-Specific Rule
 
-The project already has canonical SDST parsing and validation in `harness_agent.standard_fjsp`.
+The project already has canonical SDST parsing and validation in `harness_agent.domains.io`.
 Workers must reuse:
 
 - `parse_standard_fjsp`

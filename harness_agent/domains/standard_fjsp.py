@@ -1,3 +1,5 @@
+"""标准 FJSP/FJSP-SDST 算例诊断，只提取规模与约束特征。"""
+
 from __future__ import annotations
 
 import json
@@ -6,8 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..models import TaskContract
-from ..standard_fjsp import parse_standard_fjsp
+from harness_agent.core.models import TaskContract
+from harness_agent.domains.io import parse_standard_fjsp
 
 
 @dataclass(frozen=True)

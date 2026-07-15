@@ -1,1 +1,1 @@
-"""Optional coding worker backends for the harness agent."""
+"""可插拔 Coding Worker 运行时适配器。"""

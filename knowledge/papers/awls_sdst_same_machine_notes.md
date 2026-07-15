@@ -23,7 +23,7 @@ Use these as hypotheses, not as a manual patch:
 - Correct setup lookup shape:
 
 ```python
-from harness_agent.standard_fjsp import setup_time_between
+from harness_agent.domains.io import setup_time_between
 
 prev_op = (schedule.index.node_to_job[prev_node], schedule.index.node_to_op[prev_node])
 cur_op = (schedule.index.node_to_job[cur_node], schedule.index.node_to_op[cur_node])
@@ -97,7 +97,7 @@ There is no `schedule.setup_time(...)` helper and no
 - After `global_sdst_cooldown_boost` was accepted in the weight-update slot, a
   same-machine worker tried `exact_clone_apply_same_machine_scoring` on the
   stable `1010` short line, but it failed before quality evaluation because it
-  imported nonexistent `AwlsTrial` from `harness_agent.standard_fjsp`.  The real
+  imported nonexistent `AwlsTrial` from `harness_agent.domains.io`.  The real
   exact-trial API in this solver is `trial = schedule.clone()`,
   `trial.apply_move(move)`, and `trial.makespan`; do not use `AwlsTrial`.
 - On the hard HUdata subset `oddla12/oddla14/oddla20`, a legal

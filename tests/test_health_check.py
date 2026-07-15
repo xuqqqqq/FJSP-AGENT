@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from harness_agent.health_check import HealthCheckRequest, run_health_check
+from harness_agent.core.health import HealthCheckRequest, run_health_check
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,7 +17,7 @@ class HealthCheckTests(unittest.TestCase):
 
             manifest = run_health_check(
                 HealthCheckRequest(
-                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    contract_path=ROOT / "configs" / "task_contract.example.json",
                     output_dir=output_dir,
                     project_root=ROOT,
                     repeats=2,

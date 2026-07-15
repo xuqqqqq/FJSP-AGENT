@@ -1,3 +1,5 @@
+"""Coding Worker 的算法无关协议和实验输入输出数据结构。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

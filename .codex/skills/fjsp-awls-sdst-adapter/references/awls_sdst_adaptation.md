@@ -2,8 +2,8 @@
 
 ## Current Code Facts
 
-- AWLS entrypoint: `examples/standard_fjsp_awls_solver.py`.
-- Existing SDST parser/evaluator: `harness_agent.standard_fjsp`.
+- AWLS method reference: `knowledge/method_packages/standard_fjsp_awls_hgtsa/reference_solver.py`.
+- Existing SDST parser/evaluator helpers: `harness_agent.domains.io`.
 - `parse_standard_fjsp` already detects Fattahi operation-pair and HUdata job-pair setup tails.
 - `setup_time_between(instance, machine_id, previous_op, current_op, op_index)` is the canonical setup query.
 - `validate_standard_schedule` is the fixed legality oracle.
@@ -50,7 +50,7 @@ Do not let a worker:
 
 ## Benchmark Ladder
 
-1. Compile: `python -m compileall examples/standard_fjsp_awls_solver.py harness_agent/standard_fjsp.py`.
+1. Compile: `python -m compileall knowledge/method_packages/standard_fjsp_awls_hgtsa/reference_solver.py harness_agent/domains/io.py`.
 2. Standard FJSP smoke: Brandimarte Mk01 with AWLS.
 3. SDST legality smoke: HUdata `oddla20.txt` seed 0, short time limit.
 4. SDST quality probe: `oddla18.txt, oddla20.txt` with best-known CSV.

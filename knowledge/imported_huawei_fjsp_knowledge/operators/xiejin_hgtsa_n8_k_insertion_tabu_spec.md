@@ -9,7 +9,7 @@ status: implementation_spec
 
 ## 作用
 
-本卡片把谢晋博士论文中与标准 FJSP 求解器最相关的局部搜索细节转成可实现规范。它用于指导 `examples/standard_fjsp_local_search_solver.py` 从“简化关键路径扰动”升级为更接近 HGTSA 的 N8 + k-insertion 禁忌搜索。
+本卡片把谢晋博士论文中与标准 FJSP 求解器最相关的局部搜索细节转成可实现规范。Coding Agent 应结合当前 incumbent、需求与 IO 契约选择性实现，不依赖平台内置 solver。
 
 ## 论文定位
 
@@ -98,9 +98,9 @@ proxy_score =
 
 `proxy_score` 只用于排序，不作为最终指标。最终接受仍必须基于主动解码后的真实 makespan 和 evaluator。
 
-## 对当前代码的差距
+## 常见简化实现的差距
 
-`examples/standard_fjsp_local_search_solver.py` 已具备机器序列表示、主动解码、关键路径、关键块、同机重插入和换机插入，但仍有差距：
+只有机器序列表示、主动解码和基础重插入的简化实现，通常仍有以下差距：
 
 1. N8 只实现了关键块首尾扰动和随机同机重插入，没有完整“关键块内外移动”规则。
 2. k-insertion 只按时间 pivot 和随机位置枚举，未使用论文中的插入点集合思想。
@@ -114,4 +114,3 @@ proxy_score =
 3. 实现 `generate_k_insertion_neighbors()`，先枚举目标机器候选插入点，再用 proxy 选 top-k。
 4. 重构 tabu key，使 N8、相邻交换、k-insertion 分别禁反向弧、回迁机器和原相邻关系。
 5. 将新邻域作为 `--neighborhood-profile hgtsa-lite` 暴露给 agent，让 harness 与 `combined` 交叉评估。
-

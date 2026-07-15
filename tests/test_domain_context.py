@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from harness_agent.domain_context import get_domain_context_provider, register_domain_context_provider
-from harness_agent.models import TaskContract
+from harness_agent.domains.context import get_domain_context_provider, register_domain_context_provider
+from harness_agent.core.models import TaskContract
 
 
 ROOT = Path(__file__).resolve().parents[1]

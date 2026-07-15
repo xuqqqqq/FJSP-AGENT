@@ -15,7 +15,6 @@ FJSP-SDST 与标准 FJSP 的关键差异是：同一台机器上连续加工两�
 - 同一台机器一次只能处理一个活动。活动包括工序加工时间和相邻工序之间的 setup time。
 - 若同一机器上工序 `A` 后紧跟工序 `B`，则 `B.start >= A.end + setup[machine][A][B]`。
 - 解必须包含所有工序，不能遗漏或重复。
-- AWLS 标准 FJSP 后端当前不作为 FJSP-SDST 的默认求解路径，除非后续明确增加 setup-aware 解码和邻域评价。
 
 ## 3. 优化目标
 
@@ -33,7 +32,7 @@ FJSP-SDST 与标准 FJSP 的关键差异是：同一台机器上连续加工两�
 
 1. 解析 FJSP-SDST 输入，包括标准 FJSP 工序候选部分和尾部 setup 矩阵；尾部矩阵可能是 Fattahi operation-pair 编码，也可能是 SDST-HUdata job-pair 编码。
 2. 生成 setup-aware 的调度策略候选。
-3. 调用非 AWLS 候选 solver 生成加工操作调度。
+3. 由 Coding Agent 根据当前需求、IO 契约和检索到的方法资料生成候选 solver，再生成加工操作调度。
 4. evaluator 根据机器序列隐式重算 setup time，并检查机器容量、工序顺序、候选机器和加工时长。
 5. 汇总 makespan、setup 指标、合法率和失败原因。
 6. 后续代码演进应优先修改 setup-aware dispatch / insertion / neighborhood 逻辑，不应随意改变输入输出协议。

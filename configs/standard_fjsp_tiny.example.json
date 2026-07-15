@@ -1,7 +1,7 @@
 {
-  "task_id": "standard_fjsp_tiny_smoke",
+  "task_id": "standard_fjsp_tiny_agent_generated",
   "problem_family": "FJSP",
-  "description": "A real standard-FJSP harness smoke task using a tiny included instance.",
+  "description": "用于测试 Agent 自写 solver 闭环的标准 FJSP 小算例契约。",
   "instances": [
     {
       "id": "tiny",
@@ -17,25 +17,29 @@
     }
   ],
   "commands": {
-    "solver": "python examples/standard_fjsp_solver.py --input {instance} --output {solution} --seed {seed}",
+    "solver": "python examples/agent_generated_fjsp_solver.py --input {instance} --output {solution} --seed {seed} --time-limit-sec {solver_time_limit_seconds}",
     "evaluator": "python examples/standard_fjsp_evaluator.py --instance {instance} --solution {solution} --metrics {metrics}",
-    "quick_test": "python -m compileall harness_agent examples"
+    "quick_test": "python -m py_compile examples/standard_fjsp_evaluator.py"
   },
   "budget": {
     "rounds": 1,
     "seeds": [0, 1, 2],
-    "timeout_seconds": 30
+    "timeout_seconds": 30,
+    "max_workers": 1
   },
   "paths": {
     "allowed_paths": [
-      "examples",
-      "harness_agent",
-      "configs"
+      "examples"
     ],
     "forbidden_paths": [
       ".git",
-      "outputs"
+      "outputs",
+      "examples/standard_fjsp_evaluator.py"
     ]
+  },
+  "review": {
+    "status": "confirmed",
+    "baseline_source": "agent_generated",
+    "agent_generated_solver_path": "examples/agent_generated_fjsp_solver.py"
   }
 }
-

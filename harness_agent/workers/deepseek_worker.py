@@ -1,3 +1,9 @@
+"""DeepSeek Coding Worker。
+
+Worker 只负责把主 Agent 给出的上下文转换为可审计代码修改，不内置求解器、
+算法组合或参数模板；具体方法由当前领域包、知识卡和 Skill 提供。
+"""
+
 from __future__ import annotations
 
 import json
@@ -7,33 +13,15 @@ import re
 from pathlib import Path
 from typing import Any
 
-from ..context_compaction import compact_json, stable_worker_context_json
-from ..context_loader import load_context_dict
-from ..deepseek_client import DeepSeekClient, DeepSeekUnavailable, is_deepseek_configured
-from ..solver_quality_contract import build_agent_generated_solver_quality_contract
-from ..slot_contract import extract_marked_block, replace_marked_block, validate_slot_manifest_gate
-from ..source_reachability import unreachable_defined_function_helpers
+from harness_agent.context.compaction import compact_json, stable_worker_context_json
+from harness_agent.context.loader import load_context_dict
+from ..deepseek_client import DeepSeekClient, is_deepseek_configured
+from harness_agent.agents.quality_contract import build_agent_generated_solver_quality_contract
+from harness_agent.slots.contract import extract_marked_block, replace_marked_block, validate_slot_manifest_gate
+from harness_agent.agents.reachability import unreachable_defined_function_helpers
 from ..worker import CodingWorker, ExperimentSpec, WorkerCapabilities, WorkerResult
 
 
-FEATURES = [
-    "early_finish",
-    "early_start",
-    "short_processing",
-    "long_processing",
-    "min_option",
-    "remaining_work",
-    "remaining_after",
-    "remaining_ops",
-    "machine_ready",
-    "job_ready",
-    "machine_load",
-    "flexibility",
-    "machine_slack",
-    "job_slack",
-]
-
-LOCAL_SEARCH_NEIGHBORHOODS = ["random", "critical-block", "combined", "hgtsa-lite", "hybrid", "awls-hybrid", "setup-guided"]
 RULE_OPERATOR_TYPES = [
     "dispatch_rule",
     "local_search_operator",
@@ -166,186 +154,6 @@ class DeepSeekWorker(CodingWorker):
                 "usage": str(usage_path),
             },
         )
-
-    def generate_strategy_profile(
-        self,
-        *,
-        docs: str,
-        previous_report: str,
-        output_dir: Path,
-        round_index: int,
-        max_tokens: int = 5000,
-    ) -> tuple[Path, Path]:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        client = DeepSeekClient.from_env(model=self.model)
-        prompt = self._profile_prompt(docs, previous_report, round_index)
-        content = client.chat(
-            [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are an FJSP heuristic designer. Return valid JSON only. "
-                        "Do not claim results you have not evaluated."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.35,
-            max_tokens=max_tokens,
-            json_mode=True,
-        )
-        (output_dir / "deepseek_raw_response.json").write_text(content, encoding="utf-8")
-        try:
-            profile = extract_json_object(content)
-        except json.JSONDecodeError as exc:
-            repaired = self._repair_profile_json(client, content, str(exc), max_tokens=max_tokens)
-            (output_dir / "deepseek_repair_response.json").write_text(repaired, encoding="utf-8")
-            profile = extract_json_object(repaired)
-        normalized = normalize_strategy_profile(profile)
-        profile_path = output_dir / "strategy_profile.json"
-        strategy_path = output_dir / "strategy.md"
-        profile_path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
-        strategy_path.write_text(render_strategy_markdown(normalized, source="DeepSeek"), encoding="utf-8")
-        return profile_path, strategy_path
-
-    def generate_reflection(
-        self,
-        *,
-        docs: str,
-        report: str,
-        hypothesis: dict[str, Any],
-        output_dir: Path,
-        round_index: int,
-        max_tokens: int = 3500,
-    ) -> str:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        client = DeepSeekClient.from_env(model=self.model)
-        content = client.chat(
-            [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are an FJSP algorithm-evolution analyst. "
-                        "Use only the evaluator evidence provided. Do not invent results."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": self._reflection_prompt(docs, report, hypothesis, round_index),
-                },
-            ],
-            temperature=0.25,
-            max_tokens=max_tokens,
-            json_mode=False,
-        )
-        reflection = content.strip()
-        path = output_dir / "deepseek_reflection.md"
-        path.write_text(reflection + "\n", encoding="utf-8")
-        return reflection + "\n"
-
-    def _profile_prompt(self, docs: str, previous_report: str, round_index: int) -> str:
-        return f"""
-We need evolve a standard FJSP heuristic under a fixed evaluator.
-
-Round: {round_index}
-
-Available dispatch features:
-{", ".join(FEATURES)}
-
-Return JSON with this schema:
-{{
-  "rationale": "short natural-language strategy idea",
-  "strategies": [
-    {{
-      "name": "unique_short_name",
-      "noise": 0.0,
-      "weights": {{"early_finish": 5.0, "remaining_work": 2.0}}
-    }}
-  ],
-  "local_search_profiles": [
-    {{
-      "name": "combined_balanced",
-      "neighborhood_profile": "combined",
-      "portfolio_size": 192,
-      "restarts": 2,
-      "initial_pool_size": 1,
-      "iterations": 100,
-      "neighbor_limit": 220,
-      "time_limit_sec": 4.0,
-      "rationale": "why this operator/budget mix should help"
-    }}
-  ]
-}}
-
-Rules:
-- Generate exactly 4 to 6 diverse strategies.
-- Generate 1 to 3 diverse local_search_profiles.
-- Use only the listed feature names.
-- Use only these local-search neighborhoods: {", ".join(LOCAL_SEARCH_NEIGHBORHOODS)}.
-- Weights should normally be between -8 and 12.
-- Prefer valid, fast constructive heuristics; no warm starts from old solutions.
-- Local-search profiles are operator/budget hypotheses, not claims. Prefer
-  `combined` for stable quality, use `hybrid`, `hgtsa-lite`, or
-  `awls-hybrid` only when the previous measured evidence suggests
-  N8/k-insertion-style moves may help.
-- Return compact valid JSON only; no Markdown, comments, trailing commas, or
-  partial objects.
-- Feature values already encode scheduling preference direction. For example,
-  `early_finish`, `early_start`, `short_processing`, `min_option`,
-  `machine_ready`, `machine_load`, `flexibility`, `machine_slack`, and
-  `job_slack` are signed so a positive weight usually favors earlier, shorter,
-  less loaded, or less slack choices. Do not flip these signs unless previous
-  measured evidence justifies it.
-- Treat "Structured Hypothesis Feedback" in the previous report as the latest
-  measured evidence.
-- When `avg_gap_pct` is present, lower `avg_gap_pct` is the main benchmark
-  quality target.
-- If the previous hypothesis did not improve, propose genuinely different
-  scoring mixtures rather than small numeric jitter around the same rule.
-
-Requirement and knowledge excerpts:
-{docs[:14000]}
-
-Previous report excerpt:
-{previous_report[-5000:]}
-""".strip()
-
-    def _reflection_prompt(
-        self,
-        docs: str,
-        report: str,
-        hypothesis: dict[str, Any],
-        round_index: int,
-    ) -> str:
-        return f"""
-We evaluated one round of a standard FJSP algorithm-evolution agent.
-
-Round: {round_index}
-
-Write a concise Markdown reflection for the next round. Include:
-1. what the evaluator actually proved;
-2. which dispatch/local-search candidates look promising or harmful;
-3. what concrete rule/parameter/operator changes the next strategy profile
-   should try;
-4. what should not be retried unless new evidence appears.
-
-Rules:
-- Do not claim a candidate is good unless the evaluator metrics support it.
-- Lower gap/makespan is better. The harness stores comparable scores as
-  negative gap/makespan, so a less negative score is better.
-- Keep the reflection actionable for the next profile-generation prompt.
-- Do not propose reusing solution files or manually tuned warm starts.
-- Keep it under 1200 words.
-
-Requirement and knowledge excerpt:
-{docs[:8000]}
-
-Structured hypothesis and candidate evidence:
-{json.dumps(hypothesis, ensure_ascii=False, indent=2)[:10000]}
-
-Selected harness report excerpt:
-{report[:5000]}
-""".strip()
 
     def _code_edit_prompt(self, *, context: dict[str, Any], max_steps: int) -> str:
         stable_context = stable_worker_context_json(context).text
@@ -788,100 +596,17 @@ Dynamic round context (incumbent, retrieved methods, and recent feedback):
         normalized["proposal_audit"] = build_proposal_audit(normalized, context)
         return normalized
 
-    def _repair_profile_json(self, client: DeepSeekClient, raw: str, error: str, max_tokens: int) -> str:
-        return client.chat(
-            [
-                {
-                    "role": "system",
-                    "content": "Repair malformed JSON. Return valid JSON only, with no Markdown.",
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        "The following FJSP strategy profile was invalid JSON. "
-                        "Repair it to exactly this schema: "
-                        '{"rationale":"short text","strategies":[{"name":"name","noise":0.0,"weights":{"early_finish":5.0}}],'
-                        '"local_search_profiles":[{"name":"combined_balanced","neighborhood_profile":"combined","portfolio_size":192,'
-                        '"restarts":2,"initial_pool_size":1,"iterations":100,"neighbor_limit":220,'
-                        '"time_limit_sec":4.0,"rationale":"short text"}]}. '
-                        "Use only the already present strategy ideas if possible.\n\n"
-                        f"JSON error: {error}\n\n"
-                        f"Invalid response:\n{raw[:6000]}"
-                    ),
-                },
-            ],
-            temperature=0.0,
-            max_tokens=max_tokens,
-            json_mode=True,
-        )
-
-
-def normalize_strategy_profile(profile: dict[str, Any]) -> dict[str, Any]:
-    strategies: list[dict[str, Any]] = []
-    for index, item in enumerate(profile.get("strategies", [])):
-        if not isinstance(item, dict):
-            continue
-        raw_weights = item.get("weights", {})
-        if not isinstance(raw_weights, dict):
-            continue
-        weights: dict[str, float] = {}
-        for key, value in raw_weights.items():
-            if key not in FEATURES:
-                continue
-            try:
-                weights[str(key)] = max(-12.0, min(12.0, float(value)))
-            except (TypeError, ValueError):
-                continue
-        if not weights:
-            continue
-        strategies.append(
-            {
-                "name": str(item.get("name", f"deepseek_{index:03d}"))[:64],
-                "noise": max(0.0, min(0.12, float(item.get("noise", 0.0) or 0.0))),
-                "weights": weights,
-            }
-        )
-    return {
-        "rationale": str(profile.get("rationale", ""))[:4000],
-        "strategies": strategies,
-        "local_search_profiles": normalize_local_search_profiles(profile),
-    }
-
-
 def priority_worker_context(context: dict[str, Any]) -> str:
     quality_contract = build_agent_generated_solver_quality_contract(context)
     is_improvement_round = bool(context.get("iteration_edit_contract"))
     operator_stage = operator_improvement_stage_for_worker(context, quality_contract=quality_contract)
-    if is_improvement_round:
-        method_scope_rule = (
-            "For a standard-FJSP agent-generated solver, implement the behavior required by the selected method "
-            "contract: preserve stable operation identity, represent operation-to-machine choices and per-machine "
-            "order, rebuild a complete predecessor-feasible schedule after each candidate, bound candidate scans, "
-            "reject failed candidates transactionally, and preserve the best incumbent. For structured local search, "
-            "the reachable execution must derive candidate operations from the decoded schedule, apply an actual "
-            "sequence or machine-choice change, consume tabu/aspiration or adaptive-weight values in move acceptance, "
-            "and provide a bounded diversification transition. Function, class, and variable names are arbitrary and "
-            "serve only as source locators; neither method-like names nor expected identifier spellings count as "
-            "implementation evidence. Judge and repair the code by call flow, data flow, state transitions, rollback, "
-            "and behavioral tests. If the incumbent already has random machine-reassignment hill climbing, add a "
-            "material intensification or diversification behavior rather than another equivalent random hill climber."
-        )
-    else:
-        if context.get("active_method_package"):
-            method_scope_rule = (
-                "This is baseline generation with one active method package. Adapt the package's complete, "
-                "reachable implementation structure to the active IO, standalone CLI, output schema, and shared "
-                "deadline. Keep parser/coverage/eligibility/precedence/non-overlap validation, but do not collapse "
-                "the selected decoder, structured neighborhoods, tabu/aspiration, adaptive search, or "
-                "diversification into a ready-list-only baseline. Every named method must still have reachable code."
-            )
-        else:
-            method_scope_rule = (
-                "This is baseline generation without an active method package. Produce a legal IO-derived "
-                "standalone solver with parser, operation-level ready-list construction, full coverage, "
-                "eligibility, duration, precedence, non-overlap, bounded runtime, and JSON output. Do not claim "
-                "strong neighborhoods unless their executable structures exist."
-            )
+    method_scope_rule = (
+        "Derive algorithm behavior only from active_method_package assets, priority_knowledge_cards, the active "
+        "requirement/IO contract, and the Main Agent direction. Adapt those requirements to the current incumbent; "
+        "do not assume a method merely because it was useful in another task. Verify claims through reachable call "
+        "paths, consumed values, state transitions, rollback behavior, and bounded tests. Identifiers are only source "
+        "locators and never count as implementation evidence."
+    )
     payload = {
         "round_type": "improvement_round" if is_improvement_round else "baseline_or_single_round",
         "iteration_edit_contract": context.get("iteration_edit_contract") or {},
@@ -914,36 +639,13 @@ def priority_worker_context(context: dict[str, Any]) -> str:
             ),
         },
         "variant_feature_rule": (
-            "Use agent_generated_solver_quality_contract.active_features to decide which constraints must appear "
-            "in generated code. Standard FJSP needs coverage, eligibility, precedence, non-overlap, objective, "
-            "and bounded runtime guards. Add setup/no-wait/lag/calendar/batching/transport/release/due-date "
-            "logic only when the active context identifies those features."
+            "Use agent_generated_solver_quality_contract.active_features and capability_playbook to decide which "
+            "constraints must appear in generated code. Do not import capabilities from inactive variants."
         ),
         "active_io_parser_rule": (
             "The active_io_parser capability requires deriving every job/operation/candidate machine and duration "
             "from the active input file. Do not satisfy parser checks by reading the file and then hardcoding "
             "op_info, assignment, machine_sequences, or a fixed one-operation schedule."
-        ),
-        "standard_fjsp_packed_job_line_rule": (
-            "When the active context is standard FJSP with no setup times, parse Dauzere/DP/BA/BR/HU-style "
-            "job lines using a token cursor. One physical job line packs all operations for that job: consume "
-            "operation_count, then for each operation consume candidate_count plus exactly 2*candidate_count "
-            "machine-duration tokens from the same job line. Do not read lines[idx] or advance the file-line "
-            "index once per operation."
-        ),
-        "standard_fjsp_machine_id_base_rule": (
-            "Standard FJSP public instances may encode machine ids as either 0-based or 1-based. Collect all raw "
-            "machine ids while parsing, then choose machine_base = 0 only when min(raw_ids) >= 0 and "
-            "max(raw_ids) < machine_count; choose machine_base = 1 only when min(raw_ids) >= 1 and "
-            "max(raw_ids) <= machine_count. Normalize exactly once when building eligible-machine maps. "
-            "Do not unconditionally subtract 1 while reading each candidate token; that creates machine -1 "
-            "or machine 0 out-of-range failures on mixed benchmark families."
-        ),
-        "constructive_baseline_rule": (
-            "For an agent-generated baseline, use an operation-level ready list: keep one next operation per "
-            "unfinished job, evaluate eligible machines for each ready operation using job_ready/machine_ready "
-            "and active variant timing, then commit one operation with a seeded tie-break or restart policy. "
-            "Do not submit a fixed job-by-job sweep as the initial solver."
         ),
         "solver_quality_playbook_rule": (
             "For each item in agent_generated_solver_quality_contract.capability_playbook, either implement the "
@@ -952,10 +654,7 @@ def priority_worker_context(context: dict[str, Any]) -> str:
             "inputs, outputs, state transition, consumer, and guard. Symbol names are navigation labels only; do "
             "not infer capability from a method-like name or reject equivalent behavior because identifiers differ. "
             "The solver_contract_self_check narrative fields representation, decoder, variant_handling, "
-            "runtime_bounds, and incumbent_preservation must cite submitted behavior, not only describe the intended method. "
-            "The actual output writer must emit the declared "
-            "JSON object with a schedule field; a bare list is not declared_output_schema. A machine-sequence "
-            "decoder must use a progress/topological predecessor check, not machine-major replay."
+            "runtime_bounds, and incumbent_preservation must cite submitted behavior, not only describe the intended method."
         ),
         "generated_solver_call_flow_rule": (
             "Parser, decoder, schedule-builder, and validation/self-check helpers must be called by the runnable "
@@ -974,13 +673,6 @@ def priority_worker_context(context: dict[str, Any]) -> str:
             "incremental_edit_rule": (context.get("worker_instruction") or {}).get("incremental_edit_rule"),
         },
         "agent_generated_method_skeleton_rule": method_scope_rule,
-        "agent_generated_method_stage_repair_rule": (
-            "If loop_feedback.current_round_repair.repair_targets.agent_generated_solver_repair_plan is present, "
-            "treat it as the construction order for this attempt. In method_stage_migration mode, satisfy the "
-            "repair_plan.target_stage and must_add items before any makespan tuning. If the repair escalation "
-            "mode is repair_only_stage_gate, either implement the named missing structures or remove the unsupported "
-            "strong-neighborhood claim; do not submit another AWLS/critical-block/tabu wording-only patch."
-        ),
         "priority_knowledge_cards": compact_priority_knowledge_cards(
             context,
             limit=priority_knowledge_card_limit(context),
@@ -1104,15 +796,11 @@ def operator_improvement_stage_for_worker(
             "not keep only repairing construction prose or tuning dispatch tie-breaks."
         ),
         "must_do": [
-            "Choose one operator family from priority_knowledge_cards and cite the card path in evidence_used.",
-            "Preserve the incumbent parser, output schema, constructive baseline, legality guards, and best-schedule preservation.",
-            "Implement one bounded search operator around the incumbent representation: decode every neighbor, reject partial/infeasible candidates, and keep the incumbent on failure.",
-            "For standard-FJSP AWLS/N7/N8/NK claims, verify behaviorally that the reachable state contains operation-to-machine choices and per-machine order and that every move is fully decoded with predecessor checks before scoring.",
-            "A global-order shift is not a critical-block or insertion move unless its state transition actually changes the required per-machine neighborhood and the decoded schedule consumes that change.",
-            "When the incumbent already has a full sequence-aware decode path, prefer a structured neighborhood with explicit search control and diversification over another pure random hill-climbing reassignment.",
-            "If retrieved cards mention critical path, machine blocks, alternate-machine reassignment, insertion, or tabu search, prefer one of those method families over another pure dispatch tie-break.",
+            "Choose one bounded improvement from the Main Agent direction and retrieved method assets; cite the exact card paths in evidence_used.",
+            "Preserve the incumbent's Core-proven IO, legality, runtime, and rollback behavior.",
+            "Make the proposed behavior reachable from the solver entry flow and validate it with the behavioral checks required by the selected method contract.",
             "If required_next_operator_capabilities is non-empty, implement the cited behavior and its required test; renaming helpers or deleting a claim does not repair a semantic failure.",
-            "When repairing an unsupported strong-neighborhood claim and the incumbent parser/decoder is legal, keep the same direction and add the missing reachable behavior instead of downgrading to dispatch or tie-break tuning.",
+            "Keep same-direction repair focused on evidence-backed Semantic Reviewer findings instead of switching algorithms inside the round.",
             "Do not copy instance-specific scores, schedules, or target makespans from reports into solver code.",
         ],
     }
@@ -1122,8 +810,8 @@ def incumbent_method_stage_for_worker(context: dict[str, Any]) -> dict[str, Any]
     """Return only evaluator/semantic-review-backed method evidence.
 
     Source identifiers are deliberately ignored here.  Static spelling checks
-    previously turned names such as ``decode_state`` and ``critical_blocks``
-    into capability evidence and pushed workers into renaming repairs.
+    previously turned method-like names into capability evidence and pushed
+    workers into renaming repairs.
     """
 
     loop_feedback = context.get("loop_feedback") if isinstance(context.get("loop_feedback"), dict) else {}
@@ -1216,7 +904,6 @@ def repair_blocks_operator_stage(current_repair: dict[str, Any]) -> bool:
         "no_changed_files_after_apply",
         "quick_test_plan_does_not_reference_intake_test_command",
         "priority_knowledge_cards_not_referenced",
-        "structured_neighborhood_claim_unimplemented",
     }
     if all(any(token in signature for token in nonblocking) for signature in signatures):
         return False
@@ -1577,12 +1264,7 @@ def compact_repair_targets_for_prompt(value: dict[str, Any]) -> dict[str, Any]:
         item = value.get(key)
         if isinstance(item, dict) and item:
             compact[key] = item
-    for key in (
-        "agent_generated_solver_method_stage",
-        "agent_generated_solver_repair_plan",
-        "agent_generated_repair_escalation",
-        "algorithm_semantic_review",
-    ):
+    for key in ("algorithm_semantic_review",):
         item = value.get(key)
         if isinstance(item, dict) and item:
             compact[key] = item
@@ -1768,13 +1450,22 @@ def compact_priority_knowledge_cards(
         return []
 
     query_terms = _knowledge_query_terms(context)
-    agent_generated_mode = "agent_generated" in query_terms
     sdst_active = _context_sequence_dependent_setup_active(context)
-    operator_stage_active = bool(operator_improvement_stage_for_worker(context).get("active"))
     active_package = context.get("active_method_package") if isinstance(context.get("active_method_package"), dict) else {}
     package_asset_paths = {
         str(value).replace("\\", "/").lower()
         for value in active_package.get("assets") or []
+        if str(value).strip()
+    }
+    loop_feedback = context.get("loop_feedback") if isinstance(context.get("loop_feedback"), dict) else {}
+    direction = (
+        loop_feedback.get("current_direction_plan")
+        if isinstance(loop_feedback.get("current_direction_plan"), dict)
+        else {}
+    )
+    direction_paths = {
+        str(value).replace("\\", "/").lower()
+        for value in direction.get("knowledge_paths") or []
         if str(value).strip()
     }
 
@@ -1785,72 +1476,16 @@ def compact_priority_knowledge_cards(
         normalized_haystack = haystack.replace("-", "_")
         if not sdst_active and _sdst_specific_knowledge_path(path):
             return -10000
-        if agent_generated_mode and not operator_stage_active and (
-            "standard_fjsp_agent_generated_neighborhood_templates" in path
-            or "standard_fjsp_awls_hgtsa_execution_skeleton" in path
-        ):
-            return -10000
         score = 0
         if path.replace("\\", "/") in package_asset_paths:
             score += 1200
+        if path.replace("\\", "/") in direction_paths:
+            score += 900
         for term in query_terms:
             if term and term in normalized_haystack:
                 score += 4
         if "sdst" in query_terms and "sdst" in haystack:
             score += 25
-        agent_generated_card = (
-            "agent_generated" in haystack or "agent-generated" in haystack or "generated solver" in haystack
-        )
-        awls_transfer_card = (
-            "agent-generated-transfer" in haystack
-            or "agent_generated_transfer" in haystack
-            or "method-transfer" in haystack
-            or "method transfer" in haystack
-        ) and "awls" in haystack
-        if agent_generated_mode and agent_generated_card:
-            score += 220
-        if agent_generated_mode and "standard_fjsp_agent_generated_reference_skeleton" in path:
-            score += 420
-        if agent_generated_mode and operator_stage_active and "standard_fjsp_agent_generated_neighborhood_templates" in path:
-            score += 260
-        elif agent_generated_mode and "standard_fjsp_agent_generated_neighborhood_templates" in path:
-            score -= 120
-        if agent_generated_mode and operator_stage_active and "standard_fjsp_awls_hgtsa_execution_skeleton" in path:
-            score += 260
-        elif agent_generated_mode and "standard_fjsp_awls_hgtsa_execution_skeleton" in path:
-            score -= 120
-        if agent_generated_mode and awls_transfer_card:
-            score += 140
-        if agent_generated_mode and "fjsp_sdst_agent_generated_search_memory" in haystack:
-            score += 80
-        if agent_generated_mode and "fjsp_variant_domain_pack_rag" in haystack:
-            score += 30
-        if agent_generated_mode and "fjsp_agent_current_capability" in haystack:
-            score -= 80
-        standard_awls_hgtsa_card = "standard_fjsp_awls_hgtsa_execution_skeleton" in path
-        if agent_generated_mode and "awls_sdst_" in path and not agent_generated_card:
-            score -= 260
-        elif agent_generated_mode and "awls" in haystack and not agent_generated_card and not standard_awls_hgtsa_card:
-            score -= 120
-        if "local_search" in query_terms and ("local search" in haystack or "local-search" in haystack):
-            score += 12
-        direct_operator_card = "/operators/" in path.replace("\\", "/")
-        if operator_stage_active and _local_search_operator_knowledge_card(path, normalized_haystack):
-            score += 260
-        if operator_stage_active and direct_operator_card:
-            score += 360
-        if operator_stage_active and "standard_fjsp_agent_generated_neighborhood_templates" in path:
-            score += 460
-        if operator_stage_active and (
-            "critical_path" in normalized_haystack
-            or "critical_block" in normalized_haystack
-            or "machine_reassignment" in normalized_haystack
-            or "k_insertion" in normalized_haystack
-            or "tabu_search" in normalized_haystack
-        ):
-            score += 80
-        if "loop_feedback" in query_terms and ("memory" in haystack or "failed attempt" in haystack):
-            score += 12
         return score
 
     selected: list[dict[str, Any]] = []
@@ -1889,16 +1524,6 @@ def compact_priority_knowledge_cards(
         if len(selected) >= limit:
             break
 
-    if operator_stage_active:
-        for marker in forced_operator_stage_card_markers(context):
-            for card in typed_cards:
-                path = str(card.get("path") or "").lower()
-                if marker in path:
-                    append_card(card)
-                    break
-            if len(selected) >= limit:
-                break
-
     ranked = sorted(enumerate(typed_cards), key=lambda item: (card_score(item[1]), -item[0]), reverse=True)
     for _index, card in ranked:
         path = str(card.get("path") or "")
@@ -1915,18 +1540,6 @@ def compact_priority_knowledge_cards(
     return selected
 
 
-def forced_operator_stage_card_markers(context: dict[str, Any]) -> list[str]:
-    # Card selection follows the active problem/method package.  It must not be
-    # steered by identifier spellings found in an incumbent source snippet.
-    return [
-        "standard_fjsp_agent_generated_neighborhood_templates",
-        "hgtsa_fjsp_n8_k_insertion_blueprint",
-        "xiejin_hgtsa_n8_k_insertion_tabu_spec",
-        "standard_fjsp_awls_hgtsa_execution_skeleton",
-        "standard_fjsp_agent_generated_reference_skeleton",
-    ]
-
-
 def compact_knowledge_card_snippet(snippet: str, *, query_terms: set[str], max_chars: int) -> str:
     if max_chars <= 0:
         return ""
@@ -1934,59 +1547,14 @@ def compact_knowledge_card_snippet(snippet: str, *, query_terms: set[str], max_c
         return snippet
 
     lower = snippet.lower().replace("_", "-")
-    local_search_needles = [
-        "local evidence",
-        "local method evidence",
-        "recent web worker-loop artifacts",
-        "local search quality",
-        "risk patterns",
-        "candidate schedules must contain",
-        "partial schedule",
-        "decode fixed machine sequences",
-        "operation coverage",
-        "machine sequences",
-        "deadlock",
-    ]
-    general_needles = [
-        "local evidence",
-        "local method evidence",
-        "recent web worker-loop artifacts",
-        "method-level",
-        "operation-level setup-aware",
-        "what to preserve",
-        "preserve or recover",
-        "operation-level",
-        "setup-aware",
-        "multi-start",
-        "critical-block",
-        "critical path",
-        "machine block",
-        "machine reassignment",
-        "candidate machine",
-        "method transfer",
-        "agent-generated-transfer",
-        "awls-sdst method transfer",
-        "head/tail",
-        "rk/lk",
-        "aspiration",
-        "anchor text",
-        "old text",
-        "regret",
-        "relocation",
-        "insertion",
-        "k-insertion",
-        "n8",
-        "tabu",
-        "avoid",
-    ]
-    if "local_search" in query_terms:
-        needles = local_search_needles + general_needles
-    else:
-        needles = general_needles + local_search_needles
+    needles = ["local evidence", "what to preserve", "avoid", "required behavior", "acceptance checks"]
     for term in sorted(query_terms):
         normalized = term.lower().replace("_", "-")
         if len(normalized) >= 5 and normalized not in {"agent", "generated"}:
             needles.append(normalized)
+        for component in normalized.split("-"):
+            if len(component) >= 5 and component not in {"agent", "generated"}:
+                needles.append(component)
 
     windows: list[tuple[int, int]] = []
 
@@ -2054,28 +1622,6 @@ def compact_knowledge_card_snippet(snippet: str, *, query_terms: set[str], max_c
     return result[:max_chars]
 
 
-def _local_search_operator_knowledge_card(path: str, normalized_haystack: str) -> bool:
-    if "/operators/" in path.replace("\\", "/").lower():
-        return True
-    operator_terms = {
-        "local_search",
-        "neighborhood",
-        "critical_path",
-        "critical_block",
-        "machine_block",
-        "machine_reassignment",
-        "machine_assignment",
-        "reassignment",
-        "k_insertion",
-        "insertion",
-        "relocation",
-        "tabu_search",
-        "tabu",
-        "destroy_repair",
-    }
-    return any(term in normalized_haystack for term in operator_terms)
-
-
 def _knowledge_query_terms(context: dict[str, Any]) -> set[str]:
     terms: set[str] = set()
     sdst_active = _context_sequence_dependent_setup_active(context)
@@ -2129,27 +1675,8 @@ def _knowledge_query_terms(context: dict[str, Any]) -> set[str]:
         _remove_inactive_sdst_terms(terms)
     if any("agent_generated" in term or term == "generated" for term in terms):
         terms.add("agent_generated")
-    if any(term in terms for term in {"local_search_operator", "neighborhood", "tabu", "hill_climbing"}):
+    if "local_search_operator" in terms:
         terms.add("local_search")
-    if operator_improvement_stage_for_worker(context).get("active"):
-        terms.update(
-            {
-                "local_search",
-                "operator",
-                "neighborhood",
-                "critical_path",
-                "critical_block",
-                "machine_block",
-                "machine_reassignment",
-                "machine_assignment",
-                "reassignment",
-                "insertion",
-                "k_insertion",
-                "relocation",
-                "tabu",
-                "tabu_search",
-            }
-        )
     return terms
 
 
@@ -2181,8 +1708,6 @@ def _slot_manifest_requests_sdst(slot_manifest: Any) -> bool:
         if not isinstance(slot, dict) or not slot.get("user_confirmed"):
             continue
         slot_id = str(slot.get("slot_id") or "").strip().lower()
-        if slot_id.startswith("awls_sdst_"):
-            return True
         tags = " ".join(str(tag) for tag in slot.get("knowledge_tags") or [])
         if _mentions_sdst_feature(f"{slot_id} {tags}"):
             return True
@@ -2219,7 +1744,7 @@ def _mentions_sdst_feature(text: str) -> bool:
     return bool(
         re.search(
             r"\bfjsp[-_]?sdst\b|\bsd-st\b|\bsequence[-_\s]?dependent[-_\s]?setup\b|"
-            r"\bsetup[-_\s]?matrix\b|\bsetup[-_\s]?time(?:s)?\b|\bawls[-_]?sdst\b|\boddla\d*\b",
+            r"\bsetup[-_\s]?matrix\b|\bsetup[-_\s]?time(?:s)?\b|\boddla\d*\b",
             str(text),
             flags=re.I,
         )
@@ -2241,7 +1766,7 @@ def _remove_inactive_sdst_terms(terms: set[str]) -> None:
         "hudata",
     }
     for term in list(terms):
-        if term in blocked or "awls_sdst" in term or "fjsp_sdst" in term:
+        if term in blocked or "fjsp_sdst" in term:
             terms.discard(term)
 
 
@@ -2250,49 +1775,13 @@ def _sdst_specific_knowledge_path(path: str) -> bool:
     return any(
         marker in normalized
         for marker in (
-            "awls_sdst",
             "fjsp_sdst",
+            "_sdst_",
             "sdst_hudata",
             "sdst_fattahi",
             "decoder_neighborhood.md",
         )
     )
-
-
-def normalize_local_search_profiles(profile: dict[str, Any]) -> list[dict[str, Any]]:
-    profiles: list[dict[str, Any]] = []
-    raw_profiles = profile.get("local_search_profiles", [])
-    if not isinstance(raw_profiles, list):
-        return profiles
-    for index, item in enumerate(raw_profiles):
-        if not isinstance(item, dict):
-            continue
-        neighborhood = str(item.get("neighborhood_profile", item.get("neighborhood", ""))).strip()
-        if neighborhood not in LOCAL_SEARCH_NEIGHBORHOODS:
-            continue
-        try:
-            portfolio_size = int(item.get("portfolio_size", 192))
-            restarts = int(item.get("restarts", 2))
-            initial_pool_size = int(item.get("initial_pool_size", item.get("initials", 1)))
-            iterations = int(item.get("iterations", 100))
-            neighbor_limit = int(item.get("neighbor_limit", 220))
-            time_limit_sec = float(item.get("time_limit_sec", 4.0))
-        except (TypeError, ValueError):
-            continue
-        profiles.append(
-            {
-                "name": safe_profile_name(str(item.get("name", f"{neighborhood}_{index:02d}"))),
-                "neighborhood_profile": neighborhood,
-                "portfolio_size": max(32, min(512, portfolio_size)),
-                "restarts": max(1, min(6, restarts)),
-                "initial_pool_size": max(1, min(4, initial_pool_size)),
-                "iterations": max(10, min(320, iterations)),
-                "neighbor_limit": max(20, min(520, neighbor_limit)),
-                "time_limit_sec": max(0.5, min(15.0, time_limit_sec)),
-                "rationale": str(item.get("rationale", ""))[:800],
-            }
-        )
-    return profiles[:3]
 
 
 def normalize_context_usage(value: Any) -> dict[str, Any]:
@@ -3407,199 +2896,3 @@ def _resolved_is_under(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
-
-
-def render_strategy_markdown(profile: dict[str, Any], source: str) -> str:
-    lines = [f"# Strategy Profile ({source})", "", profile.get("rationale", ""), "", "## Strategies", ""]
-    for strategy in profile.get("strategies", []):
-        lines.append(f"### {strategy['name']}")
-        lines.append("")
-        lines.append(f"- noise: `{strategy.get('noise', 0.0)}`")
-        lines.append(f"- weights: `{json.dumps(strategy.get('weights', {}), ensure_ascii=False)}`")
-        lines.append("")
-    local_profiles = profile.get("local_search_profiles", [])
-    if local_profiles:
-        lines.extend(["## Local Search Profiles", ""])
-        for local_profile in local_profiles:
-            lines.append(f"### {local_profile['name']}")
-            lines.append("")
-            lines.append(f"- neighborhood: `{local_profile.get('neighborhood_profile')}`")
-            lines.append(f"- portfolio_size: `{local_profile.get('portfolio_size')}`")
-            lines.append(f"- restarts: `{local_profile.get('restarts')}`")
-            lines.append(f"- initial_pool_size: `{local_profile.get('initial_pool_size', 1)}`")
-            lines.append(f"- iterations: `{local_profile.get('iterations')}`")
-            lines.append(f"- neighbor_limit: `{local_profile.get('neighbor_limit')}`")
-            lines.append(f"- time_limit_sec: `{local_profile.get('time_limit_sec')}`")
-            lines.append(f"- rationale: {local_profile.get('rationale', '')}")
-            lines.append("")
-    return "\n".join(lines).strip() + "\n"
-
-
-def write_template_strategy_profile(output_dir: Path, round_index: int) -> tuple[Path, Path]:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    profile = {
-        "rationale": (
-            "Template profile used when DeepSeek is unavailable. It emphasizes a diverse mix of "
-            "early-finish, remaining-work, bottleneck-load, and flexibility-aware dispatch rules."
-        ),
-        "strategies": [
-            {
-                "name": f"template_balanced_{round_index}",
-                "noise": 0.01,
-                "weights": {
-                    "early_finish": 5.0,
-                    "remaining_work": 3.5,
-                    "short_processing": 1.5,
-                    "machine_load": 2.5,
-                    "flexibility": 1.0,
-                },
-            },
-            {
-                "name": f"template_bottleneck_{round_index}",
-                "noise": 0.02,
-                "weights": {
-                    "machine_load": 6.0,
-                    "machine_ready": 2.0,
-                    "remaining_after": 3.0,
-                    "early_finish": 3.0,
-                },
-            },
-            {
-                "name": f"template_long_chain_{round_index}",
-                "noise": 0.015,
-                "weights": {
-                    "remaining_work": 7.0,
-                    "remaining_ops": 4.0,
-                    "early_finish": 2.0,
-                    "min_option": 1.0,
-                },
-            },
-        ],
-        "local_search_profiles": [
-            {
-                "name": f"template_combined_balanced_{round_index}",
-                "neighborhood_profile": "combined",
-                "portfolio_size": 192,
-                "restarts": 2,
-                "initial_pool_size": 1,
-                "iterations": 100,
-                "neighbor_limit": 220,
-                "time_limit_sec": 4.0,
-                "rationale": "Stable default that protects the current strongest combined neighborhood.",
-            },
-            {
-                "name": f"template_combined_elite_initials_{round_index}",
-                "neighborhood_profile": "combined",
-                "portfolio_size": 224,
-                "restarts": 2,
-                "initial_pool_size": 2,
-                "iterations": 100,
-                "neighbor_limit": 240,
-                "time_limit_sec": 5.0,
-                "rationale": "Tests whether multiple elite constructive starts improve the combined neighborhood.",
-            },
-            {
-                "name": f"template_hybrid_probe_{round_index}",
-                "neighborhood_profile": "hybrid",
-                "portfolio_size": 256,
-                "restarts": 3,
-                "initial_pool_size": 2,
-                "iterations": 160,
-                "neighbor_limit": 300,
-                "time_limit_sec": 6.0,
-                "rationale": "Evaluator-gated probe for HGTSA-style N8/k-insertion moves without replacing combined.",
-            },
-            {
-                "name": f"template_awls_probe_{round_index}",
-                "neighborhood_profile": "awls-hybrid",
-                "portfolio_size": 224,
-                "restarts": 2,
-                "initial_pool_size": 2,
-                "iterations": 140,
-                "neighbor_limit": 260,
-                "time_limit_sec": 5.0,
-                "rationale": "AWLS-biased candidate mix that prioritizes RK/LK k-insertion while preserving fallback coverage.",
-            },
-        ],
-    }
-    profile_path = output_dir / "strategy_profile.json"
-    strategy_path = output_dir / "strategy.md"
-    profile_path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
-    strategy_path.write_text(render_strategy_markdown(profile, source="template"), encoding="utf-8")
-    return profile_path, strategy_path
-
-
-def generate_profile_auto(
-    *,
-    docs: str,
-    previous_report: str,
-    output_dir: Path,
-    round_index: int,
-    mode: str,
-    model: str,
-) -> tuple[Path, Path, str]:
-    if mode not in {"auto", "deepseek", "template"}:
-        raise ValueError(f"unknown profile generation mode: {mode}")
-    if mode in {"auto", "deepseek"}:
-        try:
-            worker = DeepSeekWorker(model=model)
-            profile_path, strategy_path = worker.generate_strategy_profile(
-                docs=docs,
-                previous_report=previous_report,
-                output_dir=output_dir,
-                round_index=round_index,
-            )
-            return profile_path, strategy_path, "deepseek"
-        except DeepSeekUnavailable:
-            if mode == "deepseek":
-                raise
-        except Exception as exc:  # noqa: BLE001 - record model failure and fall back only in auto mode.
-            (output_dir / "deepseek_error.txt").write_text(str(exc), encoding="utf-8")
-            if mode == "deepseek":
-                raise
-    profile_path, strategy_path = write_template_strategy_profile(output_dir, round_index)
-    return profile_path, strategy_path, "template"
-
-
-def generate_reflection_auto(
-    *,
-    docs: str,
-    report: str,
-    hypothesis: dict[str, Any],
-    local_reflection: str,
-    output_dir: Path,
-    round_index: int,
-    mode: str,
-    model: str,
-) -> tuple[str, str]:
-    """Generate evaluator-grounded reflection for the next strategy round.
-
-    The profile generator proposes dispatch and local-search hypotheses.  This
-    reflection generator is the complementary agent step: it reads the fixed
-    evaluator output and writes the natural-language diagnosis that conditions
-    the next round.  DeepSeek mode is intentionally strict so failed API access
-    cannot masquerade as model-driven reasoning.
-    """
-
-    if mode not in {"auto", "deepseek", "template"}:
-        raise ValueError(f"unknown profile generation mode: {mode}")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    if mode in {"auto", "deepseek"}:
-        try:
-            worker = DeepSeekWorker(model=model)
-            reflection = worker.generate_reflection(
-                docs=docs,
-                report=report,
-                hypothesis=hypothesis,
-                output_dir=output_dir,
-                round_index=round_index,
-            )
-            return reflection, "deepseek"
-        except DeepSeekUnavailable:
-            if mode == "deepseek":
-                raise
-        except Exception as exc:  # noqa: BLE001 - auto mode may continue with local reflection.
-            (output_dir / "deepseek_reflection_error.txt").write_text(str(exc), encoding="utf-8")
-            if mode == "deepseek":
-                raise
-    return local_reflection, "local"

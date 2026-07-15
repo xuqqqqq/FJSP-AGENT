@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from harness_agent.agentic_review import (
+from harness_agent.agents.judgment import (
     _detect_agent_generated_source_self_check_risks,
     _detect_agent_generated_output_schema_mismatch_risks,
     _has_machine_non_overlap_guard,
@@ -19,7 +19,7 @@ from harness_agent.agentic_review import (
     analyze_rejected_judgment,
     judge_worker_result,
 )
-from harness_agent.solver_quality_contract import build_agent_generated_solver_quality_contract
+from harness_agent.agents.quality_contract import build_agent_generated_solver_quality_contract
 from harness_agent.worker import WorkerResult
 
 
@@ -455,8 +455,6 @@ def write_solution(output_path, schedule):
             missing_base = [item for item in risks if "missing base capabilities" in item]
             self.assertTrue(any("operation_level_ready_list_constructor" in item for item in missing_base), risks)
             self.assertFalse(any("processing_duration_guard" in item for item in missing_base), risks)
-            repair_plan = judgment.checks["agent_generated_solver_repair_plan"]
-            self.assertEqual({}, repair_plan)
 
     def test_ready_list_detector_accepts_m_id_candidate_loop(self) -> None:
         source = """
@@ -1086,12 +1084,9 @@ def decode_schedule(assignment, machine_sequences, instance):
             self.assertTrue(judgment.accepted, judgment.checks)
             self.assertEqual([], judgment.checks["agent_generated_solver_quality_risks"])
             self.assertEqual([], judgment.checks["incomplete_solution_acceptance_risks"])
-            self.assertEqual(
-                "stage_1_legal_constructor_without_sequence_state",
-                judgment.checks["agent_generated_solver_method_stage"]["stage_name"],
-            )
+            self.assertNotIn("agent_generated_solver_method_stage", judgment.checks)
 
-    def test_standard_fjsp_random_reassignment_hill_climber_is_rejected(self) -> None:
+    def test_method_strength_is_left_to_knowledge_driven_semantic_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             solver = root / "examples" / "agent_generated_fjsp_solver.py"
@@ -1124,7 +1119,7 @@ def decode_schedule(assignment, machine_sequences, instance):
             self.assertTrue(judgment.accepted)
             self.assertNotIn("agent_generated_solver_quality_contract_missing", judgment.issues)
             risks = judgment.checks["agent_generated_solver_quality_risks"]
-            self.assertTrue(any("shallow_local_search_operator" in item for item in risks))
+            self.assertFalse(any("shallow_local_search_operator" in item for item in risks))
             self.assertEqual([], judgment.checks["agent_generated_solver_blocking_quality_risks"])
 
     def test_standard_fjsp_baseline_random_reassignment_is_not_rejected_as_shallow(self) -> None:
@@ -1193,7 +1188,7 @@ def decode_schedule(assignment, machine_sequences, instance):
                 )
             )
 
-    def test_standard_fjsp_claimed_structured_neighborhood_requires_executable_structure(self) -> None:
+    def test_named_method_claim_is_not_judged_by_runtime_word_list(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             solver = root / "examples" / "agent_generated_fjsp_solver.py"
@@ -1238,15 +1233,8 @@ def decode_schedule(assignment, machine_sequences, instance):
 
             self.assertTrue(judgment.accepted)
             risks = judgment.checks["agent_generated_solver_quality_risks"]
-            self.assertTrue(any("structured_neighborhood_claim_unimplemented" in item for item in risks))
-            self.assertTrue(any("critical_block_extraction" in item for item in risks))
-            self.assertTrue(any("n8_or_k_insertion_neighbor_generation" in item for item in risks))
-            stage = judgment.checks["agent_generated_solver_method_stage"]
-            self.assertEqual("stage_4_basic_sequence_moves_without_structured_neighborhood", stage["stage_name"])
-            self.assertFalse(stage["authoritative"])
-            self.assertEqual("lexical_static_hint", stage["evidence_basis"])
-            repair_plan = judgment.checks["agent_generated_solver_repair_plan"]
-            self.assertEqual({}, repair_plan)
+            self.assertFalse(any("structured_neighborhood_claim_unimplemented" in item for item in risks))
+            self.assertNotIn("agent_generated_solver_method_stage", judgment.checks)
 
     def test_standard_fjsp_structured_neighborhood_claim_with_executable_skeleton_passes_claim_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -50,7 +50,7 @@ must stay inside the existing `SequenceTabuList` mechanism.
   short FRONT/BACK sequence plus move-type tenure split unchanged.
 - `merit_based_tenure_with_sdst` failed at runtime before evaluation: it used
   `setup_time_between(...)` inside the slot without importing it from
-  `harness_agent.standard_fjsp`, and it attempted `schedule.is_critical(...)`
+  `harness_agent.domains.io`, and it attempted `schedule.is_critical(...)`
   even though the real AWLS API is `schedule.is_critical_operation(node)`.
   Future setup-aware tabu memory proposals must import `setup_time_between`
   locally and use `schedule.is_critical_operation`.
@@ -85,7 +85,7 @@ must stay inside the existing `SequenceTabuList` mechanism.
   `critical_setup_pressure_tenure`, blending `schedule.is_critical_operation`
   with adjacent setup ratios while preserving the baseline tabu sequence.  It
   failed before quality evaluation on all three instances because it imported
-  `operation_key` from `harness_agent.standard_fjsp`; `operation_key` is a
+  `operation_key` from `harness_agent.domains.io`; `operation_key` is a
   module-level helper in `examples.standard_fjsp_awls_solver`, not a
   `standard_fjsp` export.  The same code also used nonexistent `move.duration`;
   `Move` has only `method`, `which`, and `where`.  Use
@@ -156,10 +156,10 @@ must stay inside the existing `SequenceTabuList` mechanism.
 - Do not mutate `tabu.items` directly.  Use exactly one `tabu.add(...)` call.
 - Do not change move generation, candidate scoring, parser, evaluator, CLI, or
   benchmark semantics.
-- If using setup lookup, include `from harness_agent.standard_fjsp import
+- If using setup lookup, include `from harness_agent.domains.io import
   setup_time_between` inside the slot.  The solver does not expose
   `setup_time_between` as a global name here.
-- Do not import `operation_key` from `harness_agent.standard_fjsp`; call the
+- Do not import `operation_key` from `harness_agent.domains.io`; call the
   solver module-level `operation_key(schedule, node)` directly.
 - Do not use `move.duration`; `Move` only exposes `method`, `which`, and
   `where`.

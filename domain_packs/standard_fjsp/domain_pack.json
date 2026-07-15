@@ -10,9 +10,7 @@
     "description": "Standard FJSP instances with operation precedence, alternative machines per operation, non-overlap machine capacity, and makespan as the default objective.",
     "supported_variants": [
       "standard_fjsp",
-      "fjsp_with_best_known_gap",
-      "fjsp_dispatch_rule_baseline",
-      "fjsp_awls_local_search"
+      "fjsp_with_best_known_gap"
     ],
     "canonical_objectives": [
       {
@@ -40,19 +38,16 @@
     ],
     "evaluator_invariants": [
       "Do not modify examples/standard_fjsp_evaluator.py when evolving solver code.",
-      "Do not modify harness_agent/standard_fjsp.py parser or validator without a new user-confirmed IO contract.",
+      "Do not modify harness_agent/domains/io.py parser or validator without a new user-confirmed IO contract.",
       "Candidate solvers may self-check, but promotion depends only on Core evaluator output."
     ],
     "solver_entrypoints": [
-      "examples/standard_fjsp_portfolio_solver.py",
-      "examples/standard_fjsp_local_search_solver.py",
-      "examples/standard_fjsp_awls_solver.py"
+      "examples/agent_generated_fjsp_solver.py"
     ],
     "specialization_hooks": [
-      "strategy_profile_generation",
-      "slot_manifest_guided_edits",
-      "awls_zi_formula_or_slot",
-      "neighborhood_operator_slots",
+      "requirement_feature_extraction",
+      "method_package_retrieval",
+      "agent_generated_solver",
       "best_known_gap_feedback"
     ],
     "knowledge_tags": [
@@ -68,25 +63,13 @@
   "agent_generated_baseline": {
     "preserve_paths": [
       "harness_agent/__init__.py",
-      "harness_agent/standard_fjsp.py",
-      "harness_agent/benchmark_bounds.py",
+      "harness_agent/domains/__init__.py",
+      "harness_agent/domains/io.py",
+      "harness_agent/core/__init__.py",
+      "harness_agent/core/bounds.py",
       "examples/standard_fjsp_evaluator.py"
     ],
-    "hidden_reference_paths": [
-      "examples/standard_fjsp_solver.py",
-      "examples/standard_fjsp_portfolio_solver.py",
-      "examples/standard_fjsp_local_search_solver.py",
-      "examples/standard_fjsp_awls_solver.py",
-      "examples/standard_fjsp_awls_cpp_backend.py",
-      "examples/awls_evolved_slots.py",
-      "harness_agent/awls_benchmark.py",
-      "harness_agent/awls_compare.py",
-      "harness_agent/awls_merge.py",
-      "harness_agent/awls_zi_evolution.py",
-      "harness_agent/standard_agent.py",
-      "harness_agent/standard_pipeline.py",
-      "harness_agent/strategy_variants.py"
-    ]
+    "hidden_reference_paths": []
   },
   "method_packages": [
     {
@@ -309,14 +292,5 @@
       ]
     }
   },
-  "edit_strategies": [
-    {
-      "name": "slot_based_edit",
-      "description": "Optional user-confirmed marked-code-slot editing. The core framework only loads this manifest and enforces the selected slot contract; slot definitions live in this domain pack.",
-      "assets": {
-        "slot_manifest": "domain_packs/standard_fjsp/slot_manifest.json",
-        "slot_repair_guidance": "domain_packs/standard_fjsp/slot_repair_guidance.json"
-      }
-    }
-  ]
+  "edit_strategies": []
 }

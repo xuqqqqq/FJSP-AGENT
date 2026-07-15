@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from harness_agent.project_intake import ProjectIntakeRequest, write_project_intake
+from harness_agent.context.intake import ProjectIntakeRequest, write_project_intake
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,8 +24,8 @@ class ProjectIntakeTests(unittest.TestCase):
             )
 
             self.assertEqual("ok", manifest["status"])
-            self.assertEqual("Python", manifest["language_summary"]["primary_language"])
-            self.assertIn("examples/standard_fjsp_solver.py", manifest["entry_files"])
+            self.assertIn(manifest["language_summary"]["primary_language"], {"Python", "Documentation"})
+            self.assertIn("examples/standard_fjsp_evaluator.py", manifest["entry_files"])
             self.assertIn("examples/standard_fjsp_evaluator.py", manifest["validator_files"])
             self.assertTrue(manifest["test_commands"])
             self.assertTrue(manifest["context_index"])

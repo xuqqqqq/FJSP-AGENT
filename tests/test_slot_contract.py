@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from harness_agent.slot_contract import (
+from harness_agent.slots.contract import (
     extract_block_name,
     extract_marked_block,
     find_confirmed_slot,

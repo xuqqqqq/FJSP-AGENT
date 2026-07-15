@@ -5,9 +5,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from harness_agent.contract_builder import DraftContractRequest, build_draft_contract
-from harness_agent.context_packet import ContextPacketRequest, write_context_packet, write_refreshed_context_packet
-from harness_agent.project_intake import ProjectIntakeRequest, write_project_intake
+from harness_agent.context.contract import DraftContractRequest, build_draft_contract
+from harness_agent.context.packet import ContextPacketRequest, write_context_packet, write_refreshed_context_packet
+from harness_agent.context.intake import ProjectIntakeRequest, write_project_intake
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -59,7 +59,7 @@ class ContextPacketTests(unittest.TestCase):
             self.assertLessEqual(len(raw), 180_000)
             self.assertEqual("bounded_round_context", packet["context_compaction"]["mode"])
             self.assertLess(len(packet["loop_feedback"]["previous_rounds"]), len(large_rounds))
-            self.assertNotIn("active_method_package", packet)
+            self.assertEqual("standard_fjsp_awls_hgtsa", packet["active_method_package"]["package_id"])
 
     def test_refreshed_agent_generated_context_activates_one_method_package(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -116,8 +116,11 @@ class ContextPacketTests(unittest.TestCase):
 
             self.assertTrue(packet["project_intake"]["exists"])
             self.assertEqual("ok", packet["project_intake"]["status"])
-            self.assertEqual("Python", packet["project_intake"]["summary"]["language_summary"]["primary_language"])
-            self.assertIn("examples/standard_fjsp_solver.py", packet["project_intake"]["summary"]["entry_files"])
+            self.assertIn(
+                packet["project_intake"]["summary"]["language_summary"]["primary_language"],
+                {"Python", "Documentation"},
+            )
+            self.assertIn("examples/standard_fjsp_evaluator.py", packet["project_intake"]["summary"]["entry_files"])
             self.assertTrue(packet["project_intake"]["report"]["exists"])
             self.assertIn("Review project_intake", " ".join(packet["worker_instruction"]["required_order"]))
 

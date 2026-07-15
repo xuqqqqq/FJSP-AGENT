@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from harness_agent.context_packet import ContextPacketRequest, write_context_packet
-from harness_agent.main_agent import (
+from harness_agent.context.packet import ContextPacketRequest, write_context_packet
+from harness_agent.agents.main import (
     DirectionPlanRequest,
     EvidenceDrivenMainAgent,
     compact_main_agent_dynamic_context,

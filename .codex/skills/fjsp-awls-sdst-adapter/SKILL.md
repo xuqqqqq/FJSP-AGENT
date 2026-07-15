@@ -23,7 +23,7 @@ Use this skill to keep AWLS-SDST work agent-first and evaluator-backed.
 
 ## Required Constraints
 
-- Reuse `harness_agent.standard_fjsp.parse_standard_fjsp` and `setup_time_between`; do not create a parallel SDST parser.
+- Reuse `harness_agent.domains.io.parse_standard_fjsp` and `setup_time_between` when validating the method asset; do not create a parallel SDST parser inside the platform.
 - The first AWLS-SDST milestone is legality: AWLS internal `update_time`, R/Q tails, and emitted records must respect setup gaps.
 - After legality, evolve N7/NK move evaluation and `zi` scoring to account for setup-aware head/tail timing.
 - Keep standard FJSP behavior unchanged when `instance.has_sequence_dependent_setup` is false.
