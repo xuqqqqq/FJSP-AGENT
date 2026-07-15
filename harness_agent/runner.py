@@ -128,6 +128,8 @@ class HarnessRunner:
             "metrics": str(metrics_path),
             "seed": seed,
             "workdir": str(work_dir),
+            "timeout_seconds": self.contract.budget.timeout_seconds,
+            "solver_time_limit_seconds": solver_time_limit_seconds(self.contract.budget.timeout_seconds),
         }
         for name, resource_path in self.contract.resources.items():
             placeholders[name] = str(resolve_project_path(self.project_root, resource_path))
@@ -355,6 +357,15 @@ def run_shell_command(
     if check and result.returncode != 0:
         raise subprocess.CalledProcessError(result.returncode, command, output=stdout, stderr=stderr)
     return result
+
+
+def solver_time_limit_seconds(timeout_seconds: int | float) -> float:
+    """Reserve process-exit headroom inside the Core wall-clock timeout."""
+
+    timeout = max(0.1, float(timeout_seconds))
+    if timeout <= 2.0:
+        return round(max(0.05, timeout * 0.5), 3)
+    return round(max(0.1, min(timeout * 0.8, timeout - 1.0)), 3)
 
 
 def kill_process_tree(proc: subprocess.Popen[str]) -> None:

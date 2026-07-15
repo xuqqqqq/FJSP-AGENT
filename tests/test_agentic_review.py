@@ -11,6 +11,11 @@ from harness_agent.agentic_review import (
     _has_machine_non_overlap_guard,
     _has_operation_coverage_guard,
     _has_operation_level_ready_list_constructor,
+    _has_failed_in_place_move_without_rollback,
+    _has_machine_sequence_decoder_shape,
+    _has_transactional_candidate_application_shape,
+    _missing_sequence_move_capabilities,
+    _source_self_check_block,
     analyze_rejected_judgment,
     judge_worker_result,
 )
@@ -19,6 +24,89 @@ from harness_agent.worker import WorkerResult
 
 
 class AgenticReviewQualityContractTests(unittest.TestCase):
+    def test_private_source_self_check_name_is_recognized(self) -> None:
+        source = "def _self_check_solution(instance, schedule):\n    return True\n"
+
+        block = _source_self_check_block(source)
+
+        self.assertIsNotNone(block)
+        self.assertEqual("_self_check_solution", block[0])
+
+    def test_failed_in_place_move_requires_transactional_repair(self) -> None:
+        unsafe = """
+def _apply_move(state, move):
+    try:
+        state.machine_sequences[0].pop()
+        state.machine_sequences[0].insert(0, move)
+        state.update_time()
+        return True
+    except ValueError:
+        return False
+
+if not _apply_move(current, move):
+    continue
+"""
+        safe = """
+trial = current.clone()
+try:
+    trial.apply_move(move)
+except ValueError:
+    continue
+current = trial
+"""
+
+        self.assertTrue(_has_failed_in_place_move_without_rollback(unsafe.lower()))
+        self.assertFalse(_has_transactional_candidate_application_shape(unsafe.lower()))
+        self.assertTrue(_has_transactional_candidate_application_shape(safe.lower()))
+
+    def test_ready_list_and_topological_state_decoder_aliases_are_consistent(self) -> None:
+        source = """
+class ScheduleState:
+    def __init__(self, sequences):
+        self.sequences = sequences
+        self.on_machine = []
+        self.machine_predecessor = {}
+        self.machine_successor = {}
+
+    def topological_sort(self):
+        indegree = []
+        self.topological_order = []
+        return indegree
+
+    def update_time(self):
+        self.topological_sort()
+
+def decode_state(instance, sequences, on_machine):
+    return ScheduleState(sequences)
+
+def build_initial(instance, rng):
+    current_pos = [0] * instance["job_count"]
+    job_to_nodes = instance["job_to_nodes"]
+    job_ready = [0] * instance["job_count"]
+    machine_ready = [0] * instance["machine_count"]
+    sequences = [[] for _ in range(instance["machine_count"])]
+    on_machine = []
+    all_candidates = []
+    for job_id in range(instance["job_count"]):
+        node = job_to_nodes[job_id][current_pos[job_id]]
+        for machine_id, duration in instance["op_info"][(job_id, current_pos[job_id])]["eligible"].items():
+            finish = max(job_ready[job_id], machine_ready[machine_id]) + duration
+            all_candidates.append((finish, node, machine_id))
+    all_candidates.sort()
+    return sequences, on_machine
+
+def improve(current, move):
+    best_state = current
+    clone = current.clone()
+    clone.sequences[0].insert(0, move)
+    clone.update_time()
+    return clone
+"""
+
+        self.assertTrue(_has_operation_level_ready_list_constructor(source))
+        self.assertTrue(_has_machine_sequence_decoder_shape(source.lower()))
+        self.assertNotIn("full_decoder", _missing_sequence_move_capabilities(source))
+
     def test_timeout_with_compilable_diff_continues_to_core_evaluator(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -110,9 +198,11 @@ class AgenticReviewQualityContractTests(unittest.TestCase):
             )
 
             self.assertFalse(judgment.accepted)
-            self.assertIn("agent_generated_solver_quality_contract_missing", judgment.issues)
+            self.assertNotIn("agent_generated_solver_quality_contract_missing", judgment.issues)
+            self.assertIn("agent_generated_solver_self_check_incomplete", judgment.issues)
             risks = judgment.checks["agent_generated_solver_quality_risks"]
             self.assertTrue(any("setup-aware" in item for item in risks))
+            self.assertEqual([], judgment.checks["agent_generated_solver_blocking_quality_risks"])
             contract = judgment.checks["agent_generated_solver_quality_contract"]
             self.assertIn("sequence_dependent_setup", contract["active_features"])
 
@@ -223,9 +313,10 @@ class AgenticReviewQualityContractTests(unittest.TestCase):
                 apply_worker_changes=False,
             )
 
-            self.assertFalse(judgment.accepted)
+            self.assertTrue(judgment.accepted)
             risks = judgment.checks["agent_generated_solver_quality_risks"]
             self.assertTrue(any("declared_output_schema_mismatch" in item for item in risks))
+            self.assertEqual([], judgment.checks["agent_generated_solver_blocking_quality_risks"])
 
     def test_agent_generated_result_object_writer_is_not_bare_schedule(self) -> None:
         source = """
@@ -356,7 +447,7 @@ def write_solution(output_path, schedule):
             )
 
             risks = judgment.checks["agent_generated_solver_quality_risks"]
-            self.assertFalse(judgment.accepted)
+            self.assertTrue(judgment.accepted)
             self.assertTrue(
                 any("random_machine_choice_without_ready_machine_evaluation" in item for item in risks),
                 risks,
@@ -365,8 +456,7 @@ def write_solution(output_path, schedule):
             self.assertTrue(any("operation_level_ready_list_constructor" in item for item in missing_base), risks)
             self.assertFalse(any("processing_duration_guard" in item for item in missing_base), risks)
             repair_plan = judgment.checks["agent_generated_solver_repair_plan"]
-            self.assertTrue(any("ready-choice loop" in item for item in repair_plan["must_add"]))
-            self.assertTrue(any("rng.choice" in item for item in repair_plan["must_not"]))
+            self.assertEqual({}, repair_plan)
 
     def test_ready_list_detector_accepts_m_id_candidate_loop(self) -> None:
         source = """
@@ -961,11 +1051,11 @@ def decode_schedule(assignment, machine_sequences, instance):
                 apply_worker_changes=False,
             )
 
-            self.assertFalse(judgment.accepted)
-            self.assertIn("agent_generated_solver_quality_contract_missing", judgment.issues)
+            self.assertTrue(judgment.accepted)
+            self.assertNotIn("agent_generated_solver_quality_contract_missing", judgment.issues)
             risks = judgment.checks["agent_generated_solver_quality_risks"]
             self.assertTrue(any("shallow_local_search_operator" in item for item in risks))
-            self.assertTrue(any("random operation-to-machine reassignment" in item for item in judgment.suggestions))
+            self.assertEqual([], judgment.checks["agent_generated_solver_blocking_quality_risks"])
 
     def test_standard_fjsp_baseline_random_reassignment_is_not_rejected_as_shallow(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1076,23 +1166,17 @@ def decode_schedule(assignment, machine_sequences, instance):
                 apply_worker_changes=False,
             )
 
-            self.assertFalse(judgment.accepted)
+            self.assertTrue(judgment.accepted)
             risks = judgment.checks["agent_generated_solver_quality_risks"]
             self.assertTrue(any("structured_neighborhood_claim_unimplemented" in item for item in risks))
             self.assertTrue(any("critical_block_extraction" in item for item in risks))
             self.assertTrue(any("n8_or_k_insertion_neighbor_generation" in item for item in risks))
-            self.assertTrue(
-                any("do not repeat the AWLS/critical-block" in item for item in judgment.suggestions),
-                judgment.suggestions,
-            )
             stage = judgment.checks["agent_generated_solver_method_stage"]
             self.assertEqual("stage_4_basic_sequence_moves_without_structured_neighborhood", stage["stage_name"])
+            self.assertFalse(stage["authoritative"])
+            self.assertEqual("lexical_static_hint", stage["evidence_basis"])
             repair_plan = judgment.checks["agent_generated_solver_repair_plan"]
-            self.assertEqual("method_stage_migration", repair_plan["repair_mode"])
-            self.assertEqual("structured_neighborhood_claim_unimplemented", repair_plan["reason"])
-            self.assertIn("critical_block_extraction", repair_plan["missing_components"])
-            self.assertIn("n8_or_k_insertion_neighbor_generation", repair_plan["missing_components"])
-            self.assertEqual("stage_5_structured_neighborhood", repair_plan["target_stage"])
+            self.assertEqual({}, repair_plan)
 
     def test_standard_fjsp_structured_neighborhood_claim_with_executable_skeleton_passes_claim_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1203,8 +1287,8 @@ def decode_schedule(assignment, machine_sequences, instance):
                 apply_worker_changes=False,
             )
 
-            self.assertFalse(judgment.accepted)
-            self.assertIn("agent_generated_solver_quality_contract_missing", judgment.issues)
+            self.assertTrue(judgment.accepted)
+            self.assertNotIn("agent_generated_solver_quality_contract_missing", judgment.issues)
             risks = judgment.checks["agent_generated_solver_quality_risks"]
             self.assertTrue(any("source-level self-check `validate_schedule` is defined but not reachable" in item for item in risks))
 
@@ -1234,8 +1318,8 @@ def decode_schedule(assignment, machine_sequences, instance):
                 apply_worker_changes=False,
             )
 
-            self.assertFalse(judgment.accepted)
-            self.assertIn("agent_generated_solver_quality_contract_missing", judgment.issues)
+            self.assertTrue(judgment.accepted)
+            self.assertNotIn("agent_generated_solver_quality_contract_missing", judgment.issues)
             risks = judgment.checks["agent_generated_solver_quality_risks"]
             self.assertTrue(any("decoder `decode_schedule` is defined but not reachable" in item for item in risks))
 
@@ -1272,8 +1356,8 @@ def decode_schedule(assignment, machine_sequences, instance):
                 apply_worker_changes=False,
             )
 
-            self.assertFalse(judgment.accepted)
-            self.assertIn("agent_generated_solver_quality_contract_missing", judgment.issues)
+            self.assertTrue(judgment.accepted)
+            self.assertNotIn("agent_generated_solver_quality_contract_missing", judgment.issues)
             risks = judgment.checks["agent_generated_solver_quality_risks"]
             self.assertTrue(any("decoder `decode_schedule` is defined but not reachable" in item for item in risks))
 

@@ -163,10 +163,17 @@ the solution is written.
 
 The solver must finish comfortably under the harness timeout:
 
+- Accept `--time-limit-sec` from the evaluator command. Use one absolute
+  deadline derived from that argument; never hardcode the Core timeout.
+- Core reserves exit headroom, but the solver must also stop candidate
+  generation early enough to validate and serialize the incumbent.
 - Bound restarts, local-search iterations, candidate windows, and neighborhood
-  scans.
+  scans. Check the deadline inside every nested operation, machine, and
+  insertion-position loop, not only in the outer search loop.
 - Prefer critical/bottleneck subsets before all-pairs scans.
-- Add an internal time guard when adding local search.
+- Apply moves to a clone/snapshot and commit only after complete decode and
+  validation. Failed moves must not leave the current state partially mutated.
+- Bound predecessor/successor traversals by a visited set or operation count.
 - If smoke evaluation times out, treat the method as infeasible even if the
   idea is plausible.
 

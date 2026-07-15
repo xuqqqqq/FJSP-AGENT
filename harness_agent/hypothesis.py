@@ -673,7 +673,12 @@ def compact_agent_generated_quality_gate(
 ) -> dict[str, Any]:
     """Keep quality-gate facts visible to later rounds without copying code."""
 
-    quality_risks = _bounded_strings(checks.get("agent_generated_solver_quality_risks"), limit=8)
+    quality_risks = _bounded_strings(
+        checks.get("agent_generated_solver_blocking_quality_risks")
+        if "agent_generated_solver_blocking_quality_risks" in checks
+        else checks.get("agent_generated_solver_quality_risks"),
+        limit=8,
+    )
     self_check_risks = _bounded_strings(checks.get("agent_generated_solver_self_check_risks"), limit=8)
     runtime_import_risks = _bounded_strings(checks.get("agent_generated_runtime_import_risks"), limit=8)
     if not (quality_risks or self_check_risks or runtime_import_risks):

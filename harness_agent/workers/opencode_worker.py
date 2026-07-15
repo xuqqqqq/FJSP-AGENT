@@ -115,6 +115,7 @@ class OpenCodeWorker(CodingWorker):
 
     def _prompt(self, spec: ExperimentSpec) -> str:
         context_sections = self._context_sections(spec)
+        local_inputs = self._local_input_hint(spec)
         return f"""
 You are running inside an AlgoForge worker cycle.
 
@@ -136,6 +137,21 @@ Task:
   the formal evaluator command, any benchmark command, multiple seeds, repeated
   solver trials, the full test suite, or parameter sweeps. Core owns all formal
   and multi-seed evaluation.
+- The first active instance is mirrored inside the worktree for read-only use:
+  {local_inputs}
+  Use this local mirror for inspection and the single worker smoke. Do not ask
+  for access to the original instance path when it is outside the worktree.
+- Agent-generated solver entrypoints must accept `--time-limit-sec`. Treat it
+  as one shared wall-clock budget and return comfortably before it expires.
+  Check the deadline inside nested candidate scans, not only between restarts
+  or outer iterations. Bound every graph/sequence traversal by a visited set or
+  the parsed operation count.
+- Apply neighborhood moves transactionally: mutate a clone/snapshot, fully
+  decode and validate it, then commit it. A failed move must not leave the
+  current state, machine links, assignment, or sequences partially mutated.
+- Run at most one solver smoke, with `--time-limit-sec` no greater than 3
+  seconds. If it fails or times out, stop testing and leave the concrete error
+  for Core repair feedback; do not retry with inline loops or a longer budget.
 - Prefer a complete, reversible solver improvement over broad rewrites.
 - Treat `loop_feedback.current_direction_plan` as the Main Agent experiment
   contract. Implement that direction and keep same-direction repairs inside its
@@ -180,6 +196,10 @@ Task:
   `%TEMP%`, `$env:TEMP`, `/tmp`, or any external directory that would require a
   permission prompt. Finish after the bounded quick test instead of continuing
   open-ended exploration.
+- Before finishing, verify that the solver entrypoint named by
+  `evaluator_protocol.solver_command_template` exists and is non-empty. If it
+  does not, continue implementing unless a concrete blocker makes editing
+  impossible.
 
 Stable task context:
 ```json
@@ -194,6 +214,19 @@ Priority context (dynamic tail):
 If no safe edit is possible, leave the worktree unchanged and explain why in
 stdout.  The harness will record your stdout/stderr and the worktree delta.
 """.strip()
+
+    def _local_input_hint(self, spec: ExperimentSpec) -> str:
+        manifest_path = Path(spec.worktree_path) / ".algoforge_worker_inputs" / "manifest.json"
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, ValueError):
+            return ".algoforge_worker_inputs/instances/ (when present)"
+        paths = [
+            str(item.get("local_path") or "")
+            for item in payload.get("instances") or []
+            if isinstance(item, dict) and item.get("local_path")
+        ]
+        return ", ".join(paths) if paths else ".algoforge_worker_inputs/instances/ (when present)"
 
     def _context_sections(self, spec: ExperimentSpec) -> dict[str, str]:
         try:

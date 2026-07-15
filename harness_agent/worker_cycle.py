@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import hashlib
 import json
+import re
 import shutil
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -281,17 +282,16 @@ def should_soft_accept_agent_generated_quality_rejection(
     quality_risks = [str(item) for item in checks.get("agent_generated_solver_quality_risks") or []]
     if not quality_risks:
         return False
+    # Source-shape and named-method gaps are hypotheses for the semantic
+    # reviewer, not legality facts.  Once Core has validated the active
+    # instance, only deterministic safety/generalization hazards stay blocking.
     hard_quality_fragments = (
         "hardcode",
-        "missing base capabilities",
-        "declared_output_schema_mismatch",
         "job_precedence_guard_mismatch",
         "parser assumes one physical operation line",
         "active feature",
         "missing setup-aware capabilities",
-        "structured_neighborhood_claim_unimplemented",
-        "shallow_local_search_operator",
-        "sequence/neighborhood move lacks",
+        "failed_move_mutates_current_without_rollback",
     )
     return not any(
         any(fragment in risk for fragment in hard_quality_fragments)
@@ -376,22 +376,63 @@ def prepare_candidate_worktree(*, project_root: Path, contract: TaskContract, wo
     worktree_path.mkdir(parents=True, exist_ok=True)
     allowed_paths = contract.paths.allowed_paths or ["."]
     forbidden_paths = set(contract.paths.forbidden_paths or [])
-    forbidden_paths.update({".git", "outputs", "__pycache__", ".pytest_cache", ".mypy_cache"})
+    forbidden_paths.update(
+        {".git", "outputs", "__pycache__", ".pytest_cache", ".mypy_cache", ".algoforge_worker_inputs"}
+    )
     if "." in allowed_paths:
         _copy_directory_contents(project_root, worktree_path, forbidden_paths)
+    else:
+        for relative in allowed_paths:
+            if not relative or relative in forbidden_paths:
+                continue
+            source = resolve_project_path(project_root, Path(relative))
+            target = worktree_path / relative
+            if not source.exists():
+                continue
+            if source.is_dir():
+                shutil.copytree(source, target, ignore=_ignore_names(forbidden_paths), dirs_exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+    stage_worker_input_files(contract=contract, project_root=project_root, worktree_path=worktree_path)
+
+
+def stage_worker_input_files(*, contract: TaskContract, project_root: Path, worktree_path: Path) -> None:
+    """Mirror one active instance into the worker sandbox for bounded inspection.
+
+    Core evaluation continues to use the contract's authoritative path.  The
+    mirror only prevents non-interactive coding tools from stopping on an
+    external-directory permission prompt during their single short smoke.
+    """
+
+    if not contract.instances:
         return
-    for relative in allowed_paths:
-        if not relative or relative in forbidden_paths:
-            continue
-        source = resolve_project_path(project_root, Path(relative))
-        target = worktree_path / relative
-        if not source.exists():
-            continue
-        if source.is_dir():
-            shutil.copytree(source, target, ignore=_ignore_names(forbidden_paths), dirs_exist_ok=True)
-        else:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
+    instance = contract.instances[0]
+    source = resolve_project_path(project_root, instance.path)
+    if not source.is_file():
+        return
+
+    input_root = worktree_path / ".algoforge_worker_inputs"
+    instances_root = input_root / "instances"
+    instances_root.mkdir(parents=True, exist_ok=True)
+    safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(instance.id)).strip("._") or "instance"
+    suffix = source.suffix or ".dat"
+    local_path = instances_root / f"000_{safe_id}{suffix}"
+    shutil.copy2(source, local_path)
+    manifest = {
+        "read_only": True,
+        "purpose": "coding-worker inspection and one bounded smoke only",
+        "instances": [
+            {
+                "id": str(instance.id),
+                "local_path": local_path.relative_to(worktree_path).as_posix(),
+            }
+        ],
+    }
+    (input_root / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def write_cycle_report(

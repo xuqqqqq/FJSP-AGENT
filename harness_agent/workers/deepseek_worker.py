@@ -854,21 +854,17 @@ def priority_worker_context(context: dict[str, Any]) -> str:
     operator_stage = operator_improvement_stage_for_worker(context, quality_contract=quality_contract)
     if is_improvement_round:
         method_scope_rule = (
-            "For a standard-FJSP agent-generated solver, do not claim AWLS, N7/N8, NK, k-insertion, "
-            "critical-block, or tabu local search unless the submitted code either already has or incrementally "
-            "adds the required executable skeleton: stable operation keys, assignment plus machine_sequences, "
-            "a full progress/topological decode_state, bounded neighbor generation, decoded candidate rejection, "
-            "and best-incumbent preservation. If the incumbent lacks this skeleton, add exactly one missing "
-            "structural piece before tuning another dispatch tie-break. If the incumbent already has random "
-            "machine-reassignment hill climbing, do not add another pure improving random hill climber; upgrade "
-            "it with critical-path/critical-block candidate selection, N8 or k-insertion move generation, tabu "
-            "memory, aspiration, or bounded perturbation so the search has both intensification and diversification. "
-            "Method-stage contract: (1) if the code uses only a global order/list schedule, first migrate one "
-            "bounded path to assignment + machine_sequences plus a progress decoder; (2) only after that, add "
-            "critical_blocks/apply_move or N8/k-insertion neighbor generation; (3) only after executable neighbor "
-            "generation exists, add tabu/aspiration/perturbation. A proposal that names critical-block, N8, "
-            "k-insertion, AWLS, or tabu but lacks machine_sequences, critical block extraction, apply_move, "
-            "decoded-candidate rejection, or post-move coverage guard will be rejected even if evaluator smoke passes."
+            "For a standard-FJSP agent-generated solver, implement the behavior required by the selected method "
+            "contract: preserve stable operation identity, represent operation-to-machine choices and per-machine "
+            "order, rebuild a complete predecessor-feasible schedule after each candidate, bound candidate scans, "
+            "reject failed candidates transactionally, and preserve the best incumbent. For structured local search, "
+            "the reachable execution must derive candidate operations from the decoded schedule, apply an actual "
+            "sequence or machine-choice change, consume tabu/aspiration or adaptive-weight values in move acceptance, "
+            "and provide a bounded diversification transition. Function, class, and variable names are arbitrary and "
+            "serve only as source locators; neither method-like names nor expected identifier spellings count as "
+            "implementation evidence. Judge and repair the code by call flow, data flow, state transitions, rollback, "
+            "and behavioral tests. If the incumbent already has random machine-reassignment hill climbing, add a "
+            "material intensification or diversification behavior rather than another equivalent random hill climber."
         )
     else:
         if context.get("active_method_package"):
@@ -952,11 +948,12 @@ def priority_worker_context(context: dict[str, Any]) -> str:
         "solver_quality_playbook_rule": (
             "For each item in agent_generated_solver_quality_contract.capability_playbook, either implement the "
             "capability and cite concrete code evidence in solver_contract_self_check.capabilities, or mark it "
-            "missing with a repair note. Evidence must name function/variable/guard symbols that appear verbatim "
-            "in the submitted code; do not claim a capability is implemented from strategy text or imaginary "
-            "helper names alone. The solver_contract_self_check narrative fields representation, decoder, "
-            "variant_handling, runtime_bounds, and incumbent_preservation must also cite submitted source "
-            "symbols, not only describe the intended method. The actual output writer must emit the declared "
+            "missing with a repair note. Evidence must cite reachable source locations and explain the relevant "
+            "inputs, outputs, state transition, consumer, and guard. Symbol names are navigation labels only; do "
+            "not infer capability from a method-like name or reject equivalent behavior because identifiers differ. "
+            "The solver_contract_self_check narrative fields representation, decoder, variant_handling, "
+            "runtime_bounds, and incumbent_preservation must cite submitted behavior, not only describe the intended method. "
+            "The actual output writer must emit the declared "
             "JSON object with a schedule field; a bare list is not declared_output_schema. A machine-sequence "
             "decoder must use a progress/topological predecessor check, not machine-major replay."
         ),
@@ -1110,111 +1107,105 @@ def operator_improvement_stage_for_worker(
             "Choose one operator family from priority_knowledge_cards and cite the card path in evidence_used.",
             "Preserve the incumbent parser, output schema, constructive baseline, legality guards, and best-schedule preservation.",
             "Implement one bounded search operator around the incumbent representation: decode every neighbor, reject partial/infeasible candidates, and keep the incumbent on failure.",
-            "For standard-FJSP AWLS/N7/N8/NK claims, first ensure the code has assignment plus machine_sequences and a progress/topological decode_state; otherwise add one of those missing structures before adding more tie-break scoring.",
-            "If the incumbent still uses best_order/global operation order as the local-search state, do not label a global-order shift as critical-block/N8/k-insertion; migrate the state representation first.",
-            "If assignment plus decode_state already exist, prefer critical-path N8/k-insertion/tabu with diversification over another pure random hill-climbing reassignment.",
+            "For standard-FJSP AWLS/N7/N8/NK claims, verify behaviorally that the reachable state contains operation-to-machine choices and per-machine order and that every move is fully decoded with predecessor checks before scoring.",
+            "A global-order shift is not a critical-block or insertion move unless its state transition actually changes the required per-machine neighborhood and the decoded schedule consumes that change.",
+            "When the incumbent already has a full sequence-aware decode path, prefer a structured neighborhood with explicit search control and diversification over another pure random hill-climbing reassignment.",
             "If retrieved cards mention critical path, machine blocks, alternate-machine reassignment, insertion, or tabu search, prefer one of those method families over another pure dispatch tie-break.",
-            "If required_next_operator_capabilities is non-empty, implement those named source-level structures; do not satisfy the repair by merely deleting the strong-method claim or renaming a random reassignment hill climber.",
-            "When repairing an unsupported critical-block/N8/k-insertion/tabu claim and the incumbent parser/decoder is legal, keep the same strong-neighborhood direction and add the missing reachable functions instead of downgrading to dispatch or tie-break tuning.",
+            "If required_next_operator_capabilities is non-empty, implement the cited behavior and its required test; renaming helpers or deleting a claim does not repair a semantic failure.",
+            "When repairing an unsupported strong-neighborhood claim and the incumbent parser/decoder is legal, keep the same direction and add the missing reachable behavior instead of downgrading to dispatch or tie-break tuning.",
             "Do not copy instance-specific scores, schedules, or target makespans from reports into solver code.",
         ],
     }
 
 
 def incumbent_method_stage_for_worker(context: dict[str, Any]) -> dict[str, Any]:
-    source = incumbent_source_text(context)
-    normalized = source.lower()
-    has_assignment = "assignment" in normalized
-    has_machine_sequences = "machine_sequences" in normalized
-    has_decoder = bool(re.search(r"\bdef\s+decode_\w*\s*\(", source)) or "decode_state(" in normalized
-    has_progress_decoder = has_decoder and (
-        "progressed = false" in normalized
-        or "if not progressed" in normalized
-        or "deadlock" in normalized
-        or "job_next_op" in normalized
-    )
-    has_apply_move = any(
-        token in normalized
-        for token in (
-            "def apply_sequence_move",
-            "def apply_move",
-            "apply_sequence_move(",
-            "apply_move(",
-        )
-    )
-    has_critical = any(
-        token in normalized
-        for token in (
-            "def critical_blocks",
-            "critical_blocks(",
-            "critical_path",
-            "critical_ops",
-            "critical operation",
-        )
-    )
-    has_structured_neighbors = any(
-        token in normalized
-        for token in (
-            "generate_critical_block",
-            "generate_n8",
-            "n8_",
-            "k_insertion",
-            "k-insertion",
-            "generate_k_insertion",
-        )
-    )
-    has_tabu = any(token in normalized for token in ("tabu", "aspiration", "perturb_state", "perturbation"))
+    """Return only evaluator/semantic-review-backed method evidence.
 
-    if not (has_assignment and has_machine_sequences):
-        stage = "stage_2_missing_machine_sequence_state"
-    elif not has_progress_decoder:
-        stage = "stage_3_machine_sequences_without_progress_decoder"
-    elif not (has_apply_move and (has_critical or has_structured_neighbors)):
-        stage = "stage_4_basic_sequence_moves_without_structured_neighborhood"
-    elif not has_tabu:
-        stage = "stage_5_structured_neighbors_without_search_control"
+    Source identifiers are deliberately ignored here.  Static spelling checks
+    previously turned names such as ``decode_state`` and ``critical_blocks``
+    into capability evidence and pushed workers into renaming repairs.
+    """
+
+    loop_feedback = context.get("loop_feedback") if isinstance(context.get("loop_feedback"), dict) else {}
+    current_repair = (
+        loop_feedback.get("current_round_repair")
+        if isinstance(loop_feedback.get("current_round_repair"), dict)
+        else {}
+    )
+    repair_targets = (
+        current_repair.get("repair_targets")
+        if isinstance(current_repair.get("repair_targets"), dict)
+        else {}
+    )
+    semantic_target = (
+        repair_targets.get("algorithm_semantic_review")
+        if isinstance(repair_targets.get("algorithm_semantic_review"), dict)
+        else {}
+    )
+    baseline_memory = (
+        loop_feedback.get("agent_generated_baseline_memory")
+        if isinstance(loop_feedback.get("agent_generated_baseline_memory"), dict)
+        else {}
+    )
+    baseline_review = (
+        baseline_memory.get("semantic_review")
+        if isinstance(baseline_memory.get("semantic_review"), dict)
+        else {}
+    )
+    experience = (
+        loop_feedback.get("experience_memory")
+        if isinstance(loop_feedback.get("experience_memory"), dict)
+        else {}
+    )
+    semantic_memory = (
+        experience.get("algorithm_semantic_memory")
+        if isinstance(experience.get("algorithm_semantic_memory"), dict)
+        else {}
+    )
+
+    blocking_findings = [
+        item
+        for item in semantic_target.get("blocking_findings") or []
+        if isinstance(item, dict)
+    ][:8]
+    required_capabilities = [
+        str(item.get("repair") or "").strip()
+        for item in blocking_findings
+        if str(item.get("repair") or "").strip()
+    ]
+    required_tests = [
+        str(item.get("required_test") or "").strip()
+        for item in blocking_findings
+        if str(item.get("required_test") or "").strip()
+    ]
+    for item in semantic_memory.get("required_behavioral_tests") or []:
+        text = str(item).strip()
+        if text and text not in required_tests:
+            required_tests.append(text)
+
+    if semantic_target:
+        stage = "semantic_repair_required"
+        evidence_source = "current_round_repair.algorithm_semantic_review"
+    elif baseline_review:
+        stage = "semantic_review_available"
+        evidence_source = "agent_generated_baseline_memory.semantic_review"
     else:
-        stage = "stage_6_structured_tabu_or_diversified_search"
+        stage = "semantic_evidence_unavailable"
+        evidence_source = "none"
     return {
         "stage": stage,
-        "has_assignment": has_assignment,
-        "has_machine_sequences": has_machine_sequences,
-        "has_progress_decoder": has_progress_decoder,
-        "has_apply_move": has_apply_move,
-        "has_critical_block_or_path": has_critical,
-        "has_n8_or_k_insertion_generation": has_structured_neighbors,
-        "has_tabu_or_perturbation_memory": has_tabu,
+        "evidence_source": evidence_source,
+        "semantic_review_status": baseline_review.get("status"),
+        "blocking_findings": blocking_findings,
+        "required_capabilities": required_capabilities[:8],
+        "required_behavioral_tests": required_tests[:12],
+        "rule": "No method capability is inferred from function, class, or variable names.",
     }
 
 
 def required_next_operator_capabilities(method_stage: dict[str, Any]) -> list[str]:
-    stage = str(method_stage.get("stage") or "")
-    if stage == "stage_2_missing_machine_sequence_state":
-        return [
-            "assignment plus machine_sequences state",
-            "progress/topological decode_state over machine_sequences",
-            "decoded-candidate rejection with full coverage guard",
-        ]
-    if stage == "stage_3_machine_sequences_without_progress_decoder":
-        return [
-            "progress/topological decode_state over machine_sequences",
-            "deadlock rejection instead of partial-schedule scoring",
-            "post-decode coverage guard before makespan comparison",
-        ]
-    if stage == "stage_4_basic_sequence_moves_without_structured_neighborhood":
-        return [
-            "critical_blocks(schedule) or critical_path/critical_ops extraction",
-            "apply_sequence_move/apply_move that mutates assignment plus machine_sequences",
-            "generate_critical_block_moves or generate_k_insertion_neighbors",
-            "decode every moved neighbor and reject infeasible/partial candidates",
-        ]
-    if stage == "stage_5_structured_neighbors_without_search_control":
-        return [
-            "tabu memory or aspiration rule around structured moves",
-            "bounded perturbation/restart after stagnation",
-            "separate current state from best incumbent state",
-        ]
-    return []
+    values = method_stage.get("required_capabilities") or []
+    return [str(item) for item in values if str(item).strip()][:8]
 
 
 def repair_blocks_operator_stage(current_repair: dict[str, Any]) -> bool:
@@ -1925,31 +1916,14 @@ def compact_priority_knowledge_cards(
 
 
 def forced_operator_stage_card_markers(context: dict[str, Any]) -> list[str]:
-    method_stage = incumbent_method_stage_for_worker(context)
-    stage = str(method_stage.get("stage") or "")
-    if stage in {
-        "stage_4_basic_sequence_moves_without_structured_neighborhood",
-        "stage_5_structured_neighbors_without_search_control",
-        "stage_6_structured_tabu_or_diversified_search",
-    }:
-        return [
-            "standard_fjsp_agent_generated_neighborhood_templates",
-            "hgtsa_fjsp_n8_k_insertion_blueprint",
-            "xiejin_hgtsa_n8_k_insertion_tabu_spec",
-            "standard_fjsp_awls_hgtsa_execution_skeleton",
-        ]
-    if stage in {
-        "stage_2_missing_machine_sequence_state",
-        "stage_3_machine_sequences_without_progress_decoder",
-    }:
-        return [
-            "standard_fjsp_agent_generated_reference_skeleton",
-            "standard_fjsp_agent_generated_neighborhood_templates",
-            "standard_fjsp_awls_hgtsa_execution_skeleton",
-        ]
+    # Card selection follows the active problem/method package.  It must not be
+    # steered by identifier spellings found in an incumbent source snippet.
     return [
         "standard_fjsp_agent_generated_neighborhood_templates",
+        "hgtsa_fjsp_n8_k_insertion_blueprint",
+        "xiejin_hgtsa_n8_k_insertion_tabu_spec",
         "standard_fjsp_awls_hgtsa_execution_skeleton",
+        "standard_fjsp_agent_generated_reference_skeleton",
     ]
 
 
@@ -2778,15 +2752,15 @@ def _unwired_generated_helper_warnings(source_text: str) -> list[str]:
     patterns = [
         (
             "parser",
-            r"^def\s+((?:parse|read|load)[A-Za-z0-9_]*(?:instance|problem|input)[A-Za-z0-9_]*)\s*\(",
+            r"^def\s+(_*(?:parse|read|load)[A-Za-z0-9_]*(?:instance|problem|input)[A-Za-z0-9_]*)\s*\(",
         ),
         (
             "decoder",
-            r"^def\s+((?:decode|build|construct)[A-Za-z0-9_]*(?:schedule|solution)[A-Za-z0-9_]*)\s*\(",
+            r"^def\s+(_*(?:decode|build|construct)[A-Za-z0-9_]*(?:schedule|solution)[A-Za-z0-9_]*)\s*\(",
         ),
         (
             "source-level self-check",
-            r"^def\s+((?:validate|self_check|check|assert)[A-Za-z0-9_]*(?:schedule|solution|feasible|valid)[A-Za-z0-9_]*)\s*\(",
+            r"^def\s+(_*(?:validate|self_check|check|assert)[A-Za-z0-9_]*(?:schedule|solution|feasible|valid)[A-Za-z0-9_]*)\s*\(",
         ),
     ]
     return [

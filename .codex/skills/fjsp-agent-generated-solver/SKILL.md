@@ -43,6 +43,9 @@ strong legality and search-quality guardrails.
    coverage, machine eligibility, precedence, non-overlap, variant constraints,
     incumbent preservation, and runtime before claiming a candidate is ready for
     Core evaluation.
+    The CLI must also accept `--time-limit-sec`; use one shared deadline, check
+    it inside nested candidate loops, and apply moves transactionally so failed
+    candidates cannot corrupt the current state.
 12. After Core confirms legality, compare every claimed search method with the
     full candidate source and the active semantic-review knowledge contract.
     For standard FJSP, read

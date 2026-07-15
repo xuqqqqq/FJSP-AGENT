@@ -284,16 +284,22 @@ def improve_by_alternative_machine(
         ops = list(instance["op_info"].keys())
         rng.shuffle(ops)
         for op_key in ops:
+            if time.perf_counter() >= deadline:
+                break
             current_machine = best_assignment[op_key]
             eligible = list(instance["op_info"][op_key]["eligible"].keys())
             rng.shuffle(eligible)
             for new_machine in eligible:
+                if time.perf_counter() >= deadline:
+                    break
                 if new_machine == current_machine:
                     continue
                 max_pos = len(best_sequences.get(new_machine, []))
                 positions = list(range(max_pos + 1))
                 rng.shuffle(positions)
                 for new_pos in positions[:8]:
+                    if time.perf_counter() >= deadline:
+                        break
                     trial = apply_reassignment_move(best_assignment, best_sequences, op_key, new_machine, new_pos)
                     if trial is None:
                         continue
@@ -319,13 +325,13 @@ def improve_by_alternative_machine(
     return best_assignment, best_sequences, best_schedule
 
 
-def solve(input_path: str, output_path: str, seed: int) -> None:
+def solve(input_path: str, output_path: str, seed: int, time_limit_sec: float) -> None:
     instance = parse_instance(input_path)
     state = initial_ready_list_state(instance)
     if state is None:
         raise RuntimeError("failed to construct initial state")
     assignment, machine_sequences = state
-    deadline = time.perf_counter() + 60.0
+    deadline = time.perf_counter() + max(0.05, time_limit_sec)
     assignment, machine_sequences, schedule = improve_by_alternative_machine(
         instance, assignment, machine_sequences, seed, deadline
     )
@@ -345,8 +351,9 @@ def main() -> None:
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--time-limit-sec", type=float, required=True)
     args = parser.parse_args()
-    solve(args.input, args.output, args.seed)
+    solve(args.input, args.output, args.seed, args.time_limit_sec)
 
 
 if __name__ == "__main__":

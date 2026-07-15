@@ -221,7 +221,10 @@ def build_standard_worker_contract_payload(request: StandardWorkerLoopRequest) -
 def standard_solver_command(request: StandardWorkerLoopRequest) -> str:
     if normalize_baseline_source(request.baseline_source) == "agent_generated":
         solver_path = str(request.agent_generated_solver_path or "examples/agent_generated_fjsp_solver.py").replace("\\", "/")
-        return f"python {solver_path} --input {{instance}} --output {{solution}} --seed {{seed}}"
+        return (
+            f"python {solver_path} --input {{instance}} --output {{solution}} --seed {{seed}} "
+            "--time-limit-sec {solver_time_limit_seconds}"
+        )
     awls_zi_policy, awls_zi_formula = effective_awls_zi_settings(request)
     if request.solver == "portfolio":
         return (

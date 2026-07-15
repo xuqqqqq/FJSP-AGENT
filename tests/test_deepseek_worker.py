@@ -519,8 +519,9 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertTrue(any("critical path" in item for item in stage["must_do"]))
         self.assertTrue(any("diversification" in item for item in stage["must_do"]))
         self.assertIn("agent_generated_method_skeleton_rule", payload)
-        self.assertIn("assignment plus machine_sequences", payload["agent_generated_method_skeleton_rule"])
-        self.assertIn("pure improving random hill climber", payload["agent_generated_method_skeleton_rule"])
+        self.assertIn("operation-to-machine choices", payload["agent_generated_method_skeleton_rule"])
+        self.assertIn("names are arbitrary", payload["agent_generated_method_skeleton_rule"])
+        self.assertIn("random hill climber", payload["agent_generated_method_skeleton_rule"])
 
     def test_operator_stage_stays_active_for_no_change_repair_with_progress_decoder(self) -> None:
         context = _context_packet_with_intake()
@@ -569,18 +570,36 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         method_stage = incumbent_method_stage_for_worker(context)
         stage = operator_improvement_stage_for_worker(context)
 
-        self.assertEqual("stage_4_basic_sequence_moves_without_structured_neighborhood", method_stage["stage"])
+        self.assertEqual("semantic_evidence_unavailable", method_stage["stage"])
         self.assertTrue(stage["active"])
         self.assertEqual("same_direction_repair", stage["mode"])
         self.assertEqual(
-            "stage_4_basic_sequence_moves_without_structured_neighborhood",
+            "semantic_evidence_unavailable",
             stage["incumbent_method_stage"]["stage"],
         )
-        self.assertIn(
-            "critical_blocks(schedule) or critical_path/critical_ops extraction",
-            stage["required_next_operator_capabilities"],
-        )
-        self.assertTrue(any("do not satisfy" in item.lower() for item in stage["must_do"]))
+        self.assertEqual([], stage["required_next_operator_capabilities"])
+        self.assertIn("No method capability is inferred", method_stage["rule"])
+        self.assertTrue(any("renaming helpers" in item.lower() for item in stage["must_do"]))
+
+    def test_method_stage_does_not_change_when_incumbent_symbols_are_renamed(self) -> None:
+        context = _context_packet_with_intake()
+        context["loop_feedback"] = {
+            "agent_generated_baseline_memory": {
+                "accepted_as_incumbent": True,
+                "semantic_review": {"status": "pass", "accepted": True, "findings": []},
+            }
+        }
+        context["incumbent_code_context"] = {
+            "files": [{"relative_path": "solver.py", "snippet": "def decode_state():\n    pass\n"}]
+        }
+        named_stage = incumbent_method_stage_for_worker(context)
+
+        context["incumbent_code_context"]["files"][0]["snippet"] = "def x7():\n    pass\n"
+        renamed_stage = incumbent_method_stage_for_worker(context)
+
+        self.assertEqual(named_stage, renamed_stage)
+        self.assertEqual("semantic_review_available", renamed_stage["stage"])
+        self.assertEqual([], renamed_stage["required_capabilities"])
 
     def test_priority_cards_force_strong_neighborhood_templates_for_decoder_incumbent(self) -> None:
         context = _context_packet_with_intake()
@@ -1197,7 +1216,8 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("operation-level ready list", prompt_context)
         self.assertIn("solver_quality_playbook_rule", prompt_context)
         self.assertIn("narrative fields representation, decoder", prompt_context)
-        self.assertIn("cite submitted source symbols", prompt_context)
+        self.assertIn("cite reachable source locations", prompt_context)
+        self.assertIn("Symbol names are navigation labels only", prompt_context)
         self.assertIn("generated_solver_call_flow_rule", prompt_context)
         self.assertIn("A helper that is only defined or cited", prompt_context)
         self.assertIn("baseline_or_single_round", prompt_context)

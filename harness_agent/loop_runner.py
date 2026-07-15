@@ -697,20 +697,26 @@ def collect_current_round_repair_targets(attempts: list[dict[str, Any]]) -> dict
             continue
         judgment = attempt.get("agentic_judgment") if isinstance(attempt.get("agentic_judgment"), dict) else {}
         checks = judgment.get("checks") if isinstance(judgment.get("checks"), dict) else {}
-        quality_risks = checks.get("agent_generated_solver_quality_risks")
-        add_list("agent_generated_solver_quality_risks", quality_risks)
-        if isinstance(quality_risks, list):
-            structured_claim_failure_count += sum(
-                1 for item in quality_risks if "structured_neighborhood_claim_unimplemented" in str(item)
-            )
+        static_shape_soft_accepted = bool(checks.get("soft_accepted_by_diagnostic_smoke"))
+        quality_risks = (
+            checks.get("agent_generated_solver_blocking_quality_risks")
+            if "agent_generated_solver_blocking_quality_risks" in checks
+            else checks.get("agent_generated_solver_quality_risks")
+        )
+        if not static_shape_soft_accepted:
+            add_list("agent_generated_solver_quality_risks", quality_risks)
+            if isinstance(quality_risks, list):
+                structured_claim_failure_count += sum(
+                    1 for item in quality_risks if "structured_neighborhood_claim_unimplemented" in str(item)
+                )
         add_list("agent_generated_solver_self_check_risks", checks.get("agent_generated_solver_self_check_risks"))
         add_list("incomplete_solution_acceptance_risks", checks.get("incomplete_solution_acceptance_risks"))
         add_list("protected_promoted_fact_regressions", checks.get("protected_promoted_fact_regressions"))
         method_stage = checks.get("agent_generated_solver_method_stage")
-        if isinstance(method_stage, dict) and method_stage:
+        if not static_shape_soft_accepted and isinstance(method_stage, dict) and method_stage:
             targets["agent_generated_solver_method_stage"] = method_stage
         repair_plan = checks.get("agent_generated_solver_repair_plan")
-        if isinstance(repair_plan, dict) and repair_plan:
+        if not static_shape_soft_accepted and isinstance(repair_plan, dict) and repair_plan:
             targets["agent_generated_solver_repair_plan"] = repair_plan
         add_dict("python_compile_errors", checks.get("python_compile_errors"))
         apply_rejections = checks.get("apply_rejections")

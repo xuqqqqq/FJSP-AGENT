@@ -211,6 +211,9 @@ def judge_worker_result(
         quality_contract=agent_generated_quality_contract,
         proposal=proposal if isinstance(proposal, dict) else None,
     )
+    agent_generated_blocking_quality_risks = _blocking_agent_generated_quality_risks(
+        agent_generated_quality_risks
+    )
     agent_generated_method_stage = _agent_generated_solver_method_stage(
         context=context,
         worktree_path=worktree_path,
@@ -219,10 +222,10 @@ def judge_worker_result(
         proposal=proposal if isinstance(proposal, dict) else None,
     )
     agent_generated_repair_plan = _agent_generated_solver_repair_plan(
-        quality_risks=agent_generated_quality_risks,
+        quality_risks=agent_generated_blocking_quality_risks,
         method_stage=agent_generated_method_stage,
     )
-    if agent_generated_quality_risks:
+    if agent_generated_blocking_quality_risks:
         issues.append("agent_generated_solver_quality_contract_missing")
         suggestions.append(
             "Repair the generated solver structure before evaluator execution: derive active variant features from "
@@ -244,7 +247,7 @@ def judge_worker_result(
             "assignment plus machine_sequences, a progress/topological decoder, bounded neighbor generation, "
             "decoded-candidate rejection, and best-incumbent preservation."
         )
-        if any("structured_neighborhood_claim_unimplemented" in item for item in agent_generated_quality_risks):
+        if any("structured_neighborhood_claim_unimplemented" in item for item in agent_generated_blocking_quality_risks):
             suggestions.append(
                 "For the next same-round repair, do not repeat the AWLS/critical-block/N7/N8/NK/k-insertion/tabu "
                 "claim unless the patch actually adds the missing state/decode/move guards named in the risk. "
@@ -252,7 +255,7 @@ def judge_worker_result(
                 "claimed neighborhood; otherwise remove the strong-neighborhood wording and submit a smaller honest "
                 "operator for evaluator comparison."
             )
-        if any("shallow_local_search_operator" in item for item in agent_generated_quality_risks):
+        if any("shallow_local_search_operator" in item for item in agent_generated_blocking_quality_risks):
             suggestions.append(
                 "Do not repair this by adding another random operation-to-machine reassignment loop. "
                 "Patch the existing incumbent with critical-path or critical-block move selection, "
@@ -300,7 +303,14 @@ def judge_worker_result(
         "agent_generated_runtime_import_risks": agent_generated_import_risks,
         "agent_generated_solver_quality_contract": agent_generated_quality_contract,
         "agent_generated_solver_quality_risks": agent_generated_quality_risks,
-        "agent_generated_solver_method_stage": agent_generated_method_stage,
+        "agent_generated_solver_blocking_quality_risks": agent_generated_blocking_quality_risks,
+        "agent_generated_solver_method_stage": {
+            **agent_generated_method_stage,
+            "authoritative": False,
+            "evidence_basis": "lexical_static_hint",
+        }
+        if agent_generated_method_stage
+        else {},
         "agent_generated_solver_repair_plan": agent_generated_repair_plan,
         "agent_generated_solver_self_check_risks": agent_generated_self_check_risks,
         "protected_promoted_fact_regressions": protected_fact_regressions,
@@ -315,6 +325,23 @@ def judge_worker_result(
     )
     write_judgment_artifacts(output_dir=output_dir, judgment=judgment)
     return judgment
+
+
+def _blocking_agent_generated_quality_risks(risks: list[str]) -> list[str]:
+    """Keep only deterministic hazards in the pre-evaluator JA gate.
+
+    Missing expected identifiers, source shapes, or named-method skeletons are
+    not legality facts.  They remain visible as diagnostics and are resolved by
+    the fixed evaluator plus the post-evaluator semantic reviewer.
+    """
+
+    hard_fragments = (
+        "hardcode",
+        "parser assumes one physical operation line",
+        "job_precedence_guard_mismatch",
+        "failed_move_mutates_current_without_rollback",
+    )
+    return [risk for risk in risks if any(fragment in risk for fragment in hard_fragments)]
 
 
 def analyze_rejected_judgment(*, judgment: AgenticJudgment, output_dir: Path) -> ErrorAnalysis:
@@ -606,6 +633,11 @@ def _detect_agent_generated_solver_quality_risks(
         move_missing = _missing_sequence_move_capabilities(combined_text)
         if move_missing:
             risks.append(f"agent_generated_solver: sequence/neighborhood move lacks: {', '.join(move_missing)}")
+        if _has_failed_in_place_move_without_rollback(combined_lower):
+            risks.append(
+                "agent_generated_solver: failed_move_mutates_current_without_rollback: "
+                "apply neighborhood moves to a clone/snapshot and commit only after full decode succeeds"
+            )
 
     if _is_standard_fjsp_without_setup_context(context, quality_contract):
         if _is_incremental_after_baseline_context(context):
@@ -670,12 +702,13 @@ def _method_stage_snapshot(
 ) -> dict[str, Any]:
     lowered = text.lower()
     base_missing = _missing_agent_generated_base_capabilities(text)
-    has_assignment = bool(re.search(r"\bassignment\b", lowered))
-    has_machine_sequences = bool(re.search(r"\bmachine_sequences?\b", lowered))
+    has_assignment = bool(re.search(r"\bassignment\b|\bon_machine\b", lowered))
+    has_machine_sequences = _has_machine_sequence_state_shape(lowered)
     has_progress_decoder = _has_machine_sequence_decoder_shape(lowered)
     has_move_application = _has_move_application_shape(lowered)
     has_coverage_guard = _has_operation_coverage_guard(text)
     has_candidate_rejection = _has_decoded_candidate_rejection_shape(lowered)
+    has_transactional_move = _has_transactional_candidate_application_shape(lowered)
     has_critical_blocks = _has_critical_block_extraction_shape(lowered)
     has_n8_or_k_insertion = _has_n8_or_k_insertion_generation_shape(lowered)
     has_tabu_or_perturbation = bool(re.search(r"\btabu(?:_until|_list|_tenure|_memory)?\b|\bperturb", lowered))
@@ -693,6 +726,7 @@ def _method_stage_snapshot(
         "has_move_application": has_move_application,
         "has_coverage_guard": has_coverage_guard,
         "has_decoded_candidate_rejection": has_candidate_rejection,
+        "has_transactional_candidate_application": has_transactional_move,
         "has_critical_block_extraction": has_critical_blocks,
         "has_n8_or_k_insertion_generation": has_n8_or_k_insertion,
         "has_tabu_or_perturbation_memory": has_tabu_or_perturbation,
@@ -1022,7 +1056,7 @@ def _detect_agent_generated_source_self_check_risks(
 
 def _source_self_check_block(text: str) -> tuple[str, str] | None:
     match = re.search(
-        r"^def\s+((?:validate|self_check|check|assert)[A-Za-z0-9_]*(?:schedule|solution|feasible|valid)[A-Za-z0-9_]*)\s*\(",
+        r"^def\s+(_*(?:validate|self_check|check|assert)[A-Za-z0-9_]*(?:schedule|solution|feasible|valid)[A-Za-z0-9_]*)\s*\(",
         text,
         re.M,
     )
@@ -1598,11 +1632,11 @@ def _missing_setup_aware_capabilities(text: str) -> list[str]:
 
 def _missing_sequence_move_capabilities(text: str) -> list[str]:
     missing: list[str] = []
-    if not re.search(r"\bassignment\b", text, re.I):
+    if not re.search(r"\b(?:assignment|on_machine)\b", text, re.I):
         missing.append("operation_to_machine_assignment")
-    if not re.search(r"\bmachine_sequences?\b", text, re.I):
+    if not _has_machine_sequence_state_shape(text.lower()):
         missing.append("machine_sequences")
-    if not re.search(r"\bdecode\w*\s*\(", text, re.I):
+    if not _has_machine_sequence_decoder_shape(text.lower()):
         missing.append("full_decoder")
     if not _has_operation_coverage_guard(text):
         missing.append("post_move_coverage_guard")
@@ -1756,12 +1790,33 @@ def _claim_requires_n8_or_k_insertion_generation(claim_terms: list[str]) -> bool
 
 
 def _has_machine_sequence_decoder_shape(lowered: str) -> bool:
+    has_sequence_state = _has_machine_sequence_state_shape(lowered)
     return bool(
         re.search(r"\bdef\s+\w*decode\w*\s*\([^)]*machine_sequences?", lowered, re.S)
+        or (
+            has_sequence_state
+            and re.search(r"\bdef\s+\w*decode\w*\s*\([^)]*\bsequences?\b", lowered, re.S)
+        )
+        or (
+            has_sequence_state
+            and re.search(r"\bdef\s+_*(?:topological_sort|update_time|recompute_times?)\s*\(", lowered)
+            and re.search(r"\bindegree\b|\bcycle detected\b|\btopological_order\b", lowered)
+        )
         or (
             re.search(r"\bfor\s+[^:\n]*,\s*\w+\s+in\s+machine_sequences?\.items\s*\(\s*\)\s*:", lowered)
             and re.search(r"\bprogress(?:ed)?\b|\bwhile\s+len\s*\(", lowered, re.S)
         )
+    )
+
+
+def _has_machine_sequence_state_shape(lowered: str) -> bool:
+    if re.search(r"\bmachine_sequences?\b", lowered):
+        return True
+    return bool(
+        re.search(r"\bclass\s+\w*(?:schedule|state)\w*\s*[:(]", lowered)
+        and re.search(r"\bself\.sequences\b", lowered)
+        and "machine_predecessor" in lowered
+        and "machine_successor" in lowered
     )
 
 
@@ -1790,6 +1845,7 @@ def _has_n8_or_k_insertion_generation_shape(lowered: str) -> bool:
 def _has_move_application_shape(lowered: str) -> bool:
     return bool(
         "apply_move" in lowered
+        or re.search(r"\bdef\s+\w*apply\w*move\w*\s*\(", lowered)
         or (
             "machine_sequences" in lowered
             and re.search(r"\.remove\s*\(", lowered)
@@ -1819,14 +1875,56 @@ def _has_decoded_candidate_rejection_shape(lowered: str) -> bool:
         or re.search(r"\b(?:res|result|trial|trial_schedule|cand_schedule)\s+is\s+none\s*:\s*continue\b", lowered)
         or re.search(r"\bif\s+not\s+(?:validate|is_valid|check)", lowered)
         or re.search(r"\bdecode\w*\([^)]*\).*?\bcontinue\b", lowered, re.S)
+        or (
+            _has_transactional_candidate_application_shape(lowered)
+            and re.search(r"\bexcept\s*\([^)]*(?:valueerror|keyerror|runtimeerror)", lowered)
+        )
+    )
+
+
+def _has_transactional_candidate_application_shape(lowered: str) -> bool:
+    clone_names = re.findall(
+        r"\b([a-z_][a-z0-9_]*)\s*=\s*(?:current|state|incumbent|best_state)\.clone\s*\(\s*\)",
+        lowered,
+    )
+    for name in clone_names:
+        if re.search(
+            rf"(?:\b{re.escape(name)}\.apply_move\s*\(|(?<![a-z0-9_])[a-z0-9_]*apply_move[a-z0-9_]*\s*\(\s*{re.escape(name)}\b)",
+            lowered,
+        ):
+            return True
+        if (
+            re.search(rf"\b{re.escape(name)}\.machine_sequences?\b", lowered)
+            and re.search(rf"\b{re.escape(name)}\.(?:update_time|decode|recompute_times?)\s*\(", lowered)
+            and re.search(rf"\breturn\s+{re.escape(name)}\b", lowered)
+        ):
+            return True
+    snapshot_terms = ("snapshot", "rollback", "restore_state", "old_assignment", "old_machine_sequences")
+    return any(term in lowered for term in snapshot_terms) and bool(
+        re.search(r"\b(?:rollback|restore|old_assignment|old_machine_sequences)\b", lowered)
+    )
+
+
+def _has_failed_in_place_move_without_rollback(lowered: str) -> bool:
+    mutates_sequences = bool(re.search(r"\.(?:pop|insert|remove)\s*\(", lowered)) and "machine_sequence" in lowered
+    applies_to_current = bool(
+        re.search(r"\b_?apply_move\s*\(\s*current\b", lowered)
+        or re.search(r"\bcurrent\.apply_move\s*\(", lowered)
+    )
+    catches_failure = "except" in lowered and ("return false" in lowered or "continue" in lowered)
+    return (
+        mutates_sequences
+        and applies_to_current
+        and catches_failure
+        and not _has_transactional_candidate_application_shape(lowered)
     )
 
 
 def _has_assignment_sequence_decoder_shape(lowered: str) -> bool:
     return (
-        "assignment" in lowered
-        and "machine_sequences" in lowered
-        and bool(re.search(r"\bdecode\w*\s*\(", lowered))
+        ("assignment" in lowered or "on_machine" in lowered)
+        and _has_machine_sequence_state_shape(lowered)
+        and _has_machine_sequence_decoder_shape(lowered)
     )
 
 
@@ -2066,13 +2164,37 @@ def _has_operation_level_ready_list_constructor(text: str) -> bool:
         "schedule.append",
         "scheduled.append",
     ]
-    return (
+    explicit_ready_list = (
         any(term in lowered for term in ready_terms)
         and any(term in lowered for term in next_operation_terms)
         and any(term in lowered for term in eligible_machine_terms)
         and any(term in lowered for term in selection_terms)
         and sum(1 for term in state_terms if term in lowered) >= 3
     )
+    current_position_ready_list = bool(
+        re.search(r"\bcurrent_(?:pos|position)\s*=\s*\[", lowered)
+        and (
+            re.search(r"\bfor\s+job_id\s*,\s*nodes\s+in\s+enumerate\s*\(", lowered)
+            or re.search(r"\bfor\s+job_id\s+in\s+range\s*\(", lowered)
+        )
+        and (
+            re.search(r"nodes\s*\[\s*current_(?:pos|position)\s*\[\s*job_id\s*\]\s*\]", lowered)
+            or re.search(
+                r"job_to_nodes\s*\[\s*job_id\s*\]\s*\[\s*current_(?:pos|position)\s*\[\s*job_id\s*\]\s*\]",
+                lowered,
+            )
+        )
+        and re.search(
+            r"\bfor\s+\w+\s*,\s*\w+\s+in\s+[^\n:]{0,240}(?:eligible|candidates)[^\n:]{0,120}\.items\s*\(\s*\)",
+            lowered,
+        )
+        and re.search(r"\b(?:choices|all_candidates|ready_choices|ready_candidates)\.append\s*\(", lowered)
+        and any(term in lowered for term in ("rng.choice", "min(", ".sort(", "sorted("))
+        and "job_ready" in lowered
+        and "machine_ready" in lowered
+        and ("machine_sequences" in lowered or "sequences" in lowered)
+    )
+    return explicit_ready_list or current_position_ready_list
 
 
 def _detect_random_ready_machine_selection_risks(text: str) -> list[str]:
@@ -2336,6 +2458,7 @@ def _has_incumbent_preservation_guard(text: str) -> bool:
         "incumbent",
         "current_best",
         "best_candidate",
+        "best_state",
     ]
     reject_terms = [
         "return none",

@@ -151,12 +151,12 @@ _CAPABILITY_PLAYBOOK = {
         "repair": "Decode each machine sequence from scratch and enforce previous machine operation completion before the next start.",
     },
     "bounded_runtime_or_iteration_guard": {
-        "evidence": "Cite deadlines, max restarts, max iterations, move windows, or sampled candidate caps.",
-        "repair": "Add time/iteration/window caps before adding local search or destroy-repair neighborhoods.",
+        "evidence": "Cite the CLI/runtime budget, shared deadline, inner candidate-loop checks, max restarts/iterations, and neighborhood shortlist or cap.",
+        "repair": "Accept the harness time-limit argument, reserve exit headroom, and check the shared deadline inside nested candidate scans as well as outer search loops.",
     },
     "incumbent_preservation_on_failed_candidate": {
-        "evidence": "Cite the code path where failed/infeasible candidates return None/skip and the incumbent changes only after strict improvement.",
-        "repair": "Keep best_schedule/best_makespan unchanged when decode fails, times out, or produces no strict improvement.",
+        "evidence": "Cite the transactional clone/snapshot path where failed or infeasible candidates are discarded without mutating current/best, and the incumbent changes only after strict improvement.",
+        "repair": "Apply moves to a clone or fully roll back every mutation; keep current and best unchanged when decode fails, times out, or produces no strict improvement.",
     },
     "setup_aware_machine_arc_timing": {
         "evidence": "Cite the setup lookup applied between adjacent operations on the same machine during start-time computation.",

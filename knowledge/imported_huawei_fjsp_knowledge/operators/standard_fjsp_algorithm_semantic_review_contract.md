@@ -97,6 +97,19 @@ unrelated random positions.
 
 ## Runtime And Stage Contribution
 
+Candidate application must be transactional. Search may compute an approximate
+move score on `current`, but it must apply the selected move to a clone or a
+restorable snapshot, rebuild all links/times, and commit only after complete
+decode succeeds. Catching a cycle/decode exception after mutating `current`
+without rollback is a blocking semantic error because later traversal and tabu
+state no longer describe a legal schedule.
+
+The solver must accept the evaluator-provided time limit and use one absolute
+deadline. Deadline evidence must appear inside nested candidate loops
+(operation, eligible machine, target position), not only around the outer tabu
+iteration. Machine-link traversals require a visited or operation-count bound,
+and materialized candidate lists require an explicit shortlist/window/cap.
+
 Every search stage should expose enough counters or timing to report:
 
 ```text
@@ -139,6 +152,10 @@ The following source patterns require explicit behavioral verification:
    independent of graph size.
 4. A latest-finishing or near-makespan window is named an exact critical block
    without zero-slack and tight-arc evidence.
+5. A move mutates machine sequences, catches a failed update/decode, and
+   continues without restoring the previous state.
+6. A solver checks time only between outer iterations while one neighborhood
+   enumeration can run past the entire budget.
 
 These are method-level failure patterns only. Reusable memory must retain the
 invariant and required test, never an instance score, operation order, or solved

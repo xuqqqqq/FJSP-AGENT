@@ -9,6 +9,7 @@ from harness_agent.cli import build_parser
 from harness_agent.project_intake import ProjectIntakeRequest, write_project_intake
 from harness_agent.slot_manifest import write_default_slot_manifest
 from harness_agent.standard_worker_loop import StandardWorkerLoopRequest, run_standard_worker_loop, standard_solver_command
+from harness_agent.runner import solver_time_limit_seconds
 from harness_agent.worker import NullWorker
 
 
@@ -113,6 +114,11 @@ class StandardWorkerLoopTests(unittest.TestCase):
         self.assertIn("--input {instance}", command)
         self.assertIn("--output {solution}", command)
         self.assertIn("--seed {seed}", command)
+        self.assertIn("--time-limit-sec {solver_time_limit_seconds}", command)
+
+    def test_solver_time_limit_reserves_core_exit_headroom(self) -> None:
+        self.assertEqual(48.0, solver_time_limit_seconds(60))
+        self.assertLess(solver_time_limit_seconds(30), 30)
 
     def test_standard_worker_cli_accepts_agent_generated_baseline_options(self) -> None:
         args = build_parser().parse_args(

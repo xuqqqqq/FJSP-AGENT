@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import stat
 import subprocess
@@ -56,6 +57,21 @@ class OpenCodeWorkerTests(unittest.TestCase):
             worktree = tmp_path / "worktree"
             output_dir = tmp_path / "worker"
             worktree.mkdir()
+            local_inputs = worktree / ".algoforge_worker_inputs"
+            local_inputs.mkdir()
+            (local_inputs / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "instances": [
+                            {
+                                "id": "tiny",
+                                "local_path": ".algoforge_worker_inputs/instances/000_tiny.fjs",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
             context_packet = tmp_path / "context_packet.json"
             context_packet.write_text(
                 '{"edit_policy":{"allowed_paths":["examples"],"forbidden_paths":[".git","outputs"]}}',
@@ -88,6 +104,21 @@ class OpenCodeWorkerTests(unittest.TestCase):
             worktree = tmp_path / "worktree"
             output_dir = tmp_path / "worker"
             worktree.mkdir()
+            local_inputs = worktree / ".algoforge_worker_inputs"
+            local_inputs.mkdir()
+            (local_inputs / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "instances": [
+                            {
+                                "id": "tiny",
+                                "local_path": ".algoforge_worker_inputs/instances/000_tiny.fjs",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
             context_packet = tmp_path / "context_packet.json"
             context_packet.write_text(
                 "\n".join(
@@ -147,6 +178,10 @@ class OpenCodeWorkerTests(unittest.TestCase):
             self.assertIn("release dates require starts", prompt)
             self.assertIn("operation_level_ready_list_constructor", prompt)
             self.assertIn("sequence_dependent_setup", prompt)
+            self.assertIn(".algoforge_worker_inputs/instances/000_tiny.fjs", prompt)
+            self.assertIn("--time-limit-sec", prompt)
+            self.assertIn("transactionally", prompt)
+            self.assertIn("no greater than 3", prompt)
 
     def test_timeout_kills_opencode_child_process_tree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -222,10 +222,17 @@ def normalize_semantic_review(
     status = "repair_required" if blocking else ("warning" if warning_count or rejected_count else "pass")
     summary = str(payload.get("summary") or "").strip()
     if rejected_count:
+        rejection_note = (
+            f"Rejected {rejected_count} proposed semantic finding(s) because its source or knowledge evidence "
+            "did not verify."
+        )
+        # A draft summary can repeat an allegation whose finding was discarded.
+        # Keep only conclusions backed by findings that survived normalization.
         summary = (
-            f"Rejected {rejected_count} semantic finding(s) whose source or knowledge evidence did not verify. "
-            f"{summary}"
-        ).strip()
+            f"{rejection_note} {summary}".strip()
+            if findings
+            else f"{rejection_note} No verified semantic mismatch remains."
+        )
     if not summary:
         summary = (
             f"Verified {len(blocking)} blocking and {warning_count} warning semantic findings."
@@ -335,7 +342,11 @@ Rules:
 - Review algorithm semantics, not formatting, score magnitude, or evaluator legality.
 - A blocking finding requires confidence >= 0.8, exact source lines, an exact knowledge quote, a bounded repair, and a behavioral test.
 - Derive every semantic requirement from the supplied knowledge contracts; the generic reviewer has no built-in problem-family algorithm rules.
-- Check that implementation behavior matches its claimed method, not merely that named functions exist.
+- Treat function, class, and variable names only as source-navigation labels. Names are never positive or negative evidence.
+- Check that implementation behavior matches its claimed method through reachable call paths, values consumed by decisions,
+  before/after state transitions, acceptance and rollback behavior, and observable tests. A method-named helper that is dead,
+  returns a constant, or computes a value that is never consumed does not implement the method. An arbitrarily named helper
+  that performs the required behavior does implement it.
 - When a supplied contract distinguishes two states, attributes, graph properties, bounds, or acceptance rules, verify that the reachable implementation preserves that distinction.
 - Do not use benchmark target values or previous solution files as method knowledge.
 - Do not invent missing requirements. If evidence is incomplete, emit a warning or no finding.
@@ -598,7 +609,10 @@ def resolve_review_path(value: Any, available: dict[str, str]) -> str | None:
 
 
 def normalize_quote(value: str) -> str:
-    return re.sub(r"\s+", " ", value).strip().lower()
+    # Markdown bullets and hard-wrapped lines are presentation, not evidence
+    # content.  Keep wording and punctuation strict while ignoring that layout.
+    without_list_markers = re.sub(r"(?m)^\s*(?:[-*+] |\d+[.)]\s+)", "", value)
+    return re.sub(r"\s+", " ", without_list_markers).strip().lower()
 
 
 def _bounded_int(value: Any, *, lower: int, upper: int) -> int:

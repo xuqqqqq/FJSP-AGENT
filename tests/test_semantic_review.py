@@ -95,6 +95,39 @@ class SemanticReviewTests(unittest.TestCase):
         self.assertFalse(result.accepted)
         self.assertEqual(absolute_contract, result.findings[0]["knowledge_path"])
 
+    def test_markdown_list_wrapping_does_not_invalidate_verbatim_content(self) -> None:
+        result = normalize_semantic_review(
+            {
+                "findings": [
+                    {
+                        "severity": "blocking",
+                        "confidence": 0.95,
+                        "source_path": "solver.py",
+                        "line_start": 1,
+                        "line_end": 1,
+                        "knowledge_path": "contract.md",
+                        "knowledge_quote": (
+                            "The inverse attribute uses the old machine and old insertion context, "
+                            "not the new machine sequence."
+                        ),
+                        "repair": "Store the old machine context as the inverse attribute.",
+                        "required_test": "Apply a move and prove its immediate inverse remains tabu.",
+                    }
+                ]
+            },
+            sources={"solver.py": "tabu[new_machine][forward_context] = expiry"},
+            knowledge={
+                "contract.md": (
+                    "- The inverse attribute uses the old machine and old\n"
+                    "  insertion context, not the new machine sequence."
+                )
+            },
+            reviewer="test",
+        )
+
+        self.assertEqual("repair_required", result.status)
+        self.assertFalse(result.accepted)
+
     def test_fabricated_quote_or_low_confidence_cannot_block(self) -> None:
         sources = {"solver.py": "def search():\n    return current\n"}
         knowledge = {"contract.md": "The search must return the global best state."}
@@ -137,7 +170,9 @@ class SemanticReviewTests(unittest.TestCase):
 
         self.assertEqual("warning", fabricated.status)
         self.assertTrue(fabricated.accepted)
-        self.assertIn("Rejected 1 semantic finding", fabricated.summary)
+        self.assertIn("Rejected 1 proposed semantic finding", fabricated.summary)
+        self.assertIn("No verified semantic mismatch remains", fabricated.summary)
+        self.assertNotIn("This quote is not in the contract", fabricated.summary)
         self.assertEqual("warning", low_confidence.status)
         self.assertTrue(low_confidence.accepted)
         self.assertFalse(low_confidence.findings[0]["blocking"])

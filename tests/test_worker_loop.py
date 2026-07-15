@@ -26,6 +26,7 @@ from harness_agent.agentic_review import AgenticJudgment
 from harness_agent.runner import RunSummary
 from harness_agent.semantic_review import AlgorithmSemanticReviewResult
 from harness_agent.worker_cycle import (
+    prepare_candidate_worktree,
     render_worktree_patch,
     run_worker_cycle,
     should_soft_accept_agent_generated_quality_rejection,
@@ -946,8 +947,7 @@ class AgentBaselineRepairWorker:
 
         targets = repair_feedback.get("repair_targets") or {}
         self.saw_quality_repair_targets = bool(
-            targets.get("agent_generated_solver_quality_risks")
-            and targets.get("agent_generated_solver_self_check_risks")
+            targets.get("agent_generated_solver_self_check_risks")
             and targets.get("agent_generated_solver_expected_contract")
         )
         solver_source = _standard_agent_generated_solver_source()
@@ -1231,6 +1231,23 @@ class SafeFeasibilityProtectedEditWorker:
 
 
 class WorkerLoopTests(unittest.TestCase):
+    def test_candidate_worktree_stages_first_instance_for_worker_read_only_access(self) -> None:
+        contract = TaskContract.load(ROOT / "configs" / "standard_fjsp_tiny.example.json")
+        with tempfile.TemporaryDirectory() as tmp:
+            worktree = Path(tmp) / "candidate"
+            prepare_candidate_worktree(project_root=ROOT, contract=contract, worktree_path=worktree)
+
+            manifest_path = worktree / ".algoforge_worker_inputs" / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            local_path = worktree / manifest["instances"][0]["local_path"]
+
+            self.assertTrue(manifest["read_only"])
+            self.assertEqual("tiny", manifest["instances"][0]["id"])
+            self.assertEqual(
+                (ROOT / "examples" / "standard_fjsp_tiny.fjs").read_bytes(),
+                local_path.read_bytes(),
+            )
+
     def test_main_agent_direction_plan_reaches_every_attempt_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -1940,7 +1957,7 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual(1, generation["in_round_repair"]["repair_attempt_count"])
             self.assertTrue(generation["in_round_repair"]["recovered"])
             first_attempt = generation["in_round_repair"]["attempts"][0]
-            self.assertIn("agent_generated_solver_quality_contract_missing", first_attempt["failure_signatures"])
+            self.assertNotIn("agent_generated_solver_quality_contract_missing", first_attempt["failure_signatures"])
             self.assertIn("agent_generated_solver_self_check_incomplete", first_attempt["failure_signatures"])
             repair_context = json.loads(
                 (tmp_path / "loop" / "agent_generated_baseline" / "repair_001" / "context_packet.json").read_text(
@@ -2314,7 +2331,8 @@ class WorkerLoopTests(unittest.TestCase):
             )
 
             self.assertFalse(result.agentic_judgment.accepted)
-            self.assertIn("agent_generated_solver_quality_contract_missing", result.agentic_judgment.issues)
+            self.assertNotIn("agent_generated_solver_quality_contract_missing", result.agentic_judgment.issues)
+            self.assertIn("agent_generated_solver_self_check_incomplete", result.agentic_judgment.issues)
             self.assertEqual(0, result.summary.total)
             self.assertIsNotNone(result.diagnostic_smoke_summary)
             self.assertEqual(1, result.diagnostic_smoke_summary.total)
@@ -2384,8 +2402,22 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertTrue(softened.accepted)
         self.assertEqual([], softened.issues)
         self.assertIn("soft_accepted_by_diagnostic_smoke", softened.checks)
+        softened_payload = softened.to_payload()
+        softened_payload["checks"] = {
+            **softened_payload["checks"],
+            "agent_generated_solver_method_stage": {"stage_name": "name_inferred_stage"},
+            "agent_generated_solver_repair_plan": {"repair_mode": "method_stage_migration"},
+        }
+        feedback = current_round_repair_feedback(
+            attempt_index=1,
+            max_repair_attempts=2,
+            previous_attempts=[{"agentic_judgment": softened_payload}],
+        )
+        self.assertNotIn("agent_generated_solver_quality_risks", feedback["repair_targets"])
+        self.assertNotIn("agent_generated_solver_method_stage", feedback["repair_targets"])
+        self.assertNotIn("agent_generated_solver_repair_plan", feedback["repair_targets"])
 
-    def test_does_not_soft_accept_generated_solver_missing_base_capabilities(self) -> None:
+    def test_soft_accepts_evaluator_valid_solver_with_source_shape_capability_gap(self) -> None:
         judgment = AgenticJudgment(
             accepted=False,
             right=False,
@@ -2395,6 +2427,39 @@ class WorkerLoopTests(unittest.TestCase):
             checks={
                 "agent_generated_solver_quality_risks": [
                     "agent_generated_solver: missing base capabilities: operation_level_ready_list_constructor"
+                ]
+            },
+        )
+        diagnostic = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="tiny",
+            best_metrics={"makespan": 10.0},
+            best_candidate_id="candidate",
+            best_candidate_metrics={"avg_makespan": 10.0},
+            candidate_summaries=[],
+            pareto_frontier=[],
+            validation_summary={"status_counts": {"success": 1}},
+        )
+
+        self.assertTrue(
+            should_soft_accept_agent_generated_quality_rejection(
+                agentic_judgment=judgment,
+                diagnostic_smoke_summary=diagnostic,
+            )
+        )
+
+    def test_does_not_soft_accept_failed_in_place_move_without_rollback(self) -> None:
+        judgment = AgenticJudgment(
+            accepted=False,
+            right=False,
+            stage="code_generation",
+            issues=["agent_generated_solver_quality_contract_missing"],
+            suggestions=["make move application transactional"],
+            checks={
+                "agent_generated_solver_quality_risks": [
+                    "agent_generated_solver: failed_move_mutates_current_without_rollback"
                 ]
             },
         )

@@ -1372,6 +1372,7 @@ def find_move(
     gamma: int,
     exact_select_top_k: int,
     critical_block_exhaustive_pct: int,
+    deadline: float | None = None,
 ) -> Move | None:
     all_moves: list[tuple[str, int, int]] = []
     ranked_moves: list[tuple[float, tuple[str, int, int]]] | None = [] if exact_select_top_k > 0 else None
@@ -1397,6 +1398,9 @@ def find_move(
             best_moves.append(move_key)
         elif abs(value - best_value) <= 1.0e-9:
             best_moves.append(move_key)
+
+    def deadline_reached() -> bool:
+        return deadline is not None and time.perf_counter() >= deadline
 
     def consider_same(method: str, which: int, where: int) -> None:
         if schedule.on_machine[which] != schedule.on_machine[where] or which == where:
@@ -1444,17 +1448,27 @@ def find_move(
     exhaustive_first = schedule.rng.randrange(100) < max(0, min(100, critical_block_exhaustive_pct))
     exhaustive_modes = (True, False) if exhaustive_first else (False, True)
     for exhaustive in exhaustive_modes:
+        if deadline_reached():
+            return None
         blocks = critical_blocks(schedule, schedule.rng, exhaustive=exhaustive)
         for block in blocks:
+            if deadline_reached():
+                return None
             machine_id = schedule.on_machine[block[0]]
             sequence = schedule.machine_sequences[machine_id]
             block_start = schedule.on_machine_pos[block[0]]
             block_end = schedule.on_machine_pos[block[-1]]
 
             for node in block:
+                if deadline_reached():
+                    return None
                 for target in sequence[:block_start]:
+                    if deadline_reached():
+                        return None
                     consider_same(FRONT, node, target)
                 for target in sequence[block_end + 1 :]:
+                    if deadline_reached():
+                        return None
                     consider_same(BACK, node, target)
 
             n = len(block)
@@ -1472,12 +1486,16 @@ def find_move(
 
         if not exhaustive:
             for node in schedule.index.real_nodes:
+                if deadline_reached():
+                    return None
                 if not schedule.is_critical_operation(node):
                     continue
                 old_machine = schedule.on_machine[node]
                 if schedule.machine_operation_count[old_machine] <= 1:
                     continue
                 for candidate_machine in schedule.index.candidates[node]:
+                    if deadline_reached():
+                        return None
                     if candidate_machine == old_machine or not schedule.machine_sequences[candidate_machine]:
                         continue
                     sequence, rk_start, lk_end = change_machine_window(schedule, node, candidate_machine)
@@ -1488,6 +1506,8 @@ def find_move(
                         intersection_last = sequence[lk_end]
                         consider_change(CHANGE_MACHINE_FRONT, node, intersection_first, intersection_first, intersection_last)
                         for target in sequence[rk_start : lk_end + 1]:
+                            if deadline_reached():
+                                return None
                             consider_change(CHANGE_MACHINE_BACK, node, target, intersection_first, intersection_last)
                     elif has_lk and has_rk:
                         for target in sequence[lk_end:rk_start]:
@@ -1625,6 +1645,7 @@ def tabu_search(
             gamma,
             exact_select_top_k,
             critical_block_exhaustive_pct,
+            deadline,
         )
         if move is None:
             if stats is not None:
@@ -1635,8 +1656,9 @@ def tabu_search(
         previous_makespan = current.makespan
         best_before = best.makespan
         add_move_tabu(tabu, current, move, iteration, tenure_min, tenure_max)
+        trial = current.clone()
         try:
-            current.apply_move(move)
+            trial.apply_move(move)
         except (ValueError, KeyError):
             if stats is not None:
                 stats["invalid_moves"] = stats.get("invalid_moves", 0) + 1
@@ -1644,16 +1666,17 @@ def tabu_search(
         if stats is not None:
             stats["applied_moves"] = stats.get("applied_moves", 0) + 1
         update_operation_weights(
-            current,
+            trial,
             move.which,
             best_before,
             previous_makespan,
-            current.makespan,
+            trial.makespan,
             beta,
             gamma,
             theta,
             zi_policy,
         )
+        current = trial
         # SLOT awls_sdst_search_transition START
         if current.makespan < best.makespan:
             best = current.clone()

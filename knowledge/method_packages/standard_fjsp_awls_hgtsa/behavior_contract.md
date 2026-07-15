@@ -27,6 +27,13 @@ The Coding Agent and semantic reviewer should verify behavior, not names.
   insert it into an eligible target sequence, and decode the complete state.
 - K-insertion must evaluate more than an adjacent swap and retain only complete
   legal candidates.
+- Move application must be transactional. Apply each candidate to a clone or
+  snapshot, rebuild links/times, and commit only after decoding succeeds. An
+  exception, cycle, partial decode, or timeout must leave `current` and `best`
+  unchanged; catching an error after mutating `current` is invalid.
+- Any traversal of machine predecessor/successor links must use a visited set
+  or an operation-count bound so a damaged candidate cannot grow an unbounded
+  path or tabu key.
 
 ## Tabu And Aspiration
 
@@ -48,7 +55,16 @@ The Coding Agent and semantic reviewer should verify behavior, not names.
 
 ## Runtime
 
-- The solver must obey one shared deadline across construction, search, and
-  validation.
+- The generated CLI must accept `--time-limit-sec`; Core passes a value below
+  its process timeout so serialization and process exit retain headroom.
+- The solver must obey one shared deadline across construction, candidate
+  generation, search, validation, serialization, and every portfolio lane.
+- Check the deadline inside nested operation/machine/insertion-position loops,
+  not only between restarts or outer tabu iterations. A single neighborhood
+  scan must be interruptible.
+- Bound candidate materialization with explicit shortlists/windows/caps. Do not
+  build unbounded all-pairs move lists before checking the deadline.
 - Worker-side validation is limited to compilation and one fixed-seed short
-  smoke. Multi-seed and formal benchmark runs belong to Core.
+  smoke of at most 3 seconds. Do not retry a failed worker smoke or replace it
+  with ad hoc inline search loops. Multi-seed and formal benchmark runs belong
+  to Core.
