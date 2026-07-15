@@ -2420,8 +2420,8 @@ def _has_record_duration_dataflow_guard(text: str) -> bool:
             continue
         if _record_field_name(value.left) != "end" or _record_field_name(value.right) != "start":
             continue
-        left_base = value.left.value if isinstance(value.left, ast.Subscript) else None
-        right_base = value.right.value if isinstance(value.right, ast.Subscript) else None
+        left_base = _record_value_base(value.left)
+        right_base = _record_value_base(value.right)
         if left_base is not None and right_base is not None and ast.dump(left_base) == ast.dump(right_base):
             interval_values.add(target.id)
     if not interval_values:
@@ -2436,11 +2436,18 @@ def _has_record_duration_dataflow_guard(text: str) -> bool:
 
 
 def _record_field_name(node: ast.expr) -> str | None:
-    if not isinstance(node, ast.Subscript):
-        return None
-    slice_value = node.slice
-    if isinstance(slice_value, ast.Constant) and isinstance(slice_value.value, str):
-        return slice_value.value.lower()
+    if isinstance(node, ast.Attribute):
+        return node.attr.lower()
+    if isinstance(node, ast.Subscript):
+        slice_value = node.slice
+        if isinstance(slice_value, ast.Constant) and isinstance(slice_value.value, str):
+            return slice_value.value.lower()
+    return None
+
+
+def _record_value_base(node: ast.expr) -> ast.expr | None:
+    if isinstance(node, (ast.Attribute, ast.Subscript)):
+        return node.value
     return None
 
 

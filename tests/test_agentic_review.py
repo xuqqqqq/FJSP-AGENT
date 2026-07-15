@@ -594,7 +594,7 @@ def self_check_solution(instance, schedule):
             errors.append("machine eligibility")
         else:
             expected_dur = eligible[rec["machine_id"]]
-            observed_span = rec["end"] - rec["start"]
+            observed_span = rec.end - rec.start
             if observed_span != expected_dur:
                 errors.append("duration mismatch")
     if set(seen) != expected:
