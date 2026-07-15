@@ -9,11 +9,13 @@ from unittest.mock import patch
 
 from harness_agent.context_packet import ContextPacketRequest, write_context_packet
 from harness_agent.loop_runner import (
+    agent_generated_baseline_memory_payload,
     current_round_repair_feedback,
     round_attempt_payload,
     run_agent_generated_baseline,
     run_worker_cycle_with_in_round_repairs,
     run_worker_loop,
+    select_agent_generated_baseline_cycle,
     worker_proposal_diagnostics,
 )
 from harness_agent.models import TaskContract
@@ -1690,7 +1692,7 @@ class WorkerLoopTests(unittest.TestCase):
                 memory.get("algorithm_semantic_memory", {}).get("repair_required_attempt_count", 0),
             )
 
-    def test_legal_no_improvement_rolls_back_without_spending_repair_budget(self) -> None:
+    def test_legal_no_improvement_spends_same_direction_refinement_budget(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
@@ -1711,15 +1713,100 @@ class WorkerLoopTests(unittest.TestCase):
                 in_round_repair_attempts=1,
             )
 
-            self.assertEqual(1, worker.calls)
-            self.assertFalse(worker.saw_refinement_feedback)
-            self.assertEqual(["rolled_back"], [item.decision for item in result.rounds])
-            self.assertNotIn("in_round_repair", result.rounds[0].proposal_diagnostics)
-            self.assertFalse((tmp_path / "loop" / "round_000" / "repair_001").exists())
+            self.assertEqual(2, worker.calls)
+            self.assertTrue(worker.saw_refinement_feedback)
+            self.assertEqual(["promoted"], [item.decision for item in result.rounds])
+            self.assertEqual(1, result.rounds[0].proposal_diagnostics["in_round_repair"]["repair_attempt_count"])
+            self.assertTrue((tmp_path / "loop" / "round_000" / "repair_001").exists())
             loop_result = json.loads((tmp_path / "loop" / "loop_result.json").read_text(encoding="utf-8"))
             self.assertEqual(1, loop_result["hypothesis_graph"]["direction_count"])
-            self.assertEqual(1, loop_result["hypothesis_graph"]["attempt_count"])
+            self.assertEqual(2, loop_result["hypothesis_graph"]["attempt_count"])
             self.assertTrue(loop_result["experience_memory"]["memory_tiers"]["candidate_lessons"])
+
+    def test_baseline_memory_keeps_better_core_valid_semantic_repair_anchor(self) -> None:
+        generation = {
+            "source": "agent_generated",
+            "status": "ok",
+            "summary": {"total": 1, "valid": 1},
+            "agentic_judgment": {"accepted": True, "issues": []},
+            "semantic_review": {"status": "pass", "accepted": True},
+            "in_round_repair": {
+                "repair_attempt_count": 2,
+                "recovered": True,
+                "attempts": [
+                    {
+                        "attempt_index": 0,
+                        "candidate_key": [-2596.0],
+                        "summary": {"total": 1, "valid": 1},
+                        "semantic_review": {"status": "repair_required", "accepted": False},
+                        "context_packet_path": "C:/run/attempt_0/context.json",
+                        "patch_path": "C:/run/attempt_0/worker.patch",
+                    },
+                    {
+                        "attempt_index": 1,
+                        "candidate_key": [-3695.0],
+                        "summary": {"total": 1, "valid": 1},
+                        "semantic_review": {"status": "pass", "accepted": True},
+                        "context_packet_path": "C:/run/attempt_1/context.json",
+                    },
+                ],
+            },
+        }
+
+        memory = agent_generated_baseline_memory_payload(generation, baseline_key=(-3695.0,))
+        anchor = memory["best_core_valid_anchor"]
+
+        self.assertEqual([-2596.0], anchor["objective_key"])
+        self.assertEqual("repair_required", anchor["semantic_status"])
+        self.assertFalse(anchor["promotion_eligible"])
+        self.assertTrue(memory["accepted_as_incumbent"])
+
+    def test_regressed_semantic_repair_cannot_supersede_better_core_anchor(self) -> None:
+        def cycle(makespan: int):
+            return SimpleNamespace(
+                agentic_judgment=AgenticJudgment(
+                    accepted=True,
+                    right=True,
+                    stage="code_generation",
+                    issues=[],
+                    suggestions=[],
+                    checks={},
+                ),
+                summary=RunSummary(
+                    total=1,
+                    valid=1,
+                    failed=0,
+                    best_experiment_id="candidate",
+                    best_metrics={"makespan": makespan},
+                ),
+                worker_result=WorkerResult(
+                    status="ok",
+                    changed_files=["examples/agent_generated_fjsp_solver.py"],
+                    summary="candidate",
+                ),
+                diagnostic_smoke_summary=None,
+            )
+
+        selected = select_agent_generated_baseline_cycle(
+            [
+                (
+                    0,
+                    cycle(2596),
+                    Path("anchor_context.json"),
+                    {"status": "repair_required", "accepted": False},
+                ),
+                (
+                    1,
+                    cycle(3686),
+                    Path("regressed_context.json"),
+                    {"status": "quality_regressed", "accepted": False},
+                ),
+            ],
+            objectives=[TaskContract.load(ROOT / "configs" / "standard_fjsp_tiny.example.json").objectives[0]],
+        )
+
+        self.assertEqual(0, selected[0])
+        self.assertEqual(2596, selected[1].summary.best_metrics["makespan"])
 
     def test_current_round_repair_feedback_carries_quality_targets(self) -> None:
         feedback = current_round_repair_feedback(
@@ -2076,6 +2163,127 @@ class WorkerLoopTests(unittest.TestCase):
                 generation["in_round_repair"]["selection_reason"],
             )
             self.assertEqual(2, generation["in_round_repair"]["final_attempt_index"])
+
+    def test_agent_generated_baseline_repair_restarts_from_best_core_anchor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract_path = _write_standard_agent_generated_contract(tmp_path)
+            contract = TaskContract.load(contract_path)
+            context_path = _write_test_context(tmp_path, contract_path=contract_path)
+            scores = [2596, 3686, 2500]
+            project_roots: list[Path] = []
+            worktrees: list[Path] = []
+            semantic_attempts: list[int] = []
+
+            def fake_run_worker_cycle(**kwargs):  # noqa: ANN001 - mirrors patched worker-cycle API.
+                attempt_index = len(project_roots)
+                project_roots.append(Path(kwargs["project_root"]))
+                output_dir = Path(kwargs["output_dir"])
+                output_dir.mkdir(parents=True, exist_ok=True)
+                worktree = output_dir / "candidate_worktree"
+                worktree.mkdir(parents=True, exist_ok=True)
+                worktrees.append(worktree)
+                patch_path = output_dir / "worker_changes.patch"
+                delta_path = output_dir / "worker_worktree_delta.json"
+                patch_path.write_text(f"attempt {attempt_index}\n", encoding="utf-8")
+                delta_path.write_text("{}\n", encoding="utf-8")
+                summary = RunSummary(
+                    total=1,
+                    valid=1,
+                    failed=0,
+                    best_experiment_id=f"attempt_{attempt_index}",
+                    best_metrics={"makespan": scores[attempt_index]},
+                )
+                return SimpleNamespace(
+                    worker_result=WorkerResult(
+                        status="ok",
+                        changed_files=["examples/agent_generated_fjsp_solver.py"],
+                        summary=f"attempt {attempt_index}",
+                    ),
+                    summary=summary,
+                    worktree_path=worktree,
+                    harness_output_dir=output_dir / "harness",
+                    delta_path=delta_path,
+                    patch_path=patch_path,
+                    agentic_judgment=AgenticJudgment(
+                        accepted=True,
+                        right=True,
+                        stage="code_generation",
+                        issues=[],
+                        suggestions=[],
+                        checks={
+                            "agent_generated_solver_method_stage": {
+                                "stage_name": "informational_only",
+                                "missing_for_next_stage": ["unrequested_neighborhood"],
+                            }
+                        },
+                    ),
+                    agentic_error_analysis=None,
+                    smoke_summary=summary,
+                    smoke_output_dir=output_dir / "harness_smoke",
+                    diagnostic_smoke_summary=None,
+                    diagnostic_smoke_output_dir=None,
+                    full_evaluation_started=True,
+                )
+
+            def fake_semantic_review(**kwargs):  # noqa: ANN001 - mirrors semantic-review wrapper.
+                semantic_attempts.append(kwargs["attempt_index"])
+                if kwargs["attempt_index"] == 0:
+                    return {
+                        "status": "repair_required",
+                        "accepted": False,
+                        "summary": "Repair only inverse move memory.",
+                        "findings": [
+                            {
+                                "finding_id": "inverse_move",
+                                "category": "move_memory",
+                                "blocking": True,
+                                "repair": "Store the inverse move attribute.",
+                            }
+                        ],
+                        "knowledge_paths": ["knowledge/tabu_contract.md"],
+                    }
+                return {
+                    "status": "pass",
+                    "accepted": True,
+                    "summary": "The bounded repair preserves the method.",
+                    "findings": [],
+                }
+
+            with (
+                patch("harness_agent.loop_runner.run_worker_cycle", side_effect=fake_run_worker_cycle),
+                patch("harness_agent.loop_runner.run_algorithm_semantic_review", side_effect=fake_semantic_review),
+            ):
+                summary, worktree, generation = run_agent_generated_baseline(
+                    contract=contract,
+                    project_root=ROOT,
+                    output_dir=tmp_path / "loop",
+                    context_packet_path=context_path,
+                    worker=NullWorker(),
+                    experiment_id="test_baseline_anchor_branch",
+                    max_steps=2,
+                    max_runtime_seconds=30,
+                    repair_attempts=2,
+                )
+
+            self.assertEqual([0, 2], semantic_attempts)
+            self.assertEqual(worktrees[0], project_roots[1])
+            self.assertEqual(worktrees[0], project_roots[2])
+            self.assertEqual(2500, summary.best_metrics["makespan"])
+            self.assertEqual(worktrees[2], worktree)
+            self.assertEqual(2, generation["selected_attempt_index"])
+            attempts = generation["in_round_repair"]["attempts"]
+            self.assertEqual("quality_regressed", attempts[1]["semantic_review"]["status"])
+            self.assertIn("baseline_core_anchor_quality_regression", attempts[1]["failure_signatures"])
+            repair_context = json.loads(
+                (tmp_path / "loop" / "agent_generated_baseline" / "repair_002" / "context_packet.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            targets = repair_context["loop_feedback"]["current_round_repair"]["repair_targets"]
+            self.assertEqual(0, targets["baseline_core_valid_anchor"]["attempt_index"])
+            self.assertEqual("inverse_move", targets["algorithm_semantic_review"]["blocking_findings"][0]["finding_id"])
+            self.assertNotIn("agent_generated_solver_method_stage", targets)
 
     def test_agent_generated_baseline_memory_reaches_first_improvement_round(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -75,8 +75,9 @@ class EvidenceOnlySemanticReviewer:
 class DeepSeekAlgorithmSemanticReviewer:
     """Review method claims against full candidate source and retrieved knowledge."""
 
-    def __init__(self, model: str = "deepseek-v4-pro") -> None:
+    def __init__(self, model: str = "deepseek-v4-pro", timeout_seconds: int = 300) -> None:
         self.model = model
+        self.timeout_seconds = max(120, int(timeout_seconds))
         self.fallback = EvidenceOnlySemanticReviewer()
 
     def review(self, request: AlgorithmSemanticReviewRequest) -> AlgorithmSemanticReviewResult:
@@ -123,7 +124,10 @@ class DeepSeekAlgorithmSemanticReviewer:
                     "raw_response": str(raw_path.resolve()),
                 }
             )
-            client = DeepSeekClient.from_env(model=self.model)
+            client = DeepSeekClient.from_env(
+                model=self.model,
+                timeout_seconds=self.timeout_seconds,
+            )
             response = client.chat_with_usage(
                 [
                     {
@@ -229,7 +233,7 @@ def normalize_semantic_review(
         # A draft summary can repeat an allegation whose finding was discarded.
         # Keep only conclusions backed by findings that survived normalization.
         summary = (
-            f"{rejection_note} {summary}".strip()
+            f"{rejection_note} Retained {len(blocking)} blocking and {warning_count} warning verified finding(s)."
             if findings
             else f"{rejection_note} No verified semantic mismatch remains."
         )
@@ -343,6 +347,11 @@ Rules:
 - A blocking finding requires confidence >= 0.8, exact source lines, an exact knowledge quote, a bounded repair, and a behavioral test.
 - Derive every semantic requirement from the supplied knowledge contracts; the generic reviewer has no built-in problem-family algorithm rules.
 - Treat function, class, and variable names only as source-navigation labels. Names are never positive or negative evidence.
+- A retrieved method package is reference material, not proof that the direction claims its complete algorithm. Derive the
+  required behavior from the direction title, hypothesis, change_scope, and explicit proposal claims. Do not require every
+  component in a package merely because that package was selected or a source label uses its name.
+- When source labels overclaim a stronger method than the direction requests, prefer a bounded correction to the claim over
+  forcing unrelated algorithm components into an otherwise coherent implementation.
 - Check that implementation behavior matches its claimed method through reachable call paths, values consumed by decisions,
   before/after state transitions, acceptance and rollback behavior, and observable tests. A method-named helper that is dead,
   returns a constant, or computes a value that is never consumed does not implement the method. An arbitrarily named helper

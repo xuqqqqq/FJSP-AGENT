@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import shlex
 import traceback
@@ -585,6 +586,9 @@ def should_attempt_in_round_repair(
         return False
     if failed > 0 or valid < total:
         return True
+    candidate_key = _summary_objective_key_from_cycle(cycle)
+    if incumbent_key is not None and candidate_key and candidate_key <= incumbent_key:
+        return True
     return False
 
 
@@ -606,6 +610,7 @@ def current_round_repair_feedback(
     attempt_index: int,
     max_repair_attempts: int,
     previous_attempts: list[dict[str, Any]],
+    repair_anchor: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     recent = previous_attempts[-3:]
     legal_no_improvement = any(
@@ -613,8 +618,23 @@ def current_round_repair_feedback(
         for attempt in recent
         if isinstance(attempt, dict)
     )
-    status = "refinement_required" if legal_no_improvement else "repair_required"
-    repair_targets = collect_current_round_repair_targets(recent)
+    anchor_quality_regression = any(
+        "baseline_core_anchor_quality_regression" in (attempt.get("failure_signatures") or [])
+        for attempt in recent
+        if isinstance(attempt, dict)
+    )
+    status = "refinement_required" if legal_no_improvement or anchor_quality_regression else "repair_required"
+    repair_targets = collect_current_round_repair_targets(previous_attempts)
+    if isinstance(repair_anchor, dict) and repair_anchor:
+        repair_targets["baseline_core_valid_anchor"] = {
+            "attempt_index": repair_anchor.get("attempt_index"),
+            "candidate_key": repair_anchor.get("candidate_key") or [],
+            "semantic_review": repair_anchor.get("semantic_review") or {},
+            "rule": (
+                "The candidate worktree for this repair was recreated from this best Core-valid attempt. "
+                "Preserve its effective mechanisms and repair accumulated findings with the smallest coherent edit."
+            ),
+        }
     must_do = [
         "Treat the previous attempt as rejected inside this same direction; do not repeat its anchors, unsafe actions, or protected-fact regressions.",
         (
@@ -626,8 +646,8 @@ def current_round_repair_feedback(
     ]
     if repair_targets:
         must_do.append(
-            "Repair every item in repair_targets explicitly. If agent-generated solver quality/self-check targets are present, "
-            "update solver_contract_self_check and the actual code evidence in the same proposal before changing the optimization idea."
+            "Repair the blocking items in repair_targets explicitly. Informational method-stage metadata is not a request "
+            "to add another neighborhood or rewrite a working search mechanism."
         )
     if repair_targets.get("diagnostic_smoke_top_errors"):
         must_do.append(
@@ -643,7 +663,14 @@ def current_round_repair_feedback(
         )
     if repair_targets.get("algorithm_semantic_review"):
         must_do.append(
-            "Repair every evidence-backed blocking finding in repair_targets.algorithm_semantic_review. Preserve Core legality, keep the same direction, and add the required behavioral tests before restating the method claim."
+            "Repair only the evidence-backed blocking findings in repair_targets.algorithm_semantic_review. Use the smallest "
+            "coherent edit, preserve unrelated constructor and neighborhood behavior, and add the required behavioral tests. "
+            "If the source overclaims a method that the direction did not request, narrow the claim instead of expanding the solver."
+        )
+    if repair_targets.get("baseline_core_valid_anchor"):
+        must_do.append(
+            "This repair starts from repair_targets.baseline_core_valid_anchor, not from the most recent degraded attempt. "
+            "Keep the anchor's effective search structure, apply all accumulated repair targets, and do not accept a weaker Core objective merely to pass semantic review."
         )
     return {
         "status": status,
@@ -697,26 +724,28 @@ def collect_current_round_repair_targets(attempts: list[dict[str, Any]]) -> dict
             continue
         judgment = attempt.get("agentic_judgment") if isinstance(attempt.get("agentic_judgment"), dict) else {}
         checks = judgment.get("checks") if isinstance(judgment.get("checks"), dict) else {}
+        judgment_accepted = bool(judgment.get("accepted"))
         static_shape_soft_accepted = bool(checks.get("soft_accepted_by_diagnostic_smoke"))
         quality_risks = (
             checks.get("agent_generated_solver_blocking_quality_risks")
             if "agent_generated_solver_blocking_quality_risks" in checks
             else checks.get("agent_generated_solver_quality_risks")
         )
-        if not static_shape_soft_accepted:
+        if not judgment_accepted and not static_shape_soft_accepted:
             add_list("agent_generated_solver_quality_risks", quality_risks)
             if isinstance(quality_risks, list):
                 structured_claim_failure_count += sum(
                     1 for item in quality_risks if "structured_neighborhood_claim_unimplemented" in str(item)
                 )
-        add_list("agent_generated_solver_self_check_risks", checks.get("agent_generated_solver_self_check_risks"))
-        add_list("incomplete_solution_acceptance_risks", checks.get("incomplete_solution_acceptance_risks"))
-        add_list("protected_promoted_fact_regressions", checks.get("protected_promoted_fact_regressions"))
+        if not judgment_accepted:
+            add_list("agent_generated_solver_self_check_risks", checks.get("agent_generated_solver_self_check_risks"))
+            add_list("incomplete_solution_acceptance_risks", checks.get("incomplete_solution_acceptance_risks"))
+            add_list("protected_promoted_fact_regressions", checks.get("protected_promoted_fact_regressions"))
         method_stage = checks.get("agent_generated_solver_method_stage")
-        if not static_shape_soft_accepted and isinstance(method_stage, dict) and method_stage:
+        if not judgment_accepted and not static_shape_soft_accepted and isinstance(method_stage, dict) and method_stage:
             targets["agent_generated_solver_method_stage"] = method_stage
         repair_plan = checks.get("agent_generated_solver_repair_plan")
-        if not static_shape_soft_accepted and isinstance(repair_plan, dict) and repair_plan:
+        if not judgment_accepted and not static_shape_soft_accepted and isinstance(repair_plan, dict) and repair_plan:
             targets["agent_generated_solver_repair_plan"] = repair_plan
         add_dict("python_compile_errors", checks.get("python_compile_errors"))
         apply_rejections = checks.get("apply_rejections")
@@ -738,20 +767,52 @@ def collect_current_round_repair_targets(attempts: list[dict[str, Any]]) -> dict
 
         semantic_review = attempt.get("semantic_review") if isinstance(attempt.get("semantic_review"), dict) else {}
         if semantic_review_blocks_promotion(semantic_review):
-            targets["algorithm_semantic_review"] = {
-                "status": semantic_review.get("status"),
-                "summary": semantic_review.get("summary"),
-                "blocking_findings": [
-                    finding
-                    for finding in semantic_review.get("findings") or []
-                    if isinstance(finding, dict) and finding.get("blocking")
-                ][:8],
-                "knowledge_paths": (semantic_review.get("knowledge_paths") or [])[:12],
-                "artifacts": semantic_review.get("artifacts") or {},
+            semantic_target = targets.setdefault(
+                "algorithm_semantic_review",
+                {
+                    "status": semantic_review.get("status"),
+                    "summaries": [],
+                    "blocking_findings": [],
+                    "knowledge_paths": [],
+                    "artifacts": {},
+                },
+            )
+            semantic_target["status"] = semantic_review.get("status")
+            summary_text = str(semantic_review.get("summary") or "").strip()
+            if summary_text and summary_text not in semantic_target["summaries"]:
+                semantic_target["summaries"].append(summary_text)
+                semantic_target["summaries"] = semantic_target["summaries"][-4:]
+            existing_finding_keys = {
+                (
+                    str(finding.get("finding_id") or ""),
+                    str(finding.get("category") or ""),
+                    str(finding.get("explanation") or ""),
+                )
+                for finding in semantic_target["blocking_findings"]
+                if isinstance(finding, dict)
             }
+            for finding in semantic_review.get("findings") or []:
+                if not isinstance(finding, dict) or not finding.get("blocking"):
+                    continue
+                finding_key = (
+                    str(finding.get("finding_id") or ""),
+                    str(finding.get("category") or ""),
+                    str(finding.get("explanation") or ""),
+                )
+                if finding_key not in existing_finding_keys:
+                    semantic_target["blocking_findings"].append(finding)
+                    existing_finding_keys.add(finding_key)
+                if len(semantic_target["blocking_findings"]) >= 8:
+                    break
+            for knowledge_path in semantic_review.get("knowledge_paths") or []:
+                if knowledge_path not in semantic_target["knowledge_paths"]:
+                    semantic_target["knowledge_paths"].append(knowledge_path)
+                if len(semantic_target["knowledge_paths"]) >= 12:
+                    break
+            semantic_target["artifacts"].update(semantic_review.get("artifacts") or {})
 
         quality_contract = checks.get("agent_generated_solver_quality_contract")
-        if isinstance(quality_contract, dict) and quality_contract.get("enabled"):
+        if not judgment_accepted and isinstance(quality_contract, dict) and quality_contract.get("enabled"):
             expected_capabilities: list[str] = []
             for key in ("required_code_capabilities", "variant_required_code_capabilities"):
                 for item in quality_contract.get(key) or []:
@@ -997,6 +1058,23 @@ def select_agent_generated_baseline_cycle(
     )
 
 
+def select_best_core_valid_baseline_cycle(
+    cycles: list[tuple[int, Any, Path, dict[str, Any]]],
+    *,
+    objectives: list[ObjectiveSpec],
+) -> tuple[int, Any, Path, dict[str, Any]] | None:
+    core_valid = [item for item in cycles if agent_generated_baseline_cycle_is_core_accepted(item[1])]
+    if not core_valid:
+        return None
+    return max(
+        core_valid,
+        key=lambda item: (
+            *summary_objective_key(item[1].summary, objectives),
+            item[0],
+        ),
+    )
+
+
 def agent_generated_baseline_cycle_rank(
     cycle: Any,
     *,
@@ -1096,13 +1174,23 @@ def run_agent_generated_baseline(
         cycle: Any | None = None
         cycle_attempts: list[tuple[int, Any, Path, dict[str, Any]]] = []
         repair_project_root = source_project
+        repair_anchor_attempt_index: int | None = None
         for attempt_index in range(max_repair_attempts + 1):
             attempt_dir = baseline_dir if attempt_index == 0 else baseline_dir / f"repair_{attempt_index:03d}"
+            repair_anchor_attempt = next(
+                (
+                    attempt
+                    for attempt in attempts
+                    if attempt.get("attempt_index") == repair_anchor_attempt_index
+                ),
+                None,
+            )
             repair_feedback = (
                 current_round_repair_feedback(
                     attempt_index=attempt_index,
                     max_repair_attempts=max_repair_attempts,
                     previous_attempts=attempts,
+                    repair_anchor=repair_anchor_attempt,
                 )
                 if attempt_index > 0
                 else None
@@ -1125,34 +1213,90 @@ def run_agent_generated_baseline(
                 max_runtime_seconds=max_runtime_seconds,
                 apply_worker_changes=True,
             )
-            semantic_review = run_algorithm_semantic_review(
-                reviewer=semantic_reviewer,
-                cycle=cycle,
-                context_packet_path=baseline_context_path,
-                direction_plan=direction_plan or baseline_semantic_direction_plan(baseline_context_path),
-                round_index=-1,
-                attempt_index=attempt_index,
-                output_dir=attempt_dir / "semantic_review",
+            prior_core_anchor = select_best_core_valid_baseline_cycle(
+                cycle_attempts,
+                objectives=contract.objectives,
             )
-            attempts.append(
-                round_attempt_payload(
-                    cycle,
-                    attempt_index=attempt_index,
+            candidate_key = summary_objective_key(cycle.summary, contract.objectives)
+            prior_anchor_key = (
+                summary_objective_key(prior_core_anchor[1].summary, contract.objectives)
+                if prior_core_anchor is not None
+                else ()
+            )
+            anchor_quality_regressed = bool(
+                agent_generated_baseline_cycle_is_core_accepted(cycle)
+                and candidate_key
+                and prior_anchor_key
+                and candidate_key < prior_anchor_key
+            )
+            if anchor_quality_regressed:
+                semantic_review = {
+                    "schema_version": 1,
+                    "status": "quality_regressed",
+                    "accepted": False,
+                    "summary": (
+                        "Semantic review was skipped because this repair regressed below the best Core-valid "
+                        "baseline anchor. Restore anchor quality before requesting another method review."
+                    ),
+                    "findings": [],
+                    "reviewer": "baseline_core_anchor_gate",
+                    "anchor_attempt_index": prior_core_anchor[0],
+                    "anchor_key": list(prior_anchor_key),
+                    "candidate_key": list(candidate_key),
+                }
+            else:
+                semantic_review = run_algorithm_semantic_review(
+                    reviewer=semantic_reviewer,
+                    cycle=cycle,
                     context_packet_path=baseline_context_path,
-                    semantic_review=semantic_review,
+                    direction_plan=direction_plan or baseline_semantic_direction_plan(baseline_context_path),
+                    round_index=-1,
+                    attempt_index=attempt_index,
+                    output_dir=attempt_dir / "semantic_review",
                 )
+            attempt_payload = round_attempt_payload(
+                cycle,
+                attempt_index=attempt_index,
+                context_packet_path=baseline_context_path,
+                semantic_review=semantic_review,
             )
+            attempt_payload["repair_base_attempt_index"] = repair_anchor_attempt_index
+            attempts.append(attempt_payload)
             cycle_attempts.append((attempt_index, cycle, baseline_context_path, semantic_review))
-            if agent_generated_baseline_cycle_is_core_accepted(cycle) and not semantic_review_blocks_promotion(
-                semantic_review
-            ):
+            best_core_anchor = select_best_core_valid_baseline_cycle(
+                cycle_attempts,
+                objectives=contract.objectives,
+            )
+            semantic_passed = agent_generated_baseline_cycle_is_core_accepted(
+                cycle
+            ) and not semantic_review_blocks_promotion(semantic_review)
+            if anchor_quality_regressed and prior_core_anchor is not None:
+                attempt_payload["failure_signatures"] = _dedupe(
+                    [
+                        *(attempt_payload.get("failure_signatures") or []),
+                        "baseline_core_anchor_quality_regression",
+                    ]
+                )
+                attempt_payload["baseline_core_anchor_quality"] = {
+                    "anchor_attempt_index": prior_core_anchor[0],
+                    "anchor_key": list(prior_anchor_key),
+                    "candidate_key": list(candidate_key),
+                    "repair_required": True,
+                }
+            if semantic_passed and not anchor_quality_regressed:
                 break
-            if attempt_index >= max_repair_attempts or not should_attempt_in_round_repair(
+            should_repair = anchor_quality_regressed or should_attempt_in_round_repair(
                 cycle,
                 semantic_review=semantic_review,
-            ):
+            )
+            if attempt_index >= max_repair_attempts or not should_repair:
                 break
-            repair_project_root = Path(cycle.worktree_path)
+            if best_core_anchor is not None:
+                repair_anchor_attempt_index = best_core_anchor[0]
+                repair_project_root = Path(best_core_anchor[1].worktree_path)
+            else:
+                repair_anchor_attempt_index = attempt_index
+                repair_project_root = Path(cycle.worktree_path)
         if cycle is None:
             raise RuntimeError("agent-generated baseline did not produce a candidate")
         selected_attempt_index, selected_cycle, selected_context_path, selected_semantic_review = select_agent_generated_baseline_cycle(
@@ -1683,6 +1827,13 @@ def loop_feedback_payload(
             0,
             "This is an in-round repair attempt. First repair current_round_repair.previous_attempts before trying a new optimization idea.",
         )
+    best_core_anchor = baseline_memory.get("best_core_valid_anchor") if isinstance(baseline_memory, dict) else {}
+    if isinstance(best_core_anchor, dict) and best_core_anchor and not best_core_anchor.get("promotion_eligible"):
+        payload["instructions"].insert(
+            0,
+            "Preserve effective search mechanisms from agent_generated_baseline_memory.best_core_valid_anchor while "
+            "repairing its evidence-backed semantic gaps; the anchor is not promotion-eligible until review passes.",
+        )
     return payload
 
 
@@ -1707,6 +1858,7 @@ def agent_generated_baseline_memory_payload(
         if isinstance(baseline_generation.get("in_round_repair"), dict)
         else {}
     )
+    best_core_valid_anchor = best_core_valid_baseline_anchor(repair)
     diagnostics = (
         baseline_generation.get("proposal_diagnostics")
         if isinstance(baseline_generation.get("proposal_diagnostics"), dict)
@@ -1765,6 +1917,7 @@ def agent_generated_baseline_memory_payload(
         "patch_path": "",
         "promoted_worktree": baseline_generation.get("worktree") if accepted_as_incumbent else None,
         "semantic_review": semantic_review,
+        "best_core_valid_anchor": best_core_valid_anchor,
     }
     return {
         "status": baseline_generation.get("status"),
@@ -1777,6 +1930,7 @@ def agent_generated_baseline_memory_payload(
         "agentic_accepted": agentic_judgment.get("accepted"),
         "agentic_issues": (agentic_judgment.get("issues") or [])[:8],
         "semantic_review": semantic_review,
+        "best_core_valid_anchor": best_core_valid_anchor,
         "proposal_summary": diagnostics.get("summary"),
         "strategy_intent": diagnostics.get("strategy_intent"),
         "rule_operator_hypotheses": (diagnostics.get("rule_operator_hypotheses") or [])[:6],
@@ -1785,6 +1939,58 @@ def agent_generated_baseline_memory_payload(
             "This generated baseline is the measured incumbent. Preserve its parser, operation representation, "
             "constructor, decoder, output schema, and active variant repairs unless loop feedback identifies them "
             "as the direct failure source."
+        ),
+    }
+
+
+def best_core_valid_baseline_anchor(repair: dict[str, Any]) -> dict[str, Any]:
+    """Keep the strongest Core-valid baseline attempt even before semantic repair.
+
+    This anchor is evidence for preserving effective search structure, not a
+    promotion candidate.  Promotion still requires a passing semantic review.
+    """
+
+    best_key: tuple[float, ...] | None = None
+    best_attempt: dict[str, Any] | None = None
+    for value in repair.get("attempts") or []:
+        if not isinstance(value, dict):
+            continue
+        summary = value.get("summary") if isinstance(value.get("summary"), dict) else {}
+        total = int(summary.get("total", 0) or 0)
+        valid = int(summary.get("valid", 0) or 0)
+        raw_key = value.get("candidate_key") or []
+        try:
+            key = tuple(float(item) for item in raw_key)
+        except (TypeError, ValueError):
+            continue
+        if total <= 0 or valid != total or not key or not all(math.isfinite(item) for item in key):
+            continue
+        if best_key is None or key > best_key:
+            best_key = key
+            best_attempt = value
+    if best_key is None or best_attempt is None:
+        return {}
+
+    semantic = (
+        best_attempt.get("semantic_review")
+        if isinstance(best_attempt.get("semantic_review"), dict)
+        else {}
+    )
+    context_path = str(best_attempt.get("context_packet_path") or "").strip()
+    worktree = str((Path(context_path).parent / "candidate_worktree").resolve()) if context_path else ""
+    return {
+        "attempt_index": best_attempt.get("attempt_index"),
+        "objective_key": list(best_key),
+        "core_valid": True,
+        "semantic_status": semantic.get("status"),
+        "promotion_eligible": not semantic_review_blocks_promotion(semantic),
+        "semantic_summary": str(semantic.get("summary") or "")[:800],
+        "context_packet_path": context_path,
+        "candidate_worktree": worktree,
+        "patch_path": str(best_attempt.get("patch_path") or ""),
+        "rule": (
+            "Preserve effective mechanisms from this Core-valid anchor while repairing its semantic findings. "
+            "Do not promote it until semantic review passes."
         ),
     }
 

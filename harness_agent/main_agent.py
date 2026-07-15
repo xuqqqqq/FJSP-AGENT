@@ -64,6 +64,11 @@ class EvidenceDrivenMainAgent:
             },
             round_index=request.round_index,
         ), context=context)
+        plan = enforce_improvement_direction_contract(
+            plan,
+            round_index=request.round_index,
+            loop_feedback=request.loop_feedback,
+        )
         return write_direction_plan(request.output_dir, plan)
 
 
@@ -80,18 +85,10 @@ class DeepSeekMainAgent:
 
         context = load_context_dict(request.context_packet_path)
         stable_context = stable_worker_context_json(context).text
-        dynamic_context = compact_json(
-            {
-                "loop_feedback": request.loop_feedback,
-                "incumbent_code_context": context.get("incumbent_code_context") or {},
-                "knowledge_cards": compact_source_records(
-                    context.get("knowledge_cards"),
-                    max_items=24,
-                    max_snippet_chars=700,
-                ),
-            },
-            max_chars=32_000,
-        ).text
+        dynamic_context = compact_main_agent_dynamic_context(
+            context=context,
+            loop_feedback=request.loop_feedback,
+        )
         prompt = _direction_prompt(
             round_index=request.round_index,
             stable_context=stable_context,
@@ -146,6 +143,11 @@ class DeepSeekMainAgent:
         plan = bind_direction_plan_to_method_catalog(
             normalize_direction_plan(raw, round_index=request.round_index),
             context=context,
+        )
+        plan = enforce_improvement_direction_contract(
+            plan,
+            round_index=request.round_index,
+            loop_feedback=request.loop_feedback,
         )
         plan["planner"] = "deepseek_main_agent"
         request.output_dir.mkdir(parents=True, exist_ok=True)
@@ -217,6 +219,133 @@ def bind_direction_plan_to_method_catalog(
     return plan
 
 
+def compact_main_agent_dynamic_context(
+    *,
+    context: dict[str, Any],
+    loop_feedback: dict[str, Any],
+) -> str:
+    """Keep planning-critical run state explicit instead of recursively compacting it away."""
+
+    baseline_memory = (
+        loop_feedback.get("agent_generated_baseline_memory")
+        if isinstance(loop_feedback.get("agent_generated_baseline_memory"), dict)
+        else {}
+    )
+    previous_rounds = []
+    for value in (loop_feedback.get("previous_rounds") or [])[-8:]:
+        if not isinstance(value, dict):
+            continue
+        direction = value.get("direction_plan") if isinstance(value.get("direction_plan"), dict) else {}
+        semantic = value.get("semantic_review") if isinstance(value.get("semantic_review"), dict) else {}
+        previous_rounds.append(
+            {
+                "round_index": value.get("round_index"),
+                "decision": value.get("decision"),
+                "candidate_key": value.get("candidate_key"),
+                "incumbent_key_after": value.get("incumbent_key_after"),
+                "title": direction.get("title"),
+                "strategy_type": direction.get("strategy_type"),
+                "hypothesis": direction.get("hypothesis"),
+                "method_package_id": direction.get("method_package_id"),
+                "failure_signatures": (value.get("failure_signatures") or [])[:8],
+                "semantic_status": semantic.get("status"),
+            }
+        )
+    experience = (
+        loop_feedback.get("experience_memory")
+        if isinstance(loop_feedback.get("experience_memory"), dict)
+        else {}
+    )
+    memory_tiers = experience.get("memory_tiers") if isinstance(experience.get("memory_tiers"), dict) else {}
+    payload = {
+        "loop_feedback": {
+            "round_index": loop_feedback.get("round_index"),
+            "baseline_key": loop_feedback.get("baseline_key"),
+            "incumbent_key_before": loop_feedback.get("incumbent_key_before"),
+            "objective_key_order": loop_feedback.get("objective_key_order") or [],
+            "agent_generated_baseline_memory": {
+                "accepted_as_incumbent": baseline_memory.get("accepted_as_incumbent"),
+                "baseline_key": baseline_memory.get("baseline_key"),
+                "semantic_review": baseline_memory.get("semantic_review") or {},
+                "best_core_valid_anchor": baseline_memory.get("best_core_valid_anchor") or {},
+                "protection_rule": baseline_memory.get("protection_rule"),
+            },
+            "previous_rounds": previous_rounds,
+            "failure_memory": loop_feedback.get("failure_memory") or {},
+            "next_round_guidance": loop_feedback.get("next_round_guidance") or {},
+            "protected_promoted_facts": (loop_feedback.get("protected_promoted_facts") or [])[-8:],
+            "validated_lessons": (memory_tiers.get("validated_lessons") or [])[-6:],
+            "current_round_repair": loop_feedback.get("current_round_repair") or {},
+            "instructions": loop_feedback.get("instructions") or [],
+        },
+        "incumbent_code_context": {
+            "source": (context.get("incumbent_code_context") or {}).get("source"),
+            "files": compact_source_records(
+                (context.get("incumbent_code_context") or {}).get("files"),
+                max_items=4,
+                max_snippet_chars=2500,
+            ),
+        },
+        "knowledge_cards": compact_source_records(
+            context.get("knowledge_cards"),
+            max_items=12,
+            max_snippet_chars=500,
+        ),
+    }
+    return compact_json(payload, max_chars=32_000).text
+
+
+def enforce_improvement_direction_contract(
+    plan: dict[str, Any],
+    *,
+    round_index: int,
+    loop_feedback: dict[str, Any],
+) -> dict[str, Any]:
+    """Prevent a post-baseline planning response from discarding the incumbent."""
+
+    if round_index < 0:
+        return plan
+    result = dict(plan)
+    required_preserve = (
+        "Preserve the promoted incumbent parser, operation representation, constructor, decoder, output schema, "
+        "and semantically validated search mechanisms."
+    )
+    result["preserve"] = _strings([required_preserve, *(result.get("preserve") or [])], limit=10)
+    result["avoid"] = _strings(
+        [
+            "Do not replace the promoted solver or restart from a baseline constructor.",
+            *(result.get("avoid") or []),
+        ],
+        limit=10,
+    )
+    if str(result.get("strategy_type") or "") == "baseline_constructor":
+        guidance = (
+            loop_feedback.get("next_round_guidance")
+            if isinstance(loop_feedback.get("next_round_guidance"), dict)
+            else {}
+        )
+        bounded_scope = _strings(guidance.get("must_do"), limit=2)
+        result["title"] = "Incrementally refine the promoted incumbent"
+        result["strategy_type"] = "local_search_operator"
+        result["hypothesis"] = (
+            "A bounded operator-level mutation of the promoted incumbent can improve the declared objective while "
+            "preserving its evaluator- and semantic-review-backed mechanisms."
+        )
+        result["change_scope"] = bounded_scope or [
+            "Make one bounded operator-level refinement around the promoted incumbent."
+        ]
+    incumbent_key = loop_feedback.get("incumbent_key_before")
+    result["acceptance_checks"] = _strings(
+        [
+            *(result.get("acceptance_checks") or []),
+            f"Candidate must be strictly better than incumbent objective key {incumbent_key} before promotion.",
+            "Algorithm semantic review must pass before promotion.",
+        ],
+        limit=10,
+    )
+    return result
+
+
 def write_direction_plan(output_dir: Path, plan: dict[str, Any]) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / "direction_plan.json"
@@ -257,6 +386,10 @@ Rules:
 - Select exactly one compatible method package from method_package_catalog and keep that package for same-direction repairs.
 - Prefer the recommended package unless task evidence makes another compatible package more appropriate.
 - {phase_rule}
+- For round_index >= 0, never return strategy_type=baseline_constructor. Read incumbent_key_before and previous_rounds,
+  preserve the promoted incumbent, and choose a materially different bounded refinement after a rollback.
+- Treat agent_generated_baseline_memory.best_core_valid_anchor as a high-performing structure-preservation reference,
+  not as promotion-eligible code when its semantic_status is blocking.
 - Use only active requirement, IO, instance, evaluator, knowledge, and run-memory evidence.
 - Do not use previous solution files, fixed schedules, or instance-specific target scores as method knowledge.
 - If legality or representation is still broken, plan repair before objective tuning.

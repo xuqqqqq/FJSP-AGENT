@@ -277,13 +277,17 @@ class SemanticReviewTests(unittest.TestCase):
                         "contract.md": "Tabu memory must record the attribute that would undo that move."
                     },
                 ),
-                patch("harness_agent.semantic_review.DeepSeekClient.from_env", return_value=client),
+                patch(
+                    "harness_agent.semantic_review.DeepSeekClient.from_env",
+                    return_value=client,
+                ) as client_factory,
             ):
                 result = reviewer.review(request)
 
         self.assertEqual("repair_required", result.status)
         self.assertFalse(result.accepted)
         self.assertEqual(2, client.chat_with_usage.call_count)
+        client_factory.assert_called_once_with(model="deepseek-v4-pro", timeout_seconds=300)
         self.assertEqual(130, result.usage["prompt_tokens"])
         self.assertIn("json_retry_response", result.artifacts)
 

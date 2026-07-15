@@ -6,7 +6,13 @@ import unittest
 from pathlib import Path
 
 from harness_agent.context_packet import ContextPacketRequest, write_context_packet
-from harness_agent.main_agent import DirectionPlanRequest, EvidenceDrivenMainAgent, normalize_direction_plan
+from harness_agent.main_agent import (
+    DirectionPlanRequest,
+    EvidenceDrivenMainAgent,
+    compact_main_agent_dynamic_context,
+    enforce_improvement_direction_contract,
+    normalize_direction_plan,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -88,6 +94,74 @@ class MainAgentTests(unittest.TestCase):
         self.assertEqual("baseline_constructor", plan["strategy_type"])
         self.assertEqual("standard_fjsp_awls_hgtsa", plan["method_package_id"])
         self.assertIn("reference_solver.py", " ".join(plan["knowledge_paths"]))
+
+    def test_main_agent_dynamic_context_keeps_incumbent_history_and_core_anchor(self) -> None:
+        rendered = compact_main_agent_dynamic_context(
+            context={
+                "incumbent_code_context": {
+                    "source": "promoted_incumbent_worktree",
+                    "files": [{"relative_path": "solver.py", "snippet": "def x(): pass\n" * 1000}],
+                },
+                "knowledge_cards": [],
+            },
+            loop_feedback={
+                "round_index": 2,
+                "baseline_key": [-3695.0],
+                "incumbent_key_before": [-3644.0],
+                "agent_generated_baseline_memory": {
+                    "accepted_as_incumbent": True,
+                    "baseline_key": [-3695.0],
+                    "best_core_valid_anchor": {
+                        "objective_key": [-2596.0],
+                        "semantic_status": "repair_required",
+                        "promotion_eligible": False,
+                    },
+                },
+                "previous_rounds": [
+                    {
+                        "round_index": 0,
+                        "decision": "promoted",
+                        "candidate_key": [-3644.0],
+                        "incumbent_key_after": [-3644.0],
+                        "direction_plan": {
+                            "title": "Critical-block refinement",
+                            "strategy_type": "local_search_operator",
+                        },
+                    }
+                ],
+            },
+        )
+
+        payload = json.loads(rendered)
+        feedback = payload["loop_feedback"]
+        self.assertEqual([-3644.0], feedback["incumbent_key_before"])
+        self.assertEqual("Critical-block refinement", feedback["previous_rounds"][0]["title"])
+        self.assertEqual(
+            [-2596.0],
+            feedback["agent_generated_baseline_memory"]["best_core_valid_anchor"]["objective_key"],
+        )
+
+    def test_post_baseline_direction_cannot_restart_from_constructor(self) -> None:
+        plan = enforce_improvement_direction_contract(
+            normalize_direction_plan(
+                {
+                    "title": "Rebuild earliest finish baseline",
+                    "strategy_type": "baseline_constructor",
+                    "change_scope": ["Replace the solver with earliest finish construction."],
+                },
+                round_index=1,
+            ),
+            round_index=1,
+            loop_feedback={
+                "incumbent_key_before": [-3644.0],
+                "next_round_guidance": {"must_do": ["Refine one incumbent neighborhood operator."]},
+            },
+        )
+
+        self.assertEqual("local_search_operator", plan["strategy_type"])
+        self.assertEqual(["Refine one incumbent neighborhood operator."], plan["change_scope"])
+        self.assertTrue(any("Preserve the promoted incumbent" in item for item in plan["preserve"]))
+        self.assertTrue(any("strictly better" in item for item in plan["acceptance_checks"]))
 
 
 if __name__ == "__main__":
