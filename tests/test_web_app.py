@@ -351,6 +351,59 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("不参与 promotion", message)
         self.assertEqual("warning", job["events"][-1]["level"])
 
+    def test_attempt_progress_reports_soft_acceptance_after_initial_ja_rejection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            attempt_dir = root / "attempt"
+            attempt_dir.mkdir()
+            judgment_path = attempt_dir / "agentic_judgment.json"
+            judgment_path.write_text(
+                json.dumps(
+                    {
+                        "accepted": False,
+                        "issues": ["agent_generated_solver_self_check_incomplete"],
+                        "checks": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            job = {
+                "id": "soft-accept-job",
+                "title": "soft accept job",
+                "status": "running",
+                "created_at": "2026-07-16T00:00:00Z",
+                "updated_at": "2026-07-16T00:00:00Z",
+                "job_dir": str(root),
+                "events": [],
+                "summary": {},
+                "artifacts": {},
+                "error": None,
+            }
+            seen: set[str] = set()
+
+            scan_code_attempt_progress(job, seen, attempt_dir, "baseline")
+            judgment_path.write_text(
+                json.dumps(
+                    {
+                        "accepted": True,
+                        "issues": [],
+                        "checks": {
+                            "soft_accepted_by_diagnostic_smoke": {
+                                "original_issues": ["agent_generated_solver_self_check_incomplete"],
+                                "diagnostic_metrics": {"avg_makespan": 2352},
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            scan_code_attempt_progress(job, seen, attempt_dir, "baseline")
+
+        messages = [event["message"] for event in job["events"]]
+        self.assertTrue(any("JA 初审未通过" in message for message in messages))
+        self.assertTrue(any("JA 已将软性静态证据缺口降级为警告" in message for message in messages))
+        self.assertTrue(any("diagnostic_makespan=2352" in message for message in messages))
+
     @staticmethod
     def job_payload(**overrides: object) -> dict[str, object]:
         payload: dict[str, object] = {

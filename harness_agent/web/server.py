@@ -1388,13 +1388,37 @@ def scan_code_attempt_progress(job: dict[str, Any], seen: set[str], attempt_dir:
             judgment_payload = read_json_file(judgment)
             accepted = judgment_payload.get("accepted")
             issues = judgment_payload.get("issues") or []
+            checks = judgment_payload.get("checks") if isinstance(judgment_payload.get("checks"), dict) else {}
+            soft_acceptance = (
+                checks.get("soft_accepted_by_diagnostic_smoke")
+                if isinstance(checks.get("soft_accepted_by_diagnostic_smoke"), dict)
+                else {}
+            )
             if accepted:
                 message = f"{label} JA 代码判断通过，进入固定 evaluator。"
                 level = "info"
             else:
-                message = f"{label} JA 代码判断未通过，已阻止 evaluator：{summarize_list(issues)}"
+                message = f"{label} JA 初审未通过，正式 evaluator 暂缓，等待诊断或同轮修补：{summarize_list(issues)}"
                 level = "error"
             record_progress_event(job, seen, f"{label}:agentic-judgment", message, level=level)
+            if accepted and soft_acceptance:
+                original_issues = soft_acceptance.get("original_issues") or []
+                diagnostic_metrics = (
+                    soft_acceptance.get("diagnostic_metrics")
+                    if isinstance(soft_acceptance.get("diagnostic_metrics"), dict)
+                    else {}
+                )
+                record_progress_event(
+                    job,
+                    seen,
+                    f"{label}:agentic-judgment-soft-accepted",
+                    (
+                        f"{label} 诊断 evaluator 已证明输出合法，JA 已将软性静态证据缺口降级为警告并放行正式评估："
+                        f"原始问题={summarize_list(original_issues)}，"
+                        f"diagnostic_makespan={format_progress_value(first_number(diagnostic_metrics.get('makespan'), diagnostic_metrics.get('avg_makespan')))}。"
+                    ),
+                    level="warning",
+                )
         error_analysis = attempt_dir / "agentic_error_analysis.json"
         if error_analysis.exists():
             analysis_payload = read_json_file(error_analysis)
