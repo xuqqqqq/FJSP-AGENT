@@ -87,6 +87,9 @@ class DomainMethodPackage:
     excluded_features: list[str] = field(default_factory=list)
     assets: list[Path] = field(default_factory=list)
     implementation_asset: Path | None = None
+    implementation_contract_asset: Path | None = None
+    implementation_contract_assets: list[Path] = field(default_factory=list)
+    implementation_contract: dict[str, Any] = field(default_factory=dict)
     default_priority: int = 0
 
     def to_payload(self) -> dict[str, Any]:
@@ -99,6 +102,11 @@ class DomainMethodPackage:
             "excluded_features": list(self.excluded_features),
             "assets": [str(path) for path in self.assets],
             "implementation_asset": str(self.implementation_asset) if self.implementation_asset else None,
+            "implementation_contract_asset": (
+                str(self.implementation_contract_asset) if self.implementation_contract_asset else None
+            ),
+            "implementation_contract_assets": [str(path) for path in self.implementation_contract_assets],
+            "implementation_contract": dict(self.implementation_contract),
             "default_priority": self.default_priority,
         }
 
@@ -285,6 +293,12 @@ def _load_edit_strategy(value: Any, *, project_root: Path) -> DomainEditStrategy
 
 def _load_method_package(value: dict[str, Any], *, project_root: Path) -> DomainMethodPackage:
     implementation_value = str(value.get("implementation_asset") or "").strip()
+    contract_value = str(value.get("implementation_contract_asset") or "").strip()
+    contract_path = _resolve_pack_path(contract_value, project_root=project_root) if contract_value else None
+    implementation_contract, contract_assets = _load_method_implementation_contract(
+        contract_path,
+        project_root=project_root,
+    )
     return DomainMethodPackage(
         package_id=str(value.get("package_id") or "").strip(),
         title=str(value.get("title") or value.get("package_id") or "").strip(),
@@ -302,8 +316,152 @@ def _load_method_package(value: dict[str, Any], *, project_root: Path) -> Domain
             if implementation_value
             else None
         ),
+        implementation_contract_asset=contract_path,
+        implementation_contract_assets=contract_assets,
+        implementation_contract=implementation_contract,
         default_priority=int(value.get("default_priority") or 0),
     )
+
+
+def _load_method_implementation_contract(
+    path: Path | None,
+    *,
+    project_root: Path,
+    loading: tuple[Path, ...] = (),
+) -> tuple[dict[str, Any], list[Path]]:
+    """读取并合并通用契约继承链；后端不解释任何组件的算法含义。"""
+
+    if path is None:
+        return {}, []
+    path = path.resolve()
+    if path in loading:
+        cycle = " -> ".join(str(item) for item in (*loading, path))
+        raise ValueError(f"method implementation contract inheritance cycle: {cycle}")
+    if not path.is_file():
+        raise ValueError(f"method implementation contract does not exist: {path}")
+    raw = json.loads(path.read_text(encoding="utf-8-sig"))
+    if not isinstance(raw, dict):
+        raise ValueError(f"method implementation contract must be a JSON object: {path}")
+    _validate_method_contract_fragment(raw, path=path)
+
+    payload: dict[str, Any] = {}
+    source_assets: list[Path] = []
+    extends = raw.get("extends") or []
+    if isinstance(extends, str):
+        extends = [extends]
+    if not isinstance(extends, list):
+        raise ValueError(f"method implementation contract extends must be a path list: {path}")
+    for parent_value in extends:
+        parent_text = str(parent_value or "").strip()
+        if not parent_text:
+            continue
+        parent_path = _resolve_pack_path(parent_text, project_root=project_root)
+        parent, parent_assets = _load_method_implementation_contract(
+            parent_path,
+            project_root=project_root,
+            loading=(*loading, path),
+        )
+        payload = _merge_method_contracts(payload, parent)
+        source_assets.extend(parent_assets)
+    payload = _merge_method_contracts(payload, raw)
+    source_assets.append(path)
+    source_assets = list(dict.fromkeys(source_assets))
+    _validate_method_implementation_contract(payload, path=path)
+    return payload, source_assets
+
+
+def _validate_method_contract_fragment(payload: dict[str, Any], *, path: Path) -> None:
+    """继承合并前拒绝会被合并器静默忽略的畸形条目。"""
+
+    for list_key, id_key in (("required_components", "component_id"), ("coupled_groups", "group_id")):
+        values = payload.get(list_key) or []
+        if not isinstance(values, list) or any(not isinstance(item, dict) for item in values):
+            raise ValueError(f"method implementation contract {list_key} must be an object list: {path}")
+        identifiers = [str(item.get(id_key) or "").strip() for item in values]
+        if any(not item for item in identifiers) or len(set(identifiers)) != len(identifiers):
+            raise ValueError(f"method implementation contract has missing/duplicate {id_key}: {path}")
+
+
+def _merge_method_contracts(base: dict[str, Any], extension: dict[str, Any]) -> dict[str, Any]:
+    """按稳定 ID 合并契约片段；同名组件只能追加行为，不能删除父契约要求。"""
+
+    merged = {key: value for key, value in base.items() if key not in {"required_components", "coupled_groups"}}
+    merged.update(
+        {
+            key: value
+            for key, value in extension.items()
+            if key not in {"required_components", "coupled_groups", "extends"}
+        }
+    )
+    components: dict[str, dict[str, Any]] = {}
+    for value in [*(base.get("required_components") or []), *(extension.get("required_components") or [])]:
+        if not isinstance(value, dict):
+            continue
+        component_id = str(value.get("component_id") or "").strip()
+        previous = components.get(component_id, {})
+        behaviors = list(
+            dict.fromkeys(
+                [
+                    *(str(item) for item in previous.get("required_behaviors") or [] if str(item).strip()),
+                    *(str(item) for item in value.get("required_behaviors") or [] if str(item).strip()),
+                ]
+            )
+        )
+        components[component_id] = {**previous, **value, "required_behaviors": behaviors}
+    groups: dict[str, dict[str, Any]] = {}
+    for value in [*(base.get("coupled_groups") or []), *(extension.get("coupled_groups") or [])]:
+        if not isinstance(value, dict):
+            continue
+        group_id = str(value.get("group_id") or "").strip()
+        previous = groups.get(group_id, {})
+        component_ids = list(
+            dict.fromkeys(
+                [
+                    *(str(item) for item in previous.get("component_ids") or [] if str(item).strip()),
+                    *(str(item) for item in value.get("component_ids") or [] if str(item).strip()),
+                ]
+            )
+        )
+        groups[group_id] = {**previous, **value, "component_ids": component_ids}
+    merged["required_components"] = list(components.values())
+    merged["coupled_groups"] = list(groups.values())
+    return merged
+
+
+def _validate_method_implementation_contract(payload: dict[str, Any], *, path: Path) -> None:
+    """验证通用 schema 以及继承合并后的引用完整性。"""
+
+    components = payload.get("required_components")
+    if not isinstance(components, list) or not components:
+        raise ValueError(f"method implementation contract must declare required_components: {path}")
+    component_ids: set[str] = set()
+    for component in components:
+        if not isinstance(component, dict):
+            raise ValueError(f"method implementation contract components must be objects: {path}")
+        component_id = str(component.get("component_id") or "").strip()
+        if not component_id or component_id in component_ids:
+            raise ValueError(f"method implementation contract has missing/duplicate component_id: {path}")
+        behaviors = component.get("required_behaviors")
+        if not isinstance(behaviors, list) or not any(str(item).strip() for item in behaviors):
+            raise ValueError(f"method component {component_id!r} must declare required_behaviors: {path}")
+        component_ids.add(component_id)
+
+    group_ids: set[str] = set()
+    for group in payload.get("coupled_groups") or []:
+        if not isinstance(group, dict):
+            raise ValueError(f"method implementation contract coupled_groups must be objects: {path}")
+        group_id = str(group.get("group_id") or "").strip()
+        if not group_id or group_id in group_ids:
+            raise ValueError(f"method implementation contract has missing/duplicate group_id: {path}")
+        referenced = {str(item).strip() for item in group.get("component_ids") or [] if str(item).strip()}
+        if not referenced or referenced - component_ids:
+            unknown = sorted(referenced - component_ids)
+            raise ValueError(
+                f"method coupled group {group_id!r} must reference declared components; unknown={unknown}: {path}"
+            )
+        if not str(group.get("rule") or "").strip():
+            raise ValueError(f"method coupled group {group_id!r} must declare a rule: {path}")
+        group_ids.add(group_id)
 
 
 def _normalize_key(value: str) -> str:

@@ -201,6 +201,16 @@ Task:
   tabu/aspiration, adaptive-search, and diversification structure. Do not blend
   a second method family into the same direction or reduce the package to a
   random hill climber while retaining the stronger method name.
+- When `loop_feedback.current_direction_plan.implementation_bundle` is present,
+  treat it as one complete method implementation contract. Before editing,
+  enumerate every required component and coupled group in your working plan.
+  Implement the whole bundle coherently in this direction; do not stop after
+  fixing one convenient finding while other required components remain absent.
+- During same-direction repair, use the latest
+  `repair_targets.algorithm_semantic_review.implementation_coverage` matrix as
+  the component remaining-work list and `coupled_group_coverage` as the
+  integration remaining-work list. Preserve entries marked implemented and
+  repair every missing or partial entry before claiming completion.
 - If the priority context says `agent_generated_solver_quality_contract.enabled`
   is true, create or edit the standalone solver entrypoint referenced by the
   context packet's `evaluator_protocol.solver_command_template`. The code must

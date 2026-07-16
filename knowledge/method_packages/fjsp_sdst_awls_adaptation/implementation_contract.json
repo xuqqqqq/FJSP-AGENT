@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "contract_id": "fjsp_sdst_awls_adaptation_complete_method",
+  "extends": [
+    "knowledge/method_packages/standard_fjsp_awls_hgtsa/implementation_contract.json"
+  ],
+  "mode": "complete_method_package",
+  "completion_rule": "Every inherited search component and every SDST extension component must be reachable and behaviorally connected before the adapted method claim can pass semantic review.",
+  "variant_rule": "All construction, decoding, timing, neighborhood, acceptance, and output paths must preserve the sequence-dependent setup semantics declared by the active requirement and IO documents.",
+  "required_components": [
+    {
+      "component_id": "sdst_setup_semantics_and_decoder",
+      "title": "Requirement-derived setup semantics and complete setup-aware decoder",
+      "required_behaviors": [
+        "Read setup data and initial-setup conventions from the active IO contract without importing backend parser or evaluator code.",
+        "Compute each machine start from its immediate machine predecessor's completion plus the directed sequence-dependent setup time while also respecting job precedence.",
+        "Reject incomplete, cyclic, duplicate, ineligible, or setup-inconsistent schedules and emit processing intervals according to the active output contract rather than silently folding setup into processing duration."
+      ],
+      "evidence_required": "Reachable standalone parser and decoder paths plus behavioral tests for asymmetric setup, changed predecessor, and first-on-machine semantics."
+    },
+    {
+      "component_id": "sdst_setup_aware_neighborhood_evaluation",
+      "title": "Setup-aware sequence and reassignment candidate evaluation",
+      "required_behaviors": [
+        "For every same-machine order move, account for all setup arcs removed and introduced around the changed sequence before acceptance.",
+        "For every alternative-machine move, remove the old setup links, insert with eligible target-machine predecessor/successor context, and use setup-aware bounded insertion positions.",
+        "Accept or rank final candidates only from a complete setup-aware decode under the active constraints; setup delta may filter or order candidates but cannot replace decoded objective comparison."
+      ],
+      "evidence_required": "Reachable same-machine and reassignment move paths that consume directed setup values and then invoke the complete decoder."
+    },
+    {
+      "component_id": "sdst_critical_timing_and_adaptation",
+      "title": "Setup-aware critical timing and adaptive search pressure",
+      "required_behaviors": [
+        "Include active setup arcs in forward/backward timing and critical-machine tightness checks.",
+        "Recompute critical structure after accepted sequence or machine changes instead of reusing setup-obsolete timing.",
+        "When setup-derived features influence adaptive scoring or diversification, update and consume them in reachable move decisions without replacing the decoded objective."
+      ],
+      "evidence_required": "Reachable critical timing refresh and adaptive scoring paths with tests where predecessor-dependent setup changes criticality or ranking."
+    }
+  ],
+  "coupled_groups": [
+    {
+      "group_id": "sdst_decode_move_acceptance_bundle",
+      "component_ids": [
+        "progress_decoder",
+        "same_machine_neighborhood",
+        "alternative_machine_neighborhood",
+        "transactional_move_lifecycle",
+        "sdst_setup_semantics_and_decoder",
+        "sdst_setup_aware_neighborhood_evaluation"
+      ],
+      "rule": "The exact setup-aware move that is generated and scored must be fully decoded with its new directed setup arcs before it can be accepted or committed."
+    },
+    {
+      "group_id": "sdst_critical_adaptive_bundle",
+      "component_ids": [
+        "critical_graph_and_blocks",
+        "adaptive_weight_scoring",
+        "diversification_and_best_preservation",
+        "sdst_critical_timing_and_adaptation"
+      ],
+      "rule": "Criticality, adaptive pressure, and diversification must consume timing that reflects the current setup-aware machine sequences while preserving the global best."
+    }
+  ]
+}

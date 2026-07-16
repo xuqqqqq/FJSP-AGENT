@@ -417,7 +417,17 @@ def activate_method_package_context(
         context.pop("active_method_package", None)
         return None
 
-    asset_paths = [Path(str(value)) for value in package.get("assets") or [] if str(value).strip()]
+    contract_assets = [
+        str(value)
+        for value in package.get("implementation_contract_assets")
+        or [package.get("implementation_contract_asset")]
+        if str(value or "").strip()
+    ]
+    asset_paths = [
+        Path(str(value))
+        for value in [*contract_assets, *(package.get("assets") or [])]
+        if str(value).strip()
+    ]
     existing_cards = [item for item in context.get("knowledge_cards") or [] if isinstance(item, dict)]
     by_path = {str(item.get("path") or ""): item for item in existing_cards if str(item.get("path") or "")}
     package_cards: list[dict[str, Any]] = []
@@ -439,8 +449,10 @@ def activate_method_package_context(
         "selection": "requested" if requested_id == package.get("package_id") else "recommended_fallback",
         "asset_records": package_cards,
         "worker_rule": (
-            "Adapt this one package to the active IO and solver contract. Do not blend in a second algorithm "
-            "family during the same direction. Preserve executable method structure and verify behavior."
+            "Adapt this one package to the active IO and solver contract. Implement every required component and "
+            "coupled group in its implementation_contract before claiming the method is complete. Do not blend in "
+            "a second algorithm family during the same direction. Same-direction repairs must close the latest "
+            "missing/partial component matrix rather than switching methods or patching one symptom in isolation."
         ),
     }
     return context["active_method_package"]

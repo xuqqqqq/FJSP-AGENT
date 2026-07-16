@@ -224,9 +224,77 @@ def bind_direction_plan_to_method_catalog(
         "available_package_ids": list(available),
     }
     if selected:
-        package_assets = [str(item) for item in available[selected].get("assets") or [] if str(item).strip()]
+        selected_package = available[selected]
+        package_assets = [str(item) for item in selected_package.get("assets") or [] if str(item).strip()]
         plan["knowledge_paths"] = _strings([*package_assets, *plan.get("knowledge_paths", [])], limit=12)
+        implementation_bundle = method_implementation_bundle(selected_package)
+        if implementation_bundle:
+            contract_paths = [
+                str(item) for item in implementation_bundle.get("contract_paths") or [] if str(item).strip()
+            ]
+            plan["implementation_bundle"] = implementation_bundle
+            contract_paths = list(dict.fromkeys(contract_paths))
+            supplemental_limit = max(0, 12 - len(contract_paths))
+            supplemental_paths = (
+                _strings(
+                    [*package_assets, *plan.get("knowledge_paths", [])],
+                    limit=supplemental_limit,
+                )
+                if supplemental_limit
+                else []
+            )
+            plan["knowledge_paths"] = [*contract_paths, *supplemental_paths]
+            component_ids = [
+                str(item.get("component_id") or "")
+                for item in implementation_bundle.get("required_components") or []
+                if isinstance(item, dict) and str(item.get("component_id") or "").strip()
+            ]
+            plan["change_scope"] = _strings(
+                [
+                    (
+                        "Implement and verify the complete selected method bundle in one coherent direction: "
+                        + ", ".join(component_ids)
+                    ),
+                    *(plan.get("change_scope") or []),
+                ],
+                limit=8,
+            )
+            plan["acceptance_checks"] = _strings(
+                [
+                    "Every required component in implementation_bundle must have reachable source evidence; partial package implementation is not complete.",
+                    "All coupled_groups must remain behaviorally closed across generation, scoring, application, memory, and search control.",
+                    *(plan.get("acceptance_checks") or []),
+                ],
+                limit=10,
+            )
     return plan
+
+
+def method_implementation_bundle(package: dict[str, Any]) -> dict[str, Any]:
+    """把知识包契约原样绑定到方向计划；后端只处理通用组件 schema。"""
+
+    contract = package.get("implementation_contract")
+    if not isinstance(contract, dict):
+        return {}
+    components = [item for item in contract.get("required_components") or [] if isinstance(item, dict)]
+    if not components:
+        return {}
+    return {
+        "contract_id": str(contract.get("contract_id") or "")[:160],
+        "contract_path": str(package.get("implementation_contract_asset") or ""),
+        "contract_paths": [
+            str(item)
+            for item in package.get("implementation_contract_assets")
+            or [package.get("implementation_contract_asset")]
+            if str(item or "").strip()
+        ],
+        "mode": str(contract.get("mode") or "complete_method_package")[:80],
+        "completion_rule": str(contract.get("completion_rule") or "")[:1200],
+        "variant_rule": str(contract.get("variant_rule") or "")[:1200],
+        # 完整性契约不能静默截断，否则后面的组件永远不会进入实现和审查。
+        "required_components": components,
+        "coupled_groups": [item for item in contract.get("coupled_groups") or [] if isinstance(item, dict)],
+    }
 
 
 def compact_main_agent_dynamic_context(
@@ -386,7 +454,7 @@ Return JSON only:
   "hypothesis": "why this one change should improve the declared objective",
   "method_package_id": "exact package_id from method_package_catalog",
   "preserve": ["promoted mechanisms that must remain"],
-  "change_scope": ["one bounded implementation target"],
+  "change_scope": ["one coherent method direction; when a package contract exists it covers the complete component bundle"],
   "avoid": ["failed or unsupported patterns not to repeat"],
   "knowledge_paths": ["only cards that directly support this direction"],
   "acceptance_checks": ["code/evaluator evidence required before success"],
@@ -397,6 +465,10 @@ Rules:
 - Do not write source code or patch instructions.
 - Choose exactly one coherent direction for the Coding Agent.
 - Select exactly one compatible method package from method_package_catalog and keep that package for same-direction repairs.
+- Read the selected package implementation_contract before planning. Your direction must cover its complete required_components
+  and coupled_groups in one implementation bundle; do not ask the Coding Agent to implement only one convenient component.
+- Same-direction repairs may focus on missing/partial components, but the direction is complete only when every required
+  component has reachable evidence.
 - Prefer the recommended package unless task evidence makes another compatible package more appropriate.
 - {phase_rule}
 - For round_index >= 0, never return strategy_type=baseline_constructor. Read incumbent_key_before and previous_rounds,
@@ -417,6 +489,8 @@ Dynamic evaluator and knowledge context:
 
 
 def _strings(value: Any, *, limit: int) -> list[str]:
+    if limit <= 0:
+        return []
     if isinstance(value, str):
         values = [value]
     elif isinstance(value, list):

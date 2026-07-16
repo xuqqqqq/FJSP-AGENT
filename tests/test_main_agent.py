@@ -9,6 +9,7 @@ from harness_agent.context.packet import ContextPacketRequest, write_context_pac
 from harness_agent.agents.main import (
     DirectionPlanRequest,
     EvidenceDrivenMainAgent,
+    bind_direction_plan_to_method_catalog,
     compact_main_agent_dynamic_context,
     enforce_improvement_direction_contract,
     normalize_direction_plan,
@@ -94,6 +95,77 @@ class MainAgentTests(unittest.TestCase):
         self.assertEqual("baseline_constructor", plan["strategy_type"])
         self.assertEqual("standard_fjsp_awls_hgtsa", plan["method_package_id"])
         self.assertIn("reference_solver.py", " ".join(plan["knowledge_paths"]))
+
+    def test_selected_method_package_binds_full_implementation_bundle(self) -> None:
+        plan = bind_direction_plan_to_method_catalog(
+            normalize_direction_plan(
+                {
+                    "title": "Adapt synthetic package",
+                    "strategy_type": "baseline_constructor",
+                    "change_scope": ["Start from the synthetic package."],
+                    "acceptance_checks": ["Pass evaluator legality."],
+                    "method_package_id": "toy_complete_bundle",
+                },
+                round_index=-1,
+            ),
+            context={
+                "method_package_catalog": {
+                    "recommended_package_id": "toy_complete_bundle",
+                    "packages": [
+                        {
+                            "package_id": "toy_complete_bundle",
+                            "assets": [
+                                "knowledge/method_packages/toy_complete/README.md",
+                                "knowledge/method_packages/toy_complete/reference_solver.py",
+                            ],
+                            "implementation_contract_asset": (
+                                "knowledge/method_packages/toy_complete/implementation_contract.json"
+                            ),
+                            "implementation_contract": {
+                                "contract_id": "toy_complete_contract",
+                                "mode": "complete_method_package",
+                                "completion_rule": "Implement every required component.",
+                                "variant_rule": "Keep toy constraints active.",
+                                "required_components": [
+                                    {"component_id": "toy_decoder", "title": "Toy decoder"},
+                                    {"component_id": "toy_search", "title": "Toy search"},
+                                ],
+                                "coupled_groups": [
+                                    {
+                                        "group_id": "toy_loop",
+                                        "component_ids": ["toy_decoder", "toy_search"],
+                                        "rule": "Decoder output must feed the search.",
+                                    }
+                                ],
+                            },
+                        }
+                    ],
+                }
+            },
+        )
+
+        self.assertEqual("toy_complete_bundle", plan["method_package_id"])
+        self.assertEqual(
+            "toy_complete_contract",
+            plan["implementation_bundle"]["contract_id"],
+        )
+        self.assertEqual(
+            ["toy_decoder", "toy_search"],
+            [item["component_id"] for item in plan["implementation_bundle"]["required_components"]],
+        )
+        self.assertIn(
+            "Implement and verify the complete selected method bundle in one coherent direction: toy_decoder, toy_search",
+            plan["change_scope"],
+        )
+        self.assertIn(
+            "Every required component in implementation_bundle must have reachable source evidence; partial package implementation is not complete.",
+            plan["acceptance_checks"],
+        )
+        self.assertIn("reference_solver.py", " ".join(plan["knowledge_paths"]))
+        self.assertEqual(
+            "knowledge/method_packages/toy_complete/implementation_contract.json",
+            plan["knowledge_paths"][0],
+        )
 
     def test_main_agent_dynamic_context_keeps_incumbent_history_and_core_anchor(self) -> None:
         rendered = compact_main_agent_dynamic_context(

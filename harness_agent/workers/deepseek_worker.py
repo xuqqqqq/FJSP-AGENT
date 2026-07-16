@@ -416,8 +416,14 @@ Rules:
   as the Main Agent experiment contract. Translate that plan into code evidence;
   do not replace it with an unrelated worker-authored algorithm direction.
 - If Priority context contains `active_method_package`, adapt only that package
-  in this direction. Read the implementation asset and behavior contract, keep
-  the executable method structure, and do not combine unrelated method families.
+  in this direction. Read its generic implementation_contract and implementation
+  asset, enumerate every required component and coupled group, keep the executable
+  method structure, and do not combine unrelated method families.
+- If `loop_feedback.current_direction_plan.implementation_bundle` is present,
+  implement that complete bundle in one coherent direction. During same-direction
+  repair, preserve implemented entries and finish every missing/partial entry in
+  `repair_targets.algorithm_semantic_review.implementation_coverage` and
+  `coupled_group_coverage` before claiming completion.
 - If previous_pipeline_memory.operator_guidance is present, use its must_do,
   preserve, mutate, and avoid lists when forming rule_operator_hypotheses and
   novelty statements.
@@ -1363,11 +1369,55 @@ def compact_algorithm_semantic_review_for_prompt(value: dict[str, Any]) -> dict[
     return {
         "status": value.get("status"),
         "accepted": value.get("accepted"),
+        "coverage_complete": value.get("coverage_complete"),
         "summary": str(value.get("summary") or "")[:800],
+        "component_coverage": compact_incomplete_method_coverage(
+            value.get("component_coverage"),
+            id_key="component_id",
+        ),
+        "coupled_group_coverage": compact_incomplete_method_coverage(
+            value.get("coupled_group_coverage"),
+            id_key="group_id",
+        ),
         "findings": findings,
         "knowledge_paths": (value.get("knowledge_paths") or [])[:12],
         "artifacts": value.get("artifacts") or {},
     }
+
+
+def compact_incomplete_method_coverage(value: Any, *, id_key: str) -> list[dict[str, Any]]:
+    """历史上下文只保留未完成覆盖项，但不丢掉其具体剩余行为。"""
+
+    compact: list[dict[str, Any]] = []
+    for item in value or []:
+        if not isinstance(item, dict) or item.get("status") == "implemented":
+            continue
+        entry = {
+            id_key: item.get(id_key),
+            "status": item.get("status"),
+            "source_path": item.get("source_path"),
+            "line_start": item.get("line_start"),
+            "missing_behaviors": (item.get("missing_behaviors") or [])[:12],
+            "missing_behavior": str(item.get("missing_behavior") or "")[:1600],
+        }
+        behavior_coverage = []
+        for behavior in item.get("behavior_coverage") or []:
+            if not isinstance(behavior, dict) or behavior.get("status") == "implemented":
+                continue
+            behavior_coverage.append(
+                {
+                    "behavior_index": behavior.get("behavior_index"),
+                    "behavior": str(behavior.get("behavior") or "")[:1200],
+                    "status": behavior.get("status"),
+                    "source_path": behavior.get("source_path"),
+                    "line_start": behavior.get("line_start"),
+                    "evidence": str(behavior.get("evidence") or "")[:800],
+                }
+            )
+        if behavior_coverage:
+            entry["behavior_coverage"] = behavior_coverage
+        compact.append(entry)
+    return compact
 
 
 def compact_solver_contract_self_check_audit_for_prompt(value: dict[str, Any]) -> dict[str, Any]:

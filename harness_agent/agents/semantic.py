@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -41,6 +41,9 @@ class AlgorithmSemanticReviewResult:
     reviewer: str
     artifacts: dict[str, str]
     usage: dict[str, int] | None = None
+    component_coverage: list[dict[str, Any]] = field(default_factory=list)
+    coupled_group_coverage: list[dict[str, Any]] = field(default_factory=list)
+    coverage_complete: bool = True
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -54,6 +57,9 @@ class AlgorithmSemanticReviewResult:
             "reviewer": self.reviewer,
             "artifacts": self.artifacts,
             "usage": self.usage or {},
+            "component_coverage": self.component_coverage,
+            "coupled_group_coverage": self.coupled_group_coverage,
+            "coverage_complete": self.coverage_complete,
         }
 
 
@@ -68,6 +74,16 @@ class EvidenceOnlySemanticReviewer:
     """Non-blocking fallback when no model-backed semantic reviewer is configured."""
 
     def review(self, request: AlgorithmSemanticReviewRequest) -> AlgorithmSemanticReviewResult:
+        components, groups = required_method_contract(request.direction_plan)
+        if components:
+            return normalize_semantic_review(
+                {"summary": "A complete method package was declared but no model-backed reviewer is configured."},
+                sources={},
+                knowledge={},
+                required_components=components,
+                required_coupled_groups=groups,
+                reviewer="evidence_only_fallback",
+            )
         return AlgorithmSemanticReviewResult(
             status="skipped",
             accepted=True,
@@ -107,7 +123,18 @@ class DeepSeekAlgorithmSemanticReviewer:
                 context=context,
                 direction_plan=request.direction_plan,
             )
+            required_components, required_groups = required_method_contract(request.direction_plan)
             if not sources or not knowledge:
+                if required_components:
+                    unavailable = normalize_semantic_review(
+                        {"summary": "Complete-method review lacks candidate source or its declared knowledge contract."},
+                        sources=sources,
+                        knowledge=knowledge,
+                        required_components=required_components,
+                        required_coupled_groups=required_groups,
+                        reviewer="deepseek_algorithm_semantic_reviewer",
+                    )
+                    return write_semantic_review_artifacts(request.output_dir, unavailable)
                 return AlgorithmSemanticReviewResult(
                     status="skipped",
                     accepted=True,
@@ -150,7 +177,7 @@ class DeepSeekAlgorithmSemanticReviewer:
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.05,
-                max_tokens=6000,
+                max_tokens=9000,
                 json_mode=True,
             )
             raw_path.write_text(response.content + "\n", encoding="utf-8")
@@ -178,7 +205,7 @@ class DeepSeekAlgorithmSemanticReviewer:
                         },
                     ],
                     temperature=0.0,
-                    max_tokens=3500,
+                    max_tokens=9000,
                     json_mode=True,
                 )
                 retry_path.write_text(retry.content + "\n", encoding="utf-8")
@@ -191,6 +218,8 @@ class DeepSeekAlgorithmSemanticReviewer:
                 raw,
                 sources=sources,
                 knowledge=knowledge,
+                required_components=required_components,
+                required_coupled_groups=required_groups,
                 reviewer="deepseek_algorithm_semantic_reviewer",
                 usage=usage,
                 artifacts=artifacts,
@@ -223,6 +252,8 @@ def normalize_semantic_review(
     *,
     sources: dict[str, str],
     knowledge: dict[str, str],
+    required_components: list[dict[str, Any]] | None = None,
+    required_coupled_groups: list[dict[str, Any]] | None = None,
     reviewer: str,
     usage: dict[str, int] | None = None,
     artifacts: dict[str, str] | None = None,
@@ -239,7 +270,26 @@ def normalize_semantic_review(
     blocking = [item for item in findings if item.get("blocking")]
     warning_count = sum(1 for item in findings if not item.get("blocking"))
     rejected_count = len(requested_findings) - len(findings)
-    status = "repair_required" if blocking else ("warning" if warning_count or rejected_count else "pass")
+    component_coverage = normalize_component_coverage(
+        payload.get("component_coverage"),
+        required_components=required_components or [],
+        sources=sources,
+    )
+    coupled_group_coverage = normalize_coupled_group_coverage(
+        payload.get("coupled_group_coverage"),
+        required_groups=required_coupled_groups or [],
+        sources=sources,
+    )
+    coverage_complete = all(item.get("status") == "implemented" for item in component_coverage) and all(
+        item.get("status") == "implemented" for item in coupled_group_coverage
+    )
+    status = (
+        "repair_required"
+        if blocking or not coverage_complete
+        else "warning"
+        if warning_count or rejected_count
+        else "pass"
+    )
     summary = str(payload.get("summary") or "").strip()
     if rejected_count:
         rejection_note = (
@@ -259,9 +309,25 @@ def normalize_semantic_review(
             if findings
             else "No evidence-backed semantic mismatch was found."
         )
+    incomplete_components = [
+        item.get("component_id") for item in component_coverage if item.get("status") != "implemented"
+    ]
+    incomplete_groups = [
+        item.get("group_id") for item in coupled_group_coverage if item.get("status") != "implemented"
+    ]
+    if incomplete_components:
+        summary = (
+            f"Complete-method coverage is missing or partial for: {', '.join(str(item) for item in incomplete_components)}. "
+            f"{summary}"
+        )
+    if incomplete_groups:
+        summary = (
+            f"Coupled method behavior is missing or partial for: {', '.join(str(item) for item in incomplete_groups)}. "
+            f"{summary}"
+        )
     return AlgorithmSemanticReviewResult(
         status=status,
-        accepted=not blocking,
+        accepted=not blocking and coverage_complete,
         summary=summary[:1200],
         findings=findings,
         reviewed_files=sorted(sources),
@@ -269,7 +335,198 @@ def normalize_semantic_review(
         reviewer=reviewer,
         artifacts=dict(artifacts or {}),
         usage=usage,
+        component_coverage=component_coverage,
+        coupled_group_coverage=coupled_group_coverage,
+        coverage_complete=coverage_complete,
     )
+
+
+def required_method_contract(
+    direction_plan: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """返回当前方法包声明的完整组件和耦合组，不解释任何具体算法。"""
+
+    bundle = (
+        direction_plan.get("implementation_bundle")
+        if isinstance(direction_plan.get("implementation_bundle"), dict)
+        else {}
+    )
+    components = [item for item in bundle.get("required_components") or [] if isinstance(item, dict)]
+    groups = [item for item in bundle.get("coupled_groups") or [] if isinstance(item, dict)]
+    return components, groups
+
+
+def required_method_components(direction_plan: dict[str, Any]) -> list[dict[str, Any]]:
+    """兼容已有调用方；新代码应使用 required_method_contract。"""
+
+    return required_method_contract(direction_plan)[0]
+
+
+def normalize_component_coverage(
+    raw: Any,
+    *,
+    required_components: list[dict[str, Any]],
+    sources: dict[str, str],
+) -> list[dict[str, Any]]:
+    """把 Reviewer 的正向覆盖证据对齐到知识包要求的完整组件集合。"""
+
+    provided = {
+        str(item.get("component_id") or "").strip(): item
+        for item in raw or []
+        if isinstance(item, dict) and str(item.get("component_id") or "").strip()
+    }
+    coverage: list[dict[str, Any]] = []
+    for component in required_components:
+        component_id = str(component.get("component_id") or "").strip()
+        if not component_id:
+            continue
+        value = provided.get(component_id, {})
+        required_behaviors = [
+            str(item)[:1200] for item in component.get("required_behaviors") or [] if str(item).strip()
+        ]
+        raw_behavior_coverage = [
+            item for item in value.get("behavior_coverage") or [] if isinstance(item, dict)
+        ]
+        by_behavior_index = {
+            _bounded_int(item.get("behavior_index"), lower=1, upper=max(1, len(required_behaviors))): item
+            for item in raw_behavior_coverage
+        }
+        behavior_coverage: list[dict[str, Any]] = []
+        for behavior_index, behavior in enumerate(required_behaviors, start=1):
+            behavior_value = by_behavior_index.get(behavior_index, {})
+            requested_status = str(behavior_value.get("status") or "missing").strip().lower()
+            status = requested_status if requested_status in {"implemented", "partial", "missing"} else "missing"
+            source_path, line_start, line_end, source_excerpt = normalize_coverage_location(
+                behavior_value,
+                sources=sources,
+            )
+            evidence = str(behavior_value.get("evidence") or "").strip()
+            if status == "implemented" and (not source_excerpt or len(evidence) < 12):
+                status = "partial" if source_excerpt else "missing"
+            elif status == "partial" and not source_excerpt:
+                status = "missing"
+            behavior_coverage.append(
+                {
+                    "behavior_index": behavior_index,
+                    "behavior": behavior,
+                    "status": status,
+                    "source_path": source_path,
+                    "line_start": line_start,
+                    "line_end": line_end,
+                    "source_excerpt": source_excerpt[:4000],
+                    "evidence": evidence[:1200],
+                }
+            )
+
+        behavior_statuses = [item["status"] for item in behavior_coverage]
+        if behavior_statuses and all(item == "implemented" for item in behavior_statuses):
+            status = "implemented"
+        elif any(item in {"implemented", "partial"} for item in behavior_statuses):
+            status = "partial"
+        else:
+            status = "missing"
+        first_evidence = next(
+            (item for item in behavior_coverage if item.get("source_excerpt")),
+            {},
+        )
+        reported_missing = [
+            str(item)[:1200] for item in value.get("missing_behaviors") or [] if str(item).strip()
+        ]
+        uncovered_behaviors = [
+            str(item.get("behavior") or "")
+            for item in behavior_coverage
+            if item.get("status") != "implemented"
+        ]
+        missing_behaviors = [] if status == "implemented" else list(
+            dict.fromkeys([*uncovered_behaviors, *reported_missing])
+        )
+        coverage.append(
+            {
+                "component_id": component_id,
+                "title": str(component.get("title") or component_id)[:240],
+                "status": status,
+                "required_behaviors": required_behaviors,
+                "evidence_required": str(component.get("evidence_required") or "")[:1600],
+                "behavior_coverage": behavior_coverage,
+                "source_path": first_evidence.get("source_path"),
+                "line_start": first_evidence.get("line_start"),
+                "line_end": first_evidence.get("line_end"),
+                "source_excerpt": str(first_evidence.get("source_excerpt") or "")[:4000],
+                "evidence": str(value.get("evidence") or "")[:1200],
+                "missing_behaviors": missing_behaviors,
+            }
+        )
+    return coverage
+
+
+def normalize_coverage_location(
+    value: dict[str, Any],
+    *,
+    sources: dict[str, str],
+) -> tuple[str | None, int | None, int | None, str]:
+    """解析一条覆盖证据的位置；任意越界或空白片段都不算源码证据。"""
+
+    source_path = resolve_review_path(value.get("source_path"), sources)
+    line_start = _bounded_int(value.get("line_start"), lower=1, upper=1_000_000)
+    line_end = _bounded_int(value.get("line_end"), lower=line_start, upper=line_start + 80)
+    source_excerpt = ""
+    if source_path is not None:
+        source_lines = sources[source_path].splitlines()
+        if line_start <= len(source_lines):
+            line_end = min(line_end, len(source_lines))
+            source_excerpt = "\n".join(source_lines[line_start - 1 : line_end]).strip()
+    if not source_excerpt:
+        return source_path, None, None, ""
+    return source_path, line_start, line_end, source_excerpt
+
+
+def normalize_coupled_group_coverage(
+    raw: Any,
+    *,
+    required_groups: list[dict[str, Any]],
+    sources: dict[str, str],
+) -> list[dict[str, Any]]:
+    """验证组件间的行为闭环，避免“零件都有、调用链没接上”。"""
+
+    provided = {
+        str(item.get("group_id") or "").strip(): item
+        for item in raw or []
+        if isinstance(item, dict) and str(item.get("group_id") or "").strip()
+    }
+    coverage: list[dict[str, Any]] = []
+    for group in required_groups:
+        group_id = str(group.get("group_id") or "").strip()
+        if not group_id:
+            continue
+        value = provided.get(group_id, {})
+        requested_status = str(value.get("status") or "missing").strip().lower()
+        status = requested_status if requested_status in {"implemented", "partial", "missing"} else "missing"
+        source_path, line_start, line_end, source_excerpt = normalize_coverage_location(value, sources=sources)
+        evidence = str(value.get("evidence") or "").strip()
+        missing_behavior = str(value.get("missing_behavior") or "").strip()
+        if status == "implemented" and (not source_excerpt or len(evidence) < 12 or missing_behavior):
+            status = "partial" if source_excerpt else "missing"
+        elif status == "partial" and not source_excerpt:
+            status = "missing"
+        coverage.append(
+            {
+                "group_id": group_id,
+                "component_ids": [
+                    str(item)[:160] for item in group.get("component_ids") or [] if str(item).strip()
+                ],
+                "rule": str(group.get("rule") or "")[:1600],
+                "status": status,
+                "source_path": source_path,
+                "line_start": line_start,
+                "line_end": line_end,
+                "source_excerpt": source_excerpt[:4000],
+                "evidence": evidence[:1600],
+                "missing_behavior": (
+                    "" if status == "implemented" else str(missing_behavior or group.get("rule") or "")[:1600]
+                ),
+            }
+        )
+    return coverage
 
 
 def verified_semantic_finding(
@@ -345,6 +602,38 @@ Review the candidate algorithm implementation after Core legality evaluation and
 Return JSON only:
 {{
   "summary": "short evidence-based verdict",
+  "component_coverage": [
+    {{
+      "component_id": "exact id from direction_plan.implementation_bundle.required_components",
+      "status": "implemented | partial | missing",
+      "source_path": "exact path key from Candidate source, required when implemented",
+      "line_start": 1,
+      "line_end": 1,
+      "evidence": "how reachable code implements this complete component",
+      "behavior_coverage": [
+        {{
+          "behavior_index": 1,
+          "status": "implemented | partial | missing",
+          "source_path": "exact path key",
+          "line_start": 1,
+          "line_end": 1,
+          "evidence": "how these lines implement this exact required_behaviors entry"
+        }}
+      ],
+      "missing_behaviors": ["remaining behavior when partial or missing"]
+    }}
+  ],
+  "coupled_group_coverage": [
+    {{
+      "group_id": "exact id from direction_plan.implementation_bundle.coupled_groups",
+      "status": "implemented | partial | missing",
+      "source_path": "exact path key proving the connected runtime path",
+      "line_start": 1,
+      "line_end": 1,
+      "evidence": "how the required components form one reachable closed loop",
+      "missing_behavior": "remaining broken connection when partial or missing"
+    }}
+  ],
   "findings": [
     {{
       "finding_id": "stable id",
@@ -369,18 +658,24 @@ Rules:
 - A blocking finding requires confidence >= 0.8, exact source lines, an exact knowledge quote, a bounded repair, and a behavioral test.
 - Derive every semantic requirement from the supplied knowledge contracts; the generic reviewer has no built-in problem-family algorithm rules.
 - Treat function, class, and variable names only as source-navigation labels. Names are never positive or negative evidence.
-- A retrieved method package is reference material, not proof that the direction claims its complete algorithm. Derive the
-  required behavior from the direction title, hypothesis, change_scope, and explicit proposal claims. Do not require every
-  component in a package merely because that package was selected or a source label uses its name.
-- When source labels overclaim a stronger method than the direction requests, prefer a bounded correction to the claim over
-  forcing unrelated algorithm components into an otherwise coherent implementation.
+- A retrieved method package is reference material, not proof by itself. When direction_plan.implementation_bundle is absent,
+  derive required behavior from explicit direction claims. When that bundle is present with mode=complete_method_package,
+  it is an explicit complete-method claim: audit every required component exactly once and check every coupled group.
+- Emit one behavior_coverage row for every required_behaviors entry, using its 1-based behavior_index. Mark the component
+  implemented only when every behavior row has exact reachable source lines and a concrete explanation. Mark it partial when
+  only part is reachable, and missing when no implementation path exists. Do not omit components or behavior rows.
+- Audit every coupled_group exactly once. A group is implemented only when the required components are connected in the same
+  reachable runtime path; separately defined helpers or mismatched generation/scoring/application identities are partial.
+- When no complete implementation_bundle was declared and source labels overclaim a stronger method than the direction
+  requests, prefer a bounded correction to the label. A declared complete bundle cannot pass by renaming or narrowing its claim.
 - Check that implementation behavior matches its claimed method through reachable call paths, values consumed by decisions,
   before/after state transitions, acceptance and rollback behavior, and observable tests. A method-named helper that is dead,
   returns a constant, or computes a value that is never consumed does not implement the method. An arbitrarily named helper
   that performs the required behavior does implement it.
 - When a supplied contract distinguishes two states, attributes, graph properties, bounds, or acceptance rules, verify that the reachable implementation preserves that distinction.
 - Do not use benchmark target values or previous solution files as method knowledge.
-- Do not invent missing requirements. If evidence is incomplete, emit a warning or no finding.
+- Do not invent missing requirements. For free-form findings, incomplete evidence cannot block. For a declared component or
+  coupled group, incomplete implementation evidence must be recorded as partial or missing in the coverage matrix.
 
 Direction plan:
 {json.dumps(direction_plan, ensure_ascii=False, indent=2)}
@@ -407,14 +702,46 @@ def semantic_review_json_repair_prompt(
         for path, text in (sources or {}).items()
     }
     return f"""
-Convert the draft review below into the exact JSON schema shown here. Preserve only findings already identified in
-the draft. Do not add new findings, commentary, markdown, or code fences.
+Convert the draft review below into the exact JSON schema shown here. Preserve the draft component and coupled-group coverage,
+and only findings already identified in the draft. Do not add new findings, commentary, markdown, or code fences.
 
 Every finding must use an exact source_path and knowledge_path key supplied below. Derive line_start and line_end from
 the numbered source, and copy knowledge_quote exactly from the supplied knowledge text.
 
 {{
   "summary": "short evidence-based verdict",
+  "component_coverage": [
+    {{
+      "component_id": "exact required component id from the draft",
+      "status": "implemented | partial | missing",
+      "source_path": "exact source path when implemented",
+      "line_start": 1,
+      "line_end": 1,
+      "evidence": "reachable behavior evidence",
+      "behavior_coverage": [
+        {{
+          "behavior_index": 1,
+          "status": "implemented | partial | missing",
+          "source_path": "exact source path when implemented",
+          "line_start": 1,
+          "line_end": 1,
+          "evidence": "evidence for this exact behavior"
+        }}
+      ],
+      "missing_behaviors": []
+    }}
+  ],
+  "coupled_group_coverage": [
+    {{
+      "group_id": "exact required coupled group id from the draft",
+      "status": "implemented | partial | missing",
+      "source_path": "exact source path when implemented",
+      "line_start": 1,
+      "line_end": 1,
+      "evidence": "reachable coupling evidence",
+      "missing_behavior": ""
+    }}
+  ],
   "findings": [
     {{
       "finding_id": "stable id",
@@ -553,6 +880,9 @@ def write_semantic_review_artifacts(
         reviewer=result.reviewer,
         artifacts=artifacts,
         usage=result.usage,
+        component_coverage=result.component_coverage,
+        coupled_group_coverage=result.coupled_group_coverage,
+        coverage_complete=result.coverage_complete,
     )
     json_path.write_text(json.dumps(result.to_payload(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     lines = [
@@ -561,11 +891,40 @@ def write_semantic_review_artifacts(
         f"- Status: `{result.status}`",
         f"- Accepted: `{result.accepted}`",
         f"- Reviewer: `{result.reviewer}`",
+        f"- Complete method coverage: `{result.coverage_complete}`",
         f"- Summary: {result.summary}",
+        "",
+        "## Component Coverage",
+        "",
+    ]
+    if not result.component_coverage:
+        lines.append("- No complete-method implementation bundle was declared.")
+    for item in result.component_coverage:
+        source = item.get("source_path")
+        line = item.get("line_start")
+        source_text = f"{source}:{line}" if source and line else "no source evidence"
+        lines.append(f"- `{item.get('component_id')}`: **{item.get('status')}** ({source_text})")
+    lines.extend(
+        [
+        "",
+        "## Coupled Group Coverage",
+        "",
+        ]
+    )
+    if not result.coupled_group_coverage:
+        lines.append("- No coupled groups were declared.")
+    for item in result.coupled_group_coverage:
+        source = item.get("source_path")
+        line = item.get("line_start")
+        source_text = f"{source}:{line}" if source and line else "no source evidence"
+        lines.append(f"- `{item.get('group_id')}`: **{item.get('status')}** ({source_text})")
+    lines.extend(
+        [
         "",
         "## Findings",
         "",
-    ]
+        ]
+    )
     if not result.findings:
         lines.append("- No evidence-backed semantic mismatch was found.")
     for item in result.findings:

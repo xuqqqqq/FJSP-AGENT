@@ -24,7 +24,12 @@ from harness_agent.agents.hypothesis import (
     summarize_direction_graph,
 )
 from harness_agent.core.ledger import ExperimentRecord
-from harness_agent.agents.main import DirectionPlanRequest, DirectionPlanningAgent, EvidenceDrivenMainAgent
+from harness_agent.agents.main import (
+    DirectionPlanRequest,
+    DirectionPlanningAgent,
+    EvidenceDrivenMainAgent,
+    method_implementation_bundle,
+)
 from harness_agent.core.models import ObjectiveSpec, TaskContract
 from harness_agent.core.runner import RunSummary
 from harness_agent.agents.semantic import (
@@ -82,6 +87,8 @@ class WorkerLoopResult:
     baseline_summary: RunSummary
     baseline_source: str = "current_project"
     baseline_generation: dict[str, Any] | None = None
+    status: str = "ok"
+    stop_reason: str | None = None
 
 
 def run_worker_loop(
@@ -159,9 +166,18 @@ def run_worker_loop(
         baseline_summary=baseline_summary,
         baseline_key=incumbent_key,
     ):
+        stop_reason = agent_generated_baseline_failure_reason(
+            baseline_generation,
+            baseline_summary=baseline_summary,
+            baseline_key=incumbent_key,
+        )
         if isinstance(baseline_generation, dict):
+            if baseline_generation.get("status") == "ok":
+                baseline_generation["status"] = "rejected"
+            baseline_generation["accepted_as_incumbent"] = False
+            baseline_generation["failure_reason"] = stop_reason
             baseline_generation["stopped_before_rounds"] = True
-            baseline_generation["stop_reason"] = "agent_generated_baseline_not_valid"
+            baseline_generation["stop_reason"] = stop_reason
         result = WorkerLoopResult(
             baseline_key=incumbent_key,
             final_key=incumbent_key,
@@ -170,6 +186,8 @@ def run_worker_loop(
             baseline_summary=baseline_summary,
             baseline_source=normalized_baseline_source,
             baseline_generation=baseline_generation,
+            status="baseline_generation_failed",
+            stop_reason=stop_reason,
         )
         write_loop_report(output_dir=output_dir, result=result, problem_family=contract.problem_family)
         return result
@@ -686,15 +704,22 @@ def current_round_repair_feedback(
                 "Preserve its effective mechanisms and repair accumulated findings with the smallest coherent edit."
             ),
         }
+    semantic_repair = bool(repair_targets.get("algorithm_semantic_review"))
     must_do = [
-        "Treat the previous attempt as rejected inside this same direction; do not repeat its anchors, unsafe actions, or protected-fact regressions.",
-        (
-            "If the previous attempt was legal but not strictly better, keep the same direction and make a material refinement "
-            "to the rule/operator mechanism before trying a new direction."
-        ),
+        "Treat the previous attempt as rejected inside this same direction; do not repeat its unsafe actions or protected-fact regressions.",
         "Repair the listed JA/evaluator issues before introducing an unrelated objective-improvement idea.",
-        "Preserve the incumbent worktree and promoted mechanisms; make one bounded legal edit that can pass JA and smoke before Core scoring.",
+        "Preserve the repair-base worktree and verified mechanisms; make one bounded legal edit that can pass JA and smoke before Core scoring.",
     ]
+    if semantic_repair:
+        must_do.append(
+            "This is a same-direction implementation repair, not an objective-refinement attempt. Close every missing/partial "
+            "component and coupled group in the latest implementation coverage matrix, plus evidence-backed blocking findings. "
+            "Do not implement non-blocking warnings, retune parameters, or switch method families."
+        )
+    elif legal_no_improvement or anchor_quality_regression:
+        must_do.append(
+            "Keep the same direction and make one material refinement to the rule/operator mechanism before trying a new direction."
+        )
     if repair_targets:
         must_do.append(
             "Repair the blocking items in repair_targets explicitly; do not rewrite unrelated working behavior."
@@ -705,20 +730,27 @@ def current_round_repair_feedback(
         )
     if repair_targets.get("algorithm_semantic_review"):
         must_do.append(
-            "Repair only the evidence-backed blocking findings in repair_targets.algorithm_semantic_review. Use the smallest "
-            "coherent edit, preserve unrelated constructor and neighborhood behavior, and add the required behavioral tests. "
-            "If the source overclaims a method that the direction did not request, narrow the claim instead of expanding the solver."
+            "Treat repair_targets.algorithm_semantic_review.implementation_coverage and coupled_group_coverage as the complete "
+            "remaining-work list for the selected Method Package. Preserve implemented entries, finish all missing/partial entries "
+            "coherently, repair evidence-backed blocking findings, and add the required behavioral tests."
         )
     if repair_targets.get("baseline_core_valid_anchor"):
         must_do.append(
             "This repair starts from repair_targets.baseline_core_valid_anchor, not from the most recent degraded attempt. "
-            "Keep the anchor's effective search structure, apply all accumulated repair targets, and do not accept a weaker Core objective merely to pass semantic review."
+            "Keep unrelated anchor behavior byte-for-byte where practical. Core quality and semantic correctness are tracked "
+            "separately; do not broaden the patch merely to compensate for stochastic objective movement."
         )
     return {
         "status": status,
         "attempt_index": attempt_index,
         "max_repair_attempts": max_repair_attempts,
-        "previous_attempts": [repair_attempt_context_payload(attempt) for attempt in recent],
+        "previous_attempts": [
+            repair_attempt_context_payload(
+                attempt,
+                include_semantic_targets=index == len(recent) - 1,
+            )
+            for index, attempt in enumerate(recent)
+        ],
         "repair_targets": repair_targets,
         "must_do": must_do,
         "avoid": sorted(
@@ -732,7 +764,11 @@ def current_round_repair_feedback(
     }
 
 
-def repair_attempt_context_payload(attempt: dict[str, Any]) -> dict[str, Any]:
+def repair_attempt_context_payload(
+    attempt: dict[str, Any],
+    *,
+    include_semantic_targets: bool = True,
+) -> dict[str, Any]:
     """Keep repair evidence while removing non-blocking static diagnostics.
 
     `repair_targets` is the authoritative aggregation of JA/Core/semantic
@@ -748,7 +784,72 @@ def repair_attempt_context_payload(attempt: dict[str, Any]) -> dict[str, Any]:
             for key in ("accepted", "right", "stage", "issues", "suggestions")
             if key in judgment
         }
+    semantic_review = payload.get("semantic_review")
+    if isinstance(semantic_review, dict):
+        if not include_semantic_targets:
+            payload["semantic_review"] = {
+                "status": semantic_review.get("status"),
+                "accepted": semantic_review.get("accepted"),
+                "summary": "Superseded by the latest semantic coverage matrix in repair_targets.",
+            }
+            return payload
+        blocking_findings = [
+            finding
+            for finding in semantic_review.get("findings") or []
+            if isinstance(finding, dict) and finding.get("blocking")
+        ]
+        incomplete_components = [
+            item
+            for item in semantic_review.get("component_coverage") or []
+            if isinstance(item, dict) and item.get("status") != "implemented"
+        ]
+        incomplete_groups = [
+            item
+            for item in semantic_review.get("coupled_group_coverage") or []
+            if isinstance(item, dict) and item.get("status") != "implemented"
+        ]
+        payload["semantic_review"] = {
+            "status": semantic_review.get("status"),
+            "accepted": semantic_review.get("accepted"),
+            "summary": _blocking_semantic_repair_summary(
+                blocking_findings,
+                incomplete_components=incomplete_components,
+                incomplete_groups=incomplete_groups,
+            ),
+            "findings": blocking_findings,
+            "knowledge_paths": semantic_review.get("knowledge_paths") or [],
+            "coverage_complete": semantic_review.get("coverage_complete"),
+            "component_coverage": incomplete_components,
+            "coupled_group_coverage": incomplete_groups,
+        }
     return payload
+
+
+def _blocking_semantic_repair_summary(
+    findings: list[dict[str, Any]],
+    *,
+    incomplete_components: list[dict[str, Any]] | None = None,
+    incomplete_groups: list[dict[str, Any]] | None = None,
+) -> str:
+    """只概括阻塞项，避免非阻塞 warning 被 Coding Agent 当成修补任务。"""
+
+    coverage_labels = [
+        *(str(item.get("component_id") or "") for item in incomplete_components or []),
+        *(str(item.get("group_id") or "") for item in incomplete_groups or []),
+    ]
+    coverage_labels = [item for item in coverage_labels if item]
+    if not findings and not coverage_labels:
+        return "No evidence-backed blocking semantic findings remain."
+    labels = [
+        str(finding.get("repair") or finding.get("claim") or finding.get("finding_id") or "semantic finding")
+        for finding in findings
+    ]
+    parts = []
+    if coverage_labels:
+        parts.append("Incomplete method coverage: " + ", ".join(coverage_labels))
+    if labels:
+        parts.append("Evidence-backed findings: " + "; ".join(labels[:8]))
+    return " | ".join(parts)
 
 
 def collect_current_round_repair_targets(attempts: list[dict[str, Any]]) -> dict[str, Any]:
@@ -816,50 +917,41 @@ def collect_current_round_repair_targets(attempts: list[dict[str, Any]]) -> dict
         add_list("diagnostic_smoke_top_errors", diagnostic_validation.get("top_errors"))
 
         semantic_review = attempt.get("semantic_review") if isinstance(attempt.get("semantic_review"), dict) else {}
-        if semantic_review_blocks_promotion(semantic_review):
-            semantic_target = targets.setdefault(
-                "algorithm_semantic_review",
-                {
-                    "status": semantic_review.get("status"),
-                    "summaries": [],
-                    "blocking_findings": [],
-                    "knowledge_paths": [],
-                    "artifacts": {},
-                },
-            )
-            semantic_target["status"] = semantic_review.get("status")
-            summary_text = str(semantic_review.get("summary") or "").strip()
-            if summary_text and summary_text not in semantic_target["summaries"]:
-                semantic_target["summaries"].append(summary_text)
-                semantic_target["summaries"] = semantic_target["summaries"][-4:]
-            existing_finding_keys = {
-                (
-                    str(finding.get("finding_id") or ""),
-                    str(finding.get("category") or ""),
-                    str(finding.get("explanation") or ""),
-                )
-                for finding in semantic_target["blocking_findings"]
-                if isinstance(finding, dict)
+        semantic_status = str(semantic_review.get("status") or "")
+        if semantic_status in {"pass", "warning"} and not semantic_review_blocks_promotion(semantic_review):
+            # 最新一次有效复审已经确认旧 finding 消失，不能继续把历史问题塞进 prompt。
+            targets.pop("algorithm_semantic_review", None)
+        elif semantic_review_blocks_promotion(semantic_review):
+            blocking_findings = [
+                finding
+                for finding in semantic_review.get("findings") or []
+                if isinstance(finding, dict) and finding.get("blocking")
+            ]
+            semantic_target = {
+                "status": semantic_review.get("status"),
+                "summaries": [],
+                "blocking_findings": blocking_findings[:8],
+                "implementation_coverage": [
+                    item
+                    for item in semantic_review.get("component_coverage") or []
+                    if isinstance(item, dict) and item.get("status") != "implemented"
+                ],
+                "coupled_group_coverage": [
+                    item
+                    for item in semantic_review.get("coupled_group_coverage") or []
+                    if isinstance(item, dict) and item.get("status") != "implemented"
+                ],
+                "knowledge_paths": list(semantic_review.get("knowledge_paths") or [])[:12],
+                "artifacts": dict(semantic_review.get("artifacts") or {}),
             }
-            for finding in semantic_review.get("findings") or []:
-                if not isinstance(finding, dict) or not finding.get("blocking"):
-                    continue
-                finding_key = (
-                    str(finding.get("finding_id") or ""),
-                    str(finding.get("category") or ""),
-                    str(finding.get("explanation") or ""),
-                )
-                if finding_key not in existing_finding_keys:
-                    semantic_target["blocking_findings"].append(finding)
-                    existing_finding_keys.add(finding_key)
-                if len(semantic_target["blocking_findings"]) >= 8:
-                    break
-            for knowledge_path in semantic_review.get("knowledge_paths") or []:
-                if knowledge_path not in semantic_target["knowledge_paths"]:
-                    semantic_target["knowledge_paths"].append(knowledge_path)
-                if len(semantic_target["knowledge_paths"]) >= 12:
-                    break
-            semantic_target["artifacts"].update(semantic_review.get("artifacts") or {})
+            summary_text = _blocking_semantic_repair_summary(
+                blocking_findings,
+                incomplete_components=semantic_target["implementation_coverage"],
+                incomplete_groups=semantic_target["coupled_group_coverage"],
+            )
+            if summary_text:
+                semantic_target["summaries"].append(summary_text)
+            targets["algorithm_semantic_review"] = semantic_target
 
         quality_contract = checks.get("agent_generated_solver_quality_contract")
         if not judgment_accepted and isinstance(quality_contract, dict) and quality_contract.get("enabled"):
@@ -1064,6 +1156,44 @@ def agent_generated_baseline_is_accepted(
     )
 
 
+def agent_generated_baseline_failure_reason(
+    baseline_generation: dict[str, Any] | None,
+    *,
+    baseline_summary: RunSummary,
+    baseline_key: tuple[float, ...],
+) -> str:
+    """返回 baseline 无法成为 incumbent 的首个确定性阻塞原因。"""
+
+    if not isinstance(baseline_generation, dict):
+        return "baseline_generation_metadata_missing"
+    if baseline_generation.get("source") != "agent_generated":
+        return "baseline_generation_source_invalid"
+    generation_status = str(baseline_generation.get("status") or "")
+    if generation_status and generation_status != "ok":
+        return generation_status
+    judgment = (
+        baseline_generation.get("agentic_judgment")
+        if isinstance(baseline_generation.get("agentic_judgment"), dict)
+        else {}
+    )
+    if not bool(judgment.get("accepted")):
+        return "judgment_rejected"
+    semantic_review = (
+        baseline_generation.get("semantic_review")
+        if isinstance(baseline_generation.get("semantic_review"), dict)
+        else {}
+    )
+    if semantic_review_blocks_promotion(semantic_review):
+        return "semantic_review_rejected"
+    if baseline_summary.total <= 0:
+        return "evaluator_produced_no_results"
+    if baseline_summary.valid != baseline_summary.total:
+        return "evaluator_rejected_baseline"
+    if _all_negative_infinity(baseline_key):
+        return "objective_missing"
+    return "baseline_acceptance_contract_failed"
+
+
 def agent_generated_baseline_cycle_is_core_accepted(cycle: Any) -> bool:
     judgment = getattr(cycle, "agentic_judgment", None)
     summary = getattr(cycle, "summary", None)
@@ -1109,6 +1239,38 @@ def select_best_core_valid_baseline_cycle(
             item[0],
         ),
     )
+
+
+def select_best_baseline_repair_cycle(
+    cycles: list[tuple[int, Any, Path, dict[str, Any]]],
+    *,
+    objectives: list[ObjectiveSpec],
+) -> tuple[int, Any, Path, dict[str, Any]] | None:
+    """选择下一次修补基底：先保留语义进度，再比较 Core 目标。"""
+
+    core_valid = [item for item in cycles if agent_generated_baseline_cycle_is_core_accepted(item[1])]
+    if not core_valid:
+        return None
+    return max(
+        core_valid,
+        key=lambda item: (
+            *_semantic_repair_progress_rank(item[3]),
+            *summary_objective_key(item[1].summary, objectives),
+            item[0],
+        ),
+    )
+
+
+def _semantic_repair_progress_rank(semantic_review: dict[str, Any] | None) -> tuple[int, int]:
+    if not semantic_review_blocks_promotion(semantic_review):
+        return (2, 0)
+    findings = semantic_review.get("findings") if isinstance(semantic_review, dict) else []
+    blocking_count = sum(
+        1 for finding in findings or [] if isinstance(finding, dict) and finding.get("blocking")
+    )
+    if blocking_count:
+        return (1, -blocking_count)
+    return (0, -1_000_000)
 
 
 def agent_generated_baseline_cycle_rank(
@@ -1269,31 +1431,26 @@ def run_agent_generated_baseline(
                 and prior_anchor_key
                 and candidate_key < prior_anchor_key
             )
-            if anchor_quality_regressed:
+            # 正确性和目标质量是两条独立证据轴。即使 makespan 暂时退化，也必须
+            # 完成语义复审，否则已修好的 finding 会被原样塞进下一次 prompt，形成死循环。
+            semantic_review = run_algorithm_semantic_review(
+                reviewer=semantic_reviewer,
+                cycle=cycle,
+                context_packet_path=baseline_context_path,
+                direction_plan=direction_plan or baseline_semantic_direction_plan(baseline_context_path),
+                round_index=-1,
+                attempt_index=attempt_index,
+                output_dir=attempt_dir / "semantic_review",
+            )
+            if anchor_quality_regressed and prior_core_anchor is not None:
                 semantic_review = {
-                    "schema_version": 1,
-                    "status": "quality_regressed",
-                    "accepted": False,
-                    "summary": (
-                        "Semantic review was skipped because this repair regressed below the best Core-valid "
-                        "baseline anchor. Restore anchor quality before requesting another method review."
-                    ),
-                    "findings": [],
-                    "reviewer": "baseline_core_anchor_gate",
-                    "anchor_attempt_index": prior_core_anchor[0],
-                    "anchor_key": list(prior_anchor_key),
-                    "candidate_key": list(candidate_key),
+                    **semantic_review,
+                    "core_quality_regression": {
+                        "anchor_attempt_index": prior_core_anchor[0],
+                        "anchor_key": list(prior_anchor_key),
+                        "candidate_key": list(candidate_key),
+                    },
                 }
-            else:
-                semantic_review = run_algorithm_semantic_review(
-                    reviewer=semantic_reviewer,
-                    cycle=cycle,
-                    context_packet_path=baseline_context_path,
-                    direction_plan=direction_plan or baseline_semantic_direction_plan(baseline_context_path),
-                    round_index=-1,
-                    attempt_index=attempt_index,
-                    output_dir=attempt_dir / "semantic_review",
-                )
             attempt_payload = round_attempt_payload(
                 cycle,
                 attempt_index=attempt_index,
@@ -1303,7 +1460,7 @@ def run_agent_generated_baseline(
             attempt_payload["repair_base_attempt_index"] = repair_anchor_attempt_index
             attempts.append(attempt_payload)
             cycle_attempts.append((attempt_index, cycle, baseline_context_path, semantic_review))
-            best_core_anchor = select_best_core_valid_baseline_cycle(
+            best_repair_anchor = select_best_baseline_repair_cycle(
                 cycle_attempts,
                 objectives=contract.objectives,
             )
@@ -1323,7 +1480,7 @@ def run_agent_generated_baseline(
                     "candidate_key": list(candidate_key),
                     "repair_required": True,
                 }
-            if semantic_passed and not anchor_quality_regressed:
+            if semantic_passed:
                 break
             should_repair = anchor_quality_regressed or should_attempt_in_round_repair(
                 cycle,
@@ -1331,9 +1488,9 @@ def run_agent_generated_baseline(
             )
             if attempt_index >= max_repair_attempts or not should_repair:
                 break
-            if best_core_anchor is not None:
-                repair_anchor_attempt_index = best_core_anchor[0]
-                repair_project_root = Path(best_core_anchor[1].worktree_path)
+            if best_repair_anchor is not None:
+                repair_anchor_attempt_index = best_repair_anchor[0]
+                repair_project_root = Path(best_repair_anchor[1].worktree_path)
             else:
                 repair_anchor_attempt_index = attempt_index
                 repair_project_root = Path(cycle.worktree_path)
@@ -1419,7 +1576,8 @@ def baseline_semantic_direction_plan(context_packet_path: Path) -> dict[str, Any
     """Describe baseline review without embedding problem-family algorithm rules."""
 
     loaded = load_context_packet(context_packet_path).effective_context
-    return {
+    active_package = loaded.get("active_method_package") if isinstance(loaded.get("active_method_package"), dict) else {}
+    plan = {
         "schema_version": 1,
         "direction_id": "agent_generated_baseline",
         "title": "Verify generated baseline method claims against retrieved contracts",
@@ -1431,6 +1589,27 @@ def baseline_semantic_direction_plan(context_packet_path: Path) -> dict[str, Any
             or (loaded.get("method_package_catalog") or {}).get("recommended_package_id")
         ),
     }
+    bundle = method_implementation_bundle(active_package)
+    if bundle:
+        plan["implementation_bundle"] = bundle
+        contract_paths = list(
+            dict.fromkeys(
+                str(item) for item in bundle.get("contract_paths") or [] if str(item).strip()
+            )
+        )
+        supplemental_paths = list(
+            dict.fromkeys(
+                [
+                    *(str(item) for item in active_package.get("assets") or []),
+                    *(str(item) for item in loaded.get("auto_knowledge_cards") or []),
+                ]
+            )
+        )
+        supplemental_paths = [
+            item for item in supplemental_paths if item and item not in contract_paths
+        ][: max(0, 12 - len(contract_paths))]
+        plan["knowledge_paths"] = [*contract_paths, *supplemental_paths]
+    return plan
 
 
 def plan_agent_generated_baseline_direction(
@@ -2569,6 +2748,8 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult, problem_fam
     experience_memory = build_experience_memory(round_payloads, problem_family=problem_family)
     skill_usage_records = experience_memory.get("skill_usage_records") or []
     payload = {
+        "status": result.status,
+        "stop_reason": result.stop_reason,
         "baseline_key": list(result.baseline_key),
         "final_key": list(result.final_key),
         "final_worktree": str(result.final_worktree),

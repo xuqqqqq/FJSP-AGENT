@@ -9,6 +9,7 @@ from unittest.mock import patch
 from harness_agent.workers.deepseek_worker import (
     DeepSeekWorker,
     apply_code_edit_proposal,
+    compact_algorithm_semantic_review_for_prompt,
     compact_loop_feedback_for_prompt,
     compact_priority_knowledge_cards,
     extract_json_object,
@@ -23,6 +24,48 @@ from harness_agent.workers.deepseek_worker import (
 
 
 class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
+    def test_semantic_review_compaction_preserves_incomplete_method_coverage(self) -> None:
+        compact = compact_algorithm_semantic_review_for_prompt(
+            {
+                "status": "repair_required",
+                "accepted": False,
+                "coverage_complete": False,
+                "component_coverage": [
+                    {"component_id": "decoder", "status": "implemented"},
+                    {
+                        "component_id": "search",
+                        "status": "partial",
+                        "missing_behaviors": ["Apply the selected move."],
+                        "behavior_coverage": [
+                            {
+                                "behavior_index": 2,
+                                "behavior": "Apply the selected move.",
+                                "status": "missing",
+                            }
+                        ],
+                    },
+                ],
+                "coupled_group_coverage": [
+                    {
+                        "group_id": "move_lifecycle",
+                        "status": "partial",
+                        "missing_behavior": "Scored and applied moves differ.",
+                    }
+                ],
+            }
+        )
+
+        self.assertFalse(compact["coverage_complete"])
+        self.assertEqual(["search"], [item["component_id"] for item in compact["component_coverage"]])
+        self.assertEqual(
+            ["move_lifecycle"],
+            [item["group_id"] for item in compact["coupled_group_coverage"]],
+        )
+        self.assertEqual(
+            "Apply the selected move.",
+            compact["component_coverage"][0]["behavior_coverage"][0]["behavior"],
+        )
+
     def test_priority_worker_context_remains_valid_json_when_context_is_large(self) -> None:
         context = _context_packet_with_intake()
         context["iteration_edit_contract"] = {"mode": "incremental_after_baseline"}

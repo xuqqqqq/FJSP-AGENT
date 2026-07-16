@@ -3,13 +3,16 @@ from __future__ import annotations
 import unittest
 from dataclasses import fields
 from pathlib import Path
+from unittest.mock import patch
 
-from harness_agent.cli import build_parser
-from harness_agent.core.runner import solver_time_limit_seconds
+from harness_agent.cli import build_parser, run_standard_worker_loop_cmd
+from harness_agent.core.runner import RunSummary, solver_time_limit_seconds
+from harness_agent.orchestration.loop import WorkerLoopResult
 from harness_agent.orchestration.standard import (
     StandardWorkerLoopRequest,
     build_standard_worker_contract_payload,
     standard_solver_command,
+    standard_worker_manifest,
 )
 from harness_agent.worker import NullWorker
 
@@ -84,6 +87,71 @@ class StandardWorkerLoopTests(unittest.TestCase):
     def test_solver_time_limit_reserves_core_exit_headroom(self) -> None:
         self.assertEqual(48.0, solver_time_limit_seconds(60))
         self.assertLess(solver_time_limit_seconds(30), 30)
+
+    def test_manifest_propagates_baseline_generation_failure(self) -> None:
+        summary = RunSummary(
+            total=0,
+            valid=0,
+            failed=0,
+            best_experiment_id=None,
+            best_metrics={},
+            best_candidate_id=None,
+            best_candidate_metrics=None,
+            candidate_summaries=[],
+            pareto_frontier=[],
+            validation_summary={},
+        )
+        result = WorkerLoopResult(
+            baseline_key=(float("-inf"),),
+            final_key=(float("-inf"),),
+            final_worktree=ROOT,
+            rounds=[],
+            baseline_summary=summary,
+            baseline_source="agent_generated",
+            baseline_generation={"status": "rejected"},
+            status="baseline_generation_failed",
+            stop_reason="judgment_rejected",
+        )
+
+        manifest = standard_worker_manifest(
+            request=self.make_request(),
+            contract_path=ROOT / "unused-contract.json",
+            context_path=ROOT / "unused-context.json",
+            loop_result=result,
+            output_dir=ROOT / "outputs" / "unused_test",
+        )
+
+        self.assertEqual("baseline_generation_failed", manifest["status"])
+        self.assertEqual("judgment_rejected", manifest["terminal_reason"])
+        self.assertEqual(0, manifest["round_count"])
+
+    def test_cli_returns_failure_for_missing_valid_baseline(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "run-standard-worker-loop",
+                "--instance-dir",
+                "examples",
+                "--output-dir",
+                "outputs/test",
+            ]
+        )
+        manifest = {
+            "status": "baseline_generation_failed",
+            "terminal_reason": "judgment_rejected",
+            "baseline_key": [float("-inf")],
+            "final_key": [float("-inf")],
+            "promoted_rounds": 0,
+            "artifacts": {},
+        }
+        with patch("harness_agent.cli.make_worker", return_value=NullWorker()), patch(
+            "harness_agent.cli.is_deepseek_configured", return_value=False
+        ), patch("harness_agent.cli.run_standard_worker_loop", return_value=manifest), patch(
+            "harness_agent.cli.print_json"
+        ) as print_json:
+            exit_code = run_standard_worker_loop_cmd(args)
+
+        self.assertEqual(1, exit_code)
+        self.assertEqual("judgment_rejected", print_json.call_args.args[0]["terminal_reason"])
 
 
 if __name__ == "__main__":

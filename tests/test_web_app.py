@@ -136,6 +136,35 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual("examples/agent_generated_fjsp_solver.py", request.agent_generated_solver_path)
         self.assertTrue(request.apply_worker_changes)
 
+    def test_run_job_marks_missing_valid_baseline_as_failed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job = create_job(self.job_payload(max_rounds=3), output_root=Path(tmp))
+            report = Path(tmp) / "baseline_failure_report.md"
+            report.write_text("baseline failed", encoding="utf-8")
+            manifest = {
+                "status": "baseline_generation_failed",
+                "terminal_reason": "judgment_rejected",
+                "baseline_key": [float("-inf")],
+                "final_key": [float("-inf")],
+                "round_count": 0,
+                "promoted_rounds": 0,
+                "improved": False,
+                "baseline_summary": {"total": 0, "valid": 0, "failed": 0},
+                "final_summary": {"total": 0, "valid": 0, "failed": 0},
+                "rounds": [],
+                "artifacts": {"report": str(report)},
+            }
+            fake_worker = SimpleNamespace(capabilities=lambda: SimpleNamespace(supports_code_generation=True))
+            with patch("harness_agent.web.server.OpenCodeWorker", return_value=fake_worker), patch(
+                "harness_agent.web.server.is_deepseek_configured", return_value=False
+            ), patch("harness_agent.web.server.run_standard_worker_loop", return_value=manifest):
+                run_job(job["id"])
+
+        self.assertEqual("failed", job["status"])
+        self.assertEqual("judgment_rejected", job["error"])
+        self.assertEqual("judgment_rejected", job["summary"]["terminal_reason"])
+        self.assertEqual(str(report), job["artifacts"]["report"])
+
     def test_latest_memory_requires_same_variant_and_validated_method_package(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             previous_dir = Path(tmp) / "previous"

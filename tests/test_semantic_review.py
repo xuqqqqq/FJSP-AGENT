@@ -291,6 +291,239 @@ class SemanticReviewTests(unittest.TestCase):
         self.assertEqual(130, result.usage["prompt_tokens"])
         self.assertIn("json_retry_response", result.artifacts)
 
+    def test_missing_or_partial_component_coverage_blocks_without_findings(self) -> None:
+        result = normalize_semantic_review(
+            {
+                "summary": "No semantic mismatch found.",
+                "component_coverage": [
+                    {
+                        "component_id": "decoder",
+                        "status": "partial",
+                        "source_path": "solver.py",
+                        "line_start": 1,
+                        "line_end": 1,
+                        "evidence": "Only the parse step is reachable.",
+                        "behavior_coverage": [
+                            {
+                                "behavior_index": 1,
+                                "status": "partial",
+                                "source_path": "solver.py",
+                                "line_start": 1,
+                                "line_end": 1,
+                                "evidence": "Only parsing is implemented; no schedule is built.",
+                            }
+                        ],
+                        "missing_behaviors": ["Decode never schedules all operations."],
+                    }
+                ],
+                "findings": [],
+            },
+            sources={"solver.py": "def parse():\n    return []\n"},
+            knowledge={"contract.md": "Generic contract."},
+            required_components=[
+                {
+                    "component_id": "decoder",
+                    "title": "Decoder",
+                    "required_behaviors": ["Decode every operation."],
+                },
+                {
+                    "component_id": "search",
+                    "title": "Search",
+                    "required_behaviors": ["Search legal neighbors."],
+                },
+            ],
+            reviewer="test",
+        )
+
+        self.assertEqual("repair_required", result.status)
+        self.assertFalse(result.accepted)
+        self.assertFalse(result.coverage_complete)
+        self.assertEqual(
+            ["partial", "missing"],
+            [item["status"] for item in result.component_coverage],
+        )
+        self.assertIn("Complete-method coverage is missing or partial", result.summary)
+
+    def test_full_component_coverage_passes_without_findings(self) -> None:
+        source = (
+            "def decode_state(state):\n"
+            "    return state\n\n"
+            "def tabu_search(state):\n"
+            "    return decode_state(state)\n"
+        )
+        result = normalize_semantic_review(
+            {
+                "summary": "Full bundle coverage verified.",
+                "component_coverage": [
+                    {
+                        "component_id": "decoder",
+                        "status": "implemented",
+                        "source_path": "solver.py",
+                        "line_start": 1,
+                        "line_end": 2,
+                        "evidence": "decode_state is reachable.",
+                        "behavior_coverage": [
+                            {
+                                "behavior_index": 1,
+                                "status": "implemented",
+                                "source_path": "solver.py",
+                                "line_start": 1,
+                                "line_end": 2,
+                                "evidence": "decode_state returns the decoded state on the reachable path.",
+                            }
+                        ],
+                    },
+                    {
+                        "component_id": "search",
+                        "status": "implemented",
+                        "source_path": "solver.py",
+                        "line_start": 4,
+                        "line_end": 5,
+                        "evidence": "tabu_search calls decode_state.",
+                        "behavior_coverage": [
+                            {
+                                "behavior_index": 1,
+                                "status": "implemented",
+                                "source_path": "solver.py",
+                                "line_start": 4,
+                                "line_end": 5,
+                                "evidence": "tabu_search reaches decode_state during its search path.",
+                            }
+                        ],
+                    },
+                ],
+                "findings": [],
+            },
+            sources={"solver.py": source},
+            knowledge={"contract.md": "Generic contract."},
+            required_components=[
+                {
+                    "component_id": "decoder",
+                    "title": "Decoder",
+                    "required_behaviors": ["Decode the state."],
+                },
+                {
+                    "component_id": "search",
+                    "title": "Search",
+                    "required_behaviors": ["Invoke decoding from search."],
+                },
+            ],
+            reviewer="test",
+        )
+
+        self.assertEqual("pass", result.status)
+        self.assertTrue(result.accepted)
+        self.assertTrue(result.coverage_complete)
+        self.assertEqual(
+            ["implemented", "implemented"],
+            [item["status"] for item in result.component_coverage],
+        )
+
+    def test_partial_coupled_group_blocks_complete_components(self) -> None:
+        source = "def generate():\n    return {'move': 1}\n\ndef apply(move):\n    return move\n"
+        result = normalize_semantic_review(
+            {
+                "summary": "Helpers exist but the selected move is not passed to apply.",
+                "component_coverage": [
+                    {
+                        "component_id": "generator",
+                        "status": "implemented",
+                        "source_path": "solver.py",
+                        "line_start": 1,
+                        "line_end": 2,
+                        "behavior_coverage": [
+                            {
+                                "behavior_index": 1,
+                                "status": "implemented",
+                                "source_path": "solver.py",
+                                "line_start": 1,
+                                "line_end": 2,
+                                "evidence": "generate returns a stable move object to the caller.",
+                            }
+                        ],
+                    },
+                    {
+                        "component_id": "application",
+                        "status": "implemented",
+                        "source_path": "solver.py",
+                        "line_start": 4,
+                        "line_end": 5,
+                        "behavior_coverage": [
+                            {
+                                "behavior_index": 1,
+                                "status": "implemented",
+                                "source_path": "solver.py",
+                                "line_start": 4,
+                                "line_end": 5,
+                                "evidence": "apply consumes the supplied move object on its reachable path.",
+                            }
+                        ],
+                    },
+                ],
+                "coupled_group_coverage": [
+                    {
+                        "group_id": "move_lifecycle",
+                        "status": "partial",
+                        "source_path": "solver.py",
+                        "line_start": 1,
+                        "line_end": 5,
+                        "missing_behavior": "The generated move is not consumed by apply.",
+                    }
+                ],
+                "findings": [],
+            },
+            sources={"solver.py": source},
+            knowledge={"contract.md": "Generic contract."},
+            required_components=[
+                {"component_id": "generator", "required_behaviors": ["Generate a move."]},
+                {"component_id": "application", "required_behaviors": ["Apply that move."]},
+            ],
+            required_coupled_groups=[
+                {
+                    "group_id": "move_lifecycle",
+                    "component_ids": ["generator", "application"],
+                    "rule": "The exact generated move must be applied.",
+                }
+            ],
+            reviewer="test",
+        )
+
+        self.assertEqual("repair_required", result.status)
+        self.assertFalse(result.accepted)
+        self.assertTrue(all(item["status"] == "implemented" for item in result.component_coverage))
+        self.assertEqual("partial", result.coupled_group_coverage[0]["status"])
+        self.assertIn("move_lifecycle", result.summary)
+
+    def test_component_claim_without_behavior_level_evidence_cannot_pass(self) -> None:
+        result = normalize_semantic_review(
+            {
+                "component_coverage": [
+                    {
+                        "component_id": "decoder",
+                        "status": "implemented",
+                        "source_path": "solver.py",
+                        "line_start": 1,
+                        "line_end": 1,
+                        "evidence": "This unrelated line is claimed as a decoder.",
+                    }
+                ],
+                "findings": [],
+            },
+            sources={"solver.py": "VALUE = 1\n"},
+            knowledge={"contract.md": "Generic contract."},
+            required_components=[
+                {
+                    "component_id": "decoder",
+                    "required_behaviors": ["Decode every operation through a reachable path."],
+                }
+            ],
+            reviewer="test",
+        )
+
+        self.assertEqual("repair_required", result.status)
+        self.assertFalse(result.accepted)
+        self.assertEqual("missing", result.component_coverage[0]["status"])
+
     def test_evidence_only_fallback_is_non_blocking(self) -> None:
         result = EvidenceOnlySemanticReviewer().review(
             AlgorithmSemanticReviewRequest(

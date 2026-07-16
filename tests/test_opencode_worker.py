@@ -182,6 +182,15 @@ class OpenCodeWorkerTests(unittest.TestCase):
             self.assertIn("--time-limit-sec", prompt)
             self.assertIn("transactionally", prompt)
             self.assertIn("no greater than 3", prompt)
+            self.assertIn("enumerate every required component and coupled group", prompt)
+            self.assertIn("Implement the whole bundle coherently in this direction", prompt)
+            self.assertIn(
+                "repair_targets.algorithm_semantic_review.implementation_coverage",
+                prompt,
+            )
+            self.assertIn("coupled_group_coverage", prompt)
+            self.assertIn("Preserve entries marked implemented", prompt)
+            self.assertIn("every missing or partial entry before claiming completion", prompt)
 
     def test_timeout_kills_opencode_child_process_tree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -91,6 +91,7 @@
         "knowledge/method_packages/standard_fjsp_awls_hgtsa/reference_solver.py",
         "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_algorithm_semantic_review_contract.md"
       ],
+      "implementation_contract_asset": "knowledge/method_packages/standard_fjsp_awls_hgtsa/implementation_contract.json",
       "implementation_asset": "knowledge/method_packages/standard_fjsp_awls_hgtsa/reference_solver.py",
       "default_priority": 100
     },
@@ -115,6 +116,7 @@
         ".codex/skills/fjsp-agent-generated-solver/references/decoder_neighborhood.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_algorithm_semantic_review_contract.md"
       ],
+      "implementation_contract_asset": "knowledge/method_packages/fjsp_sdst_awls_adaptation/implementation_contract.json",
       "implementation_asset": "knowledge/method_packages/standard_fjsp_awls_hgtsa/reference_solver.py",
       "default_priority": 120
     }

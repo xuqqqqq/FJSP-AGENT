@@ -91,6 +91,16 @@ class ContextPacketTests(unittest.TestCase):
         self.assertEqual("standard_fjsp_awls_hgtsa", packet["active_method_package"]["package_id"])
         self.assertEqual("requested", packet["active_method_package"]["selection"])
         self.assertIn("reference_solver.py", " ".join(packet["active_method_package"]["assets"]))
+        self.assertTrue(packet["active_method_package"]["implementation_contract"])
+        self.assertTrue(
+            any(
+                str(item.get("path") or "").endswith("implementation_contract.json")
+                for item in packet["active_method_package"]["asset_records"]
+            )
+        )
+        self.assertTrue(
+            any(str(path).endswith("implementation_contract.json") for path in packet["auto_knowledge_cards"])
+        )
 
     def test_context_packet_embeds_project_intake_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

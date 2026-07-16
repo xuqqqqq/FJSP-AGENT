@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "contract_id": "standard_fjsp_awls_hgtsa_complete_method",
+  "mode": "complete_method_package",
+  "completion_rule": "Every required component must be implemented through reachable solver code in the same direction before the method claim can pass semantic review.",
+  "variant_rule": "Adapt every component to all active requirement and IO constraints. Variant-specific knowledge extends this contract instead of disabling its core search lifecycle.",
+  "required_components": [
+    {
+      "component_id": "state_and_initialization",
+      "title": "Explicit search state and legal initialization",
+      "required_behaviors": [
+        "Maintain operation assignment and explicit per-machine sequences using stable operation identities.",
+        "Construct at least one complete legal state from the active IO and preserve seeded reproducibility.",
+        "Keep current state and global-best state as separate clones or immutable snapshots."
+      ],
+      "evidence_required": "Reachable initialization and clone paths used by solve()."
+    },
+    {
+      "component_id": "progress_decoder",
+      "title": "Complete progress decoder",
+      "required_behaviors": [
+        "Decode job and machine precedence together until every operation is scheduled.",
+        "Reject cycles, deadlocks, partial coverage, ineligible assignments, and active-variant violations without mutating the incumbent.",
+        "Use selected processing durations and validate the complete output before serialization."
+      ],
+      "evidence_required": "Reachable decoder, deadlock guard, coverage checks, and final validation."
+    },
+    {
+      "component_id": "critical_graph_and_blocks",
+      "title": "Exact critical graph and tight machine blocks",
+      "required_behaviors": [
+        "Compute forward and backward timing on the current disjunctive graph.",
+        "Identify zero-slack critical operations.",
+        "Build maximal critical machine blocks only across tight machine arcs."
+      ],
+      "evidence_required": "Reachable timing propagation and tight-arc block extraction consumed by neighborhood generation."
+    },
+    {
+      "component_id": "same_machine_neighborhood",
+      "title": "N7/N8-style and K-insertion machine-order neighborhood",
+      "required_behaviors": [
+        "Generate bounded critical-block endpoint moves and non-adjacent K-insertion candidates.",
+        "Modify explicit machine order rather than only rescheduling fixed assignments.",
+        "Retain only fully decoded legal candidates and keep deadline checks inside nested scans."
+      ],
+      "evidence_required": "Reachable candidate generator showing endpoint/position bounds and more than adjacent swaps."
+    },
+    {
+      "component_id": "alternative_machine_neighborhood",
+      "title": "Alternative-machine reassignment and bounded insertion",
+      "required_behaviors": [
+        "Remove an operation from its old sequence and assign it only to an eligible target machine.",
+        "Derive a bounded target insertion window from job predecessor/successor timing and target-machine order.",
+        "Decode and validate each retained reassignment candidate under active variant constraints."
+      ],
+      "evidence_required": "Reachable reassignment generator and insertion-window calculation consumed by search."
+    },
+    {
+      "component_id": "transactional_move_lifecycle",
+      "title": "Consistent candidate generation, scoring, and application",
+      "required_behaviors": [
+        "Carry one stable move identity and exact target parameters from generation through scoring and application.",
+        "Apply each candidate to a clone or restorable snapshot and commit only after complete decode succeeds.",
+        "Ensure a failed, timed-out, or cyclic candidate leaves current and global-best states unchanged."
+      ],
+      "evidence_required": "One reachable move object/state path proving that the scored move is exactly the applied move."
+    },
+    {
+      "component_id": "tabu_and_aspiration",
+      "title": "Reverse-move tabu and global-best aspiration",
+      "required_behaviors": [
+        "Use the same attribute representation when testing a candidate and storing the inverse of an accepted move.",
+        "Cover both same-machine and machine-reassignment inverse moves without truncated or ambiguous sequence identity.",
+        "Allow a tabu move only when its fully decoded objective strictly improves the global best."
+      ],
+      "evidence_required": "Reachable tabu lookup/store paths and a behavioral inverse-move test."
+    },
+    {
+      "component_id": "adaptive_weight_scoring",
+      "title": "Effective adaptive weight or zi scoring",
+      "required_behaviors": [
+        "Update operation weights and cooldown/age state from accepted search transitions.",
+        "Consume those changing values in reachable candidate scoring or selection.",
+        "Avoid dead variables, constant terms, or updates that cannot affect a move decision."
+      ],
+      "evidence_required": "Reachable update and scoring paths plus a test showing ranking changes when adaptive state changes."
+    },
+    {
+      "component_id": "diversification_and_best_preservation",
+      "title": "Bounded diversification with global-best preservation",
+      "required_behaviors": [
+        "Trigger a bounded perturbation, restart, or controlled randomization after measured stagnation.",
+        "Diversification must change the reachable search trajectory while preserving the global best.",
+        "All random choices must derive from the declared seed."
+      ],
+      "evidence_required": "Reachable stagnation trigger, diversification transition, and best-state preservation."
+    },
+    {
+      "component_id": "runtime_and_observability",
+      "title": "Shared runtime budget and stage contribution evidence",
+      "required_behaviors": [
+        "Use one absolute deadline across construction, nested candidate scans, validation, and serialization.",
+        "Bound candidate materialization and machine-link traversal by explicit caps or operation count.",
+        "Expose counters for evaluated, feasible, accepted, and improving moves so dead stages can be detected."
+      ],
+      "evidence_required": "Reachable deadline checks and stage counters produced by the solver or self-check."
+    }
+  ],
+  "coupled_groups": [
+    {
+      "group_id": "critical_neighborhood_bundle",
+      "component_ids": [
+        "critical_graph_and_blocks",
+        "same_machine_neighborhood",
+        "alternative_machine_neighborhood"
+      ],
+      "rule": "Tightening critical blocks must not be accepted without the paired sequence and reassignment neighborhoods that preserve useful search coverage."
+    },
+    {
+      "group_id": "move_lifecycle_bundle",
+      "component_ids": [
+        "transactional_move_lifecycle",
+        "tabu_and_aspiration"
+      ],
+      "rule": "The move that is evaluated, selected, applied, and stored as inverse tabu must remain the same identifiable move."
+    },
+    {
+      "group_id": "adaptive_search_bundle",
+      "component_ids": [
+        "adaptive_weight_scoring",
+        "diversification_and_best_preservation",
+        "runtime_and_observability"
+      ],
+      "rule": "Adaptive pressure and diversification count as implemented only when reachable decisions change and runtime evidence shows the stages execute."
+    }
+  ]
+}

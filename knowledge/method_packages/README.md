@@ -1,0 +1,46 @@
+# Method Package Protocol
+
+Method Package 是 Agent 可检索、可实现、可审查的一套完整算法资料，不是后端求解器插件。
+通用后端只读取结构化契约、传递上下文、执行候选代码并核验结果；算法原理、参考实现和行为要求均保存在本目录或对应 Skill 中。
+
+## Package Contents
+
+每个方法包由领域包 `domain_pack.json` 注册，通常包含：
+
+- `README.md`：适用特征、方法边界和使用顺序。
+- `implementation_contract.json`：完整组件、必需行为、耦合关系和完成条件。
+- 行为契约或论文卡：解释方法为什么成立，以及哪些简化会破坏方法。
+- 可选参考实现：供 Coding Agent 阅读并按当前需求/IO 重写，不由后端直接运行或复制。
+
+## Generic Contract
+
+`implementation_contract.json` 不使用后端预定义的算法枚举。每个包自行声明：
+
+- `required_components`：该方法真正成立所需的全部组件。
+- `required_behaviors`：每个组件必须具备的可达行为。
+- `evidence_required`：语义审查所需的源码或行为证据。
+- `coupled_groups`：必须连成同一运行链路的组件集合与闭环规则。
+- `completion_rule`：何时可以声称完整实现。
+- `variant_rule`：如何适配当前需求和 IO 中检测出的变种特征。
+
+变种包可以通过 `extends` 继承基础契约，再追加自己的组件和耦合组。继承只允许追加要求；同名组件的新 `required_behaviors` 会与父契约合并，不能借覆盖删除基础方法要求。后端只做通用 ID 合并和引用校验，不理解这些组件属于哪种算法。
+
+后端不会解释组件名称。例如：
+
+- AWLS 包可以声明解码、关键块邻域、禁忌、权重和疏散机制。
+- 遗传算法包可以声明编码、初始化、交叉、变异、修复、选择和精英保留。
+- 强化学习包可以声明状态、动作掩码、奖励、策略训练、推理和可行性恢复。
+
+这三类包走相同的数据流和验收逻辑，不需要在后端增加对应算法分支。
+
+## Runtime Rules
+
+1. Main Agent 根据需求、IO、实例特征和方法包兼容条件选择一个包。
+2. 完整契约原样绑定到方向计划；组件或耦合组不得静默截断。
+3. Coding Agent 先枚举完整实现清单，再生成或修改候选 solver。
+4. Core 先验证运行、输出和调度合法性。
+5. Semantic Reviewer 为每个组件和耦合组给出 `implemented`、`partial` 或 `missing`，并引用可达源码证据。
+6. 任一项不完整时保持当前方法方向，只把最新未完成矩阵送回 Coding Agent 修补。
+7. 全部语义项完成后，才允许根据 evaluator 结果 promotion 或 rollback。
+
+同一轮修补可以补齐多个相互依赖的组件；“小步修改”指不切换方法家族、不重写无关的已验证结构，不等于只修一个孤立函数。

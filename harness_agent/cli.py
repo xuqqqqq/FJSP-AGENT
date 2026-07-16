@@ -566,6 +566,7 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
     print_json(
         {
             "status": manifest["status"],
+            "terminal_reason": manifest.get("terminal_reason"),
             "baseline_key": manifest["baseline_key"],
             "final_key": manifest["final_key"],
             "promoted_rounds": manifest["promoted_rounds"],

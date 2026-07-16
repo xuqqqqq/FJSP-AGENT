@@ -106,6 +106,98 @@ class DomainPackTests(unittest.TestCase):
         assert strategy is not None
         self.assertEqual(slot_manifest.resolve(), strategy.asset_path("slot_manifest"))
 
+    def test_non_awls_method_package_contract_loads_generically(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            pack_dir = tmp_path / "domain_packs" / "toy"
+            knowledge_dir = tmp_path / "knowledge" / "method_packages" / "toy_complete"
+            pack_dir.mkdir(parents=True)
+            knowledge_dir.mkdir(parents=True)
+            implementation_asset = knowledge_dir / "reference_solver.py"
+            contract_asset = knowledge_dir / "implementation_contract.json"
+            implementation_asset.write_text("def solve():\n    return None\n", encoding="utf-8")
+            contract_asset.write_text(
+                json.dumps(
+                    {
+                        "contract_id": "toy_complete_contract",
+                        "mode": "complete_method_package",
+                        "completion_rule": "Implement every required component.",
+                        "variant_rule": "Keep toy constraints active.",
+                        "required_components": [
+                            {
+                                "component_id": "toy_decoder",
+                                "title": "Toy decoder",
+                                "required_behaviors": ["Decode the toy state into a schedule."],
+                            },
+                            {
+                                "component_id": "toy_search",
+                                "title": "Toy search",
+                                "required_behaviors": ["Iteratively improve the toy schedule."],
+                            },
+                        ],
+                        "coupled_groups": [
+                            {
+                                "group_id": "toy_loop",
+                                "component_ids": ["toy_decoder", "toy_search"],
+                                "rule": "Decoder and search must stay behaviorally aligned.",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            manifest = pack_dir / "domain_pack.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "family_id": "toy",
+                        "capability": {
+                            "display_name": "Toy",
+                            "description": "Toy pack with generic method contract.",
+                            "supported_variants": ["toy"],
+                            "canonical_objectives": [{"name": "cost", "direction": "minimize"}],
+                            "io_contract_notes": ["toy IO"],
+                            "evaluator_invariants": ["toy evaluator"],
+                            "solver_entrypoints": ["solver.py"],
+                            "knowledge_tags": ["toy_tag"],
+                        },
+                        "method_packages": [
+                            {
+                                "package_id": "toy_complete_bundle",
+                                "title": "Toy complete bundle",
+                                "description": "Synthetic non-AWLS package.",
+                                "strategy_types": ["baseline_constructor"],
+                                "required_features": ["toy"],
+                                "assets": [str(implementation_asset), str(contract_asset)],
+                                "implementation_asset": str(implementation_asset),
+                                "implementation_contract_asset": str(contract_asset),
+                                "default_priority": 9,
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            pack = load_domain_pack(manifest, project_root=tmp_path)
+
+        package = pack.method_package("toy_complete_bundle")
+        self.assertIsNotNone(package)
+        assert package is not None
+        self.assertEqual("toy_complete_bundle", package.package_id)
+        self.assertEqual(implementation_asset.resolve(), package.implementation_asset)
+        self.assertEqual(contract_asset.resolve(), package.implementation_contract_asset)
+        self.assertEqual([contract_asset.resolve()], package.implementation_contract_assets)
+        self.assertEqual("toy_complete_contract", package.implementation_contract["contract_id"])
+        self.assertEqual(
+            ["toy_decoder", "toy_search"],
+            [item["component_id"] for item in package.implementation_contract["required_components"]],
+        )
+
     def test_unknown_problem_family_does_not_get_standard_fjsp_slot_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "slots.json"
@@ -290,6 +382,26 @@ class DomainPackTests(unittest.TestCase):
             ["fjsp_sdst_awls_adaptation"],
             [item["package_id"] for item in sdst["packages"]],
         )
+        standard_component_ids = {
+            item["component_id"]
+            for item in standard["packages"][0]["implementation_contract"]["required_components"]
+        }
+        sdst_component_ids = {
+            item["component_id"]
+            for item in sdst["packages"][0]["implementation_contract"]["required_components"]
+        }
+        self.assertNotIn("sdst_setup_semantics_and_decoder", standard_component_ids)
+        self.assertTrue(
+            {
+                "sdst_setup_semantics_and_decoder",
+                "sdst_setup_aware_neighborhood_evaluation",
+                "sdst_critical_timing_and_adaptation",
+            }.issubset(sdst_component_ids)
+        )
+        self.assertGreater(len(sdst_component_ids), len(standard_component_ids))
+        contract_sources = [str(path).replace("\\", "/") for path in sdst["packages"][0]["implementation_contract_assets"]]
+        self.assertTrue(any("standard_fjsp_awls_hgtsa/implementation_contract.json" in path for path in contract_sources))
+        self.assertTrue(any("fjsp_sdst_awls_adaptation/implementation_contract.json" in path for path in contract_sources))
 
 
 if __name__ == "__main__":

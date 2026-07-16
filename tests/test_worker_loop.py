@@ -1893,6 +1893,93 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertNotIn("agent_generated_solver_repair_plan", targets)
         self.assertNotIn("agent_generated_solver_method_stage", targets)
 
+    def test_semantic_repair_feedback_excludes_warnings_and_objective_refinement(self) -> None:
+        feedback = current_round_repair_feedback(
+            attempt_index=1,
+            max_repair_attempts=3,
+            previous_attempts=[
+                {
+                    "attempt_index": 0,
+                    "candidate_key": [-2489.0],
+                    "summary": {"total": 2, "valid": 2},
+                    "agentic_judgment": {"accepted": True, "checks": {}},
+                    "semantic_review": {
+                        "status": "repair_required",
+                        "accepted": False,
+                        "summary": "Fix inverse tabu; consider optional insertion-window tuning.",
+                        "findings": [
+                            {
+                                "finding_id": "inverse_tabu",
+                                "blocking": True,
+                                "repair": "Store the inverse move attribute.",
+                            },
+                            {
+                                "finding_id": "insertion_window",
+                                "blocking": False,
+                                "repair": "Optionally tune the insertion window.",
+                            },
+                        ],
+                    },
+                }
+            ],
+        )
+
+        target = feedback["repair_targets"]["algorithm_semantic_review"]
+        serialized = json.dumps(feedback, ensure_ascii=False)
+        self.assertEqual(["inverse_tabu"], [item["finding_id"] for item in target["blocking_findings"]])
+        self.assertNotIn("insertion_window", serialized)
+        self.assertNotIn("optional insertion-window", serialized)
+        self.assertFalse(any("material refinement" in item for item in feedback["must_do"]))
+        self.assertTrue(any("same-direction implementation repair" in item for item in feedback["must_do"]))
+
+    def test_semantic_repair_uses_latest_incomplete_method_coverage(self) -> None:
+        feedback = current_round_repair_feedback(
+            attempt_index=2,
+            max_repair_attempts=3,
+            previous_attempts=[
+                {
+                    "attempt_index": 0,
+                    "semantic_review": {
+                        "status": "repair_required",
+                        "accepted": False,
+                        "component_coverage": [
+                            {"component_id": "decoder", "status": "missing"},
+                            {"component_id": "search", "status": "missing"},
+                        ],
+                        "coupled_group_coverage": [
+                            {"group_id": "decode_search", "status": "missing"}
+                        ],
+                        "findings": [],
+                    },
+                },
+                {
+                    "attempt_index": 1,
+                    "semantic_review": {
+                        "status": "repair_required",
+                        "accepted": False,
+                        "component_coverage": [
+                            {"component_id": "decoder", "status": "implemented"},
+                            {"component_id": "search", "status": "partial"},
+                        ],
+                        "coupled_group_coverage": [
+                            {"group_id": "decode_search", "status": "partial"}
+                        ],
+                        "findings": [],
+                    },
+                },
+            ],
+        )
+
+        target = feedback["repair_targets"]["algorithm_semantic_review"]
+        self.assertEqual(["search"], [item["component_id"] for item in target["implementation_coverage"]])
+        self.assertEqual(
+            ["decode_search"],
+            [item["group_id"] for item in target["coupled_group_coverage"]],
+        )
+        serialized = json.dumps(feedback, ensure_ascii=False)
+        self.assertNotIn('"decoder", "status": "missing"', serialized)
+        self.assertIn("complete remaining-work list", serialized)
+
     def test_non_core_repair_base_is_not_labeled_core_anchor(self) -> None:
         feedback = current_round_repair_feedback(
             attempt_index=1,
@@ -2195,7 +2282,7 @@ class WorkerLoopTests(unittest.TestCase):
             )
             self.assertEqual(2, generation["in_round_repair"]["final_attempt_index"])
 
-    def test_agent_generated_baseline_repair_restarts_from_best_core_anchor(self) -> None:
+    def test_agent_generated_baseline_repair_preserves_semantic_progress_separately_from_core_anchor(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             contract_path = _write_standard_agent_generated_contract(tmp_path)
@@ -2263,13 +2350,34 @@ class WorkerLoopTests(unittest.TestCase):
                     return {
                         "status": "repair_required",
                         "accepted": False,
-                        "summary": "Repair only inverse move memory.",
+                        "summary": "Two blocking findings remain.",
                         "findings": [
                             {
                                 "finding_id": "inverse_move",
                                 "category": "move_memory",
                                 "blocking": True,
                                 "repair": "Store the inverse move attribute.",
+                            },
+                            {
+                                "finding_id": "tight_arc",
+                                "category": "operator_fidelity",
+                                "blocking": True,
+                                "repair": "Split blocks on non-tight machine arcs.",
+                            },
+                        ],
+                        "knowledge_paths": ["knowledge/tabu_contract.md"],
+                    }
+                if kwargs["attempt_index"] == 1:
+                    return {
+                        "status": "repair_required",
+                        "accepted": False,
+                        "summary": "Only tight-arc extraction remains.",
+                        "findings": [
+                            {
+                                "finding_id": "tight_arc",
+                                "category": "operator_fidelity",
+                                "blocking": True,
+                                "repair": "Split blocks on non-tight machine arcs.",
                             }
                         ],
                         "knowledge_paths": ["knowledge/tabu_contract.md"],
@@ -2297,14 +2405,15 @@ class WorkerLoopTests(unittest.TestCase):
                     repair_attempts=2,
                 )
 
-            self.assertEqual([0, 2], semantic_attempts)
+            self.assertEqual([0, 1, 2], semantic_attempts)
             self.assertEqual(worktrees[0], project_roots[1])
-            self.assertEqual(worktrees[0], project_roots[2])
+            self.assertEqual(worktrees[1], project_roots[2])
             self.assertEqual(2500, summary.best_metrics["makespan"])
             self.assertEqual(worktrees[2], worktree)
             self.assertEqual(2, generation["selected_attempt_index"])
             attempts = generation["in_round_repair"]["attempts"]
-            self.assertEqual("quality_regressed", attempts[1]["semantic_review"]["status"])
+            self.assertEqual("repair_required", attempts[1]["semantic_review"]["status"])
+            self.assertEqual(0, attempts[1]["semantic_review"]["core_quality_regression"]["anchor_attempt_index"])
             self.assertIn("baseline_core_anchor_quality_regression", attempts[1]["failure_signatures"])
             repair_context = json.loads(
                 (tmp_path / "loop" / "agent_generated_baseline" / "repair_002" / "context_packet.json").read_text(
@@ -2312,8 +2421,8 @@ class WorkerLoopTests(unittest.TestCase):
                 )
             )
             targets = repair_context["loop_feedback"]["current_round_repair"]["repair_targets"]
-            self.assertEqual(0, targets["baseline_core_valid_anchor"]["attempt_index"])
-            self.assertEqual("inverse_move", targets["algorithm_semantic_review"]["blocking_findings"][0]["finding_id"])
+            self.assertEqual(1, targets["baseline_core_valid_anchor"]["attempt_index"])
+            self.assertEqual("tight_arc", targets["algorithm_semantic_review"]["blocking_findings"][0]["finding_id"])
             self.assertNotIn("agent_generated_solver_method_stage", targets)
 
     def test_agent_generated_baseline_memory_reaches_first_improvement_round(self) -> None:
@@ -2442,16 +2551,23 @@ class WorkerLoopTests(unittest.TestCase):
             )
 
             self.assertEqual("agent_generated", result.baseline_source)
+            self.assertEqual("baseline_generation_failed", result.status)
+            self.assertEqual("judgment_rejected", result.stop_reason)
             self.assertEqual([], result.rounds)
             self.assertEqual((float("-inf"),), result.baseline_key)
             self.assertEqual(result.baseline_key, result.final_key)
             self.assertIsNotNone(result.baseline_generation)
             generation = result.baseline_generation or {}
+            self.assertEqual("rejected", generation["status"])
+            self.assertFalse(generation["accepted_as_incumbent"])
+            self.assertEqual("judgment_rejected", generation["failure_reason"])
             self.assertTrue(generation["stopped_before_rounds"])
-            self.assertEqual("agent_generated_baseline_not_valid", generation["stop_reason"])
+            self.assertEqual("judgment_rejected", generation["stop_reason"])
             self.assertFalse(generation["agentic_judgment"]["accepted"])
             self.assertFalse((tmp_path / "loop" / "round_000").exists())
             loop_result = json.loads((tmp_path / "loop" / "loop_result.json").read_text(encoding="utf-8"))
+            self.assertEqual("baseline_generation_failed", loop_result["status"])
+            self.assertEqual("judgment_rejected", loop_result["stop_reason"])
             self.assertEqual([], loop_result["rounds"])
             self.assertTrue(loop_result["baseline_generation"]["stopped_before_rounds"])
 

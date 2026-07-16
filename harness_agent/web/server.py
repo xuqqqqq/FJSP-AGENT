@@ -738,6 +738,7 @@ def run_job(job_id: str) -> None:
         round_summary = summarize_worker_manifest(manifest)
         summary_payload = {
             "manifest_status": manifest.get("status"),
+            "terminal_reason": manifest.get("terminal_reason"),
             "worker_summary": round_summary,
             "last_summary": manifest.get("final_summary") or manifest.get("baseline_summary", {}),
             "artifact_checks": {},
@@ -750,12 +751,23 @@ def run_job(job_id: str) -> None:
         }
         artifacts = manifest.get("artifacts", {})
         with _LOCK:
-            job["status"] = "completed" if manifest.get("status") == "ok" else "completed_with_warnings"
+            manifest_status = str(manifest.get("status") or "unknown")
+            if manifest_status == "ok":
+                job["status"] = "completed"
+            elif manifest_status == "baseline_generation_failed":
+                job["status"] = "failed"
+                job["error"] = str(manifest.get("terminal_reason") or "未能生成合法 baseline")
+            else:
+                job["status"] = "completed_with_warnings"
             job["summary"] = summary_payload
             job["artifacts"] = artifacts
             append_event(
                 job,
-                f"循环结束，状态：{job['status']}；实际完成 {round_summary['completed_round_count']} 轮。",
+                (
+                    f"循环结束，状态：{job['status']}；实际完成 {round_summary['completed_round_count']} 轮；"
+                    f"终止原因：{manifest.get('terminal_reason') or '正常结束'}。"
+                ),
+                level="error" if job["status"] == "failed" else "info",
             )
             write_job_status(job)
     except Exception as exc:  # noqa: BLE001 - web jobs should preserve failures as inspectable artifacts.

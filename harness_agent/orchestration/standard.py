@@ -262,7 +262,8 @@ def standard_worker_manifest(
     agent_quality = worker_loop_agent_quality_summary(loop_result)
     semantic_review = worker_loop_semantic_review_summary(loop_result)
     return {
-        "status": "ok",
+        "status": loop_result.status,
+        "terminal_reason": loop_result.stop_reason,
         "evaluation_mode": "agent_capability",
         "request": {
             "docs": [str(path) for path in request.docs],
@@ -509,6 +510,7 @@ def render_standard_worker_report(manifest: dict[str, Any]) -> str:
         "# Standard FJSP Worker Loop Report",
         "",
         f"- Status: `{manifest.get('status')}`",
+        f"- Terminal reason: `{manifest.get('terminal_reason')}`",
         f"- Evaluation mode: `{manifest.get('evaluation_mode')}`",
         f"- Baseline source: `{manifest.get('baseline_source')}`",
         f"- Baseline key: `{json.dumps(manifest.get('baseline_key'), ensure_ascii=False)}`",
