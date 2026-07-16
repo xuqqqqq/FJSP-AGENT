@@ -575,6 +575,8 @@ def direction_status(round_record: dict[str, Any]) -> str:
     if round_record.get("decision") == "baseline_incumbent":
         candidate_key = _number_list(round_record.get("candidate_key"))
         if candidate_key and not all(value == float("-inf") for value in candidate_key):
+            if round_record.get("semantic_review_degraded"):
+                return "degraded_baseline"
             return "validated_baseline"
         return "strategy_infeasible"
     if round_record.get("decision") == "promoted":

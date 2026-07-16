@@ -607,6 +607,33 @@ def semantic_review_blocks_promotion(value: dict[str, Any] | None) -> bool:
     return value.get("status") in {"repair_required", "unavailable"} or value.get("accepted") is False
 
 
+def semantic_review_has_verified_blocking_finding(value: dict[str, Any] | None) -> bool:
+    """Return whether semantic review contains an evidence-backed blocker."""
+
+    if not isinstance(value, dict):
+        return False
+    return any(
+        isinstance(finding, dict) and bool(finding.get("blocking"))
+        for finding in (value.get("findings") or [])
+    )
+
+
+def semantic_review_baseline_degraded_reason(value: dict[str, Any] | None) -> str | None:
+    """Classify Core-valid baselines that may proceed without full semantic proof."""
+
+    if not isinstance(value, dict):
+        return None
+    if value.get("status") == "unavailable":
+        return "reviewer_unavailable"
+    if (
+        value.get("status") == "repair_required"
+        and value.get("coverage_complete") is False
+        and not semantic_review_has_verified_blocking_finding(value)
+    ):
+        return "coverage_incomplete_without_verified_blocker"
+    return None
+
+
 def semantic_review_requires_repair(value: dict[str, Any] | None) -> bool:
     if not isinstance(value, dict):
         return False
@@ -624,6 +651,12 @@ def semantic_review_blocks_baseline_acceptance(value: dict[str, Any] | None) -> 
     later candidates still use the stricter promotion gate.
     """
 
+    if not isinstance(value, dict):
+        return False
+    if semantic_review_has_verified_blocking_finding(value):
+        return True
+    if semantic_review_baseline_degraded_reason(value):
+        return False
     return semantic_review_requires_repair(value)
 
 
@@ -1285,6 +1318,23 @@ def _semantic_repair_progress_rank(semantic_review: dict[str, Any] | None) -> tu
     return (0, -1_000_000)
 
 
+def semantic_review_baseline_rank(semantic_review: dict[str, Any] | None) -> int:
+    """Rank semantic evidence for baseline selection without relaxing promotion."""
+
+    value = semantic_review if isinstance(semantic_review, dict) else {}
+    status = value.get("status")
+    if status in {"pass", "warning"} and not semantic_review_blocks_promotion(value):
+        return 4
+    degraded_reason = semantic_review_baseline_degraded_reason(value)
+    if degraded_reason == "coverage_incomplete_without_verified_blocker":
+        return 3
+    if degraded_reason == "reviewer_unavailable":
+        return 2
+    if not semantic_review_blocks_baseline_acceptance(value):
+        return 4
+    return 0
+
+
 def agent_generated_baseline_cycle_rank(
     cycle: Any,
     *,
@@ -1308,7 +1358,7 @@ def agent_generated_baseline_cycle_rank(
     scored_summary = summary if core_total > 0 and core_valid == core_total else diagnostic
     objective_key = summary_objective_key(scored_summary, objectives) if scored_summary is not None else ()
     if agentic_accepted and core_total > 0 and core_valid == core_total:
-        semantic_rank = 900 if semantic_review_blocks_promotion(semantic_review) else 1000
+        semantic_rank = 900 + 25 * semantic_review_baseline_rank(semantic_review)
         return (semantic_rank, *objective_key, attempt_index)
     if agentic_accepted and has_changed_files:
         return (400, *objective_key, attempt_index)
@@ -1328,8 +1378,11 @@ def agent_generated_baseline_selection_reason(
     semantic_review: dict[str, Any] | None = None,
 ) -> str:
     if agent_generated_baseline_cycle_is_core_accepted(cycle):
-        if isinstance(semantic_review, dict) and semantic_review.get("status") == "unavailable":
+        degraded_reason = semantic_review_baseline_degraded_reason(semantic_review)
+        if degraded_reason == "reviewer_unavailable":
             return "core_evaluator_valid_with_degraded_semantic_review"
+        if degraded_reason == "coverage_incomplete_without_verified_blocker":
+            return "core_evaluator_valid_with_incomplete_semantic_coverage"
         if semantic_review_blocks_baseline_acceptance(semantic_review):
             return "core_evaluator_valid_but_algorithm_semantic_repair_required"
         return "agentic_judgment_accepted_and_core_evaluator_valid"
@@ -1529,6 +1582,9 @@ def run_agent_generated_baseline(
         )
         if selected_attempt_index != repair_summary.get("final_attempt_index"):
             repair_summary["final_attempt_superseded"] = True
+        semantic_review_degraded_reason = semantic_review_baseline_degraded_reason(selected_semantic_review)
+        if semantic_review_degraded_reason:
+            repair_summary["recovery_level"] = "core_valid_semantic_review_degraded"
         generation_payload = {
             "status": "ok",
             "source": "agent_generated",
@@ -1550,7 +1606,8 @@ def run_agent_generated_baseline(
             if selected_cycle.agentic_error_analysis
             else None,
             "semantic_review": selected_semantic_review,
-            "semantic_review_degraded": bool(selected_semantic_review.get("status") == "unavailable"),
+            "semantic_review_degraded": bool(semantic_review_degraded_reason),
+            "semantic_review_degraded_reason": semantic_review_degraded_reason,
             "direction_plan": direction_plan or {},
         }
         return selected_cycle.summary, selected_cycle.worktree_path, generation_payload
@@ -2131,6 +2188,11 @@ def agent_generated_baseline_memory_payload(
         if isinstance(baseline_generation.get("semantic_review"), dict)
         else {}
     )
+    semantic_review_degraded_reason = (
+        str(baseline_generation.get("semantic_review_degraded_reason") or "").strip()
+        or semantic_review_baseline_degraded_reason(semantic_review)
+    )
+    semantic_review_degraded = bool(semantic_review_degraded_reason)
     final_key = list(baseline_key)
     valid = int(summary.get("valid", 0) or 0)
     total = int(summary.get("total", 0) or 0)
@@ -2165,7 +2227,13 @@ def agent_generated_baseline_memory_payload(
         },
         "promotion_check": {
             "status": "baseline_generation",
-            "reason": "accepted_as_initial_incumbent" if accepted_as_incumbent else "baseline_not_valid",
+            "reason": (
+                "accepted_as_initial_incumbent_with_degraded_semantic_review"
+                if accepted_as_incumbent and semantic_review_degraded
+                else "accepted_as_initial_incumbent"
+                if accepted_as_incumbent
+                else "baseline_not_valid"
+            ),
             "promoted": False,
         },
         "cycle_dir": baseline_generation.get("cycle_dir"),
@@ -2174,6 +2242,8 @@ def agent_generated_baseline_memory_payload(
         "patch_path": "",
         "promoted_worktree": baseline_generation.get("worktree") if accepted_as_incumbent else None,
         "semantic_review": semantic_review,
+        "semantic_review_degraded": semantic_review_degraded,
+        "semantic_review_degraded_reason": semantic_review_degraded_reason or None,
         "best_core_valid_anchor": best_core_valid_anchor,
     }
     return {
@@ -2187,13 +2257,26 @@ def agent_generated_baseline_memory_payload(
         "agentic_accepted": agentic_judgment.get("accepted"),
         "agentic_issues": (agentic_judgment.get("issues") or [])[:8],
         "semantic_review": semantic_review,
+        "semantic_review_degraded": semantic_review_degraded,
+        "semantic_review_degraded_reason": semantic_review_degraded_reason or None,
+        "evidence_level": (
+            "core_valid_semantic_review_degraded"
+            if semantic_review_degraded
+            else "core_and_semantic_validated"
+            if semantic_review.get("status") in {"pass", "warning"} and semantic_review.get("accepted") is not False
+            else "core_valid_semantic_review_not_authoritative"
+        ),
         "best_core_valid_anchor": best_core_valid_anchor,
         "proposal_summary": diagnostics.get("summary"),
         "strategy_intent": diagnostics.get("strategy_intent"),
         "rule_operator_hypotheses": (diagnostics.get("rule_operator_hypotheses") or [])[:6],
         "round_payload": round_payload,
         "protection_rule": (
-            "This generated baseline is the measured incumbent. Preserve its parser, operation representation, "
+            "This generated baseline is the measured Core-valid incumbent, but semantic method coverage remains "
+            "degraded. Preserve its effective structure during improvement rounds and reverify incomplete coverage "
+            "before promoting its method claims into validated knowledge or Skills."
+            if semantic_review_degraded
+            else "This generated baseline is the measured incumbent. Preserve its parser, operation representation, "
             "constructor, decoder, output schema, and active variant repairs unless loop feedback identifies them "
             "as the direct failure source."
         ),

@@ -756,6 +756,34 @@ class UnavailableSemanticReviewer:
         )
 
 
+class CoverageOnlySemanticReviewer:
+    """Reviewer with no verified mismatch but incomplete observability coverage."""
+
+    def __init__(self) -> None:
+        self.requests = []
+
+    def review(self, request) -> AlgorithmSemanticReviewResult:  # noqa: ANN001 - protocol-compatible test double.
+        self.requests.append(request)
+        return AlgorithmSemanticReviewResult(
+            status="repair_required",
+            accepted=False,
+            summary="No verified semantic mismatch remains; runtime observability is partial.",
+            findings=[],
+            reviewed_files=["examples/dummy_solver.py"],
+            knowledge_paths=["knowledge/runtime_observability.md"],
+            reviewer="coverage_only_test_reviewer",
+            artifacts={},
+            component_coverage=[
+                {
+                    "component_id": "runtime_and_observability",
+                    "status": "partial",
+                    "missing_behaviors": ["Report feasible and improving move counts separately."],
+                }
+            ],
+            coverage_complete=False,
+        )
+
+
 class EmptySlotProposalWorker:
     """Test worker that emits an empty confirmed-slot proposal without risk notes."""
 
@@ -1842,6 +1870,58 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertEqual(0, selected[0])
         self.assertEqual(2596, selected[1].summary.best_metrics["makespan"])
 
+    def test_coverage_only_baseline_ranks_above_unavailable_review(self) -> None:
+        def cycle(makespan: int):
+            return SimpleNamespace(
+                agentic_judgment=AgenticJudgment(
+                    accepted=True,
+                    right=True,
+                    stage="code_generation",
+                    issues=[],
+                    suggestions=[],
+                    checks={},
+                ),
+                summary=RunSummary(
+                    total=2,
+                    valid=2,
+                    failed=0,
+                    best_experiment_id="candidate",
+                    best_metrics={"makespan": makespan},
+                ),
+                worker_result=WorkerResult(
+                    status="ok",
+                    changed_files=["examples/agent_generated_fjsp_solver.py"],
+                    summary="candidate",
+                ),
+                diagnostic_smoke_summary=None,
+            )
+
+        selected = select_agent_generated_baseline_cycle(
+            [
+                (
+                    2,
+                    cycle(2323),
+                    Path("coverage_context.json"),
+                    {
+                        "status": "repair_required",
+                        "accepted": False,
+                        "coverage_complete": False,
+                        "findings": [],
+                    },
+                ),
+                (
+                    3,
+                    cycle(2347),
+                    Path("unavailable_context.json"),
+                    {"status": "unavailable", "accepted": False, "findings": []},
+                ),
+            ],
+            objectives=[TaskContract.load(ROOT / "configs" / "standard_fjsp_tiny.example.json").objectives[0]],
+        )
+
+        self.assertEqual(2, selected[0])
+        self.assertEqual(2323, selected[1].summary.best_metrics["makespan"])
+
     def test_current_round_repair_feedback_carries_quality_targets(self) -> None:
         feedback = current_round_repair_feedback(
             attempt_index=1,
@@ -2560,6 +2640,110 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual("unavailable", generation["semantic_review"]["status"])
             self.assertTrue(generation["in_round_repair"]["recovered"])
             self.assertTrue((tmp_path / "loop" / "round_002").exists())
+
+    def test_coverage_only_baseline_is_degraded_incumbent_and_runs_requested_rounds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract_path = _write_standard_agent_generated_contract(tmp_path)
+            contract = TaskContract.load(contract_path)
+            context_path = _write_test_context(tmp_path, contract_path=contract_path)
+            reviewer = CoverageOnlySemanticReviewer()
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=NullWorker(),
+                baseline_worker=AgentBaselineRepairWorker(),
+                baseline_source="agent_generated",
+                semantic_reviewer=reviewer,
+                experiment_id="test_coverage_only_baseline_semantic_review",
+                iterations=3,
+                max_steps=2,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+                in_round_repair_attempts=2,
+            )
+
+            self.assertEqual("ok", result.status)
+            self.assertEqual(3, len(result.rounds))
+            generation = result.baseline_generation or {}
+            self.assertEqual("ok", generation["status"])
+            self.assertTrue(generation["semantic_review_degraded"])
+            self.assertEqual(
+                "coverage_incomplete_without_verified_blocker",
+                generation["semantic_review_degraded_reason"],
+            )
+            self.assertEqual("repair_required", generation["semantic_review"]["status"])
+            self.assertEqual([], generation["semantic_review"]["findings"])
+            self.assertTrue((tmp_path / "loop" / "round_002").exists())
+
+            first_round_context = json.loads(
+                (tmp_path / "loop" / "round_000" / "context_packet.json").read_text(encoding="utf-8")
+            )
+            feedback = first_round_context["loop_feedback"]
+            baseline_memory = feedback["agent_generated_baseline_memory"]
+            self.assertTrue(baseline_memory["accepted_as_incumbent"])
+            self.assertEqual("core_valid_semantic_review_degraded", baseline_memory["evidence_level"])
+            self.assertEqual("degraded_baseline", feedback["direction_graph"]["directions"][0]["status"])
+            self.assertEqual([], feedback["experience_memory"]["memory_tiers"]["validated_lessons"])
+
+    def test_coverage_only_review_still_blocks_improvement_promotion(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=PromotingProposalWorker(),
+                semantic_reviewer=CoverageOnlySemanticReviewer(),
+                experiment_id="test_coverage_only_improvement_review",
+                iterations=1,
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+                in_round_repair_attempts=0,
+            )
+
+            self.assertEqual("rolled_back", result.rounds[0].decision)
+            self.assertEqual(
+                "algorithm_semantic_review_repair_required",
+                result.rounds[0].promotion_check["reason"],
+            )
+
+    def test_verified_blocking_finding_still_rejects_agent_generated_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract_path = _write_standard_agent_generated_contract(tmp_path)
+            contract = TaskContract.load(contract_path)
+            context_path = _write_test_context(tmp_path, contract_path=contract_path)
+            reviewer = SequencedSemanticReviewer(["repair_required"])
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=NullWorker(),
+                baseline_worker=AgentBaselineRepairWorker(),
+                baseline_source="agent_generated",
+                semantic_reviewer=reviewer,
+                experiment_id="test_verified_blocking_baseline_review",
+                iterations=3,
+                max_steps=2,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+                in_round_repair_attempts=1,
+            )
+
+            self.assertEqual("baseline_generation_failed", result.status)
+            self.assertEqual("semantic_review_rejected", result.stop_reason)
+            self.assertEqual([], result.rounds)
 
     def test_invalid_agent_generated_baseline_stops_before_improvement_rounds(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
