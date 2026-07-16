@@ -162,10 +162,16 @@ function renderJobHistory(jobs) {
     button.className = `history-item ${job.id === state.currentJobId ? "active" : ""}`;
     const summary = job.summary?.worker_summary || {};
     const makespan = summary.final_makespan ?? summary.best_makespan_so_far ?? job.summary?.last_summary?.best_metrics?.makespan;
+    const diagnosticMakespan = summary.diagnostic_makespan ?? summary.latest_diagnostic_makespan;
+    const metricText = makespan !== undefined && makespan !== null
+      ? `makespan ${escapeHtml(formatMetric(makespan))}`
+      : diagnosticMakespan !== undefined && diagnosticMakespan !== null
+        ? `诊断 makespan ${escapeHtml(formatMetric(diagnosticMakespan))}`
+        : "makespan -";
     button.innerHTML = `
       <strong>${escapeHtml(job.title || job.id)}</strong>
       <span>${escapeHtml(statusLabel(job.status))} · ${escapeHtml(formatShortTime(job.updated_at || job.created_at))}</span>
-      <small>${makespan === undefined || makespan === null ? "makespan -" : `makespan ${escapeHtml(formatMetric(makespan))}`}</small>
+      <small>${metricText}</small>
     `;
     button.addEventListener("click", () => selectHistoryJob(job.id, {loadReport: true}));
     container.appendChild(button);
@@ -435,12 +441,15 @@ function renderJob(job) {
   const roundSummary = job.summary?.round_summary || {};
   const workerSummary = job.summary?.worker_summary || {};
   const ziSummary = job.summary?.zi_summary || {};
-  const makespan =
+  const officialMakespan =
     workerSummary.final_makespan ??
     workerSummary.best_makespan_so_far ??
     workerSummary.latest_makespan ??
     summary.best_metrics?.makespan ??
     summary.best_candidate_metrics?.avg_makespan;
+  const diagnosticMakespan = workerSummary.diagnostic_makespan ?? workerSummary.latest_diagnostic_makespan;
+  const makespan = officialMakespan ?? diagnosticMakespan;
+  const diagnosticOnly = (officialMakespan === undefined || officialMakespan === null) && diagnosticMakespan !== undefined && diagnosticMakespan !== null;
   const gap =
     ziSummary.best_avg_gap_pct ??
     workerSummary.final_gap_pct ??
@@ -456,6 +465,8 @@ function renderJob(job) {
   $("metric-valid").textContent =
     ziSummary.best_valid_instance_count !== undefined
       ? `${ziSummary.best_valid_instance_count}/${ziSummary.selected_instance_count}`
+      : diagnosticOnly
+        ? `诊断 ${workerSummary.diagnostic_valid ?? "-"}/${workerSummary.diagnostic_total ?? "-"} · 不参与晋升`
       : workerSummary.promoted_rounds !== undefined
         ? [
             `最终 ${workerSummary.final_valid ?? workerSummary.latest_valid ?? "-"}/${workerSummary.final_total ?? workerSummary.latest_total ?? "-"}`,
@@ -476,7 +487,7 @@ function renderJob(job) {
               : null,
           ].filter(Boolean).join(" · ")
         : summary.valid ?? benchmark.valid_experiments ?? "-";
-  $("metric-makespan").textContent = formatMetric(makespan);
+  $("metric-makespan").textContent = diagnosticOnly ? `${formatMetric(makespan)}（诊断）` : formatMetric(makespan);
   $("metric-gap").textContent = gap === undefined || gap === null ? "-" : `${Number(gap).toFixed(2)}%`;
 
   const log = $("event-log");

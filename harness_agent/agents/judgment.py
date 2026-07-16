@@ -1781,9 +1781,20 @@ def _has_operation_coverage_guard(text: str) -> bool:
         and ("if unscheduled" in lowered or "while unscheduled" in lowered)
         and "return none" in lowered
     )
+    # Some validators accumulate errors instead of returning immediately.  A
+    # duplicate-membership guard plus an explicit expected-item missing scan is
+    # equivalent coverage evidence even when it does not compare whole sets.
+    explicit_missing_scan = bool(
+        re.search(
+            r"for\s+([a-z_][a-z0-9_]*)\s+in\s+([a-z_][a-z0-9_]*)\s*:[\s\S]{0,240}?"
+            r"if\s+\1\s+not\s+in\s+([a-z_][a-z0-9_]*)\s*:[\s\S]{0,180}?"
+            r"(?:append\s*\(|return\s+false|raise\s+)",
+            lowered,
+        )
+    )
     return (
         any(term in lowered for term in coverage_terms)
-        and (any(term in lowered for term in schedule_terms) or set_equality_guard)
+        and (any(term in lowered for term in schedule_terms) or set_equality_guard or explicit_missing_scan)
         and (
             any(term in lowered for term in duplicate_terms)
             or ("scheduled < total_ops" in lowered and "if not progress" in lowered and "return none" in lowered)
@@ -1945,11 +1956,18 @@ def _has_machine_non_overlap_guard(text: str) -> bool:
         and ("return none" in lowered or "return false" in lowered or "raise" in lowered)
     )
     sorted_interval_guard = (
-        "by_machine" in lowered
+        ("by_machine" in lowered or "machine_intervals" in lowered)
         and ("intervals.sort" in lowered or "sorted(intervals" in lowered)
-        and "zip(intervals" in lowered
+        and (
+            "zip(intervals" in lowered
+            or re.search(
+                r"for\s+[^\n:]*\bstart\b[^\n:]*\bend\b[^\n:]*\s+in\s+intervals\s*:"
+                r"[\s\S]{0,220}?if\s+start\s*<\s*[a-z_][a-z0-9_]*end",
+                lowered,
+            )
+        )
         and any(term in lowered for term in ["left[1] > right[0]", "prev[1] > curr[0]", "overlap"])
-        and ("return none" in lowered or "return false" in lowered or "raise" in lowered)
+        and ("return none" in lowered or "return false" in lowered or "raise" in lowered or "errors.append" in lowered)
     )
     sorted_record_guard = bool(
         _has_record_start_before_record_end_comparison(lowered)

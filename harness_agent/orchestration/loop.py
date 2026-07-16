@@ -1524,6 +1524,7 @@ def run_agent_generated_baseline(
             "proposal_diagnostics": worker_proposal_diagnostics(selected_cycle.worker_result),
             "in_round_repair": repair_summary,
             "summary": summary_payload(selected_cycle.summary),
+            "diagnostic_smoke": compact_diagnostic_smoke(selected_cycle),
             "agentic_judgment": selected_cycle.agentic_judgment.to_payload(),
             "agentic_error_analysis": selected_cycle.agentic_error_analysis.to_payload()
             if selected_cycle.agentic_error_analysis

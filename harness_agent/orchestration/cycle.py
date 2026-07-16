@@ -299,11 +299,23 @@ def should_soft_accept_agent_generated_quality_rejection(
     if diagnostic_smoke_summary.total <= 0 or diagnostic_smoke_summary.valid != diagnostic_smoke_summary.total:
         return False
     issues = set(agentic_judgment.issues or [])
-    if issues != {"agent_generated_solver_quality_contract_missing"}:
+    soft_source_evidence_issues = {
+        "agent_generated_solver_quality_contract_missing",
+        "agent_generated_solver_self_check_incomplete",
+    }
+    if not issues or not issues.issubset(soft_source_evidence_issues):
         return False
     checks = agentic_judgment.checks or {}
-    quality_risks = [str(item) for item in checks.get("agent_generated_solver_quality_risks") or []]
-    if not quality_risks:
+    blocking_quality_risks = [
+        str(item) for item in checks.get("agent_generated_solver_blocking_quality_risks") or []
+    ]
+    if blocking_quality_risks:
+        return False
+    source_evidence_risks = [
+        *[str(item) for item in checks.get("agent_generated_solver_quality_risks") or []],
+        *[str(item) for item in checks.get("agent_generated_solver_self_check_risks") or []],
+    ]
+    if not source_evidence_risks:
         return False
     # Source-shape and named-method gaps are hypotheses for the semantic
     # reviewer, not legality facts.  Once Core has validated the active
@@ -315,10 +327,14 @@ def should_soft_accept_agent_generated_quality_rejection(
         "active feature",
         "missing setup-aware capabilities",
         "failed_move_mutates_current_without_rollback",
+        "syntax",
+        "apply rejection",
+        "empty schedule",
+        "backend import",
     )
     return not any(
-        any(fragment in risk for fragment in hard_quality_fragments)
-        for risk in quality_risks
+        any(fragment in risk.lower() for fragment in hard_quality_fragments)
+        for risk in source_evidence_risks
     )
 
 
@@ -329,9 +345,10 @@ def soften_agent_generated_quality_judgment(
 ) -> AgenticJudgment:
     checks = dict(agentic_judgment.checks or {})
     checks["soft_accepted_by_diagnostic_smoke"] = {
-        "reason": "diagnostic_smoke_validated_soft_agent_generated_quality_gaps",
+        "reason": "diagnostic_smoke_validated_soft_agent_generated_source_evidence_gaps",
         "original_issues": list(agentic_judgment.issues or []),
         "original_quality_risks": list(checks.get("agent_generated_solver_quality_risks") or []),
+        "original_self_check_risks": list(checks.get("agent_generated_solver_self_check_risks") or []),
         "diagnostic_metrics": diagnostic_smoke_summary.best_candidate_metrics or diagnostic_smoke_summary.best_metrics,
     }
     return replace(
@@ -340,7 +357,7 @@ def soften_agent_generated_quality_judgment(
         right=True,
         issues=[],
         suggestions=[
-            "Diagnostic smoke validated the active generated solver on the fixed evaluator; static quality-contract gaps were downgraded to warnings.",
+            "Diagnostic smoke validated the active generated solver on the fixed evaluator; static quality/self-check evidence gaps were downgraded to warnings.",
             "Continue with evaluator-backed comparison, and preserve the validated parser/coverage/eligibility behavior in later edits.",
         ],
         checks=checks,

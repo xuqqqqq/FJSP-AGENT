@@ -691,6 +691,25 @@ def validate_schedule(instance, schedule):
 """
         self.assertTrue(_has_operation_coverage_guard(source))
 
+    def test_coverage_detector_accepts_explicit_missing_scan_with_accumulated_errors(self) -> None:
+        source = """
+def validate_schedule(records, index):
+    expected_ops = set(index.real_nodes)
+    seen_ops = set()
+    errors = []
+    for rec in records:
+        key = (rec["job_id"], rec["op_id"])
+        if key in seen_ops:
+            errors.append("duplicate")
+            continue
+        seen_ops.add(key)
+    for key in expected_ops:
+        if key not in seen_ops:
+            errors.append("missing")
+    return len(errors) == 0
+"""
+        self.assertTrue(_has_operation_coverage_guard(source))
+
     def test_ready_list_detector_accepts_generic_candidates_finish_scoring(self) -> None:
         source = """
 def build_initial_schedule(op_info, job_op_counts, seed):
@@ -933,6 +952,23 @@ def decode_schedule(assignment, machine_sequences, instance):
             if end_times[prev_op] > start_times[cur_op]:
                 return None
     return schedule
+"""
+        self.assertTrue(_has_machine_non_overlap_guard(source))
+
+    def test_non_overlap_detector_accepts_sorted_intervals_with_running_end(self) -> None:
+        source = """
+def validate_schedule(records):
+    machine_intervals = {}
+    errors = []
+    for machine_id, intervals in machine_intervals.items():
+        intervals.sort(key=lambda item: item[0])
+        max_end = -1
+        for start, end, operation in intervals:
+            if start < max_end:
+                errors.append(f"machine overlap: {operation}")
+            if end > max_end:
+                max_end = end
+    return len(errors) == 0
 """
         self.assertTrue(_has_machine_non_overlap_guard(source))
 

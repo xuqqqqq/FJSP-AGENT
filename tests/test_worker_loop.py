@@ -2772,6 +2772,50 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertNotIn("agent_generated_solver_method_stage", feedback["repair_targets"])
         self.assertNotIn("agent_generated_solver_repair_plan", feedback["repair_targets"])
 
+    def test_soft_accepts_generated_solver_self_check_gap_after_valid_diagnostic_smoke(self) -> None:
+        judgment = AgenticJudgment(
+            accepted=False,
+            right=False,
+            stage="code_generation",
+            issues=["agent_generated_solver_self_check_incomplete"],
+            suggestions=["repair source evidence"],
+            checks={
+                "agent_generated_solver_quality_risks": [
+                    "agent_generated_solver: missing base capabilities: complete_schedule_coverage_guard"
+                ],
+                "agent_generated_solver_blocking_quality_risks": [],
+                "agent_generated_solver_self_check_risks": [
+                    "source-level self-check missing capability evidence: complete_schedule_coverage_guard, machine_non_overlap_guard"
+                ],
+            },
+        )
+        diagnostic = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="tiny",
+            best_metrics={"makespan": 10.0},
+            best_candidate_id="candidate",
+            best_candidate_metrics={"avg_makespan": 10.0},
+            candidate_summaries=[],
+            pareto_frontier=[],
+            validation_summary={"status_counts": {"success": 1}},
+        )
+
+        self.assertTrue(
+            should_soft_accept_agent_generated_quality_rejection(
+                agentic_judgment=judgment,
+                diagnostic_smoke_summary=diagnostic,
+            )
+        )
+        softened = soften_agent_generated_quality_judgment(
+            agentic_judgment=judgment,
+            diagnostic_smoke_summary=diagnostic,
+        )
+        evidence = softened.checks["soft_accepted_by_diagnostic_smoke"]
+        self.assertEqual(["agent_generated_solver_self_check_incomplete"], evidence["original_issues"])
+        self.assertIn("complete_schedule_coverage_guard", evidence["original_self_check_risks"][0])
+
     def test_soft_accepts_evaluator_valid_solver_with_source_shape_capability_gap(self) -> None:
         judgment = AgenticJudgment(
             accepted=False,

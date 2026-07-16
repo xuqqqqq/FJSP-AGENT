@@ -17,6 +17,7 @@ from harness_agent.web.server import (
     make_demo_examples,
     mark_stale_persisted_job_interrupted,
     run_job,
+    scan_code_attempt_progress,
     summarize_code_evolution_progress,
     summarize_worker_manifest,
 )
@@ -220,6 +221,42 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(100, summary["final_makespan"])
         self.assertEqual(110, summary["latest_makespan"])
 
+    def test_worker_manifest_summary_keeps_valid_diagnostic_makespan_separate(self) -> None:
+        summary = summarize_worker_manifest(
+            {
+                "status": "baseline_generation_failed",
+                "baseline_key": [float("-inf")],
+                "final_key": [float("-inf")],
+                "round_count": 0,
+                "baseline_summary": {"total": 0, "valid": 0},
+                "final_summary": {"total": 0, "valid": 0},
+                "baseline_generation": {
+                    "in_round_repair": {
+                        "attempts": [
+                            {
+                                "diagnostic_smoke": {
+                                    "diagnostic_only": True,
+                                    "passed": True,
+                                    "summary": {
+                                        "total": 1,
+                                        "valid": 1,
+                                        "failed": 0,
+                                        "best_metrics": {"makespan": 2230},
+                                    },
+                                }
+                            }
+                        ]
+                    }
+                },
+                "rounds": [],
+            }
+        )
+
+        self.assertIsNone(summary["final_makespan"])
+        self.assertEqual(2230, summary["diagnostic_makespan"])
+        self.assertEqual(1, summary["diagnostic_valid"])
+        self.assertFalse(summary["diagnostic_promotable"])
+
     def test_progress_summary_prefers_final_repair_attempt(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -241,6 +278,78 @@ class WebAppTests(unittest.TestCase):
 
         self.assertEqual(1, progress["completed_round_count"])
         self.assertEqual(95, progress["best_makespan_so_far"])
+
+    def test_progress_summary_exposes_baseline_diagnostic_before_any_round(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            attempt_dir = root / "agent_generated_baseline" / "repair_001"
+            attempt_dir.mkdir(parents=True)
+            (attempt_dir / "cycle_result.json").write_text(
+                json.dumps(
+                    {
+                        "harness": {"total": 0, "valid": 0, "best_metrics": {}},
+                        "diagnostic_smoke": {
+                            "passed": True,
+                            "summary": {
+                                "total": 1,
+                                "valid": 1,
+                                "failed": 0,
+                                "best_metrics": {"makespan": 2230},
+                            },
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            progress = summarize_code_evolution_progress(root)
+
+        self.assertEqual(0, progress["completed_round_count"])
+        self.assertEqual(2230, progress["diagnostic_makespan"])
+        self.assertFalse(progress["diagnostic_promotable"])
+
+    def test_attempt_progress_reports_diagnostic_makespan_when_ja_blocks_formal_evaluator(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            attempt_dir = root / "attempt"
+            attempt_dir.mkdir()
+            (attempt_dir / "cycle_result.json").write_text(
+                json.dumps(
+                    {
+                        "worker": {"status": "completed"},
+                        "harness": {"total": 0, "valid": 0, "best_metrics": {}},
+                        "diagnostic_smoke": {
+                            "passed": True,
+                            "summary": {
+                                "total": 1,
+                                "valid": 1,
+                                "failed": 0,
+                                "best_metrics": {"makespan": 2230},
+                            },
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            job = {
+                "id": "diagnostic-job",
+                "title": "diagnostic job",
+                "status": "running",
+                "created_at": "2026-07-16T00:00:00Z",
+                "updated_at": "2026-07-16T00:00:00Z",
+                "job_dir": str(root),
+                "events": [],
+                "summary": {},
+                "artifacts": {},
+                "error": None,
+            }
+
+            scan_code_attempt_progress(job, set(), attempt_dir, "baseline")
+
+        message = job["events"][-1]["message"]
+        self.assertIn("diagnostic_makespan=2230", message)
+        self.assertIn("不参与 promotion", message)
+        self.assertEqual("warning", job["events"][-1]["level"])
 
     @staticmethod
     def job_payload(**overrides: object) -> dict[str, object]:

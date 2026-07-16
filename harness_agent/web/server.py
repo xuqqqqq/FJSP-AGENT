@@ -1160,6 +1160,7 @@ def summarize_worker_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         skill_usage_records = []
     final_metrics = summary_metrics(final_summary)
     latest_metrics = summary_metrics(latest_summary)
+    diagnostic_fields = summarize_diagnostic_summaries(collect_valid_diagnostic_summaries(manifest))
     return {
         "round_count": int(manifest.get("round_count", 0) or 0),
         "completed_round_count": int(manifest.get("round_count", 0) or 0),
@@ -1193,6 +1194,52 @@ def summarize_worker_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         "rejected_before_eval": rejected_before_eval,
         "in_round_repair": in_round_repair,
         "round_dirs": round_dirs,
+        **diagnostic_fields,
+    }
+
+
+def collect_valid_diagnostic_summaries(value: Any) -> list[dict[str, Any]]:
+    """Collect evaluator-proven diagnostic summaries from nested loop artifacts."""
+
+    summaries: list[dict[str, Any]] = []
+
+    def visit(node: Any) -> None:
+        if isinstance(node, dict):
+            diagnostic = node.get("diagnostic_smoke")
+            if isinstance(diagnostic, dict):
+                summary = diagnostic.get("summary") if isinstance(diagnostic.get("summary"), dict) else {}
+                total = int(summary.get("total", 0) or 0)
+                valid = int(summary.get("valid", 0) or 0)
+                if total > 0 and valid == total:
+                    summaries.append(summary)
+            for key, child in node.items():
+                if key != "diagnostic_smoke":
+                    visit(child)
+        elif isinstance(node, list):
+            for child in node:
+                visit(child)
+
+    visit(value)
+    return summaries
+
+
+def summarize_diagnostic_summaries(summaries: list[dict[str, Any]]) -> dict[str, Any]:
+    """Expose diagnostic metrics separately from promotable Core metrics."""
+
+    if not summaries:
+        return {}
+    latest = summaries[-1]
+    best = best_progress_summary(summaries)
+    latest_metrics = summary_metrics(latest)
+    best_metrics = summary_metrics(best)
+    return {
+        "has_valid_diagnostic": True,
+        "diagnostic_makespan": best_metrics.get("makespan"),
+        "latest_diagnostic_makespan": latest_metrics.get("makespan"),
+        "diagnostic_total": int(latest.get("total", 0) or 0),
+        "diagnostic_valid": int(latest.get("valid", 0) or 0),
+        "diagnostic_failed": int(latest.get("failed", 0) or 0),
+        "diagnostic_promotable": False,
     }
 
 
@@ -1375,14 +1422,30 @@ def scan_code_attempt_progress(job: dict[str, Any], seen: set[str], attempt_dir:
             summary = payload.get("harness", {}) if isinstance(payload, dict) else {}
             best_metrics = summary.get("best_metrics") or summary.get("best_candidate_metrics") or {}
             makespan = best_metrics.get("makespan", best_metrics.get("avg_makespan"))
+            diagnostic_summaries = collect_valid_diagnostic_summaries(payload)
+            diagnostic_summary = diagnostic_summaries[-1] if diagnostic_summaries else {}
+            diagnostic_metrics = summary_metrics(diagnostic_summary)
+            formal_total = int(summary.get("total", 0) or 0)
+            if formal_total <= 0 and diagnostic_summary:
+                message = (
+                    f"{label} JA 未放行正式 evaluator；诊断 evaluator 已证明当前输出合法："
+                    f"valid={diagnostic_summary.get('valid', '-')}，"
+                    f"diagnostic_makespan={format_progress_value(diagnostic_metrics.get('makespan'))}。"
+                    "该结果仅用于诊断，不参与 promotion。"
+                )
+                level = "warning"
+            else:
+                message = (
+                    f"{label} evaluator 已完成：worker={worker.get('status', 'unknown')}，"
+                    f"valid={summary.get('valid', '-')}，makespan={format_progress_value(makespan)}。"
+                )
+                level = "info"
             record_progress_event(
                 job,
                 seen,
                 f"{label}:cycle-result",
-                (
-                    f"{label} evaluator 已完成：worker={worker.get('status', 'unknown')}，"
-                    f"valid={summary.get('valid', '-')}，makespan={format_progress_value(makespan)}。"
-                ),
+                message,
+                level=level,
             )
         semantic_review = attempt_dir / "semantic_review" / "algorithm_semantic_review.json"
         if semantic_review.exists():
@@ -1463,7 +1526,13 @@ def summarize_code_evolution_progress(worker_root: Path) -> dict[str, Any]:
     if not worker_root.exists():
         return {}
     round_dirs = sorted(path for path in worker_root.glob("round_*") if path.is_dir())
-    if not round_dirs:
+    stage_dirs = [path for path in [worker_root / "agent_generated_baseline", *round_dirs] if path.is_dir()]
+    diagnostic_summaries: list[dict[str, Any]] = []
+    for stage_dir in stage_dirs:
+        for attempt_dir, _label in worker_attempt_dirs(stage_dir):
+            cycle_payload = read_json_file(attempt_dir / "cycle_result.json")
+            diagnostic_summaries.extend(collect_valid_diagnostic_summaries(cycle_payload))
+    if not round_dirs and not diagnostic_summaries:
         return {}
     evaluated_rounds: list[dict[str, Any]] = []
     for round_dir in round_dirs:
@@ -1492,6 +1561,7 @@ def summarize_code_evolution_progress(worker_root: Path) -> dict[str, Any]:
         "latest_failed": int(latest_summary.get("failed", 0) or 0),
         "round_dirs": [str(path.resolve()) for path in round_dirs],
         "in_round_repair": summarize_progress_repair_dirs(round_dirs),
+        **summarize_diagnostic_summaries(diagnostic_summaries),
     }
 
 
