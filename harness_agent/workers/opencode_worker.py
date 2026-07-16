@@ -164,8 +164,9 @@ class OpenCodeWorker(CodingWorker):
             command.extend(shlex.split(self.run_command, posix=False))
         if self.model:
             command.extend(["--model", self.model])
-        command.extend(["--file", str(prompt_path)])
         command.append("Follow the attached worker instructions and complete the bounded code task.")
+        # `--file` 是数组参数；使用等号形式可避免把后续位置参数误吞成第二个文件。
+        command.append(f"--file={prompt_path}")
         return command
 
     def _prompt(

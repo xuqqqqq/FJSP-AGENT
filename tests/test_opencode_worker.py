@@ -106,8 +106,14 @@ class OpenCodeWorkerTests(unittest.TestCase):
             self.assertLessEqual(budget["dynamic_chars"], 32_000)
             command = json.loads((output_dir / "opencode_command.json").read_text(encoding="utf-8"))
             self.assertIn("fake/model", command)
-            self.assertIn("--file", command)
-            self.assertIn(str(output_dir / "opencode_prompt.md"), command)
+            self.assertIn(
+                f"--file={output_dir / 'opencode_prompt.md'}",
+                command,
+            )
+            self.assertLess(
+                command.index("Follow the attached worker instructions and complete the bounded code task."),
+                next(index for index, item in enumerate(command) if item.startswith("--file=")),
+            )
             self.assertFalse(any("Read and follow" in item for item in command))
             self.assertIn("fake opencode executed", (output_dir / "opencode.stdout.txt").read_text(encoding="utf-8"))
 
