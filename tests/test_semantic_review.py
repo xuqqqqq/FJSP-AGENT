@@ -11,12 +11,75 @@ from harness_agent.agents.semantic import (
     AlgorithmSemanticReviewRequest,
     DeepSeekAlgorithmSemanticReviewer,
     EvidenceOnlySemanticReviewer,
+    load_review_knowledge,
     load_review_sources,
     normalize_semantic_review,
+    semantic_review_json_repair_prompt,
+    semantic_review_prompt,
 )
 
 
 class SemanticReviewTests(unittest.TestCase):
+    def test_complete_package_review_excludes_reference_implementation_asset(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        contract = root / "knowledge" / "method_packages" / "standard_fjsp_awls_hgtsa" / "implementation_contract.json"
+        behavior = root / "knowledge" / "method_packages" / "standard_fjsp_awls_hgtsa" / "behavior_contract.md"
+        reference = root / "knowledge" / "method_packages" / "standard_fjsp_awls_hgtsa" / "reference_solver.py"
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "knowledge_cards": [
+                {"path": str(contract)},
+                {"path": str(behavior)},
+                {"path": str(reference)},
+            ],
+            "active_method_package": {
+                "implementation_contract_assets": [str(contract)],
+                "semantic_assets": [str(behavior)],
+                "implementation_asset": str(reference),
+            },
+        }
+
+        loaded = load_review_knowledge(
+            context=context,
+            direction_plan={
+                "implementation_bundle": {"contract_id": "standard_complete"},
+                "knowledge_paths": [str(reference), str(behavior), str(contract)],
+            },
+        )
+
+        loaded_paths = list(loaded)
+        self.assertTrue(any(path.endswith("implementation_contract.json") for path in loaded_paths))
+        self.assertTrue(any(path.endswith("behavior_contract.md") for path in loaded_paths))
+        self.assertFalse(any(path.endswith("reference_solver.py") for path in loaded_paths))
+
+    def test_semantic_json_retry_does_not_resend_source_and_knowledge_bodies(self) -> None:
+        prompt = semantic_review_json_repair_prompt(
+            '{"summary":"draft"}',
+            sources={"solver.py": "SECRET_SOURCE_BODY"},
+            knowledge={"contract.md": "SECRET_KNOWLEDGE_BODY"},
+        )
+
+        self.assertIn("solver.py", prompt)
+        self.assertIn("contract.md", prompt)
+        self.assertNotIn("SECRET_SOURCE_BODY", prompt)
+        self.assertNotIn("SECRET_KNOWLEDGE_BODY", prompt)
+
+    def test_semantic_primary_prompt_numbers_source_once(self) -> None:
+        prompt = semantic_review_prompt(
+            direction_plan={},
+            candidate_summary={},
+            sources={"solver.py": "def solve():\n    return 1\n"},
+            knowledge={"contract.md": "The solver must return a result."},
+        )
+
+        self.assertIn("1: def solve():", prompt)
+        self.assertIn("2:     return 1", prompt)
+        self.assertLess(prompt.index("Knowledge contracts"), prompt.index("Direction plan"))
+        self.assertLess(
+            prompt.index("Knowledge contracts"),
+            prompt.index("Candidate source with authoritative"),
+        )
+
     def test_verified_source_and_exact_knowledge_quote_can_block(self) -> None:
         result = normalize_semantic_review(
             {
@@ -290,6 +353,7 @@ class SemanticReviewTests(unittest.TestCase):
         client_factory.assert_called_once_with(model="deepseek-v4-pro", timeout_seconds=300)
         self.assertEqual(130, result.usage["prompt_tokens"])
         self.assertIn("json_retry_response", result.artifacts)
+        self.assertIn("usage", result.artifacts)
 
     def test_missing_or_partial_component_coverage_blocks_without_findings(self) -> None:
         result = normalize_semantic_review(

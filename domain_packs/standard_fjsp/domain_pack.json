@@ -91,6 +91,10 @@
         "knowledge/method_packages/standard_fjsp_awls_hgtsa/reference_solver.py",
         "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_algorithm_semantic_review_contract.md"
       ],
+      "semantic_assets": [
+        "knowledge/method_packages/standard_fjsp_awls_hgtsa/behavior_contract.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_algorithm_semantic_review_contract.md"
+      ],
       "implementation_contract_asset": "knowledge/method_packages/standard_fjsp_awls_hgtsa/implementation_contract.json",
       "implementation_asset": "knowledge/method_packages/standard_fjsp_awls_hgtsa/reference_solver.py",
       "default_priority": 100
@@ -112,6 +116,12 @@
         "knowledge/method_packages/standard_fjsp_awls_hgtsa/README.md",
         "knowledge/method_packages/standard_fjsp_awls_hgtsa/behavior_contract.md",
         "knowledge/method_packages/standard_fjsp_awls_hgtsa/reference_solver.py",
+        "knowledge/papers/awls_sdst_agent_generated_transfer_notes.md",
+        ".codex/skills/fjsp-agent-generated-solver/references/decoder_neighborhood.md",
+        "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_algorithm_semantic_review_contract.md"
+      ],
+      "semantic_assets": [
+        "knowledge/method_packages/standard_fjsp_awls_hgtsa/behavior_contract.md",
         "knowledge/papers/awls_sdst_agent_generated_transfer_notes.md",
         ".codex/skills/fjsp-agent-generated-solver/references/decoder_neighborhood.md",
         "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_algorithm_semantic_review_contract.md"

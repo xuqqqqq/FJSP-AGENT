@@ -60,7 +60,11 @@ class OpenCodeWorker(CodingWorker):
         返回值只描述本次 worker 进程是否正常结束，不直接声明候选算法已
         通过 evaluator。
         """
-        output_dir = Path(spec.output_dir) if spec.output_dir else Path(spec.worktree_path) / ".algoforge_worker" / spec.experiment_id
+        output_dir = (
+            Path(spec.output_dir)
+            if spec.output_dir
+            else Path(spec.worktree_path) / ".algoforge_worker" / spec.experiment_id
+        ).resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
         if self.executable_path is None:
             return WorkerResult(
@@ -70,12 +74,26 @@ class OpenCodeWorker(CodingWorker):
                 artifacts={"output_dir": str(output_dir)},
             )
 
-        prompt = self._prompt(spec)
+        context_sections = self._context_sections(spec)
+        prompt = self._prompt(spec, context_sections=context_sections)
         prompt_path = output_dir / "opencode_prompt.md"
+        budget_path = output_dir / "opencode_context_budget.json"
         stdout_path = output_dir / "opencode.stdout.txt"
         stderr_path = output_dir / "opencode.stderr.txt"
         command_path = output_dir / "opencode_command.json"
         prompt_path.write_text(prompt, encoding="utf-8")
+        budget_path.write_text(
+            json_dumps(
+                {
+                    "stable_chars": len(context_sections["stable"]),
+                    "dynamic_chars": len(context_sections["dynamic"]),
+                    "prompt_chars": len(prompt),
+                    "approx_prompt_tokens_at_4_chars": (len(prompt) + 3) // 4,
+                    "note": "Provider tokenization and OpenCode internal tool turns determine billed tokens.",
+                }
+            ),
+            encoding="utf-8",
+        )
         command = self._command(prompt_path)
         command_path.write_text(json_dumps(command), encoding="utf-8")
 
@@ -110,6 +128,7 @@ class OpenCodeWorker(CodingWorker):
                 artifacts={
                     "output_dir": str(output_dir),
                     "prompt": str(prompt_path),
+                    "context_budget": str(budget_path),
                     "stderr": str(stderr_path),
                     "command": str(command_path),
                 },
@@ -127,6 +146,7 @@ class OpenCodeWorker(CodingWorker):
             artifacts={
                 "output_dir": str(output_dir),
                 "prompt": str(prompt_path),
+                "context_budget": str(budget_path),
                 "stdout": str(stdout_path),
                 "stderr": str(stderr_path),
                 "command": str(command_path),
@@ -136,34 +156,37 @@ class OpenCodeWorker(CodingWorker):
     def _command(self, prompt_path: Path) -> list[str]:
         """构造最终命令行。
 
-        这里不把 prompt 内容直接塞进 argv，而是只传一个“读取某个文件”的
-        指令，确保完整 worker 指令文本能原样保存在产物目录，便于审计。
+        使用 OpenCode 原生 file attachment 让说明在首个模型请求中直接可见，
+        避免 agent 先后两次 Read 长 prompt，再把这些工具输出累计进会话。
         """
         command = [str(self.executable_path)]
         if self.run_command:
             command.extend(shlex.split(self.run_command, posix=False))
         if self.model:
             command.extend(["--model", self.model])
-        prompt = f"Read and follow the worker instructions in this file: {prompt_path}"
-        command.append(prompt)
+        command.extend(["--file", str(prompt_path)])
+        command.append("Follow the attached worker instructions and complete the bounded code task.")
         return command
 
-    def _prompt(self, spec: ExperimentSpec) -> str:
+    def _prompt(
+        self,
+        spec: ExperimentSpec,
+        *,
+        context_sections: dict[str, str] | None = None,
+    ) -> str:
         """生成给 OpenCode 的完整 worker 提示词。
 
         stable/dynamic context 在这里以预裁剪后的 JSON 文本注入。该函数
         只负责编排 worker 可见上下文，不参与任何结果验收逻辑。
         """
-        context_sections = self._context_sections(spec)
+        context_sections = context_sections or self._context_sections(spec)
         local_inputs = self._local_input_hint(spec)
         return f"""
 You are running inside an AlgoForge worker cycle.
 
-Read the context packet at:
-{spec.context_packet_path}
-
-Worktree:
-{spec.worktree_path}
+The stable and priority context below are the authoritative worker view of the
+context packet. Do not read the full context packet again; inspect only the
+specific worktree source or knowledge asset paths needed for this direction.
 
 Task:
 - State a concise natural-language strategy in your own working notes if useful.
@@ -177,10 +200,8 @@ Task:
   the formal evaluator command, any benchmark command, multiple seeds, repeated
   solver trials, the full test suite, or parameter sweeps. Core owns all formal
   and multi-seed evaluation.
-- The first active instance is mirrored inside the worktree for read-only use:
-  {local_inputs}
-  Use this local mirror for inspection and the single worker smoke. Do not ask
-  for access to the original instance path when it is outside the worktree.
+- Use only the read-only instance mirror listed in Runtime paths for inspection
+  and the single worker smoke. Do not request the original external path.
 - Agent-generated solver entrypoints must accept `--time-limit-sec`. Treat it
   as one shared wall-clock budget and return comfortably before it expires.
   Check the deadline inside nested candidate scans, not only between restarts
@@ -202,8 +223,9 @@ Task:
   a second method family into the same direction or reduce the package to a
   random hill climber while retaining the stronger method name.
 - When `loop_feedback.current_direction_plan.implementation_bundle` is present,
-  treat it as one complete method implementation contract. Before editing,
-  enumerate every required component and coupled group in your working plan.
+  use its IDs together with `active_method_package.implementation_contract` as
+  one complete method implementation contract. Before editing, enumerate every
+  required component and coupled group in your working plan.
   Implement the whole bundle coherently in this direction; do not stop after
   fixing one convenient finding while other required components remain absent.
 - During same-direction repair, use the latest
@@ -260,6 +282,10 @@ Priority context (dynamic tail):
 ```json
 {context_sections["dynamic"]}
 ```
+
+Runtime paths (dynamic; intentionally placed after cacheable instructions):
+- Worktree: {spec.worktree_path}
+- First active instance mirror: {local_inputs}
 
 If no safe edit is possible, leave the worktree unchanged and explain why in
 stdout.  The harness will record your stdout/stderr and the worktree delta.

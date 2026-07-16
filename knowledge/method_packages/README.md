@@ -11,6 +11,7 @@ Method Package 是 Agent 可检索、可实现、可审查的一套完整算法�
 - `implementation_contract.json`：完整组件、必需行为、耦合关系和完成条件。
 - 行为契约或论文卡：解释方法为什么成立，以及哪些简化会破坏方法。
 - 可选参考实现：供 Coding Agent 阅读并按当前需求/IO 重写，不由后端直接运行或复制。
+- `semantic_assets`：只给 Semantic Reviewer 的精炼行为契约；不包含大体量参考实现，避免每次审查重复计费。
 
 ## Generic Contract
 

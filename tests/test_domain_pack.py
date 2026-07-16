@@ -45,10 +45,10 @@ class DomainPackTests(unittest.TestCase):
             "harness_agent/orchestration/standard.py",
             pack.agent_generated_baseline_preserve_paths,
         )
-        self.assertEqual(
-            "standard_fjsp_awls_hgtsa",
-            pack.method_package("standard_fjsp_awls_hgtsa").package_id,
-        )
+        method_package = pack.method_package("standard_fjsp_awls_hgtsa")
+        self.assertEqual("standard_fjsp_awls_hgtsa", method_package.package_id)
+        self.assertTrue(any(path.name == "behavior_contract.md" for path in method_package.semantic_assets))
+        self.assertFalse(any(path.name == "reference_solver.py" for path in method_package.semantic_assets))
 
     def test_domain_pack_declares_knowledge_retrieval_without_backend_tables(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

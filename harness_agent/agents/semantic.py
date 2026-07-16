@@ -182,6 +182,7 @@ class DeepSeekAlgorithmSemanticReviewer:
             )
             raw_path.write_text(response.content + "\n", encoding="utf-8")
             usage = response.usage
+            usage_breakdown: dict[str, Any] = {"primary_review": response.usage}
             try:
                 raw = parse_json_object_response(response.content)
             except json.JSONDecodeError:
@@ -212,6 +213,14 @@ class DeepSeekAlgorithmSemanticReviewer:
                 artifacts["json_retry_response"] = str(retry_path.resolve())
                 raw = parse_json_object_response(retry.content)
                 usage = merge_usage(response.usage, retry.usage)
+                usage_breakdown["json_retry"] = retry.usage
+            usage_breakdown["total"] = usage
+            usage_path = request.output_dir / "algorithm_semantic_review_usage.json"
+            usage_path.write_text(
+                json.dumps(usage_breakdown, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            artifacts["usage"] = str(usage_path.resolve())
             # 模型返回的 finding 不能直接生效；下面会核对路径、源码行、
             # 知识原文、置信度、修复方案和行为测试是否全部真实存在。
             result = normalize_semantic_review(
@@ -596,6 +605,13 @@ def semantic_review_prompt(
     sources: dict[str, str],
     knowledge: dict[str, str],
 ) -> str:
+    numbered_sources = {
+        path: "\n".join(
+            f"{line_number}: {line}"
+            for line_number, line in enumerate(text.splitlines(), start=1)
+        )
+        for path, text in sources.items()
+    }
     return f"""
 Review the candidate algorithm implementation after Core legality evaluation and before promotion.
 
@@ -677,17 +693,17 @@ Rules:
 - Do not invent missing requirements. For free-form findings, incomplete evidence cannot block. For a declared component or
   coupled group, incomplete implementation evidence must be recorded as partial or missing in the coverage matrix.
 
+Knowledge contracts (stable across same-direction repairs):
+{json.dumps(knowledge, ensure_ascii=False, indent=2)}
+
 Direction plan:
 {json.dumps(direction_plan, ensure_ascii=False, indent=2)}
 
 Core candidate summary:
 {json.dumps(candidate_summary, ensure_ascii=False, indent=2)}
 
-Candidate source (complete bounded files):
-{json.dumps(sources, ensure_ascii=False, indent=2)}
-
-Knowledge contracts:
-{json.dumps(knowledge, ensure_ascii=False, indent=2)}
+Candidate source with authoritative line numbers (complete bounded files):
+{json.dumps(numbered_sources, ensure_ascii=False, indent=2)}
 """.strip()
 
 
@@ -697,16 +713,12 @@ def semantic_review_json_repair_prompt(
     sources: dict[str, str] | None = None,
     knowledge: dict[str, str] | None = None,
 ) -> str:
-    numbered_sources = {
-        path: "\n".join(f"{line_number}: {line}" for line_number, line in enumerate(text.splitlines(), start=1))
-        for path, text in (sources or {}).items()
-    }
     return f"""
 Convert the draft review below into the exact JSON schema shown here. Preserve the draft component and coupled-group coverage,
 and only findings already identified in the draft. Do not add new findings, commentary, markdown, or code fences.
 
-Every finding must use an exact source_path and knowledge_path key supplied below. Derive line_start and line_end from
-the numbered source, and copy knowledge_quote exactly from the supplied knowledge text.
+Every finding must preserve an exact source_path and knowledge_path key already present in the draft. Do not re-analyze
+the source or knowledge; deterministic normalization will reject missing paths, invalid lines, and inexact quotes.
 
 {{
   "summary": "short evidence-based verdict",
@@ -762,13 +774,13 @@ the numbered source, and copy knowledge_quote exactly from the supplied knowledg
 }}
 
 Draft review:
-{draft[:80_000]}
+{draft[:40_000]}
 
-Numbered candidate source:
-{json.dumps(numbered_sources, ensure_ascii=False, indent=2)}
+Allowed source path keys:
+{json.dumps(sorted((sources or {}).keys()), ensure_ascii=False, indent=2)}
 
-Allowed knowledge contracts:
-{json.dumps(knowledge or {}, ensure_ascii=False, indent=2)}
+Allowed knowledge path keys:
+{json.dumps(sorted((knowledge or {}).keys()), ensure_ascii=False, indent=2)}
 """.strip()
 
 
@@ -834,7 +846,24 @@ def load_review_knowledge(
             allowed[normalize_review_path(path)] = path
 
     selected: list[Path] = []
-    for raw_path in direction_plan.get("knowledge_paths") or []:
+    active_package = (
+        context.get("active_method_package")
+        if isinstance(context.get("active_method_package"), dict)
+        else {}
+    )
+    complete_bundle = isinstance(direction_plan.get("implementation_bundle"), dict)
+    if complete_bundle and active_package:
+        # 参考实现供 Coding Agent 学习，不应再作为 Reviewer 的要求全文重传。
+        # Reviewer 只读取方法包显式声明的语义资产和完整契约继承链。
+        requested_paths = [
+            *(active_package.get("implementation_contract_assets") or []),
+            *(active_package.get("semantic_assets") or []),
+        ]
+        if not requested_paths:
+            requested_paths = list(direction_plan.get("knowledge_paths") or [])
+    else:
+        requested_paths = list(direction_plan.get("knowledge_paths") or [])
+    for raw_path in requested_paths:
         normalized = normalize_review_path(raw_path)
         path = allowed.get(normalized)
         if path is not None and path not in selected:

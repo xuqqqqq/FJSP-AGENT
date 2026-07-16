@@ -86,6 +86,7 @@ class DomainMethodPackage:
     required_features: list[str] = field(default_factory=list)
     excluded_features: list[str] = field(default_factory=list)
     assets: list[Path] = field(default_factory=list)
+    semantic_assets: list[Path] = field(default_factory=list)
     implementation_asset: Path | None = None
     implementation_contract_asset: Path | None = None
     implementation_contract_assets: list[Path] = field(default_factory=list)
@@ -101,6 +102,7 @@ class DomainMethodPackage:
             "required_features": list(self.required_features),
             "excluded_features": list(self.excluded_features),
             "assets": [str(path) for path in self.assets],
+            "semantic_assets": [str(path) for path in self.semantic_assets],
             "implementation_asset": str(self.implementation_asset) if self.implementation_asset else None,
             "implementation_contract_asset": (
                 str(self.implementation_contract_asset) if self.implementation_contract_asset else None
@@ -309,6 +311,11 @@ def _load_method_package(value: dict[str, Any], *, project_root: Path) -> Domain
         assets=[
             _resolve_pack_path(item, project_root=project_root)
             for item in value.get("assets") or []
+            if str(item).strip()
+        ],
+        semantic_assets=[
+            _resolve_pack_path(item, project_root=project_root)
+            for item in value.get("semantic_assets") or []
             if str(item).strip()
         ],
         implementation_asset=(

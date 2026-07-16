@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 
 from harness_agent.worker import ExperimentSpec
+from harness_agent.context.worker import worker_context_sections
 from harness_agent.workers.opencode_worker import OpenCodeWorker, opencode_status, opencode_subprocess_environment
 
 
@@ -78,24 +79,36 @@ class OpenCodeWorkerTests(unittest.TestCase):
                 encoding="utf-8",
             )
             fake_executable = _write_fake_opencode(tmp_path)
-
-            result = OpenCodeWorker(executable=str(fake_executable), model="fake/model").run_experiment(
-                ExperimentSpec(
-                    task_id="test",
-                    experiment_id="fake_opencode",
-                    context_packet_path=str(context_packet),
-                    worktree_path=str(worktree),
-                    max_steps=2,
-                    max_runtime_seconds=30,
-                    output_dir=str(output_dir),
-                    apply_changes=False,
+            previous_cwd = Path.cwd()
+            try:
+                os.chdir(tmp_path)
+                result = OpenCodeWorker(executable=str(fake_executable), model="fake/model").run_experiment(
+                    ExperimentSpec(
+                        task_id="test",
+                        experiment_id="fake_opencode",
+                        context_packet_path=str(context_packet),
+                        worktree_path=str(worktree),
+                        max_steps=2,
+                        max_runtime_seconds=30,
+                        output_dir="worker",
+                        apply_changes=False,
+                    )
                 )
-            )
+            finally:
+                os.chdir(previous_cwd)
 
             self.assertEqual("completed", result.status)
             self.assertTrue((worktree / "examples" / "opencode_marker.txt").exists())
             self.assertTrue((output_dir / "opencode_prompt.md").exists())
-            self.assertIn("fake/model", (output_dir / "opencode_command.json").read_text(encoding="utf-8"))
+            budget = json.loads((output_dir / "opencode_context_budget.json").read_text(encoding="utf-8"))
+            self.assertGreater(budget["prompt_chars"], 0)
+            self.assertLessEqual(budget["stable_chars"], 32_000)
+            self.assertLessEqual(budget["dynamic_chars"], 32_000)
+            command = json.loads((output_dir / "opencode_command.json").read_text(encoding="utf-8"))
+            self.assertIn("fake/model", command)
+            self.assertIn("--file", command)
+            self.assertIn(str(output_dir / "opencode_prompt.md"), command)
+            self.assertFalse(any("Read and follow" in item for item in command))
             self.assertIn("fake opencode executed", (output_dir / "opencode.stdout.txt").read_text(encoding="utf-8"))
 
     def test_opencode_prompt_includes_agent_generated_priority_context(self) -> None:
@@ -182,7 +195,8 @@ class OpenCodeWorkerTests(unittest.TestCase):
             self.assertIn("--time-limit-sec", prompt)
             self.assertIn("transactionally", prompt)
             self.assertIn("no greater than 3", prompt)
-            self.assertIn("enumerate every required component and coupled group", prompt)
+            self.assertIn("enumerate every", prompt)
+            self.assertIn("required component and coupled group", prompt)
             self.assertIn("Implement the whole bundle coherently in this direction", prompt)
             self.assertIn(
                 "repair_targets.algorithm_semantic_review.implementation_coverage",
@@ -191,6 +205,104 @@ class OpenCodeWorkerTests(unittest.TestCase):
             self.assertIn("coupled_group_coverage", prompt)
             self.assertIn("Preserve entries marked implemented", prompt)
             self.assertIn("every missing or partial entry before claiming completion", prompt)
+            self.assertIn("Do not read the full context packet again", prompt)
+            self.assertLess(prompt.index("Stable task context"), prompt.index(str(worktree)))
+            self.assertIn("Runtime paths (dynamic", prompt)
+
+    def test_opencode_context_deduplicates_method_assets_plan_and_incumbent_source(self) -> None:
+        long_text = "method detail " * 3000
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "method_package_catalog": {
+                "status": "ok",
+                "problem_family": "FJSP",
+                "recommended_package_id": "toy_method",
+                "packages": [
+                    {
+                        "package_id": "toy_method",
+                        "implementation_contract": {"large": long_text},
+                    }
+                ],
+            },
+            "active_method_package": {
+                "package_id": "toy_method",
+                "assets": ["knowledge/toy/reference_solver.py"],
+                "implementation_contract": {
+                    "contract_id": "toy_contract",
+                    "required_components": [
+                        {"component_id": "decoder", "required_behaviors": ["decode all operations"]}
+                    ],
+                    "coupled_groups": [],
+                },
+                "asset_records": [{"path": "knowledge/toy/reference_solver.py", "snippet": long_text}],
+            },
+            "incumbent_code_context": {
+                "source": "promoted_incumbent_worktree",
+                "files": [
+                    {
+                        "relative_path": "examples/solver.py",
+                        "sha256": "abc",
+                        "chars": len(long_text),
+                        "snippet": long_text,
+                    }
+                ],
+            },
+            "loop_feedback": {
+                "current_direction_plan": {
+                    "method_package_id": "toy_method",
+                    "implementation_bundle": {
+                        "contract_id": "toy_contract",
+                        "mode": "complete_method_package",
+                        "contract_paths": ["knowledge/toy/contract.json"],
+                        "required_components": [
+                            {"component_id": "decoder", "required_behaviors": [long_text]}
+                        ],
+                        "coupled_groups": [],
+                    },
+                },
+                "current_round_repair": {
+                    "status": "repair_required",
+                    "repair_targets": {
+                        "algorithm_semantic_review": {
+                            "status": "repair_required",
+                            "implementation_coverage": [
+                                {
+                                    "component_id": f"component_{index:02d}",
+                                    "status": "partial",
+                                    "source_excerpt": long_text,
+                                    "missing_behaviors": [f"missing behavior {index}"],
+                                    "behavior_coverage": [
+                                        {"behavior_index": 1, "status": "missing", "source_excerpt": long_text}
+                                    ],
+                                }
+                                for index in range(30)
+                            ],
+                            "coupled_group_coverage": [],
+                        }
+                    },
+                },
+            },
+        }
+
+        sections = worker_context_sections(context)
+        stable = json.loads(sections["stable"])
+        dynamic = json.loads(sections["dynamic"])
+
+        self.assertNotIn("asset_records", stable["active_method_package"])
+        self.assertNotIn("packages", stable["method_package_catalog"])
+        self.assertNotIn("active_method_package", dynamic)
+        self.assertNotIn("snippet", dynamic["incumbent_code_context"]["files"][0])
+        bundle = dynamic["loop_feedback"]["current_direction_plan"]["implementation_bundle"]
+        self.assertEqual(["decoder"], bundle["required_component_ids"])
+        self.assertNotIn("required_components", bundle)
+        repair_coverage = dynamic["loop_feedback"]["current_round_repair"]["repair_targets"][
+            "algorithm_semantic_review"
+        ]["implementation_coverage"]
+        self.assertEqual(30, len(repair_coverage))
+        self.assertEqual("component_29", repair_coverage[-1]["component_id"])
+        self.assertFalse(any("source_excerpt" in item for item in repair_coverage))
+        self.assertLess(len(sections["stable"]), 32_001)
+        self.assertLess(len(sections["dynamic"]), 32_001)
 
     def test_timeout_kills_opencode_child_process_tree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
