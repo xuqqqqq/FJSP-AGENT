@@ -615,6 +615,18 @@ def semantic_review_requires_repair(value: dict[str, Any] | None) -> bool:
     )
 
 
+def semantic_review_blocks_baseline_acceptance(value: dict[str, Any] | None) -> bool:
+    """Only an authoritative semantic finding can invalidate a Core-valid baseline.
+
+    A provider timeout or malformed model response is an observability failure,
+    not evidence that the generated baseline is semantically wrong.  The
+    baseline may seed requested improvement rounds in degraded-review mode;
+    later candidates still use the stricter promotion gate.
+    """
+
+    return semantic_review_requires_repair(value)
+
+
 def semantic_review_promotion_block_reason(value: dict[str, Any] | None) -> str:
     if isinstance(value, dict) and value.get("status") == "unavailable":
         return "algorithm_semantic_review_unavailable"
@@ -1149,7 +1161,7 @@ def agent_generated_baseline_is_accepted(
     return (
         baseline_generation.get("status") == "ok"
         and bool(judgment.get("accepted"))
-        and not semantic_review_blocks_promotion(semantic_review)
+        and not semantic_review_blocks_baseline_acceptance(semantic_review)
         and baseline_summary.total > 0
         and baseline_summary.valid == baseline_summary.total
         and not _all_negative_infinity(baseline_key)
@@ -1183,7 +1195,7 @@ def agent_generated_baseline_failure_reason(
         if isinstance(baseline_generation.get("semantic_review"), dict)
         else {}
     )
-    if semantic_review_blocks_promotion(semantic_review):
+    if semantic_review_blocks_baseline_acceptance(semantic_review):
         return "semantic_review_rejected"
     if baseline_summary.total <= 0:
         return "evaluator_produced_no_results"
@@ -1316,7 +1328,9 @@ def agent_generated_baseline_selection_reason(
     semantic_review: dict[str, Any] | None = None,
 ) -> str:
     if agent_generated_baseline_cycle_is_core_accepted(cycle):
-        if semantic_review_blocks_promotion(semantic_review):
+        if isinstance(semantic_review, dict) and semantic_review.get("status") == "unavailable":
+            return "core_evaluator_valid_with_degraded_semantic_review"
+        if semantic_review_blocks_baseline_acceptance(semantic_review):
             return "core_evaluator_valid_but_algorithm_semantic_repair_required"
         return "agentic_judgment_accepted_and_core_evaluator_valid"
     worker_result = getattr(cycle, "worker_result", None)
@@ -1466,7 +1480,7 @@ def run_agent_generated_baseline(
             )
             semantic_passed = agent_generated_baseline_cycle_is_core_accepted(
                 cycle
-            ) and not semantic_review_blocks_promotion(semantic_review)
+            ) and not semantic_review_blocks_baseline_acceptance(semantic_review)
             if anchor_quality_regressed and prior_core_anchor is not None:
                 attempt_payload["failure_signatures"] = _dedupe(
                     [
@@ -1502,6 +1516,12 @@ def run_agent_generated_baseline(
             objectives=contract.objectives,
         )
         repair_summary = in_round_repair_summary(attempts)
+        if (
+            repair_summary.get("repair_attempt_count")
+            and agent_generated_baseline_cycle_is_core_accepted(selected_cycle)
+            and not semantic_review_blocks_baseline_acceptance(selected_semantic_review)
+        ):
+            repair_summary["recovered"] = True
         repair_summary["selected_attempt_index"] = selected_attempt_index
         repair_summary["selection_reason"] = agent_generated_baseline_selection_reason(
             selected_cycle,
@@ -1530,6 +1550,7 @@ def run_agent_generated_baseline(
             if selected_cycle.agentic_error_analysis
             else None,
             "semantic_review": selected_semantic_review,
+            "semantic_review_degraded": bool(selected_semantic_review.get("status") == "unavailable"),
             "direction_plan": direction_plan or {},
         }
         return selected_cycle.summary, selected_cycle.worktree_path, generation_payload
@@ -2116,7 +2137,7 @@ def agent_generated_baseline_memory_payload(
     accepted_as_incumbent = (
         baseline_generation.get("status") == "ok"
         and bool(agentic_judgment.get("accepted"))
-        and not semantic_review_blocks_promotion(semantic_review)
+        and not semantic_review_blocks_baseline_acceptance(semantic_review)
         and total > 0
         and valid == total
         and not _all_negative_infinity(final_key)

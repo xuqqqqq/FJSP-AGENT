@@ -2527,6 +2527,40 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual(1, semantic_summary["status_counts"]["repair_required"])
             self.assertEqual(1, semantic_summary["blocking_finding_count"])
 
+    def test_unavailable_baseline_semantic_review_does_not_cancel_requested_rounds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract_path = _write_standard_agent_generated_contract(tmp_path)
+            contract = TaskContract.load(contract_path)
+            context_path = _write_test_context(tmp_path, contract_path=contract_path)
+            reviewer = UnavailableSemanticReviewer()
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=NullWorker(),
+                baseline_worker=AgentBaselineRepairWorker(),
+                baseline_source="agent_generated",
+                semantic_reviewer=reviewer,
+                experiment_id="test_unavailable_baseline_semantic_review",
+                iterations=3,
+                max_steps=2,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+                in_round_repair_attempts=1,
+            )
+
+            self.assertEqual("ok", result.status)
+            self.assertEqual(3, len(result.rounds))
+            generation = result.baseline_generation or {}
+            self.assertEqual("ok", generation["status"])
+            self.assertTrue(generation["semantic_review_degraded"])
+            self.assertEqual("unavailable", generation["semantic_review"]["status"])
+            self.assertTrue(generation["in_round_repair"]["recovered"])
+            self.assertTrue((tmp_path / "loop" / "round_002").exists())
+
     def test_invalid_agent_generated_baseline_stops_before_improvement_rounds(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
