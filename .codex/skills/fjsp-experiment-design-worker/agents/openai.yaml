@@ -1,0 +1,4 @@
+interface:
+  display_name: "FJSP Experiment Design Worker"
+  short_description: "Instrument and execute falsifiable FJSP worker experiments"
+  default_prompt: "Implement the assigned mechanism with activation evidence and bounded local checks."

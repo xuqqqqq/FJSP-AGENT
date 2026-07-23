@@ -1,0 +1,4 @@
+interface:
+  display_name: "FJSP Solver Optimizer"
+  short_description: "Diagnose and improve FJSP solver search"
+  default_prompt: "Use $fjsp-solver-optimizer to diagnose the active FJSP structure, choose one testable solver improvement, and verify it under the frozen evaluator."

@@ -53,7 +53,7 @@ machine non-overlap and schedule-cost semantics, so they require:
   machine;
 - a solution contract that states whether setup intervals are explicit in output
   or recomputed by the evaluator;
-- separate code slots for setup-aware neighborhood moves and insertion scoring.
+- separate Method Package components for setup-aware neighborhood moves and insertion scoring.
 
 Until that adapter exists, use this dataset as a parser/evaluator design target
 and smoke-test corpus only.

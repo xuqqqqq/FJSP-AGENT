@@ -8,8 +8,10 @@ import signal
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from dataclasses import replace
 from pathlib import Path
 
+from harness_agent.core.cancellation import CancellationToken, TaskCancelled
 from harness_agent.core.evaluator import EvaluationResult, objective_key
 from harness_agent.core.ledger import ExperimentLedger, ExperimentRecord
 from harness_agent.core.models import TaskContract, resolve_project_path
@@ -17,6 +19,9 @@ from harness_agent.core.models import TaskContract, resolve_project_path
 
 CREATE_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 SUBPROCESS_ERROR_EXCERPT_MAX_CHARS = 900
+SOLVER_DIAGNOSTICS_MAX_CHARS = 32_000
+SOLVER_DIAGNOSTICS_MAX_DEPTH = 6
+SOLVER_DIAGNOSTICS_MAX_ITEMS = 200
 
 
 @dataclass(frozen=True)
@@ -38,12 +43,19 @@ class RunSummary:
 class HarnessRunner:
     """并行执行契约实验；不包含任何 FJSP 搜索算法。"""
 
-    def __init__(self, contract: TaskContract, project_root: Path, output_dir: Path) -> None:
+    def __init__(
+        self,
+        contract: TaskContract,
+        project_root: Path,
+        output_dir: Path,
+        cancellation: CancellationToken | None = None,
+    ) -> None:
         self.contract = contract
         self.project_root = project_root.resolve()
         self.output_dir = output_dir.resolve()
         self.experiment_root = self.output_dir / "experiments"
         self.ledger = ExperimentLedger(self.output_dir / "harness.sqlite3")
+        self.cancellation = cancellation
 
     def close(self) -> None:
         self.ledger.close()
@@ -51,6 +63,8 @@ class HarnessRunner:
     def run(self) -> RunSummary:
         """执行 quick test、展开实验矩阵、汇总并写报告。"""
 
+        if self.cancellation is not None:
+            self.cancellation.raise_if_cancelled()
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.experiment_root.mkdir(parents=True, exist_ok=True)
         self._run_quick_test()
@@ -80,6 +94,7 @@ class HarnessRunner:
             cwd=self.project_root,
             timeout=self.contract.budget.timeout_seconds,
             check=True,
+            cancellation=self.cancellation,
         )
 
     def _run_one(self, round_index: int, instance_id: str, instance_path: Path, seed: int) -> None:
@@ -120,6 +135,8 @@ class HarnessRunner:
     def _run_one_to_record(self, round_index: int, instance_id: str, instance_path: Path, seed: int) -> ExperimentRecord:
         """运行一次 solver + evaluator，并把所有异常转换为失败记录。"""
 
+        if self.cancellation is not None:
+            self.cancellation.raise_if_cancelled()
         experiment_id = f"round_{round_index:03d}__{instance_id}__seed_{seed}"
         work_dir = self.experiment_root / experiment_id
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -157,6 +174,7 @@ class HarnessRunner:
                 cwd=self.project_root,
                 timeout=self.contract.budget.timeout_seconds,
                 check=False,
+                cancellation=self.cancellation,
             )
             solver_stdout.write_text(solver_result.stdout, encoding="utf-8")
             solver_stderr.write_text(solver_result.stderr, encoding="utf-8")
@@ -169,6 +187,7 @@ class HarnessRunner:
                 cwd=self.project_root,
                 timeout=self.contract.budget.timeout_seconds,
                 check=False,
+                cancellation=self.cancellation,
             )
             evaluator_stdout.write_text(evaluator_result.stdout, encoding="utf-8")
             evaluator_stderr.write_text(evaluator_result.stderr, encoding="utf-8")
@@ -178,6 +197,12 @@ class HarnessRunner:
                 raise RuntimeError("evaluator did not create metrics file")
 
             evaluation = EvaluationResult.from_metrics_file(metrics_path, self.contract.objectives)
+            solver_evidence = load_solver_evidence(solution_path)
+            if solver_evidence:
+                evaluation = replace(
+                    evaluation,
+                    metrics={**evaluation.metrics, "solver_evidence": solver_evidence},
+                )
             key = objective_key(evaluation, self.contract.objectives)
             return ExperimentRecord(
                 experiment_id=experiment_id,
@@ -192,6 +217,8 @@ class HarnessRunner:
                 paths=self._paths(solution_path, metrics_path, solver_stdout, solver_stderr, evaluator_stdout, evaluator_stderr),
                 error="; ".join(evaluation.errors) if evaluation.errors else None,
             )
+        except TaskCancelled:
+            raise
         except Exception as exc:  # noqa: BLE001 - runner must capture failures as experiment facts.
             return ExperimentRecord(
                 experiment_id=experiment_id,
@@ -337,12 +364,71 @@ class HarnessRunner:
         (self.output_dir / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def load_solver_evidence(solution_path: Path) -> dict[str, object]:
+    """Read bounded, non-objective diagnostics emitted by a candidate solver.
+
+    The fixed evaluator remains the only source of validity and objective
+    metrics. This evidence only explains which internal strategy produced the
+    submitted schedule and why a previous mutation improved or regressed.
+    """
+
+    try:
+        raw = json.loads(solution_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    evidence: dict[str, object] = {}
+    source = str(raw.get("source") or "").strip()
+    if source:
+        evidence["selected_source"] = source[:240]
+    if isinstance(raw.get("makespan"), (int, float)):
+        evidence["reported_makespan"] = raw["makespan"]
+    schedule = raw.get("schedule")
+    if isinstance(schedule, list):
+        evidence["reported_operation_count"] = len(schedule)
+    diagnostics = bounded_solver_diagnostics(raw.get("diagnostics"))
+    if diagnostics not in ({}, [], None, ""):
+        evidence["diagnostics"] = diagnostics
+    encoded = json.dumps(evidence, ensure_ascii=False, separators=(",", ":"))
+    if len(encoded) <= SOLVER_DIAGNOSTICS_MAX_CHARS:
+        return evidence
+    evidence.pop("diagnostics", None)
+    evidence["diagnostics_truncated"] = True
+    return evidence
+
+
+def bounded_solver_diagnostics(value: object, *, depth: int = 0) -> object:
+    """Sanitize untrusted solver diagnostics before storing them in the ledger."""
+
+    if depth >= SOLVER_DIAGNOSTICS_MAX_DEPTH:
+        return "<max-depth>"
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return value[:2_000]
+    if isinstance(value, list):
+        return [
+            bounded_solver_diagnostics(item, depth=depth + 1)
+            for item in value[:SOLVER_DIAGNOSTICS_MAX_ITEMS]
+        ]
+    if isinstance(value, dict):
+        result: dict[str, object] = {}
+        for index, (key, item) in enumerate(value.items()):
+            if index >= SOLVER_DIAGNOSTICS_MAX_ITEMS:
+                break
+            result[str(key)[:160]] = bounded_solver_diagnostics(item, depth=depth + 1)
+        return result
+    return str(value)[:2_000]
+
+
 def run_shell_command(
     command: str,
     *,
     cwd: Path,
     timeout: int,
     check: bool,
+    cancellation: CancellationToken | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a shell command and kill the whole process tree on timeout."""
 
@@ -358,7 +444,14 @@ def run_shell_command(
     else:
         popen_kwargs["start_new_session"] = True
 
+    if cancellation is not None:
+        cancellation.raise_if_cancelled()
     proc = subprocess.Popen(command, **popen_kwargs)
+    registration = (
+        cancellation.register_terminator(lambda: kill_process_tree(proc))
+        if cancellation is not None
+        else None
+    )
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired as exc:
@@ -370,11 +463,40 @@ def run_shell_command(
             output=stdout,
             stderr=stderr,
         ) from exc
+    finally:
+        if cancellation is not None:
+            cancellation.unregister_terminator(registration)
+    if cancellation is not None:
+        cancellation.raise_if_cancelled()
+    cleanup_process_descendants(proc)
 
     result = subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
     if check and result.returncode != 0:
         raise subprocess.CalledProcessError(result.returncode, command, output=stdout, stderr=stderr)
     return result
+
+
+def cleanup_process_descendants(proc: subprocess.Popen[str]) -> None:
+    """Reap descendants left behind after their direct parent exited normally.
+
+    OpenCode and solver launchers can finish while detached Node/Python helpers
+    remain in the process group.  The launcher PID/process group is unique to
+    this invocation, so cleanup stays scoped to descendants of this run.
+    """
+
+    pid = getattr(proc, "pid", None)
+    if not isinstance(pid, int) or pid <= 0:
+        return
+    if os.name == "nt":
+        _kill_windows_process_tree(pid)
+        return
+    try:
+        # Callers use start_new_session=True, making the launcher PID the PGID.
+        os.killpg(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    except OSError:
+        return
 
 
 def solver_time_limit_seconds(timeout_seconds: int | float) -> float:
@@ -389,11 +511,18 @@ def solver_time_limit_seconds(timeout_seconds: int | float) -> float:
 
 
 def kill_process_tree(proc: subprocess.Popen[str]) -> None:
-    if proc.poll() is not None:
-        return
     if os.name == "nt":
+        # .cmd、venv launcher 和真实 Python 进程可能形成多层父子链；外层
+        # 已退出时 stdout 管道仍会被后代持有。先按原生进程快照结束后代，
+        # 再用 taskkill 兜底，避免 communicate() 永久等待。
+        _kill_windows_process_tree(proc.pid)
         try:
-            subprocess.run(
+            proc.wait(timeout=1)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            completed = subprocess.run(
                 ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -401,10 +530,13 @@ def kill_process_tree(proc: subprocess.Popen[str]) -> None:
                 timeout=10,
                 check=False,
             )
-            return
+            if completed.returncode == 0 or proc.poll() is not None:
+                return
         except Exception:  # noqa: BLE001 - fall through to direct kill.
             pass
     else:
+        if proc.poll() is not None:
+            return
         try:
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
             return
@@ -415,6 +547,77 @@ def kill_process_tree(proc: subprocess.Popen[str]) -> None:
     try:
         proc.kill()
     except ProcessLookupError:
+        return
+
+
+def _kill_windows_process_tree(root_pid: int) -> None:
+    """Terminate descendants from deepest to root using Toolhelp32."""
+
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class ProcessEntry32(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", wintypes.DWORD),
+                ("cntUsage", wintypes.DWORD),
+                ("th32ProcessID", wintypes.DWORD),
+                ("th32DefaultHeapID", ctypes.c_size_t),
+                ("th32ModuleID", wintypes.DWORD),
+                ("cntThreads", wintypes.DWORD),
+                ("th32ParentProcessID", wintypes.DWORD),
+                ("pcPriClassBase", wintypes.LONG),
+                ("dwFlags", wintypes.DWORD),
+                ("szExeFile", wintypes.WCHAR * 260),
+            ]
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+        kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessEntry32)]
+        kernel32.Process32FirstW.restype = wintypes.BOOL
+        kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessEntry32)]
+        kernel32.Process32NextW.restype = wintypes.BOOL
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        kernel32.TerminateProcess.restype = wintypes.BOOL
+        kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        snapshot = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)
+        if snapshot == wintypes.HANDLE(-1).value:
+            return
+        children: dict[int, list[int]] = {}
+        entry = ProcessEntry32()
+        entry.dwSize = ctypes.sizeof(entry)
+        try:
+            has_entry = bool(kernel32.Process32FirstW(snapshot, ctypes.byref(entry)))
+            while has_entry:
+                children.setdefault(int(entry.th32ParentProcessID), []).append(int(entry.th32ProcessID))
+                has_entry = bool(kernel32.Process32NextW(snapshot, ctypes.byref(entry)))
+        finally:
+            kernel32.CloseHandle(snapshot)
+
+        ordered: list[int] = []
+        stack = [root_pid]
+        while stack:
+            parent = stack.pop()
+            ordered.append(parent)
+            stack.extend(children.get(parent, []))
+        for pid in reversed(ordered):
+            handle = kernel32.OpenProcess(0x0001 | 0x00100000, False, pid)
+            if not handle:
+                continue
+            try:
+                kernel32.TerminateProcess(handle, 1)
+                kernel32.WaitForSingleObject(handle, 200)
+            finally:
+                kernel32.CloseHandle(handle)
+    except Exception:  # noqa: BLE001 - taskkill/direct kill remain as fallbacks.
         return
 
 

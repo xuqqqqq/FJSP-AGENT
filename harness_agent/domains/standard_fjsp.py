@@ -71,6 +71,24 @@ class StandardFjspContextProvider:
             "avg_candidate_count": _rounded_average(
                 float(item.get("avg_candidate_count", 0.0) or 0.0) for item in profiled
             ),
+            "avg_flexible_operation_ratio": _rounded_average(
+                float(item.get("flexible_operation_ratio", 0.0) or 0.0) for item in profiled
+            ),
+            "avg_duration_spread_ratio": _rounded_average(
+                float(item.get("duration_spread_ratio_avg", 0.0) or 0.0) for item in profiled
+            ),
+            "max_duration_spread_ratio": max(
+                (float(item.get("duration_spread_ratio_max", 0.0) or 0.0) for item in profiled),
+                default=0.0,
+            ),
+            "max_machine_eligibility_cv": max(
+                (float(item.get("machine_eligibility_cv", 0.0) or 0.0) for item in profiled),
+                default=0.0,
+            ),
+            "max_fractional_min_load_cv": max(
+                (float(item.get("fractional_min_load_cv", 0.0) or 0.0) for item in profiled),
+                default=0.0,
+            ),
             "max_setup_to_processing_avg_ratio": max(
                 (float(item.get("setup_to_processing_avg_ratio", 0.0) or 0.0) for item in profiled),
                 default=0.0,
@@ -127,6 +145,17 @@ class StandardFjspContextProvider:
             return ["fjsp_sdst", "sequence_dependent_setup", "setup_time"]
         return []
 
+    def solution_contract(self) -> dict[str, Any]:
+        """Expose the exact schema consumed by ``domains.io.load_solution``."""
+
+        return {
+            "format": "standard_fjsp_schedule_v1",
+            "required_top_level_fields": ["format", "makespan", "schedule"],
+            "schedule_record_fields": ["job_id", "op_id", "machine_id", "start", "end"],
+            "indexing": "job_id, op_id, and machine_id are 0-based integers",
+            "legality_owner": "AlgoForge Core evaluator",
+        }
+
 
 def _single_instance_diagnostics(
     *,
@@ -152,8 +181,36 @@ def _single_instance_diagnostics(
         payload["error"] = str(exc)
         return payload
 
-    candidate_counts = [len(op.candidates) for job in instance.jobs for op in job.operations]
-    durations = [candidate.duration for job in instance.jobs for op in job.operations for candidate in op.candidates]
+    operations = [op for job in instance.jobs for op in job.operations]
+    candidate_counts = [len(op.candidates) for op in operations]
+    durations = [candidate.duration for op in operations for candidate in op.candidates]
+    duration_spreads = [
+        max(candidate.duration for candidate in op.candidates)
+        - min(candidate.duration for candidate in op.candidates)
+        for op in operations
+    ]
+    duration_spread_ratios = [
+        _round_float(
+            (max(candidate.duration for candidate in op.candidates) - min(candidate.duration for candidate in op.candidates))
+            / max(1, min(candidate.duration for candidate in op.candidates))
+        )
+        for op in operations
+    ]
+    machine_eligibility_counts = [0.0 for _ in range(instance.machine_count)]
+    fractional_min_loads = [0.0 for _ in range(instance.machine_count)]
+    mandatory_loads = [0.0 for _ in range(instance.machine_count)]
+    for op in operations:
+        minimum_duration = min(candidate.duration for candidate in op.candidates)
+        share = minimum_duration / max(1, len(op.candidates))
+        for candidate in op.candidates:
+            machine_eligibility_counts[candidate.machine_id] += 1.0
+            fractional_min_loads[candidate.machine_id] += share
+        if len(op.candidates) == 1:
+            mandatory_loads[op.candidates[0].machine_id] += op.candidates[0].duration
+    job_min_workloads = [
+        sum(min(candidate.duration for candidate in op.candidates) for op in job.operations)
+        for job in instance.jobs
+    ]
     setup_stats = _setup_matrix_stats(instance.setup_times)
     processing_avg = _rounded_average(float(value) for value in durations)
     setup_ratio = (
@@ -172,12 +229,30 @@ def _single_instance_diagnostics(
             "operation_count": instance.operation_count,
             "max_candidate_count": instance.max_candidate_count,
             "scale": instance.job_count * instance.machine_count * instance.operation_count,
+            "jobs_per_machine": _round_float(instance.job_count / max(1, instance.machine_count)),
+            "operations_per_machine": _round_float(instance.operation_count / max(1, instance.machine_count)),
             "avg_candidate_count": _rounded_average(float(value) for value in candidate_counts),
             "min_candidate_count": min(candidate_counts, default=0),
             "max_observed_candidate_count": max(candidate_counts, default=0),
+            "candidate_count_cv": _coefficient_of_variation(candidate_counts),
+            "flexible_operation_ratio": _round_float(
+                sum(1 for value in candidate_counts if value > 1) / max(1, len(candidate_counts))
+            ),
+            "full_flexibility_ratio": _round_float(
+                sum(1 for value in candidate_counts if value == instance.machine_count)
+                / max(1, len(candidate_counts))
+            ),
             "processing_time_min": min(durations, default=0),
             "processing_time_max": max(durations, default=0),
             "processing_time_avg": processing_avg,
+            "processing_time_cv": _coefficient_of_variation(durations),
+            "duration_spread_avg": _rounded_average(duration_spreads),
+            "duration_spread_ratio_avg": _rounded_average(duration_spread_ratios),
+            "duration_spread_ratio_max": max(duration_spread_ratios, default=0.0),
+            "machine_eligibility_cv": _coefficient_of_variation(machine_eligibility_counts),
+            "fractional_min_load_cv": _coefficient_of_variation(fractional_min_loads),
+            "mandatory_load_max": max(mandatory_loads, default=0.0),
+            "job_min_workload_max": max(job_min_workloads, default=0.0),
             "setup_time_kind": instance.setup_time_kind,
             "setup_entry_count": setup_stats["entry_count"],
             "setup_nonzero_count": setup_stats["nonzero_count"],
@@ -266,6 +341,18 @@ def _instance_shape_group_summaries(profiled: list[dict[str, Any]]) -> list[dict
                 "avg_candidate_count": _rounded_average(
                     float(item.get("avg_candidate_count", 0.0) or 0.0) for item in items
                 ),
+                "flexible_operation_ratio_avg": _rounded_average(
+                    float(item.get("flexible_operation_ratio", 0.0) or 0.0) for item in items
+                ),
+                "duration_spread_ratio_avg": _rounded_average(
+                    float(item.get("duration_spread_ratio_avg", 0.0) or 0.0) for item in items
+                ),
+                "machine_eligibility_cv_avg": _rounded_average(
+                    float(item.get("machine_eligibility_cv", 0.0) or 0.0) for item in items
+                ),
+                "fractional_min_load_cv_avg": _rounded_average(
+                    float(item.get("fractional_min_load_cv", 0.0) or 0.0) for item in items
+                ),
                 "setup_to_processing_avg_ratio_avg": _rounded_average(setup_ratios),
                 "setup_to_processing_avg_ratio_max": max(setup_ratios, default=0.0),
                 "best_known_min": min(best_known_values) if best_known_values else None,
@@ -338,32 +425,30 @@ def _instance_direction_hints(summary: dict[str, Any], profiled: list[dict[str, 
     hints = ["Use actual parsed instance content, not filename shape, when choosing budget-sensitive strategies."]
     if int(summary.get("shape_group_count", 0) or 0) > 1:
         hints.append(
-            "Multiple instance shapes are present; inspect shape_groups and avoid overfitting a single oddla/seed probe."
+            "Multiple instance shapes are present; inspect shape_groups and avoid overfitting a single instance/seed probe."
         )
     if int(summary.get("sdst_instance_count", 0) or 0) > 0:
-        hints.append("Sequence-dependent setup is active; use setup-aware method knowledge from the domain pack.")
+        hints.append("Sequence-dependent setup is active; treat setup state and timing as required problem semantics.")
         setup_ratio = float(summary.get("max_setup_to_processing_avg_ratio", 0.0) or 0.0)
         if setup_ratio >= 0.75:
-            hints.append("Setup is large relative to processing; prioritize setup-aware sequencing over processing-only rules.")
+            hints.append("Setup is large relative to processing; record this ratio as first-stage selection evidence.")
         elif setup_ratio >= 0.25:
-            hints.append("Setup is material; combine setup deltas with criticality or bottleneck pressure.")
+            hints.append("Setup is material; any later direction must preserve setup-aware timing semantics.")
     else:
-        hints.append("No sequence-dependent setup matrix was detected; do not retrieve setup-only methods.")
-    avg_candidates = float(summary.get("avg_candidate_count", 0.0) or 0.0)
-    if avg_candidates <= 1.2:
-        hints.append("Machine alternatives are sparse; sequence ordering likely has more leverage than reassignment-only rules.")
-    elif avg_candidates >= 3.0:
-        hints.append("Many machine alternatives exist; assignment and insertion methods may have leverage.")
-    has_large_five_machine_group = any(
-        int(item.get("job_count", 0) or 0) >= 20
-        and int(item.get("machine_count", 0) or 0) <= 5
-        and int(item.get("operation_count", 0) or 0) >= 100
-        for item in profiled
+        hints.append("No sequence-dependent setup matrix was detected in the parsed instances.")
+    hints.append(
+        "Measured assignment structure: "
+        f"avg_candidates={summary.get('avg_candidate_count', 0.0)}, "
+        f"flexible_operation_ratio={summary.get('avg_flexible_operation_ratio', 0.0)}, "
+        f"duration_spread_ratio={summary.get('avg_duration_spread_ratio', 0.0)}. "
+        "Use the method-selection cards and current benchmark distribution before classifying flexibility."
     )
-    if has_large_five_machine_group:
-        hints.append(
-            "A large 20-job/5-machine SDST shape is present; include bottleneck-machine sequencing and load balance evidence."
-        )
+    hints.append(
+        "Measured machine concentration: "
+        f"eligibility_cv_max={summary.get('max_machine_eligibility_cv', 0.0)}, "
+        f"fractional_min_load_cv_max={summary.get('max_fractional_min_load_cv', 0.0)}. "
+        "These are evidence inputs, not a backend-selected algorithm direction."
+    )
     if int(summary.get("best_known_available_count", 0) or 0) > 0:
         hints.append("Best-known/LB/UB values are diagnostics only; promotion remains fixed-evaluator objective improvement.")
     return hints
@@ -411,6 +496,17 @@ def _rounded_average(values: Any) -> float:
     if not values_list:
         return 0.0
     return _round_float(sum(values_list) / len(values_list))
+
+
+def _coefficient_of_variation(values: Any) -> float:
+    values_list = [float(value) for value in values]
+    if not values_list:
+        return 0.0
+    average = sum(values_list) / len(values_list)
+    if average == 0:
+        return 0.0
+    variance = sum((value - average) ** 2 for value in values_list) / len(values_list)
+    return _round_float((variance**0.5) / average)
 
 
 def _round_float(value: float) -> float:

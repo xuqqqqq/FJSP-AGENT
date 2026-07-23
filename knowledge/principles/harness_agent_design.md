@@ -30,6 +30,7 @@ must not override the task contract or evaluator.
 
 ## Principle 6: Instance Diagnostics Guide Strategy Only
 
-Parsed instance profiles, setup-time ratios, and best-known/LB/UB references
-help workers choose an appropriate slot strategy.  They are not objective
-functions; promotion remains evaluator-backed makespan improvement.
+Parsed instance profiles and active constraint ratios help Main choose an
+appropriate Method Package and direction. Best-known/LB/UB references remain
+reporting-side diagnostics and never become Worker search inputs; promotion
+remains evaluator-backed objective improvement.

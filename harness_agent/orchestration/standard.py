@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from harness_agent.context.packet import ContextPacketRequest, write_context_packet
+from harness_agent.core.cancellation import CancellationToken
 from harness_agent.agents.main import DirectionPlanningAgent
 from harness_agent.orchestration.loop import (
     DEFAULT_IN_ROUND_REPAIR_ATTEMPTS,
@@ -55,6 +56,9 @@ class StandardWorkerLoopRequest:
     apply_worker_changes: bool = False
     promotion_repeats: int = 1
     in_round_repair_attempts: int = DEFAULT_IN_ROUND_REPAIR_ATTEMPTS
+    max_competing_workers: int = 4
+    round_intervention: Callable[[int, Any, dict[str, Any]], str | None] | None = None
+    cancellation: CancellationToken | None = None
     agent_generated_solver_path: str = "examples/agent_generated_fjsp_solver.py"
     experiment_id: str = "standard_worker_loop"
     hypothesis: str = (
@@ -102,7 +106,7 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
         context_packet_path=context_path,
         worker=request.worker,
         main_agent=request.main_agent,
-        semantic_reviewer=request.semantic_reviewer,
+        semantic_reviewer=None,
         experiment_id=request.experiment_id,
         iterations=max(0, request.iterations),
         max_steps=max(1, request.max_steps),
@@ -112,6 +116,9 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
         # 平台只评测 Agent 自己写出的 solver，不允许切回仓库中的历史实现。
         baseline_source="agent_generated",
         in_round_repair_attempts=max(0, request.in_round_repair_attempts),
+        max_competing_workers=max(1, min(4, request.max_competing_workers)),
+        round_intervention=request.round_intervention,
+        cancellation=request.cancellation,
     )
     # 4. 闭环结束后只做报告汇总，不重新解释或改写 Core 的 promotion 结论。
     manifest = standard_worker_manifest(
@@ -280,6 +287,7 @@ def standard_worker_manifest(
             "apply_worker_changes": bool(request.apply_worker_changes),
             "promotion_repeats": max(1, request.promotion_repeats),
             "in_round_repair_attempts": max(0, request.in_round_repair_attempts),
+            "max_competing_workers": max(1, min(4, request.max_competing_workers)),
             "semantic_reviewer": (
                 type(request.semantic_reviewer).__name__ if request.semantic_reviewer is not None else None
             ),

@@ -7,11 +7,10 @@ method package 中，由 Coding Agent 根据需求、IO、算例诊断和历史�
 
 ## 核心边界
 
-- **Main Agent**：从需求、IO、算例特征、知识检索和历史反馈中选择一个改进方向。
-- **Coding Agent**：通过 OpenCode 读取上下文并创建或增量修改 solver。
-- **Judgment Agent**：执行前检查语法、修改范围、完整性和确定性安全风险。
-- **Semantic Reviewer**：用检索到的方法契约检查“声明与实现是否一致”，不按函数名猜实现。
-- **Core**：固定 parser/evaluator、实验执行、promotion/rollback 和证据记录。
+- **Main Agent**：第一阶段根据任务与实例画像选择一个主方法族和必要的兼容补充方法族，第二阶段读取定向知识后签发 `WorkerAssignment`。
+- **Coding Agent**：通过 OpenCode 自主加载 Harness 精确匹配并授权的 Worker Implementation Skills，按需读取 `read_set` 中的合同、骨架和知识卡，在所选方法族内设计实现组合。
+- **候选预检**：非 Agent 的确定性门禁，只检查编译、修改范围、受保护文件、后端导入和明显硬编码。
+- **Core**：唯一结果裁决者；固定 parser/validator/evaluator 负责合法性、指标、promotion/rollback 和证据记录。
 - **知识层**：domain pack、知识卡、Skill、method package 和已验证经验。
 
 Core 不提供 FJSP 搜索代码。`knowledge/method_packages/` 中可以保存完整方法参考，
@@ -21,7 +20,7 @@ Core 不提供 FJSP 搜索代码。`knowledge/method_packages/` 中可以保存�
 
 ```text
 harness_agent/
-  agents/          Main Agent、JA、语义审查、经验图谱
+  agents/          Main Agent、incumbent 审计和历史兼容组件
   context/         契约、Context Packet、RAG、压缩、项目扫描
   core/            固定执行器、evaluator 协议、账本和证据
   domains/         FJSP/FJSP-SDST IO、算例诊断、domain pack
@@ -31,6 +30,10 @@ harness_agent/
   workers/         OpenCode / DeepSeek Coding Agent 适配器
   cli.py           命令行入口
   worker.py        通用 Coding Worker 协议
+
+.opencode/
+  agents/          Main、专用只读子 Agent 和隔离 Worker 角色
+  skills/          Main-to-Worker 任务书执行协议
 
 domain_packs/      问题族能力、特征到知识的映射
 knowledge/         方法知识、论文卡、经验卡和 method package
@@ -57,8 +60,21 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-v4-pro
 ```
 
-OpenCode 由 `OPENCODE_EXECUTABLE` 和 `OPENCODE_MODEL` 配置。OpenCode 是 Coding
-Agent 运行时，DeepSeek 是其中使用的模型/provider，两者不是两个并列 Coding Agent。
+OpenCode 由 `OPENCODE_EXECUTABLE` 和 `OPENCODE_MODEL` 配置。未设置模型时默认使用
+`deepseek/deepseek-v4-pro`，避免非交互任务在新 worktree 中等待模型选择。OpenCode 是
+Coding Agent 运行时，DeepSeek 是其中使用的模型/provider，两者不是两个并列 Coding Agent。
+
+OpenCode Main 可使用最多四个原生只读子 Agent 审核需求、证据、计划和候选策略；Coding Worker 的 `task`
+权限被硬禁用。baseline、正式轮和每次同轮修补都会保存独立任务书，缺少合法任务书时
+Worker 不启动。完整 Context Packet 不会传给 Worker。
+
+一次方向可以由最多四个隔离 Coding Worker 竞争实现。每个候选从同一 incumbent 开始，分别经过
+确定性候选预检和固定 Core，只有 Core 合法且目标最优的候选进入 promotion check；默认仍为 1 个候选。
+
+Main 与 Worker 当前均使用独立的 `opencode run` 新 session。已评估常驻
+`opencode serve --attach`，但 OpenCode 1.17.11 的服务配置在启动时加载，不能为每个
+assignment 可靠切换精确的 `read_set`、`target_file` 和工具权限。为避免跨任务权限泄漏，
+在 OpenCode 支持请求级 runtime permission 前不启用 attach。
 
 ## 启动 Web
 
@@ -70,7 +86,8 @@ uv run python -m harness_agent.cli serve-web --host 127.0.0.1 --port 7860
 
 - 需求文档、IO 文档、算例和可选 LB/UB/BKS；
 - 迭代轮次、随机种子、Core 并行数和单次超时；
-- Worker 单轮时间、步数、同轮修补次数和晋升复验次数。
+- Worker 单轮时间、步数、同轮修补次数和晋升复验次数；
+- Main 子 Agent 上限和竞争 Coding Worker 数量（均不超过 4）。
 
 页面不再要求用户选择求解器、AWLS 参数、邻域或代码槽。算法方向由 Main Agent
 根据实际任务自动选择。
@@ -96,13 +113,14 @@ uv run python -m harness_agent.cli run-standard-worker-loop `
 这条命令始终执行 Agent-generated baseline：
 
 1. 构建任务契约和 Context Packet。
-2. Main Agent 选择一个方法方向。
-3. Coding Agent 创建初始 solver。
-4. JA 和语义审查先检查候选。
-5. 固定 Core 运行 parser/evaluator。
-6. 合法且严格提升才 promotion，否则 rollback。
-7. 失败可在同一方向内修补，不浪费新的用户可见轮次。
-8. 轮次证据写入假设图、经验记忆和知识使用记录。
+2. Main Agent 根据任务与实例画像选择一个方法族和 `knowledge_query`，此时看不到具体方法包。
+3. Harness 定向检索详细实现卡和匹配包，Main 再形成完整方向并签发最小 `worker_assignment.json`。
+4. Coding Agent 只按 assignment 创建初始 solver。
+5. 确定性预检拒绝越权修改、编译错误和明显安全风险。
+6. 固定 Core 运行 parser/validator/evaluator，给出唯一合法性与目标结论。
+7. 合法且严格提升才 promotion，否则 rollback。
+8. 只有具体阻塞证据才由 Main 签发 `assignment_revision_XXX.json` 做同方向修补。
+9. 轮次证据写入假设图、经验记忆和知识使用记录。
 
 ## 通用命令
 
@@ -156,5 +174,5 @@ uv run python -m compileall -q harness_agent tests examples
 uv run python -m unittest discover -s tests
 ```
 
-固定 Core 相关测试覆盖 parser/evaluator、候选隔离、JA、语义审查、同轮修补、
+固定 Core 相关测试覆盖 parser/evaluator、候选隔离、确定性预检、结果复验、同轮修补、
 promotion/rollback、上下文压缩、经验分层、Web 历史任务和报告自动展示。

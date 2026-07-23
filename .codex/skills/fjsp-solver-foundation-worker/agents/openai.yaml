@@ -1,0 +1,4 @@
+interface:
+  display_name: "FJSP Solver Foundation Worker"
+  short_description: "Implement a legal standalone FJSP solver foundation"
+  default_prompt: "Study the selected contracts and implement the assigned FJSP solver foundation."

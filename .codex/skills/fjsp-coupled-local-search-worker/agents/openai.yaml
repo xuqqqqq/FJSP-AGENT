@@ -1,0 +1,4 @@
+interface:
+  display_name: "FJSP Coupled Local Search Worker"
+  short_description: "Implement assignment and sequence local search for FJSP"
+  default_prompt: "Study the selected local-search material and implement the assigned method families."

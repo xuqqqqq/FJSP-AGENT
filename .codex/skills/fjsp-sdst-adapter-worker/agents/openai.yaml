@@ -1,0 +1,4 @@
+interface:
+  display_name: "FJSP SDST Adapter Worker"
+  short_description: "Adapt selected FJSP methods to sequence-dependent setup"
+  default_prompt: "Study the selected SDST contracts and adapt the assigned method families."

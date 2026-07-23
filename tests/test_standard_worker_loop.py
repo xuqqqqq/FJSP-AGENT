@@ -3,14 +3,20 @@ from __future__ import annotations
 import unittest
 from dataclasses import fields
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from harness_agent.cli import build_parser, run_standard_worker_loop_cmd
+from harness_agent.cli import build_parser, run_standard_worker_loop_cmd, run_worker_loop_cmd
 from harness_agent.core.runner import RunSummary, solver_time_limit_seconds
-from harness_agent.orchestration.loop import WorkerLoopResult
+from harness_agent.orchestration.loop import (
+    WorkerLoopResult,
+    collect_current_round_repair_targets,
+    current_round_repair_feedback,
+)
 from harness_agent.orchestration.standard import (
     StandardWorkerLoopRequest,
     build_standard_worker_contract_payload,
+    run_standard_worker_loop,
     standard_solver_command,
     standard_worker_manifest,
 )
@@ -80,6 +86,8 @@ class StandardWorkerLoopTests(unittest.TestCase):
 
         self.assertEqual("opencode", args.worker)
         self.assertEqual("examples/custom_agent_generated.py", args.agent_generated_solver_path)
+        self.assertEqual(4, args.main_max_subagents)
+        self.assertEqual(4, args.max_competing_workers)
         self.assertFalse(hasattr(args, "solver"))
         self.assertFalse(hasattr(args, "baseline_source"))
         self.assertFalse(any(name.startswith("awls_") for name in vars(args)))
@@ -124,6 +132,175 @@ class StandardWorkerLoopTests(unittest.TestCase):
         self.assertEqual("baseline_generation_failed", manifest["status"])
         self.assertEqual("judgment_rejected", manifest["terminal_reason"])
         self.assertEqual(0, manifest["round_count"])
+
+    def test_standard_loop_runtime_forces_semantic_reviewer_none(self) -> None:
+        summary = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id=None,
+            best_metrics={"makespan": 100},
+            best_candidate_id=None,
+            best_candidate_metrics=None,
+            candidate_summaries=[],
+            pareto_frontier=[],
+            validation_summary={},
+        )
+        loop_result = WorkerLoopResult(
+            baseline_key=(-100.0,),
+            final_key=(-100.0,),
+            final_worktree=ROOT,
+            rounds=[],
+            baseline_summary=summary,
+        )
+        request = self.make_request(output_dir=ROOT / "outputs" / "standard_loop_runtime", semantic_reviewer=object())
+
+        with patch(
+            "harness_agent.orchestration.standard.build_standard_worker_contract_payload",
+            return_value={"task_id": "test"},
+        ), patch(
+            "harness_agent.orchestration.standard.TaskContract.load",
+            return_value=SimpleNamespace(validate=lambda project_root: []),
+        ), patch(
+            "harness_agent.orchestration.standard.write_context_packet",
+            return_value=request.output_dir / "context_packet.json",
+        ), patch(
+            "harness_agent.orchestration.standard.run_worker_loop",
+            return_value=loop_result,
+        ) as run_loop, patch(
+            "harness_agent.orchestration.standard.standard_worker_manifest",
+            return_value={
+                "status": "ok",
+                "terminal_reason": None,
+                "baseline_key": [-100.0],
+                "final_key": [-100.0],
+                "promoted_rounds": 0,
+                "artifacts": {},
+            },
+        ), patch(
+            "harness_agent.orchestration.standard.render_standard_worker_report",
+            return_value="",
+        ):
+            run_standard_worker_loop(request)
+
+        self.assertIsNone(run_loop.call_args.kwargs["semantic_reviewer"])
+
+    def test_cli_run_worker_loop_passes_no_semantic_reviewer(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "run-worker-loop",
+                "--contract",
+                "configs/standard_fjsp_tiny.example.json",
+                "--context-packet",
+                "outputs/context.json",
+                "--output-dir",
+                "outputs/test",
+            ]
+        )
+        summary = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id=None,
+            best_metrics={"makespan": 100},
+            best_candidate_id=None,
+            best_candidate_metrics=None,
+            candidate_summaries=[],
+            pareto_frontier=[],
+            validation_summary={},
+        )
+        loop_result = WorkerLoopResult(
+            baseline_key=(-100.0,),
+            final_key=(-90.0,),
+            final_worktree=ROOT,
+            rounds=[],
+            baseline_summary=summary,
+        )
+        with patch("harness_agent.cli.load_runnable_contract", return_value=SimpleNamespace()), patch(
+            "harness_agent.cli.make_worker", return_value=NullWorker()
+        ), patch(
+            "harness_agent.cli.make_main_agent", return_value=SimpleNamespace()
+        ), patch(
+            "harness_agent.cli.run_worker_loop", return_value=loop_result
+        ) as run_loop, patch("harness_agent.cli.print_json"), patch(
+            "harness_agent.cli.is_deepseek_configured"
+        ) as deepseek_status:
+            exit_code = run_worker_loop_cmd(args)
+
+        self.assertEqual(0, exit_code)
+        self.assertIsNone(run_loop.call_args.kwargs["semantic_reviewer"])
+        deepseek_status.assert_not_called()
+
+    def test_cli_standard_loop_passes_no_semantic_reviewer(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "run-standard-worker-loop",
+                "--instance-dir",
+                "examples",
+                "--output-dir",
+                "outputs/test",
+            ]
+        )
+        manifest = {
+            "status": "ok",
+            "terminal_reason": None,
+            "baseline_key": [-100.0],
+            "final_key": [-90.0],
+            "promoted_rounds": 1,
+            "artifacts": {},
+        }
+        with patch("harness_agent.cli.make_worker", return_value=NullWorker()), patch(
+            "harness_agent.cli.make_main_agent", return_value=SimpleNamespace()
+        ), patch(
+            "harness_agent.cli.run_standard_worker_loop", return_value=manifest
+        ) as run_loop, patch("harness_agent.cli.print_json"), patch(
+            "harness_agent.cli.is_deepseek_configured"
+        ) as deepseek_status:
+            exit_code = run_standard_worker_loop_cmd(args)
+
+        self.assertEqual(0, exit_code)
+        request = run_loop.call_args.args[0]
+        self.assertIsNone(request.semantic_reviewer)
+        deepseek_status.assert_not_called()
+
+    def test_repair_targets_prefer_result_revalidation_top_errors_and_drop_semantic_blocks(self) -> None:
+        attempt = {
+            "agentic_judgment": {
+                "accepted": False,
+                "issues": ["candidate_result_revalidation_failed"],
+                "suggestions": ["Repair the validator failure."],
+                "checks": {
+                    "result_revalidation": {
+                        "passed": False,
+                        "top_errors": ["missing makespan field", "invalid operation count"],
+                    }
+                },
+            },
+            "semantic_review": {
+                "status": "repair_required",
+                "accepted": False,
+                "findings": [{"blocking": True, "category": "method_semantics"}],
+            },
+            "failure_signatures": ["candidate_result_revalidation_failed"],
+        }
+
+        targets = collect_current_round_repair_targets([attempt])
+        feedback = current_round_repair_feedback(
+            attempt_index=1,
+            max_repair_attempts=3,
+            previous_attempts=[attempt],
+        )
+
+        self.assertEqual(
+            ["missing makespan field", "invalid operation count"],
+            targets["result_revalidation_top_errors"],
+        )
+        self.assertNotIn("algorithm_semantic_review", targets)
+        self.assertIn("result_revalidation_top_errors", feedback["repair_targets"])
+        self.assertNotIn("algorithm_semantic_review", feedback["repair_targets"])
+        self.assertTrue(
+            any("result_revalidation_top_errors" in item for item in feedback["must_do"])
+        )
 
     def test_cli_returns_failure_for_missing_valid_baseline(self) -> None:
         args = build_parser().parse_args(

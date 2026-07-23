@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 import shutil
+import subprocess
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -20,10 +21,83 @@ from harness_agent.agents.judgment import (
     write_judgment_artifacts,
 )
 from harness_agent.domains.pack import get_domain_pack
+from harness_agent.core.cancellation import CancellationToken, TaskCancelled
 from harness_agent.core.graph import GraphHarnessRunner
 from harness_agent.core.models import TaskContract, resolve_project_path
 from harness_agent.core.runner import RunSummary
-from harness_agent.worker import CodingWorker, ExperimentSpec, WorkerResult
+from harness_agent.worker import CodingWorker, ExperimentSpec, WorkerAssignment, WorkerResult
+
+
+WORKER_SMOKE_RUNNER_SOURCE = """from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from harness_agent.domains.io import load_solution, parse_standard_fjsp, validate_standard_schedule
+
+
+def main() -> int:
+    runtime_dir = Path(__file__).resolve().parent
+    used_path = runtime_dir / "smoke.used"
+    if used_path.exists():
+        print("bounded worker smoke was already used", file=sys.stderr)
+        return 3
+    used_path.write_text("used\\n", encoding="utf-8")
+    config = json.loads((runtime_dir / "smoke_config.json").read_text(encoding="utf-8"))
+    command = [
+        sys.executable,
+        config["target_file"],
+        "--input",
+        config["instance_path"],
+        "--output",
+        config["output_path"],
+        "--seed",
+        "0",
+        "--time-limit-sec",
+        str(config["time_limit_seconds"]),
+    ]
+    try:
+        completed = subprocess.run(command, check=False, timeout=config["time_limit_seconds"] + 2)
+    except subprocess.TimeoutExpired:
+        print("bounded worker smoke timed out", file=sys.stderr)
+        return 124
+    if completed.returncode:
+        return int(completed.returncode)
+    output_path = Path(config["output_path"])
+    try:
+        payload = json.loads(output_path.read_text(encoding="utf-8"))
+        solution_contract = config.get("solution_contract") or {}
+        expected_format = solution_contract.get("format")
+        if expected_format and payload.get("format") != expected_format:
+            raise ValueError(f"solution format must be {expected_format!r}")
+        for field in solution_contract.get("required_top_level_fields") or []:
+            if field not in payload:
+                raise ValueError(f"solution is missing required field: {field}")
+        instance = parse_standard_fjsp(Path(config["instance_path"]))
+        schedule = load_solution(output_path)
+        errors, metrics = validate_standard_schedule(instance, schedule)
+        if errors:
+            raise ValueError("; ".join(errors[:20]))
+        declared_makespan = float(payload["makespan"])
+        if declared_makespan != float(metrics["makespan"]):
+            raise ValueError(
+                f"declared makespan mismatch: declared={declared_makespan}, computed={metrics['makespan']}"
+            )
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        print(f"bounded worker smoke rejected candidate output: {exc}", file=sys.stderr)
+        return 4
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+"""
 
 
 @dataclass(frozen=True)
@@ -60,6 +134,9 @@ def run_worker_cycle(
     max_steps: int,
     max_runtime_seconds: int,
     apply_worker_changes: bool,
+    worker_assignment_path: Path | None = None,
+    worker_input_root: Path | None = None,
+    cancellation: CancellationToken | None = None,
 ) -> WorkerCycleResult:
     """在隔离候选树中执行一次“写代码、审查、评测”周期。
 
@@ -68,6 +145,8 @@ def run_worker_cycle(
     反向覆盖源目录。
     """
 
+    if cancellation is not None:
+        cancellation.raise_if_cancelled()
     output_dir = output_dir.resolve()
     worktree_path = output_dir / "candidate_worktree"
     worker_output_dir = output_dir / "worker"
@@ -80,6 +159,9 @@ def run_worker_cycle(
         project_root=project_root.resolve(),
         contract=contract,
         worktree_path=worktree_path,
+        context_packet_path=context_packet_path,
+        worker_assignment_path=worker_assignment_path,
+        worker_input_root=worker_input_root,
     )
     before_snapshot = collect_worktree_snapshot(worktree_path)
     spec = ExperimentSpec(
@@ -91,10 +173,13 @@ def run_worker_cycle(
         max_runtime_seconds=max_runtime_seconds,
         output_dir=str(worker_output_dir),
         apply_changes=apply_worker_changes,
+        worker_assignment_path=str(worker_assignment_path) if worker_assignment_path else None,
     )
     # 2. Coding Worker 只接触候选 worktree；其 changed_files 自报值稍后会
     # 与真实文件快照合并，防止漏报。
     worker_result = worker.run_experiment(spec)
+    if cancellation is not None:
+        cancellation.raise_if_cancelled()
     after_snapshot = collect_worktree_snapshot(worktree_path)
     delta = compute_worktree_delta(before_snapshot, after_snapshot)
     detected_changed_files = changed_files_from_worktree_delta(delta)
@@ -110,7 +195,8 @@ def run_worker_cycle(
         delta=delta,
         output_dir=output_dir,
     )
-    # 3. JA 在执行候选前拦截确定性风险。JA 拒绝时默认不进入正式 evaluator。
+    # 3. JA 先拦截确定性的执行安全问题；通过后必须用固定 evaluator
+    # 复验 Coding Agent 实际产出的解。源码形态和算法语义不参与门禁。
     agentic_judgment = judge_worker_result(
         worker_result=worker_result,
         worktree_path=worktree_path,
@@ -135,66 +221,30 @@ def run_worker_cycle(
         )
         agentic_error_analysis = analyze_rejected_judgment(judgment=agentic_judgment, output_dir=output_dir)
         smoke_summary = None
-        # 对 Agent 自写 solver 的部分“源码形态”拒绝，可做一次只诊断 smoke。
-        # 它不能直接晋升，只用于判断静态门禁是否过度保守并生成修补事实。
-        if should_run_agent_generated_smoke_diagnostic(
-            contract=contract,
-            worker_result=worker_result,
-            agentic_judgment=agentic_judgment,
-        ):
-            diagnostic_smoke_summary = run_diagnostic_smoke(
-                contract=contract,
-                worktree_path=worktree_path,
-                output_dir=diagnostic_smoke_output_dir,
-            )
-        if should_soft_accept_agent_generated_quality_rejection(
-            agentic_judgment=agentic_judgment,
-            diagnostic_smoke_summary=diagnostic_smoke_summary,
-        ):
-            agentic_judgment = soften_agent_generated_quality_judgment(
-                agentic_judgment=agentic_judgment,
-                diagnostic_smoke_summary=diagnostic_smoke_summary,
-            )
-            write_judgment_artifacts(output_dir=output_dir, judgment=agentic_judgment)
-            agentic_error_analysis = None
-            smoke_contract = smoke_gate_contract(contract)
-            smoke_runner = GraphHarnessRunner(
-                contract=smoke_contract,
-                project_root=worktree_path,
-                output_dir=smoke_output_dir,
-            )
-            try:
-                smoke_summary = smoke_runner.run()
-            finally:
-                smoke_runner.close()
-            smoke_passed = smoke_summary.total > 0 and smoke_summary.valid == smoke_summary.total
-            full_evaluation_started = False
-            if smoke_passed and full_evaluation_required(contract):
-                runner = GraphHarnessRunner(contract=contract, project_root=worktree_path, output_dir=harness_output_dir)
-                try:
-                    summary = runner.run()
-                finally:
-                    runner.close()
-                full_evaluation_started = True
-            else:
-                summary = smoke_summary
-                harness_output_dir = smoke_output_dir
-            agentic_error_analysis = analyze_run_summary(summary=summary, output_dir=output_dir)
-        else:
-            full_evaluation_started = False
+        full_evaluation_started = False
     else:
-        # 4. JA 接受后先用一个 seed 做 smoke；只有 smoke 全部合法才支付完整
-        # 多 seed/多算例评测成本。
-        smoke_contract = smoke_gate_contract(contract)
-        smoke_runner = GraphHarnessRunner(contract=smoke_contract, project_root=worktree_path, output_dir=smoke_output_dir)
-        try:
-            smoke_summary = smoke_runner.run()
-        finally:
-            smoke_runner.close()
+        # 4. 这个单 seed 运行就是 JA 的结果复验。只有真实输出通过固定
+        # parser/validator 后，候选才具备进入正式 Core 评测的资格。
+        smoke_summary = run_smoke_gate(
+            contract=contract,
+            worktree_path=worktree_path,
+            output_dir=smoke_output_dir,
+            cancellation=cancellation,
+        )
         smoke_passed = smoke_summary.total > 0 and smoke_summary.valid == smoke_summary.total
+        agentic_judgment = judgment_with_result_revalidation(
+            judgment=agentic_judgment,
+            smoke_summary=smoke_summary,
+        )
+        write_judgment_artifacts(output_dir=output_dir, judgment=agentic_judgment)
         full_evaluation_started = False
         if smoke_passed and full_evaluation_required(contract):
-            runner = GraphHarnessRunner(contract=contract, project_root=worktree_path, output_dir=harness_output_dir)
+            runner = GraphHarnessRunner(
+                contract=contract,
+                project_root=worktree_path,
+                output_dir=harness_output_dir,
+                cancellation=cancellation,
+            )
             try:
                 summary = runner.run()
             finally:
@@ -235,6 +285,51 @@ def run_worker_cycle(
         diagnostic_smoke_summary=diagnostic_smoke_summary,
         diagnostic_smoke_output_dir=diagnostic_smoke_output_dir if diagnostic_smoke_summary else None,
         full_evaluation_started=full_evaluation_started,
+    )
+
+
+def judgment_with_result_revalidation(
+    *,
+    judgment: AgenticJudgment,
+    smoke_summary: RunSummary,
+) -> AgenticJudgment:
+    """Bind JA acceptance to observable candidate output, not source semantics."""
+
+    passed = smoke_summary.total > 0 and smoke_summary.valid == smoke_summary.total
+    validation = smoke_summary.validation_summary or {}
+    top_errors = [
+        str(item.get("error") or "").strip()
+        for item in validation.get("top_errors") or []
+        if isinstance(item, dict) and str(item.get("error") or "").strip()
+    ]
+    checks = dict(judgment.checks or {})
+    checks["result_revalidation"] = {
+        "passed": passed,
+        "total": smoke_summary.total,
+        "valid": smoke_summary.valid,
+        "failed": smoke_summary.failed,
+        "top_errors": top_errors[:8],
+        "best_metrics": smoke_summary.best_candidate_metrics or smoke_summary.best_metrics,
+    }
+    if passed:
+        return replace(
+            judgment,
+            accepted=True,
+            right=True,
+            stage="candidate_result_revalidation",
+            issues=[],
+            suggestions=["Candidate output was reproduced and accepted by the fixed parser/validator smoke."],
+            checks=checks,
+        )
+    suggestions = [f"Repair the concrete validator failure: {error}" for error in top_errors[:4]]
+    return replace(
+        judgment,
+        accepted=False,
+        right=False,
+        stage="candidate_result_revalidation",
+        issues=["candidate_result_revalidation_failed"],
+        suggestions=suggestions or ["Repair the candidate runtime/output failure reported by the fixed smoke."],
+        checks=checks,
     )
 
 
@@ -364,13 +459,26 @@ def soften_agent_generated_quality_judgment(
     )
 
 
-def run_diagnostic_smoke(*, contract: TaskContract, worktree_path: Path, output_dir: Path) -> RunSummary:
+def run_diagnostic_smoke(
+    *,
+    contract: TaskContract,
+    worktree_path: Path,
+    output_dir: Path,
+    cancellation: CancellationToken | None = None,
+) -> RunSummary:
     """Run a diagnostic-only one-seed smoke and capture quick-test failures."""
 
     smoke_contract = smoke_gate_contract(contract)
-    runner = GraphHarnessRunner(contract=smoke_contract, project_root=worktree_path, output_dir=output_dir)
+    runner = GraphHarnessRunner(
+        contract=smoke_contract,
+        project_root=worktree_path,
+        output_dir=output_dir,
+        cancellation=cancellation,
+    )
     try:
         summary = runner.run()
+    except TaskCancelled:
+        raise
     except Exception as exc:  # noqa: BLE001 - diagnostic feedback should not abort a repairable round.
         summary = RunSummary(
             total=1,
@@ -410,7 +518,58 @@ def write_diagnostic_smoke_report(*, output_dir: Path, summary: RunSummary) -> N
     (output_dir / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def prepare_candidate_worktree(*, project_root: Path, contract: TaskContract, worktree_path: Path) -> None:
+def run_smoke_gate(
+    *,
+    contract: TaskContract,
+    worktree_path: Path,
+    output_dir: Path,
+    cancellation: CancellationToken | None = None,
+) -> RunSummary:
+    """Turn quick-test process failures into repair evidence instead of aborting the loop."""
+
+    runner = GraphHarnessRunner(
+        contract=smoke_gate_contract(contract),
+        project_root=worktree_path,
+        output_dir=output_dir,
+        cancellation=cancellation,
+    )
+    try:
+        return runner.run()
+    except (OSError, subprocess.SubprocessError) as exc:
+        detail = str(exc)
+        stderr = getattr(exc, "stderr", None)
+        if stderr:
+            detail = f"{detail}: {str(stderr).strip()[-900:]}"
+        summary = RunSummary(
+            total=1,
+            valid=0,
+            failed=1,
+            best_experiment_id=None,
+            best_metrics={},
+            best_candidate_id=None,
+            best_candidate_metrics=None,
+            candidate_summaries=[],
+            pareto_frontier=[],
+            validation_summary={
+                "status_counts": {"failed_quick_test": 1},
+                "top_errors": [{"error": detail, "count": 1}],
+            },
+        )
+        write_diagnostic_smoke_report(output_dir=output_dir, summary=summary)
+        return summary
+    finally:
+        runner.close()
+
+
+def prepare_candidate_worktree(
+    *,
+    project_root: Path,
+    contract: TaskContract,
+    worktree_path: Path,
+    context_packet_path: Path | None = None,
+    worker_assignment_path: Path | None = None,
+    worker_input_root: Path | None = None,
+) -> None:
     """构建候选工作区，并把可修改源码与只读 Core 依赖分开复制。"""
 
     # worktree 是一次性产物目录，可以安全重建；源 project_root 不会删除。
@@ -420,7 +579,19 @@ def prepare_candidate_worktree(*, project_root: Path, contract: TaskContract, wo
     allowed_paths = contract.paths.allowed_paths or ["."]
     forbidden_paths = set(contract.paths.forbidden_paths or [])
     forbidden_paths.update(
-        {".git", "outputs", "__pycache__", ".pytest_cache", ".mypy_cache", ".algoforge_worker_inputs"}
+        {
+            ".git",
+            "outputs",
+            ".codex",
+            ".opencode",
+            "knowledge",
+            "domain_packs",
+            "__pycache__",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".algoforge_worker_inputs",
+            ".algoforge_worker_runtime",
+        }
     )
     if "." in allowed_paths:
         _copy_directory_contents(project_root, worktree_path, forbidden_paths)
@@ -444,6 +615,130 @@ def prepare_candidate_worktree(*, project_root: Path, contract: TaskContract, wo
         forbidden_paths=forbidden_paths,
     )
     stage_worker_input_files(contract=contract, project_root=project_root, worktree_path=worktree_path)
+    if context_packet_path is not None:
+        stage_worker_document_files(context_packet_path=context_packet_path, worktree_path=worktree_path)
+    if worker_assignment_path is not None:
+        stage_worker_assignment_inputs(
+            assignment_path=worker_assignment_path,
+            source_root=(worker_input_root or project_root).resolve(),
+            worktree_path=worktree_path,
+        )
+        stage_worker_runtime_controls(
+            assignment_path=worker_assignment_path,
+            worktree_path=worktree_path,
+        )
+        initialize_isolated_worker_repository(worktree_path)
+
+
+def initialize_isolated_worker_repository(worktree_path: Path) -> None:
+    """Stop OpenCode from resolving candidate paths against the parent repository."""
+
+    completed = subprocess.run(
+        ["git", "init", "--quiet"],
+        cwd=worktree_path,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=10,
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip() or "unknown git init failure"
+        raise RuntimeError(f"cannot establish isolated worker repository: {detail}")
+
+
+def stage_worker_assignment_inputs(
+    *,
+    assignment_path: Path,
+    source_root: Path,
+    worktree_path: Path,
+) -> None:
+    """只按 Main Agent 的 read_set 把知识/合同镜像进候选沙箱。"""
+
+    assignment = WorkerAssignment.load(assignment_path)
+    for item in assignment.read_set:
+        relative = Path(str(item.get("path") or ""))
+        target = worktree_path / relative
+        if target.exists():
+            continue
+        source = source_root / relative
+        if not source.exists():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if source.is_dir():
+            shutil.copytree(source, target, dirs_exist_ok=True)
+        else:
+            shutil.copy2(source, target)
+
+    _stage_worker_implementation_skills(
+        assignment=assignment,
+        source_root=source_root,
+        worktree_path=worktree_path,
+    )
+
+    # Worker 角色仍由 OPENCODE_CONFIG_CONTENT 注入。这里只创建获准 Skill
+    # 子目录，不复制项目级插件、agent、package.json 或其他 OpenCode 配置。
+
+
+def _stage_worker_implementation_skills(
+    *,
+    assignment: WorkerAssignment,
+    source_root: Path,
+    worktree_path: Path,
+) -> None:
+    if not assignment.implementation_skills:
+        return
+    problem_family = str(assignment.runtime_contract.get("problem_family") or "")
+    pack = get_domain_pack(problem_family)
+    if pack is None:
+        raise ValueError(f"cannot stage Worker Skills without Domain Pack: {problem_family}")
+    trusted_root = source_root.resolve()
+    for item in assignment.implementation_skills:
+        skill_id = str(item.get("skill_id") or "").strip().lower()
+        declared = pack.worker_implementation_skill(skill_id)
+        if declared is None:
+            raise ValueError(f"Worker Implementation Skill is not registered: {skill_id}")
+        source = declared.source_path.resolve()
+        try:
+            source.relative_to(trusted_root)
+        except ValueError as exc:
+            raise ValueError(f"Worker Implementation Skill escapes project root: {skill_id}") from exc
+        if not source.is_dir() or not (source / "SKILL.md").is_file():
+            raise ValueError(f"Worker Implementation Skill source is incomplete: {skill_id}")
+        target = worktree_path / str(item.get("sandbox_path") or "")
+        expected = worktree_path / ".opencode" / "skills" / skill_id
+        if target.resolve() != expected.resolve():
+            raise ValueError(f"Worker Implementation Skill has invalid sandbox path: {skill_id}")
+        shutil.copytree(source, target, dirs_exist_ok=False)
+
+
+def stage_worker_runtime_controls(*, assignment_path: Path, worktree_path: Path) -> None:
+    """生成一次性 smoke wrapper，硬限制实例、seed、时限和调用次数。"""
+
+    assignment = WorkerAssignment.load(assignment_path)
+    manifest_path = worktree_path / ".algoforge_worker_inputs" / "manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return
+    instances = [item for item in manifest.get("instances") or [] if isinstance(item, dict)]
+    if not instances or not instances[0].get("local_path"):
+        return
+    runtime_dir = worktree_path / ".algoforge_worker_runtime"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    time_limit = min(3, max(1, int(assignment.budgets.get("max_solver_smoke_seconds") or 3)))
+    config = {
+        "target_file": assignment.target_file,
+        "instance_path": str(instances[0]["local_path"]),
+        "output_path": ".algoforge_worker_runtime/smoke_solution.json",
+        "time_limit_seconds": time_limit,
+        "solution_contract": assignment.runtime_contract.get("solution_contract") or {},
+    }
+    (runtime_dir / "smoke_config.json").write_text(
+        json.dumps(config, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (runtime_dir / "run_smoke.py").write_text(WORKER_SMOKE_RUNNER_SOURCE, encoding="utf-8")
 
 
 def copy_read_only_core_dependencies(
@@ -511,6 +806,29 @@ def stage_worker_input_files(*, contract: TaskContract, project_root: Path, work
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def stage_worker_document_files(*, context_packet_path: Path, worktree_path: Path) -> None:
+    """Mirror the exact requirement/IO documents named by the Context Packet."""
+
+    try:
+        packet = json.loads(context_packet_path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return
+    docs_root = worktree_path / ".algoforge_worker_inputs" / "docs"
+    for index, document in enumerate(packet.get("documents") or []):
+        if not isinstance(document, dict):
+            continue
+        source = Path(str(document.get("path") or ""))
+        source_name = source.name or f"document_{index}.md"
+        safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", source_name).strip("._") or f"document_{index}.md"
+        target = docs_root / f"{index:03d}_{safe_name}"
+        try:
+            text = source.read_text(encoding="utf-8-sig", errors="replace")
+        except OSError:
+            text = str(document.get("snippet") or "")
+        docs_root.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -826,7 +1144,14 @@ def _public_snapshot_entry(entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def _is_generated_cache_path(path: Path) -> bool:
-    generated_dirs = {"__pycache__", ".pytest_cache", ".mypy_cache"}
+    generated_dirs = {
+        ".git",
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".opencode",
+        ".algoforge_worker_runtime",
+    }
     return path.suffix == ".pyc" or any(part in generated_dirs for part in path.parts)
 
 

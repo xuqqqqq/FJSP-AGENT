@@ -26,6 +26,8 @@ class GraphHarnessRunner(HarnessRunner):
     """
 
     def run(self) -> RunSummary:
+        if self.cancellation is not None:
+            self.cancellation.raise_if_cancelled()
         app = self._build_graph()
         final_state = app.invoke({})
         return final_state["summary"]
@@ -57,6 +59,8 @@ class GraphHarnessRunner(HarnessRunner):
         return workflow.compile()
 
     def _graph_prepare_experiments(self, state: HarnessGraphState) -> HarnessGraphState:
+        if self.cancellation is not None:
+            self.cancellation.raise_if_cancelled()
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.experiment_root.mkdir(parents=True, exist_ok=True)
         self._run_quick_test()
@@ -76,6 +80,8 @@ class GraphHarnessRunner(HarnessRunner):
         return {"planned_runs": planned_runs, "cursor": 0}
 
     def _graph_run_experiment(self, state: HarnessGraphState) -> HarnessGraphState:
+        if self.cancellation is not None:
+            self.cancellation.raise_if_cancelled()
         planned_runs = state.get("planned_runs", [])
         cursor = int(state.get("cursor", 0))
         worker_count = max(1, self.contract.budget.max_workers)

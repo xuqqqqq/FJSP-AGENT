@@ -29,6 +29,10 @@ class DomainContextProvider(Protocol):
     ) -> list[str]:
         ...
 
+    def solution_contract(self) -> dict[str, Any]:
+        """Return the immutable solver output contract for this problem family."""
+        ...
+
 
 @dataclass(frozen=True)
 class GenericContextProvider:
@@ -56,6 +60,9 @@ class GenericContextProvider:
         contract_review_evidence: dict[str, Any],
     ) -> list[str]:
         return []
+
+    def solution_contract(self) -> dict[str, Any]:
+        return {}
 
 
 _PROVIDERS: dict[str, DomainContextProvider] = {

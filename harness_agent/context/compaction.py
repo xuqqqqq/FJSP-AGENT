@@ -175,6 +175,9 @@ def _compact_value(
     max_depth: int,
 ) -> Any:
     if len(path) >= max_depth:
+        evidence = _critical_evidence_depth_summary(value, path=path, max_string=max_string)
+        if evidence is not None:
+            return evidence
         return _depth_summary(value)
     if isinstance(value, str):
         return _compact_string(value, max_string)
@@ -208,6 +211,70 @@ def _compact_value(
             )
         return result
     return value
+
+
+def _critical_evidence_depth_summary(
+    value: Any,
+    *,
+    path: tuple[str, ...],
+    max_string: int,
+) -> Any | None:
+    """Preserve causal gate fields when generic depth compaction is unavoidable."""
+
+    if isinstance(value, list) and path and path[-1] in {
+        "changed_core_algorithm_files",
+        "changed_validator_files",
+        "target_files",
+        "evidence_used",
+    }:
+        return [
+            _compact_string(item, min(max_string, 300)) if isinstance(item, str) else item
+            for item in value[:12]
+            if isinstance(item, (str, int, float, bool, type(None)))
+        ]
+    if not isinstance(value, dict):
+        return None
+    if "rule_operator_hypotheses" in path:
+        return {
+            key: (
+                _compact_string(item, min(max_string, 240))
+                if isinstance(item, str)
+                else item
+            )
+            for key, item in value.items()
+            if key in {"name", "type", "novelty", "expected_effect", "ablation_plan"}
+            and isinstance(item, (str, int, float, bool, type(None)))
+        }
+    if "activation_checks" in path or "mechanism_activation" in path:
+        return {
+            key: (
+                _compact_string(item, min(max_string, 240))
+                if isinstance(item, str)
+                else item
+            )
+            for key, item in value.items()
+            if key
+            in {
+                "id",
+                "path",
+                "operator",
+                "expected",
+                "required",
+                "found",
+                "observed",
+                "passed",
+                "status",
+                "required_failure_count",
+            }
+            and isinstance(item, (str, int, float, bool, type(None)))
+        }
+    if "operator_lineage" in path:
+        return {
+            str(key): item
+            for key, item in value.items()
+            if isinstance(item, (str, int, float, bool, type(None)))
+        }
+    return None
 
 
 def _compact_string(value: str, limit: int) -> str:

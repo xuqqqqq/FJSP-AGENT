@@ -657,8 +657,8 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
             "agent_generated_baseline_memory": {"accepted_as_incumbent": True},
             "current_direction_plan": {
                 "knowledge_paths": [
-                    "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_neighborhood_templates.md",
-                    "knowledge/imported_huawei_fjsp_knowledge/operators/hgtsa_fjsp_n8_k_insertion_blueprint.md",
+                    "knowledge/references/standard_fjsp/standard_fjsp_agent_generated_neighborhood_templates.md",
+                    "knowledge/references/standard_fjsp/hgtsa_fjsp_n8_k_insertion_blueprint.md",
                 ]
             },
             "current_round_repair": {
@@ -676,19 +676,19 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         }
         context["knowledge_cards"] = [
             {
-                "path": "knowledge/papers/fjsp_agent_current_capability_20260704.md",
+                "path": "knowledge/capabilities/fjsp_agent_current_capability_20260704.md",
                 "chars": 12000,
                 "truncated": False,
                 "snippet": "score report with benchmark numbers " * 120,
             },
             {
-                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_reference_skeleton.md",
+                "path": "knowledge/references/standard_fjsp/standard_fjsp_agent_generated_reference_skeleton.md",
                 "chars": 9000,
                 "truncated": False,
                 "snippet": "agent-generated reference skeleton with ready-list parser and decode_state",
             },
             {
-                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_neighborhood_templates.md",
+                "path": "knowledge/references/standard_fjsp/standard_fjsp_agent_generated_neighborhood_templates.md",
                 "chars": 9000,
                 "truncated": False,
                 "snippet": (
@@ -697,7 +697,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                 ),
             },
             {
-                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/hgtsa_fjsp_n8_k_insertion_blueprint.md",
+                "path": "knowledge/references/standard_fjsp/hgtsa_fjsp_n8_k_insertion_blueprint.md",
                 "chars": 5000,
                 "truncated": False,
                 "snippet": "N8 k-insertion critical path blueprint",
@@ -732,7 +732,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                 "snippet": "agent-generated solver legality evidence and self-check contract",
             },
             {
-                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_awls_hgtsa_execution_skeleton.md",
+                "path": "knowledge/references/standard_fjsp/standard_fjsp_awls_hgtsa_execution_skeleton.md",
                 "chars": 5000,
                 "truncated": False,
                 "snippet": (
@@ -741,7 +741,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                 ),
             },
             {
-                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_reference_skeleton.md",
+                "path": "knowledge/references/standard_fjsp/standard_fjsp_agent_generated_reference_skeleton.md",
                 "chars": 9000,
                 "truncated": False,
                 "snippet": (
@@ -750,7 +750,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                 ),
             },
             {
-                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_neighborhood_templates.md",
+                "path": "knowledge/references/standard_fjsp/standard_fjsp_agent_generated_neighborhood_templates.md",
                 "chars": 9000,
                 "truncated": False,
                 "snippet": (
@@ -759,19 +759,19 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                 ),
             },
             {
-                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/critical_path_machine_block_neighborhood.md",
+                "path": "knowledge/references/standard_fjsp/critical_path_machine_block_neighborhood.md",
                 "chars": 3000,
                 "truncated": False,
                 "snippet": "critical-path machine-block local-search makespan neighborhood",
             },
             {
-                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/operation_machine_reassignment.md",
+                "path": "knowledge/references/standard_fjsp/operation_machine_reassignment.md",
                 "chars": 3000,
                 "truncated": False,
                 "snippet": "candidate machine reassignment local-search for flexible job shop",
             },
             {
-                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/tabu_search_loop.md",
+                "path": "knowledge/references/standard_fjsp/tabu_search_loop.md",
                 "chars": 3000,
                 "truncated": False,
                 "snippet": "tabu-search local-search loop with neighborhood generator and incumbent preservation",
@@ -1023,7 +1023,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         }
         context["knowledge_cards"] = [
             {
-                "path": "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "path": "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
                 "chars": 10000,
                 "truncated": False,
                 "snippet": (
@@ -1034,7 +1034,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
             }
         ] + [
             {
-                "path": f"knowledge/papers/large_card_{index}.md",
+                "path": f"knowledge/references/general_fjsp/large_card_{index}.md",
                 "chars": 10000,
                 "truncated": False,
                 "snippet": "FJSP-SDST local search background. " + ("MORE_FILLER " * 1200),
@@ -1102,7 +1102,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         }
         context["knowledge_cards"] = [
             {
-                "path": "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "path": "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
                 "chars": 10000,
                 "truncated": False,
                 "snippet": (
@@ -1157,7 +1157,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         }
         context["knowledge_cards"] = [
             {
-                "path": "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "path": "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
                 "chars": 10000,
                 "truncated": False,
                 "snippet": (
@@ -1188,7 +1188,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         }
         context["knowledge_cards"] = [
             {
-                "path": "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "path": "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
                 "chars": 12000,
                 "truncated": False,
                 "snippet": (
@@ -1219,14 +1219,27 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("Risk patterns already observed", prompt_context)
 
     def test_agent_generated_memory_card_uses_method_level_evidence(self) -> None:
-        text = Path("knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md").read_text(
+        text = Path("knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md").read_text(
             encoding="utf-8"
         )
 
         self.assertIn("## Local Method Evidence", text)
         self.assertIn("Do not copy any previous", text)
+        self.assertIn("low-risk starting recommendation", text)
+        self.assertIn("coherent full AWLS adaptation", text)
+        self.assertNotIn("Do not attempt to port the full AWLS code", text)
         for forbidden_value in ("1096", "1102", "1138", "1131", "3817"):
             self.assertNotIn(forbidden_value, text)
+
+    def test_awls_transfer_card_treats_full_method_as_an_advisory_scope_choice(self) -> None:
+        text = Path("knowledge/references/sdst/awls_sdst_agent_generated_transfer_notes.md").read_text(
+            encoding="utf-8"
+        )
+        normalized = " ".join(text.split())
+
+        self.assertIn("coherent full AWLS adaptation", text)
+        self.assertIn("Selecting and coherently implementing the full method is allowed", normalized)
+        self.assertNotIn("Porting the full AWLS solver in one proposal", text)
 
     def test_priority_worker_context_includes_variant_quality_contract(self) -> None:
         context = _context_packet_with_intake()
@@ -1278,19 +1291,19 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         }
         context["knowledge_cards"] = [
             {
-                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_reference_skeleton.md",
+                "path": "knowledge/references/standard_fjsp/standard_fjsp_agent_generated_reference_skeleton.md",
                 "chars": 9000,
                 "truncated": False,
                 "snippet": "agent-generated reference skeleton with ready-list constructor and decode_state",
             },
             {
-                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_neighborhood_templates.md",
+                "path": "knowledge/references/standard_fjsp/standard_fjsp_agent_generated_neighborhood_templates.md",
                 "chars": 9000,
                 "truncated": False,
                 "snippet": "critical_blocks apply_sequence_move generate_critical_block_moves k-insertion tabu_best_improvement",
             },
             {
-                "path": "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_awls_hgtsa_execution_skeleton.md",
+                "path": "knowledge/references/standard_fjsp/standard_fjsp_awls_hgtsa_execution_skeleton.md",
                 "chars": 9000,
                 "truncated": False,
                 "snippet": "AWLS HGTSA N7 N8 NK k-insertion tabu local search",
@@ -1298,7 +1311,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         ]
         context["active_method_package"] = {
             "assets": [
-                "knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_reference_skeleton.md"
+                "knowledge/references/standard_fjsp/standard_fjsp_agent_generated_reference_skeleton.md"
             ]
         }
 
@@ -1855,7 +1868,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                 "snippet": "Generic benchmark scope." * 200,
             },
             {
-                "path": "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "path": "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
                 "chars": 5400,
                 "truncated": False,
                 "snippet": (
@@ -1886,19 +1899,19 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         }
         context["knowledge_cards"] = [
             {
-                "path": "knowledge/papers/awls_sdst_initialization_notes.md",
+                "path": "knowledge/experiment_memory/awls_sdst/awls_sdst_initialization_notes.md",
                 "chars": 12000,
                 "truncated": False,
                 "snippet": "AWLS-SDST initialization setup-aware oddla20 local search critical block " * 80,
             },
             {
-                "path": "knowledge/papers/awls_sdst_tabu_memory_notes.md",
+                "path": "knowledge/experiment_memory/awls_sdst/awls_sdst_tabu_memory_notes.md",
                 "chars": 12000,
                 "truncated": False,
                 "snippet": "AWLS-SDST tabu memory setup-aware oddla20 local search critical block " * 80,
             },
             {
-                "path": "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "path": "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
                 "chars": 5400,
                 "truncated": False,
                 "snippet": (
@@ -1915,7 +1928,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         ]
         context["active_method_package"] = {
             "assets": [
-                "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
                 "knowledge/principles/fjsp_variant_domain_pack_rag.md",
             ]
         }
@@ -1942,13 +1955,13 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         }
         context["knowledge_cards"] = [
             {
-                "path": "knowledge/papers/fjsp_agent_current_capability_20260704.md",
+                "path": "knowledge/capabilities/fjsp_agent_current_capability_20260704.md",
                 "chars": 12000,
                 "truncated": False,
                 "snippet": "FJSP-SDST makespan 1010 UB gap 6.81 current capability report " * 80,
             },
             {
-                "path": "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "path": "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
                 "chars": 5400,
                 "truncated": False,
                 "snippet": (
@@ -1966,7 +1979,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         context["loop_feedback"] = {
             "current_direction_plan": {
                 "knowledge_paths": [
-                    "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                    "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
                     "knowledge/principles/agent_generated_variant_quality_contracts.md",
                 ]
             }
@@ -2006,7 +2019,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         }
         context["knowledge_cards"] = [
             {
-                "path": "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "path": "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
                 "chars": 5400,
                 "truncated": False,
                 "snippet": "agent-generated FJSP-SDST setup-aware decoder memory " * 40,
@@ -2035,7 +2048,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         context["problem_family_capability"] = {"knowledge_tags": ["sdst", "sequence_dependent_setup"]}
         context["knowledge_cards"] = [
             {
-                "path": "knowledge/papers/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "path": "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
                 "chars": 5400,
                 "truncated": False,
                 "snippet": "Preserve operation-level setup-aware dispatch and multi-start.",

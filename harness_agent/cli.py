@@ -27,11 +27,11 @@ from harness_agent.core.health import HealthCheckRequest, run_health_check
 from harness_agent.core.intent import IntentAlignmentRequest, write_intent_alignment
 from harness_agent.orchestration.loop import DEFAULT_IN_ROUND_REPAIR_ATTEMPTS, run_worker_loop
 from harness_agent.agents.main import DeepSeekMainAgent, EvidenceDrivenMainAgent
+from harness_agent.agents.opencode_main import OpenCodeMainAgent
 from harness_agent.core.models import TaskContract
 from harness_agent.domains.families import write_problem_family_card
 from harness_agent.context.intake import ProjectIntakeRequest, write_project_intake
 from harness_agent.core.runner import HarnessRunner
-from harness_agent.agents.semantic import DeepSeekAlgorithmSemanticReviewer
 from harness_agent.slots.manifest import write_default_slot_manifest, write_selected_slot_manifest
 from harness_agent.orchestration.standard import StandardWorkerLoopRequest, run_standard_worker_loop
 from harness_agent.web.server import DEFAULT_OUTPUT_ROOT, run_web_server
@@ -119,6 +119,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_worker = commands.add_parser("run-worker", help="让 Coding Agent 读取一个上下文包")
     add_worker_options(run_worker, default_worker="opencode")
     run_worker.add_argument("--context-packet", required=True, type=Path)
+    run_worker.add_argument("--worker-assignment", required=True, type=Path)
     run_worker.add_argument("--worktree", type=Path, default=Path.cwd())
     run_worker.add_argument("--output-dir", required=True, type=Path)
     run_worker.add_argument("--task-id", default="worker_task")
@@ -131,6 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_worker_options(cycle, default_worker="opencode")
     cycle.add_argument("--contract", required=True, type=Path)
     cycle.add_argument("--context-packet", required=True, type=Path)
+    cycle.add_argument("--worker-assignment", required=True, type=Path)
     cycle.add_argument("--output-dir", required=True, type=Path)
     cycle.add_argument("--project-root", type=Path, default=Path.cwd())
     cycle.add_argument("--experiment-id", default="worker_cycle")
@@ -150,6 +152,8 @@ def build_parser() -> argparse.ArgumentParser:
     loop.add_argument("--max-steps", type=int, default=8)
     loop.add_argument("--max-runtime-seconds", type=int, default=300)
     loop.add_argument("--in-round-repair-attempts", type=int, default=DEFAULT_IN_ROUND_REPAIR_ATTEMPTS)
+    loop.add_argument("--main-max-subagents", type=int, choices=range(0, 5), default=0)
+    loop.add_argument("--max-competing-workers", type=int, choices=range(1, 5), default=4)
     loop.add_argument("--promotion-repeats", type=int, default=1)
     loop.add_argument("--apply-worker", action="store_true")
     loop.add_argument("--allow-draft", action="store_true")
@@ -207,6 +211,8 @@ def build_parser() -> argparse.ArgumentParser:
     standard.add_argument("--max-steps", type=int, default=4)
     standard.add_argument("--max-runtime-seconds", type=int, default=120)
     standard.add_argument("--in-round-repair-attempts", type=int, default=DEFAULT_IN_ROUND_REPAIR_ATTEMPTS)
+    standard.add_argument("--main-max-subagents", type=int, choices=range(0, 5), default=4)
+    standard.add_argument("--max-competing-workers", type=int, choices=range(1, 5), default=4)
     standard.add_argument("--promotion-repeats", type=int, default=1)
     standard.add_argument("--apply-worker", action="store_true")
     standard.add_argument("--agent-generated-solver-path", default="examples/agent_generated_fjsp_solver.py")
@@ -270,6 +276,27 @@ def make_worker(name: str, *, deepseek_model: str, opencode_model: str | None = 
 
         return OpenCodeWorker(model=opencode_model)
     raise ValueError(f"unknown worker: {name}")
+
+
+def make_main_agent(
+    worker_name: str,
+    *,
+    deepseek_model: str,
+    opencode_model: str | None,
+    project_root: Path,
+    max_subagents: int = 4,
+):
+    """CLI 与 Web 共用同一职责选择：OpenCode Worker 对应隔离的 OpenCode Main。"""
+
+    if worker_name == "opencode":
+        return OpenCodeMainAgent(
+            model=opencode_model,
+            project_root=project_root,
+            max_subagents=max(0, min(4, max_subagents)),
+        )
+    if is_deepseek_configured():
+        return DeepSeekMainAgent(model=deepseek_model)
+    return EvidenceDrivenMainAgent()
 
 
 def worker_result_payload(result: WorkerResult) -> dict[str, object]:
@@ -394,6 +421,7 @@ def run_worker_cmd(args: argparse.Namespace) -> int:
             max_runtime_seconds=max(1, args.max_runtime_seconds),
             output_dir=str(args.output_dir),
             apply_changes=bool(args.apply),
+            worker_assignment_path=str(args.worker_assignment),
         )
     )
     payload = worker_result_payload(result)
@@ -401,11 +429,11 @@ def run_worker_cmd(args: argparse.Namespace) -> int:
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     print_json(payload)
-    return 1 if result.status in {"failed", "unavailable"} else 0
+    return 1 if result.status in {"failed", "unavailable", "invalid_assignment"} else 0
 
 
 def run_worker_cycle_cmd(args: argparse.Namespace) -> int:
-    """执行一次隔离候选周期：Worker、JA、smoke 和固定 evaluator。"""
+    """执行一次隔离候选周期：Worker、确定性预检和固定 Core evaluator。"""
 
     contract = load_runnable_contract(args)
     if contract is None:
@@ -420,6 +448,8 @@ def run_worker_cycle_cmd(args: argparse.Namespace) -> int:
         max_steps=max(1, args.max_steps),
         max_runtime_seconds=max(1, args.max_runtime_seconds),
         apply_worker_changes=bool(args.apply_worker),
+        worker_assignment_path=args.worker_assignment,
+        worker_input_root=args.project_root,
     )
     print_json({"status": "ok", "worker_status": result.worker_result.status, "best_metrics": result.summary.best_metrics})
     return 0
@@ -437,11 +467,20 @@ def run_worker_loop_cmd(args: argparse.Namespace) -> int:
         output_dir=args.output_dir,
         context_packet_path=args.context_packet,
         worker=make_worker(args.worker, deepseek_model=args.deepseek_model, opencode_model=args.opencode_model),
+        main_agent=make_main_agent(
+            args.worker,
+            deepseek_model=args.deepseek_model,
+            opencode_model=args.opencode_model,
+            project_root=args.project_root,
+            max_subagents=args.main_max_subagents,
+        ),
+        semantic_reviewer=None,
         experiment_id=args.experiment_id,
         iterations=max(0, args.iterations),
         max_steps=max(1, args.max_steps),
         max_runtime_seconds=max(1, args.max_runtime_seconds),
         in_round_repair_attempts=max(0, args.in_round_repair_attempts),
+        max_competing_workers=max(1, min(4, args.max_competing_workers)),
         apply_worker_changes=bool(args.apply_worker),
         promotion_repeats=max(1, args.promotion_repeats),
     )
@@ -527,11 +566,12 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
     """运行当前 Web 同款的“文档驱动、Agent 自写 FJSP solver”闭环。"""
 
     worker = make_worker(args.worker, deepseek_model=args.deepseek_model, opencode_model=args.opencode_model)
-    main_agent = (
-        DeepSeekMainAgent(model=args.deepseek_model) if is_deepseek_configured() else EvidenceDrivenMainAgent()
-    )
-    semantic_reviewer = (
-        DeepSeekAlgorithmSemanticReviewer(model=args.deepseek_model) if is_deepseek_configured() else None
+    main_agent = make_main_agent(
+        args.worker,
+        deepseek_model=args.deepseek_model,
+        opencode_model=args.opencode_model,
+        project_root=args.project_root,
+        max_subagents=args.main_max_subagents,
     )
     manifest = run_standard_worker_loop(
         StandardWorkerLoopRequest(
@@ -543,7 +583,7 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
             project_root=args.project_root,
             worker=worker,
             main_agent=main_agent,
-            semantic_reviewer=semantic_reviewer,
+            semantic_reviewer=None,
             best_known_csv=args.best_known_csv,
             slot_manifest=args.slot_manifest,
             previous_pipeline_memory=args.previous_memory,
@@ -555,6 +595,7 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
             max_steps=args.max_steps,
             max_runtime_seconds=args.max_runtime_seconds,
             in_round_repair_attempts=max(0, args.in_round_repair_attempts),
+            max_competing_workers=max(1, min(4, args.max_competing_workers)),
             apply_worker_changes=bool(args.apply_worker),
             promotion_repeats=max(1, args.promotion_repeats),
             agent_generated_solver_path=args.agent_generated_solver_path,

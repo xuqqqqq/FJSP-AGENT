@@ -15,8 +15,9 @@ time-lag/no-wait FJSP, machine unavailability, batching, transportation,
 reentrant routes, dynamic arrivals, or multi-objective scheduling.
 
 The platform backend should stay problem-family generic. Variant-specific
-algorithms, failed attempts, paper notes, repair rules, and slot rules belong
-in domain packs, knowledge cards, skills, and context packets.
+algorithms, paper notes, and repair rules belong in Domain Packs, knowledge
+cards, Skills, Method Packages, and bounded Worker Assignments. Run-specific
+failed attempts belong in `experiment_memory/`, not stable method guidance.
 
 ## Variant Intake Order
 
@@ -27,32 +28,32 @@ in domain packs, knowledge cards, skills, and context packets.
    dates, due dates, or multiple objectives.
 3. Confirm the evaluator owns legality and objective semantics before changing
    solver code.
-4. Select knowledge by tags and selected slots; do not flood the worker with
-   unrelated papers.
+4. Select knowledge by tags and one Method Package; do not flood the Worker
+   with unrelated papers.
 5. Require a natural-language rule/operator hypothesis before any candidate
    code.
 6. Promote only by Core evaluator metrics and benchmark reports.
 
 ## Retrieval Rules
 
-- Always retrieve benchmark scope and current capability cards for claims about
-  solver quality.
+- Always retrieve benchmark scope for claims about solver quality. Read a dated
+  capability snapshot only when the task explicitly asks for that audit date.
 - Retrieve the survey card for new industrial constraints:
-  `knowledge/papers/fjsp_scene_survey_2025_10_17.md`.
-- Retrieve slot-specific notes only for the selected slot, such as SDST
-  initialization, move evaluation, zi features, tabu memory, or search control.
-- Retrieve failed-attempt notes before proposing a similar operator, so the
-  worker mutates or avoids repeated ideas.
+  `knowledge/references/general_fjsp/fjsp_scene_survey_2025_10_17.md`.
+- Retrieve only the stable references and contracts attached to the selected
+  Method Package.
+- Replay failed-attempt notes only through Main's explicit experience-memory
+  path. Never place `experiment_memory/` in default Worker RAG.
 - Treat LB/UB/BKS as reporting and gate-selection diagnostics only.
 
 ## Evidence Hygiene
 
-- Method, skill, and slot guidance should describe reusable mechanisms,
+- Method, Skill, and package guidance should describe reusable mechanisms,
   invariants, and failure modes rather than instance-specific target makespans,
   copied schedules, or seed-specific answers.
 - Numerical makespans, LB/UB/BKS, and per-instance gaps belong in benchmark or
-  capability reports.  If those reports are retrieved for a worker, they are
-  diagnostics for gates and comparisons, not solver inputs.
+  capability or experiment reports. They are Main-side diagnostics for gates
+  and comparisons, not Worker solver inputs.
 - When promoting an experiment into a knowledge card, normalize concrete
   outcomes into method lessons such as "operation-level setup-aware dispatch
   helped" or "representation-mixing local search failed".
@@ -65,7 +66,7 @@ The backend may load:
 
 - domain-pack capability metadata;
 - IO/evaluator invariant text;
-- selected code-slot manifests;
+- selected Method Package metadata and contract paths;
 - knowledge-card paths and snippets;
 - benchmark bounds for reporting.
 
@@ -87,7 +88,7 @@ For a new FJSP variant, add or update a domain pack with:
 - evaluator invariants;
 - solver entrypoints or adapter entrypoints;
 - knowledge tags mapped to cards;
-- optional slot manifests for user-confirmed edit regions;
+- optional Method Packages with complete implementation contracts;
 - smoke and performance benchmark ladders with LB/UB/BKS if available.
 
 Keep the first milestone legality-focused. Quality work starts only after the

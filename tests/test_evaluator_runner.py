@@ -8,14 +8,58 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from harness_agent.core.evaluator import EvaluationResult
 from harness_agent.core.ledger import ExperimentRecord
 from harness_agent.core.models import ObjectiveSpec
-from harness_agent.core.runner import command_failure_message, pareto_frontier, run_shell_command, validation_summary
+from harness_agent.core.runner import (
+    command_failure_message,
+    load_solver_evidence,
+    pareto_frontier,
+    run_shell_command,
+    validation_summary,
+)
 
 
 class EvaluatorRunnerTests(unittest.TestCase):
+    def test_solver_evidence_keeps_bounded_runtime_diagnostics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            solution = Path(tmp) / "solution.json"
+            solution.write_text(
+                json.dumps(
+                    {
+                        "source": "beam:finish",
+                        "makespan": 2211,
+                        "schedule": [{"operation": 0}],
+                        "diagnostics": {
+                            "candidate_runs": [{"source": "beam", "makespan": 2211}],
+                            "search_counters": {"expanded_states": 300, "pruned_states": 297},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            evidence = load_solver_evidence(solution)
+
+        self.assertEqual("beam:finish", evidence["selected_source"])
+        self.assertEqual(2211, evidence["reported_makespan"])
+        self.assertEqual(300, evidence["diagnostics"]["search_counters"]["expanded_states"])
+
+    def test_successful_shell_command_reaps_descendants(self) -> None:
+        process = MagicMock()
+        process.communicate.return_value = ("ok", "")
+        process.returncode = 0
+        with (
+            patch("harness_agent.core.runner.subprocess.Popen", return_value=process),
+            patch("harness_agent.core.runner.cleanup_process_descendants") as cleanup,
+        ):
+            result = run_shell_command("solver", cwd=Path.cwd(), timeout=5, check=False)
+
+        self.assertEqual(0, result.returncode)
+        cleanup.assert_called_once_with(process)
+
     def test_required_objective_metric_must_be_numeric(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             metrics_path = Path(tmp) / "metrics.json"

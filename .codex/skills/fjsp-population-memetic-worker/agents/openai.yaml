@@ -1,0 +1,4 @@
+interface:
+  display_name: "FJSP Population Memetic Worker"
+  short_description: "Implement population and memetic FJSP search"
+  default_prompt: "Study the selected population-search material and implement the assigned method family."

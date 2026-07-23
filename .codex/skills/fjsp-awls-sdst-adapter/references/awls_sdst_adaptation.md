@@ -1,16 +1,15 @@
 # AWLS-SDST Adaptation Notes
 
-## Current Code Facts
+## Execution Modes
 
 - AWLS method reference: `knowledge/method_packages/standard_fjsp_awls_hgtsa/reference_solver.py`.
-- Existing SDST parser/evaluator helpers: `harness_agent.domains.io`.
-- `parse_standard_fjsp` already detects Fattahi operation-pair and HUdata job-pair setup tails.
-- `setup_time_between(instance, machine_id, previous_op, current_op, op_index)` is the canonical setup query.
-- `validate_standard_schedule` is the fixed legality oracle.
+- Platform reference validation may use `harness_agent.domains.io`; generic orchestration must never import the method reference.
+- A standalone agent-generated solver must implement the active IO-derived parser and setup query inside the generated artifact. It must not import `harness_agent` or evaluator internals.
+- In both modes, the frozen evaluator is the legality oracle and setup intervals must follow the active IO contract.
 
 ## Known Failure
 
-Direct AWLS on HUdata SDST can produce invalid schedules because AWLS currently propagates machine arcs as:
+An AWLS implementation becomes invalid for SDST when it propagates machine arcs as:
 
 ```text
 start(current) >= end(previous_on_machine)
@@ -32,13 +31,13 @@ Therefore the first valid AWLS-SDST adaptation must update AWLS internal time pr
 - Sequence tabu and aspiration.
 - Adaptive operation weights and `zi` perturbation.
 
-## Slot Design Guidance
+## Component Design Guidance
 
-Prefer narrow slots with explicit inputs/outputs:
+Keep the complete method coupled, but give each component explicit inputs and outputs:
 
-- `awls_sdst_time_propagation`: helper logic used by `AwlsSchedule.update_time`.
-- `awls_sdst_move_evaluation`: setup-aware additions to same-machine and change-machine approximate scores.
-- `awls_sdst_zi_policy`: formula or function using setup-aware features after legality is established.
+- setup-aware graph time propagation and schedule output;
+- setup-aware same-machine and change-machine move evaluation;
+- adaptive scoring features and update policy after legality is established.
 
 Do not let a worker:
 
@@ -52,6 +51,6 @@ Do not let a worker:
 
 1. Compile: `python -m compileall knowledge/method_packages/standard_fjsp_awls_hgtsa/reference_solver.py harness_agent/domains/io.py`.
 2. Standard FJSP smoke: Brandimarte Mk01 with AWLS.
-3. SDST legality smoke: HUdata `oddla20.txt` seed 0, short time limit.
-4. SDST quality probe: `oddla18.txt, oddla20.txt` with best-known CSV.
-5. Full HUdata only after smoke legality is stable.
+3. SDST legality smoke: one small active-task instance, fixed seed, short time limit.
+4. SDST quality probe: a bounded structurally representative subset with external LB/UB only for reporting.
+5. Broader benchmark evaluation only after smoke legality is stable.

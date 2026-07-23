@@ -4,6 +4,18 @@
   "mode": "complete_method_package",
   "completion_rule": "Every required component must be implemented through reachable solver code in the same direction before the method claim can pass semantic review.",
   "variant_rule": "Adapt every component to all active requirement and IO constraints. Variant-specific knowledge extends this contract instead of disabling its core search lifecycle.",
+  "fallback_improvement_order": [
+    "same_machine_neighborhood",
+    "alternative_machine_neighborhood",
+    "transactional_move_lifecycle",
+    "tabu_and_aspiration",
+    "adaptive_weight_scoring",
+    "diversification_and_best_preservation",
+    "critical_graph_and_blocks",
+    "runtime_and_observability",
+    "state_and_initialization",
+    "progress_decoder"
+  ],
   "required_components": [
     {
       "component_id": "state_and_initialization",

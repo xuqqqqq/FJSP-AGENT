@@ -40,14 +40,14 @@
           </div>
           <button type="button" class="nav-item active" data-view-target="overview">任务概览</button>
           <button type="button" class="nav-item" data-view-target="context">上下文</button>
-          <button type="button" class="nav-item" data-view-target="worker">Worker 过程</button>
           <button type="button" class="nav-item" data-view-target="experiments">实验记录</button>
           <button type="button" class="nav-item" data-view-target="versions">版本记录</button>
           <button type="button" class="nav-item" data-view-target="setup">任务配置</button>
+          <button type="button" class="nav-item nav-item-secondary" data-view-target="worker">审计明细</button>
         </div>
 
         <div class="side-footer">
-          <button type="button" class="nav-item" data-view-target="resources">模型分配</button>
+          <button type="button" class="nav-item" data-view-target="models">模型分配</button>
           <button type="button" class="nav-item" data-view-target="setup">设置</button>
         </div>
       </aside>
@@ -68,19 +68,11 @@
           <main class="main-stage">
             <!-- 任务总览：对话入口、契约边界和当前运行状态。 -->
             <section id="view-overview" class="workspace-view active">
-              <div class="round-tabs" aria-label="演进阶段">
-                <button type="button">准备阶段</button>
-                <button type="button">第 1 轮</button>
-                <button type="button">第 2 轮</button>
-                <button type="button">第 3 轮</button>
-                <button type="button" class="active">当前轮</button>
-              </div>
-
               <section class="page-section">
                 <div class="section-head">
                   <div>
-                    <span class="section-kicker">对话入口</span>
-                    <h2>和主 Agent 设定目标、约束与下一步</h2>
+                    <span class="section-kicker">统一对话</span>
+                    <h2>和主 Agent 审阅目标、运行状态与下一步</h2>
                   </div>
                   <button class="ghost" type="button" id="reset-chat">重置对话</button>
                 </div>
@@ -90,7 +82,7 @@
                   <button type="button" class="icon-button" aria-label="添加上下文">+</button>
                   <div>
                     <input id="chat-input" autocomplete="off" placeholder="例如：载入示例、检查配置、启动任务、查看历史任务" />
-                    <small>项目与锁定契约不会被消息隐式修改</small>
+                    <small>Main Agent、Worker、候选预检与 Core 事件会汇入同一线程，源码 patch 不会直接显示在这里</small>
                   </div>
                   <button class="send-button" type="submit" aria-label="发送">发送</button>
                 </form>
@@ -144,7 +136,10 @@
                       <span class="muted">当前任务</span>
                       <strong id="job-title">-</strong>
                     </div>
-                    <span id="job-status" class="status-pill">排队中</span>
+                    <div class="status-actions">
+                      <span id="job-status" class="status-pill">排队中</span>
+                      <button class="stop-job-button hidden" type="button" id="stop-job" title="停止当前任务">停止任务</button>
+                    </div>
                   </div>
 
                   <div class="metric-grid">
@@ -225,7 +220,7 @@
               </section>
             </section>
 
-            <!-- Worker 过程：显示方向、同轮尝试和可审计产物。 -->
+            <!-- 审计明细：保留方向、阶段状态和可审计产物，不暴露原始 patch / tool payload。 -->
             <section id="view-worker" class="workspace-view">
               <section class="split-view">
                 <aside class="subnav-panel">
@@ -241,8 +236,8 @@
                 <div class="content-panel">
                   <div class="section-head">
                     <div>
-                      <span class="section-kicker">Worker 输出过程</span>
-                      <h2>对话、工具调用与局部试验</h2>
+                      <span class="section-kicker">过程审计明细</span>
+                      <h2>阶段状态、审查结果与 Core 复验</h2>
                     </div>
                     <span class="status-pill running">Worker / Core 边界</span>
                   </div>
@@ -306,28 +301,102 @@
                 <div class="section-head">
                   <div>
                     <span class="section-kicker">全局与项目资源</span>
-                    <h2>Knowledge / Skills / 模型分配</h2>
+                    <h2>Skills 与知识库</h2>
+                  </div>
+                  <button class="ghost compact-button" type="button" id="refresh-resources">刷新资源</button>
+                </div>
+                <div class="resource-toolbar">
+                  <div class="resource-kind-tabs" role="tablist" aria-label="资源类型">
+                    <button type="button" class="active" id="resource-kind-skill" data-resource-category="skill" role="tab" aria-selected="true">Worker Skills</button>
+                    <button type="button" id="resource-kind-knowledge" data-resource-category="knowledge" role="tab" aria-selected="false">知识库</button>
+                  </div>
+                  <label class="resource-search">
+                    <span class="visually-hidden">搜索资源</span>
+                    <input id="resource-search" type="search" placeholder="搜索标题、路径或摘要" />
+                  </label>
+                  <span id="resource-count" class="muted">读取中...</span>
+                </div>
+                <div class="resource-browser">
+                  <div id="resource-list" class="resource-list" aria-label="资源列表"></div>
+                  <section class="resource-preview" aria-live="polite">
+                    <header>
+                      <div>
+                        <strong id="resource-preview-title">选择一个资源查看</strong>
+                        <span id="resource-preview-path">仅开放项目 Skills 与知识库白名单目录</span>
+                      </div>
+                      <span id="resource-preview-meta" class="tag">-</span>
+                    </header>
+                    <pre id="resource-preview-content">从左侧选择条目后，这里显示完整文本内容。</pre>
+                  </section>
+                </div>
+              </section>
+
+              <section class="page-section">
+                <div class="section-head">
+                  <div>
+                    <span class="section-kicker">运行沉淀</span>
+                    <h2>当前任务的知识使用与经验</h2>
                   </div>
                 </div>
-                <div class="resource-grid">
-                  <article>
-                    <strong>知识库</strong>
-                    <p>按问题族、变种特性、实验效果分层沉淀。</p>
-                    <small>项目事实 · 候选经验 · 已验证经验 · Raw Note</small>
-                  </article>
-                  <article>
-                    <strong>Skills</strong>
-                    <p>把方法边界、生成要求和验证规则版本化。</p>
-                    <small>版本 hash · 使用记录 · 禁用条件</small>
-                  </article>
-                  <article>
-                    <strong>模型分配</strong>
-                    <p>主 Agent 负责方向和解释，OpenCode Worker 负责改代码。</p>
-                    <small>运行中的回合使用启动时快照</small>
-                  </article>
-                </div>
-                <div class="api-panel" id="deepseek-status">DeepSeek API：检查中...</div>
                 <div id="knowledge-ledger" class="knowledge-ledger"></div>
+              </section>
+            </section>
+
+            <section id="view-models" class="workspace-view">
+              <section class="page-section">
+                <div class="section-head">
+                  <div>
+                    <span class="section-kicker">运行角色</span>
+                    <h2>模型分配</h2>
+                  </div>
+                </div>
+                <section class="model-allocation" aria-labelledby="model-allocation-title">
+                  <div>
+                    <strong id="model-allocation-title">Agent 模型分配</strong>
+                    <small id="model-provider-status">读取后端配置中...</small>
+                  </div>
+                  <div class="agent-model-grid">
+                    <label class="field compact model-field">
+                      <span>Main Agent 模型</span>
+                      <select id="main-agent-model">
+                        <option value="deepseek/deepseek-v4-pro">DeepSeek V4 Pro</option>
+                        <option value="openai/gpt-5.4">GPT-5.4</option>
+                        <option value="openai/gpt-5.4-pro">GPT-5.4 Pro</option>
+                      </select>
+                    </label>
+                    <label class="field compact model-field">
+                      <span>Main 推理等级</span>
+                      <select id="main-agent-variant">
+                        <option value="">模型默认</option>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
+                    </label>
+                    <label class="field compact model-field">
+                      <span>Coding Worker 模型</span>
+                      <select id="coding-worker-model">
+                        <option value="deepseek/deepseek-v4-pro">DeepSeek V4 Pro</option>
+                        <option value="openai/gpt-5.4">GPT-5.4</option>
+                        <option value="openai/gpt-5.4-pro">GPT-5.4 Pro</option>
+                      </select>
+                    </label>
+                    <label class="field compact model-field">
+                      <span>Worker 推理等级</span>
+                      <select id="coding-worker-variant">
+                        <option value="">模型默认</option>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="agent-runtime-note">
+                    <span>候选预检：确定性编译、路径与安全门禁，无模型</span>
+                    <span>Core：唯一合法性、指标与晋升裁决者</span>
+                  </div>
+                </section>
+                <div class="api-panel" id="deepseek-status">DeepSeek API：检查中...</div>
               </section>
             </section>
 
@@ -373,8 +442,50 @@
                   </label>
                   <div class="config-grid">
                     <label class="field compact">
+                      <span>Main Agent 模型</span>
+                      <select id="main-agent-model-setup">
+                        <option value="deepseek/deepseek-v4-pro">DeepSeek V4 Pro</option>
+                        <option value="openai/gpt-5.4">GPT-5.4</option>
+                        <option value="openai/gpt-5.4-pro">GPT-5.4 Pro</option>
+                      </select>
+                    </label>
+                    <label class="field compact">
+                      <span>Main 推理等级</span>
+                      <select id="main-agent-variant-setup">
+                        <option value="">模型默认</option>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
+                    </label>
+                    <label class="field compact">
+                      <span>Coding Worker 模型</span>
+                      <select id="coding-worker-model-setup">
+                        <option value="deepseek/deepseek-v4-pro">DeepSeek V4 Pro</option>
+                        <option value="openai/gpt-5.4">GPT-5.4</option>
+                        <option value="openai/gpt-5.4-pro">GPT-5.4 Pro</option>
+                      </select>
+                    </label>
+                    <label class="field compact">
+                      <span>Worker 推理等级</span>
+                      <select id="coding-worker-variant-setup">
+                        <option value="">模型默认</option>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
+                    </label>
+                    <label class="field compact">
                       <span>迭代轮次</span>
                       <input id="max-rounds" type="number" min="1" max="20" value="10" />
+                    </label>
+                    <label class="field compact">
+                      <span>Main 子 Agent 上限</span>
+                      <input id="main-max-subagents" type="number" min="0" max="4" value="4" />
+                    </label>
+                    <label class="field compact">
+                      <span>竞争 Coding Worker</span>
+                      <input id="max-competing-workers" type="number" min="1" max="4" value="4" />
                     </label>
                     <label class="field compact">
                       <span>随机种子</span>
@@ -404,6 +515,10 @@
                       <span>晋升复验次数</span>
                       <input id="promotion-repeats" type="number" min="1" max="5" value="1" />
                     </label>
+                    <label class="field compact checkbox-field wide-field">
+                      <input id="pause-between-rounds" type="checkbox" checked />
+                      <span>每轮完成后暂停，允许用户在主对话框指定下一轮方向</span>
+                    </label>
                   </div>
                 </details>
 
@@ -431,14 +546,14 @@
             <div class="inspector-tabs">
               <button type="button" class="active" data-view-target="overview">方向</button>
               <button type="button" data-view-target="context">上下文</button>
-              <button type="button" data-view-target="worker">Worker</button>
+              <button type="button" data-view-target="worker">审计</button>
               <button type="button" data-view-target="experiments">实验</button>
             </div>
             <section class="inspector-card">
               <span class="section-kicker">当前优化方向</span>
               <h2 id="inspector-title">Agent 自写 solver 能力提升</h2>
               <p>从需求、IO、算例诊断和知识库生成候选代码；Worker 可局部自测，Core 负责最终复验。</p>
-              <button class="ghost full-button" type="button" data-view-target="worker">查看 Worker 过程</button>
+              <button class="ghost full-button" type="button" data-view-target="worker">查看审计明细</button>
             </section>
             <section class="inspector-card">
               <span class="section-kicker">Core 证据</span>
@@ -453,6 +568,6 @@
         </div>
       </section>
     </div>
-    <script src="/static/app.js?v=20260711-workbench"></script>
+    <script src="/static/app.js?v=20260721-unified-thread-1"></script>
   </body>
 </html>

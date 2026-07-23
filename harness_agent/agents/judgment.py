@@ -1,4 +1,4 @@
-"""Judgment Agent：执行前检查候选代码，不替代固定 evaluator。"""
+"""Judgment Agent：复验 Coding Agent 的结果和确定性安全边界。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from harness_agent.core.runner import RunSummary
-from harness_agent.agents.quality_contract import build_agent_generated_solver_quality_contract
 from harness_agent.agents.quality_contract import is_agent_generated_solver_context as _contract_agent_generated_context
 from harness_agent.context.loader import try_load_context_dict
 from harness_agent.agents.reachability import function_call_count
@@ -21,10 +20,10 @@ from harness_agent.worker import WorkerResult
 
 @dataclass(frozen=True)
 class AgenticJudgment:
-    """单次候选的机器可读代码审查结果。
+    """单次候选的机器可读复验结果。
 
-    JA 用于拦截明显非法或“声明与实现不符”的代码，减少无效 evaluator
-    开销；它没有晋升权，最终晋升仍只取决于固定 Core 的合法性与指标。
+    JA 只拦截无需理解算法语义即可确定的问题；候选输出是否合法由固定
+    parser/validator 复验，最终晋升仍只取决于 Core 的正式指标。
     """
 
     accepted: bool
@@ -73,9 +72,9 @@ def judge_worker_result(
 ) -> AgenticJudgment:
     """对 Worker proposal 和真实改动执行确定性代码门禁。
 
-    JA 只拦截无需运行 benchmark 就能证明的问题，例如语法错误、越权修改、
-    硬编码、残缺解接受和明显的状态破坏。它不会按函数名判断算法质量，也
-    没有 promotion 权；不确定的方法语义交给 Semantic Reviewer。
+    JA 只拦截无需理解算法即可证明的问题，例如语法错误、越权修改、
+    非法依赖和明显硬编码。算法语义不在这里审查，候选是否正确由固定
+    parser/validator 对实际输出复验。
     """
 
     context = try_load_context_dict(context_packet_path)
@@ -83,12 +82,6 @@ def judge_worker_result(
     proposal_audit = proposal.get("proposal_audit") if isinstance(proposal, dict) else {}
     if not isinstance(proposal_audit, dict):
         proposal_audit = {}
-    iteration_contract = context.get("iteration_edit_contract") if isinstance(context, dict) else {}
-    is_incremental_iteration = bool(
-        isinstance(iteration_contract, dict)
-        and iteration_contract.get("mode") == "incremental_after_baseline"
-    )
-
     issues: list[str] = []
     suggestions: list[str] = []
     warnings: list[str] = []
@@ -139,16 +132,6 @@ def judge_worker_result(
                 "Return exactly one safe replace_slot_block edit, or include risk_notes explaining why no slot edit is safe."
             )
 
-        hypotheses = proposal.get("rule_operator_hypotheses") or []
-        if worker_result.changed_files and not hypotheses:
-            if is_incremental_iteration:
-                issues.append("missing_rule_operator_hypotheses")
-                suggestions.append(
-                    "Every improvement-round code change must declare a concrete rule/operator hypothesis before editing."
-                )
-            else:
-                warnings.append("changed_code_without_rule_operator_hypothesis")
-
         audit_warnings = proposal_audit.get("warnings") or []
         if isinstance(audit_warnings, list):
             warnings.extend(str(item) for item in audit_warnings)
@@ -179,21 +162,16 @@ def judge_worker_result(
     if py_compile_errors:
         suggestions.append("Fix Python syntax errors in changed files before running the evaluator.")
 
+    path_policy_violations = _changed_path_policy_violations(context, worker_result.changed_files)
+    if path_policy_violations:
+        issues.append("changed_files_outside_edit_policy")
+        suggestions.append("Modify only paths explicitly allowed by the immutable task edit policy.")
+
     parser_rewrite_files = _detect_standard_parser_rewrites(worktree_path, worker_result.changed_files)
     if parser_rewrite_files:
         issues.append("standard_fjsp_parser_reimplementation_detected")
         suggestions.append(
             "For standard FJSP runs, reuse harness_agent.domains.io parsing instead of reimplementing machine-index parsing."
-        )
-
-    incomplete_solution_risks = _detect_incomplete_solution_acceptance_risks(worktree_path, worker_result.changed_files)
-    if incomplete_solution_risks:
-        issues.append("incomplete_solution_acceptance_risk")
-        suggestions.append(
-            "Local search or neighborhood decoders must reject incomplete candidate solutions before comparing objective values."
-        )
-        suggestions.append(
-            "Do not treat empty or partial schedules/routes as zero-cost improvements; require full operation coverage before acceptance."
         )
 
     agent_generated_import_risks = _detect_agent_generated_runtime_import_risks(
@@ -211,62 +189,13 @@ def judge_worker_result(
             "Keep small setup/decoder helpers self-contained or move the change back into the existing generated solver file."
         )
 
-    # 第三组：Agent 自写 solver 的最低工程质量。大多数“缺少某种源码形态”
-    # 仅作为风险提示，只有可确定证明的硬编码/状态破坏才在 JA 阶段 blocking。
-    agent_generated_quality_contract = build_agent_generated_solver_quality_contract(context)
-    agent_generated_quality_risks = _detect_agent_generated_solver_quality_risks(
-        context=context,
-        worktree_path=worktree_path,
-        changed_files=worker_result.changed_files,
-        quality_contract=agent_generated_quality_contract,
-        proposal=proposal if isinstance(proposal, dict) else None,
-    )
-    agent_generated_blocking_quality_risks = _blocking_agent_generated_quality_risks(
-        agent_generated_quality_risks
-    )
-    if agent_generated_blocking_quality_risks:
-        issues.append("agent_generated_solver_quality_contract_missing")
-        suggestions.append(
-            "Repair the generated solver structure before evaluator execution: derive active variant features from "
-            "the IO/requirement context, keep one stable operation identity, and add complete coverage, eligibility, "
-            "precedence, non-overlap, and bounded-runtime guards."
-        )
-        if "sequence_dependent_setup" in agent_generated_quality_contract.get("active_features", []):
-            suggestions.append(
-                "For setup-aware instances, include setup on same-machine arcs and full-decode sequence/neighborhood "
-                "candidates before comparing makespan."
-            )
-        suggestions.append(
-            "If this is an improvement round, preserve the incumbent parser/skeleton and patch the missing capability "
-            "rather than replacing the solver with an unrelated implementation."
-        )
-
-    agent_generated_self_check_risks = _detect_agent_generated_solver_self_check_risks(
-        proposal=proposal if isinstance(proposal, dict) else None,
-        worktree_path=worktree_path,
-        changed_files=worker_result.changed_files,
-        quality_contract=agent_generated_quality_contract,
-    )
-    if agent_generated_self_check_risks:
-        issues.append("agent_generated_solver_self_check_incomplete")
-        suggestions.append(
-            "Before editing an agent-generated FJSP solver, fill solver_contract_self_check with active features, "
-            "implemented required capabilities, concrete code evidence, runtime bounds, decoder evidence, and "
-            "incumbent-preservation evidence."
-        )
-
-    protected_fact_regressions = _detect_protected_promoted_fact_regressions(
-        context,
-        proposal if isinstance(proposal, dict) else None,
-        worktree_path,
-        worker_result.changed_files,
-    )
-    if protected_fact_regressions:
-        issues.append("protected_promoted_fact_regression")
-        suggestions.append(
-            "Do not remove or disable Core-promoted mechanisms in the next round. "
-            "Preserve them or explicitly ablate them with a legality-preserving fallback."
-        )
+    hardcoded_solver_risks: list[str] = []
+    if _contract_agent_generated_context(context):
+        sources = _agent_generated_solver_sources(worktree_path, worker_result.changed_files)
+        hardcoded_solver_risks = _detect_hardcoded_agent_generated_parser_risks("\n".join(sources.values()))
+    if hardcoded_solver_risks:
+        issues.append("agent_generated_solver_hardcodes_instance_data")
+        suggestions.append("Derive all jobs, operations, candidates, and durations from the active input file.")
 
     checks = {
         "worker_status": worker_result.status,
@@ -277,16 +206,12 @@ def judge_worker_result(
         "apply_rejections": proposal.get("apply_rejections") if isinstance(proposal, dict) else None,
         "edit_policy": context.get("edit_policy") or {},
         "python_compile_errors": py_compile_errors,
+        "path_policy_violations": path_policy_violations,
         "parser_rewrite_files": parser_rewrite_files,
-        "incomplete_solution_acceptance_risks": incomplete_solution_risks,
         "agent_generated_runtime_import_risks": agent_generated_import_risks,
-        "agent_generated_solver_quality_contract": agent_generated_quality_contract,
-        "agent_generated_solver_quality_risks": agent_generated_quality_risks,
-        "agent_generated_solver_blocking_quality_risks": agent_generated_blocking_quality_risks,
-        "agent_generated_solver_self_check_risks": agent_generated_self_check_risks,
-        "protected_promoted_fact_regressions": protected_fact_regressions,
+        "hardcoded_solver_risks": hardcoded_solver_risks,
     }
-    # issues 是阻塞项，warnings 进入 checks 供后续修补/语义审查参考。
+    # issues 仅包含确定性安全/执行问题；算法语义不在 JA 中推断。
     judgment = AgenticJudgment(
         accepted=not issues,
         right=not issues,
@@ -299,6 +224,22 @@ def judge_worker_result(
     return judgment
 
 
+def _changed_path_policy_violations(context: dict[str, Any], changed_files: list[str]) -> list[str]:
+    policy = context.get("edit_policy") if isinstance(context.get("edit_policy"), dict) else {}
+    allowed = [str(item).replace("\\", "/").strip("/") for item in policy.get("allowed_paths") or []]
+    forbidden = [str(item).replace("\\", "/").strip("/") for item in policy.get("forbidden_paths") or []]
+    violations: list[str] = []
+    for raw_path in changed_files or []:
+        path = str(raw_path).replace("\\", "/").lstrip("./")
+        forbidden_hit = any(path == root or path.startswith(f"{root}/") for root in forbidden if root)
+        allowed_hit = not allowed or "." in allowed or any(
+            path == root or path.startswith(f"{root}/") for root in allowed if root
+        )
+        if forbidden_hit or not allowed_hit:
+            violations.append(path)
+    return sorted(set(violations))
+
+
 def _blocking_agent_generated_quality_risks(risks: list[str]) -> list[str]:
     """Keep only deterministic hazards in the pre-evaluator JA gate.
 
@@ -307,12 +248,7 @@ def _blocking_agent_generated_quality_risks(risks: list[str]) -> list[str]:
     the fixed evaluator plus the post-evaluator semantic reviewer.
     """
 
-    hard_fragments = (
-        "hardcode",
-        "parser assumes one physical operation line",
-        "job_precedence_guard_mismatch",
-        "failed_move_mutates_current_without_rollback",
-    )
+    hard_fragments = ("hardcode",)
     return [risk for risk in risks if any(fragment in risk for fragment in hard_fragments)]
 
 
@@ -339,12 +275,10 @@ def analyze_rejected_judgment(*, judgment: AgenticJudgment, output_dir: Path) ->
 def _rejected_judgment_detail_lines(judgment: AgenticJudgment) -> list[str]:
     checks = judgment.checks or {}
     detail_specs = [
-        ("agent_generated_solver_quality_risks", "Agent-generated solver quality risks"),
-        ("agent_generated_solver_self_check_risks", "Agent-generated solver self-check risks"),
-        ("incomplete_solution_acceptance_risks", "Incomplete solution acceptance risks"),
         ("python_compile_errors", "Python compile errors"),
+        ("path_policy_violations", "Edit-policy violations"),
+        ("hardcoded_solver_risks", "Hardcoded instance-data risks"),
         ("apply_rejections", "Proposal apply rejections"),
-        ("protected_promoted_fact_regressions", "Protected promoted fact regressions"),
     ]
     details: list[str] = []
     for key, label in detail_specs:

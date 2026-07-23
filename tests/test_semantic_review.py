@@ -116,7 +116,7 @@ class SemanticReviewTests(unittest.TestCase):
 
     def test_unique_relative_knowledge_path_resolves_to_loaded_absolute_path(self) -> None:
         absolute_contract = (
-            "F:/workspace/knowledge/imported_huawei_fjsp_knowledge/operators/"
+            "F:/workspace/knowledge/references/standard_fjsp/"
             "standard_fjsp_algorithm_semantic_review_contract.md"
         )
         result = normalize_semantic_review(
@@ -133,7 +133,7 @@ class SemanticReviewTests(unittest.TestCase):
                         "line_start": 2,
                         "line_end": 2,
                         "knowledge_path": (
-                            "knowledge/imported_huawei_fjsp_knowledge/operators/"
+                            "knowledge/references/standard_fjsp/"
                             "standard_fjsp_algorithm_semantic_review_contract.md"
                         ),
                         "knowledge_quote": (

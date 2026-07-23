@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +15,111 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ContextPacketTests(unittest.TestCase):
+    def test_standard_fjsp_packet_exposes_exact_solution_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=Path(tmp) / "context.json",
+                )
+            )
+            packet = json.loads(output.read_text(encoding="utf-8"))
+
+        protocol = packet["evaluator_protocol"]
+        self.assertEqual("standard_fjsp_schedule_v1", protocol["solution_format"])
+        self.assertEqual(
+            ["job_id", "op_id", "machine_id", "start", "end"],
+            protocol["solution_contract"]["schedule_record_fields"],
+        )
+
+    def test_standard_instance_profile_exposes_finite_method_selection_features(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=Path(tmp) / "context.json",
+                )
+            )
+            packet = json.loads(output.read_text(encoding="utf-8"))
+
+        profile = packet["instance_diagnostics"]["instances"][0]
+        fields = {
+            "jobs_per_machine",
+            "operations_per_machine",
+            "candidate_count_cv",
+            "flexible_operation_ratio",
+            "full_flexibility_ratio",
+            "processing_time_cv",
+            "duration_spread_avg",
+            "duration_spread_ratio_avg",
+            "duration_spread_ratio_max",
+            "machine_eligibility_cv",
+            "fractional_min_load_cv",
+            "mandatory_load_max",
+            "job_min_workload_max",
+        }
+        self.assertTrue(fields.issubset(profile))
+        for field in fields:
+            with self.subTest(field=field):
+                self.assertTrue(math.isfinite(float(profile[field])))
+                self.assertGreaterEqual(float(profile[field]), 0.0)
+
+    def test_two_stage_knowledge_selection_hides_awls_until_direction_query(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            base_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "base_context.json",
+                )
+            )
+            base = json.loads(base_path.read_text(encoding="utf-8"))
+            refreshed_path = write_refreshed_context_packet(
+                base_context_packet_path=base_path,
+                output_path=tmp_path / "round_context.json",
+                loop_feedback={
+                    "round_index": 0,
+                    "current_direction_plan": {
+                        "direction_id": "d000",
+                        "method_family": "constructive_search",
+                        "method_families": [
+                            {"id": "constructive_search", "role": "primary"},
+                            {"id": "coupled_local_search", "role": "complementary"},
+                        ],
+                        "knowledge_query": ["initialization", "local_search"],
+                        "method_package_id": "",
+                    },
+                },
+                project_root=ROOT,
+            )
+            refreshed = json.loads(refreshed_path.read_text(encoding="utf-8"))
+
+        selection_names = [Path(item["path"]).name for item in base["strategy_selection_cards"]]
+        self.assertIn("fjsp_method_selection_zh.md", selection_names)
+        self.assertEqual([], base["method_package_catalog"]["packages"])
+        self.assertIn(
+            "constructive_search",
+            {item["family_id"] for item in base["method_family_catalog"]["families"]},
+        )
+        active = refreshed["active_direction_knowledge"]
+        self.assertEqual(["initialization", "local_search"], active["query"])
+        self.assertEqual(
+            ["constructive_search", "coupled_local_search"],
+            [item["id"] for item in active["method_families"]],
+        )
+        self.assertTrue(active["paths"])
+        self.assertFalse(any("awls" in path.lower() or "hgtsa" in path.lower() for path in active["paths"]))
+        selected_skills = refreshed["active_worker_implementation_skills"]
+        self.assertEqual("ok", selected_skills["status"])
+        self.assertIn(
+            "fjsp-constructive-search-worker",
+            [item["skill_id"] for item in selected_skills["skills"]],
+        )
+        self.assertIn(
+            "fjsp-coupled-local-search-worker",
+            [item["skill_id"] for item in selected_skills["skills"]],
+        )
+
     def test_refreshed_context_packet_compacts_large_round_history(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -59,9 +165,45 @@ class ContextPacketTests(unittest.TestCase):
             self.assertLessEqual(len(raw), 180_000)
             self.assertEqual("bounded_round_context", packet["context_compaction"]["mode"])
             self.assertLess(len(packet["loop_feedback"]["previous_rounds"]), len(large_rounds))
-            self.assertEqual("standard_fjsp_awls_hgtsa", packet["active_method_package"]["package_id"])
+            self.assertNotIn("active_method_package", packet)
 
-    def test_refreshed_agent_generated_context_activates_one_method_package(self) -> None:
+    def test_refreshed_context_adds_structured_incumbent_capability_audit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            solver = tmp_path / "examples" / "agent_generated_fjsp_solver.py"
+            solver.parent.mkdir(parents=True)
+            solver.write_text(
+                "def solve(instance):\n"
+                "    beam_width = min(3, max(2, instance['machine_count'] // 4 + 1))\n"
+                "    modes = ['critical', 'finish', 'balance', 'randomized']\n"
+                "    for mode in modes:\n"
+                "        run_beam_construction(instance, beam_width)\n",
+                encoding="utf-8",
+            )
+            base_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "base_context.json",
+                )
+            )
+            output = write_refreshed_context_packet(
+                base_context_packet_path=base_path,
+                output_path=tmp_path / "round_context.json",
+                loop_feedback={"round_index": 0},
+                project_root=tmp_path,
+            )
+            packet = json.loads(output.read_text(encoding="utf-8"))
+
+        audit = packet["incumbent_capability_audit"]
+        configurations = {
+            item["name"]: item
+            for item in audit["files"][0]["configurations"]
+        }
+        self.assertIn("beam_width", configurations)
+        self.assertEqual(4, configurations["modes"]["collection_size"])
+        self.assertNotIn("def solve", json.dumps(audit, ensure_ascii=False))
+
+    def test_refreshed_context_activates_matching_package_only_after_final_direction(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             contract = json.loads((ROOT / "configs" / "standard_fjsp_tiny.example.json").read_text(encoding="utf-8"))
@@ -83,24 +225,18 @@ class ContextPacketTests(unittest.TestCase):
                     "current_direction_plan": {
                         "method_package_id": "standard_fjsp_awls_hgtsa",
                         "strategy_type": "local_search_operator",
+                        "knowledge_query": ["local_search", "critical_path"],
                     }
                 },
             )
             packet = json.loads(output.read_text(encoding="utf-8"))
 
-        self.assertEqual("standard_fjsp_awls_hgtsa", packet["active_method_package"]["package_id"])
-        self.assertEqual("requested", packet["active_method_package"]["selection"])
-        self.assertIn("reference_solver.py", " ".join(packet["active_method_package"]["assets"]))
-        self.assertTrue(packet["active_method_package"]["implementation_contract"])
-        self.assertTrue(
-            any(
-                str(item.get("path") or "").endswith("implementation_contract.json")
-                for item in packet["active_method_package"]["asset_records"]
-            )
+        self.assertEqual(
+            "standard_fjsp_awls_hgtsa",
+            packet["active_method_package"]["package_id"],
         )
-        self.assertTrue(
-            any(str(path).endswith("implementation_contract.json") for path in packet["auto_knowledge_cards"])
-        )
+        self.assertEqual([], packet["method_package_catalog"]["packages"])
+        self.assertTrue(any("reference_solver.py" in str(item) for item in packet["knowledge_cards"]))
 
     def test_context_packet_embeds_project_intake_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -379,9 +515,11 @@ class ContextPacketTests(unittest.TestCase):
         self.assertIn("Review instance_diagnostics", " ".join(packet["worker_instruction"]["required_order"]))
         self.assertEqual("fjsp_sdst", packet["knowledge_selection"]["active_variant"])
         auto_cards = {Path(path).name for path in packet["auto_knowledge_cards"]}
-        self.assertIn("awls_sdst_hudata20_baseline_notes.md", auto_cards)
-        self.assertIn("fjsp_sdst_agent_generated_search_memory_20260707.md", auto_cards)
+        self.assertIn("awls_sdst_adapter_notes.md", auto_cards)
+        self.assertIn("awls_sdst_agent_generated_transfer_notes.md", auto_cards)
         self.assertIn("decoder_neighborhood.md", auto_cards)
+        self.assertNotIn("awls_sdst_hudata20_baseline_notes.md", auto_cards)
+        self.assertNotIn("fjsp_sdst_agent_generated_search_memory_20260707.md", auto_cards)
 
     def test_context_packet_summarizes_multiple_sdst_shapes_without_prefix_bias(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -461,10 +599,11 @@ class ContextPacketTests(unittest.TestCase):
         sampled_ids = {item["id"] for item in diagnostics["instances"]}
         self.assertIn("oddla20", sampled_ids)
         self.assertIn(
-            "avoid overfitting a single oddla/seed probe",
+            "avoid overfitting a single instance/seed probe",
             " ".join(diagnostics["direction_hints"]),
         )
-        self.assertIn("20-job/5-machine", " ".join(diagnostics["direction_hints"]))
+        self.assertIn("Measured machine concentration", " ".join(diagnostics["direction_hints"]))
+        self.assertIn("fractional_min_load_cv_max", " ".join(diagnostics["direction_hints"]))
 
     def test_context_packet_embeds_compact_contract_review_schema(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

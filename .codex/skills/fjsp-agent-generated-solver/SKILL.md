@@ -20,17 +20,16 @@ strong legality and search-quality guardrails.
    read `knowledge/principles/agent_generated_variant_quality_contracts.md`
    when it is present in the project.
 5. For standard FJSP agent-generated baseline creation or legality repair,
-   read
-   `knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_reference_skeleton.md`
+   read `knowledge/references/standard_fjsp/standard_fjsp_agent_generated_reference_skeleton.md`
    when it is present in the project. Treat it as a portable code-level
    skeleton to adapt to the active IO, not as a fixed instance solution.
 6. For standard FJSP local-search or neighborhood evolution, read
-   `knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_agent_generated_neighborhood_templates.md`
+   `knowledge/references/standard_fjsp/standard_fjsp_agent_generated_neighborhood_templates.md`
    only after the incumbent has reachable `assignment`, `machine_sequences`,
    and a progress decoder. Use it to implement executable move structures
    before claiming critical-block, N8/NK, k-insertion, tabu, or AWLS.
 7. For FJSP-SDST agent-generated solver work, read
-   `knowledge/papers/awls_sdst_agent_generated_transfer_notes.md` when it is
+   `knowledge/references/sdst/awls_sdst_agent_generated_transfer_notes.md` when it is
    present in the project. Treat it as AWLS-derived method transfer, not source
    code to copy.
 8. For FJSP-SDST or any variant with setup-aware sequencing, read
@@ -49,7 +48,7 @@ strong legality and search-quality guardrails.
 12. After Core confirms legality, compare every claimed search method with the
     full candidate source and the active semantic-review knowledge contract.
     For standard FJSP, read
-    `knowledge/imported_huawei_fjsp_knowledge/operators/standard_fjsp_algorithm_semantic_review_contract.md`
+    `knowledge/references/standard_fjsp/standard_fjsp_algorithm_semantic_review_contract.md`
     when it is present.
     In particular, verify current/global-best separation, reverse-move tabu
     attributes, aspiration, exact critical-path propagation, tight critical
@@ -67,7 +66,7 @@ strong legality and search-quality guardrails.
 - Do not hardcode FJSP-SDST algorithms into generic pipeline, evaluator,
   parser, promotion, or web code.
 - Put reusable algorithmic knowledge in this skill, knowledge cards, domain
-  packs, slot manifests, or worker context.
+  packs, Method Packages, or worker context.
 - Promotion remains owned by the fixed Core evaluator.
 - Code-level knowledge templates may be copied and adapted by the coding agent,
   but they must remain IO-derived and instance-agnostic.  Do not copy a solved

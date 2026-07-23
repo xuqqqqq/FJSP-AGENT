@@ -302,6 +302,12 @@ def summarize_direction_graph(rounds: list[dict[str, Any]]) -> dict[str, Any]:
         decision = str(item.get("decision") or "unknown")
         status = direction_status(item)
         attempts = direction_attempts(item)
+        mechanism_activation = compact_mechanism_activation(
+            item.get("mechanism_activation")
+            if isinstance(item.get("mechanism_activation"), dict)
+            else direction_plan.get("mechanism_activation")
+        )
+        round_reflection = compact_round_reflection(item.get("round_reflection"))
         # 图节点保留方向语义和产物引用，不复制 solver 源码或实例具体解。
         direction = {
             "direction_id": direction_id,
@@ -319,6 +325,14 @@ def summarize_direction_graph(rounds: list[dict[str, Any]]) -> dict[str, Any]:
             "attempt_count": len(attempts),
             "attempts": attempts,
             "score_relation": objective_relation(item),
+            "mechanism_activation": mechanism_activation,
+            "round_reflection": round_reflection,
+            "hypothesis_outcome": inferred_hypothesis_outcome(
+                decision=decision,
+                status=status,
+                mechanism_activation=mechanism_activation,
+                round_reflection=round_reflection,
+            ),
             "artifact_refs": {
                 "context_packet_path": item.get("context_packet_path"),
                 "cycle_dir": item.get("cycle_dir"),
@@ -387,26 +401,34 @@ def build_experience_memory(
     usage_records = skill_usage_records_from_directions(graph.get("directions") or [])
     quality_memory = agent_generated_quality_memory_from_directions(graph.get("directions") or [])
     semantic_memory = algorithm_semantic_memory_from_directions(graph.get("directions") or [])
-    # 第二步：只有 Core promoted 且最终语义审查通过/警告的成功策略，才会
-    # 进入 validated_lessons。一次合法但未提升的尝试不能冒充长期方法经验。
-    validated_lessons = [
-        {**lesson, "confidence": "core_and_semantic_validated"}
-        for lesson in candidate_lessons
-        if lesson.get("lesson_type") == "successful_strategy"
-        and any(
-            isinstance(direction, dict)
-            and direction.get("direction_id") == (lesson.get("evidence") or {}).get("direction_id")
-            and direction_semantically_validated(direction)
-            for direction in graph.get("directions") or []
+    # 第二步：只有 Core promoted、机制激活未失败且不存在已验证语义阻塞项，
+    # 才会进入 validated_lessons。审查 skipped/unavailable 不阻止经验沉淀。
+    directions_by_id = {
+        str(direction.get("direction_id") or ""): direction
+        for direction in graph.get("directions") or []
+        if isinstance(direction, dict) and str(direction.get("direction_id") or "")
+    }
+    validated_lessons = []
+    for lesson in candidate_lessons:
+        if lesson.get("lesson_type") != "successful_strategy":
+            continue
+        direction_id = str((lesson.get("evidence") or {}).get("direction_id") or "")
+        direction = directions_by_id.get(direction_id)
+        if direction is None or not direction_validated_lesson_eligible(direction):
+            continue
+        validated_lessons.append(
+            {**lesson, "confidence": validated_lesson_confidence(direction)}
         )
-    ]
     return {
         "schema_version": 1,
         "purpose": "Run-local learning memory for future context selection; not a curated long-term knowledge write.",
         "write_policy": {
             "raw_notes": "preserve as artifacts only",
             "candidate_lessons": "may be recalled with source evidence",
-            "validated_lessons": "requires Core promotion plus authoritative semantic pass/warning",
+            "validated_lessons": (
+                "requires Core promotion, mechanism activation not failed, and no verified blocking semantic finding; "
+                "reviewer skipped/unavailable does not block"
+            ),
             "curated_skills": "requires explicit promotion outside the worker loop",
             "no_instance_score_as_method": True,
         },
@@ -640,9 +662,40 @@ def compact_attempt_payload(attempt: dict[str, Any]) -> dict[str, Any]:
         "agentic_accepted": judgment.get("accepted"),
         "agent_generated_quality": compact_agent_generated_quality_gate(judgment, checks),
         "algorithm_semantic_review": compact_algorithm_semantic_review(attempt.get("semantic_review")),
+        "assignment_id": attempt.get("assignment_id"),
+        "worker_assignment_path": attempt.get("worker_assignment_path"),
         "context_packet_path": attempt.get("context_packet_path"),
         "patch_path": attempt.get("patch_path"),
         "delta_path": attempt.get("delta_path"),
+    }
+
+
+def compact_mechanism_activation(value: Any) -> dict[str, Any]:
+    activation = _dict(value)
+    if not activation:
+        return {}
+    checks: list[dict[str, Any]] = []
+    for item in _list(activation.get("checks")):
+        if not isinstance(item, dict):
+            continue
+        checks.append(
+            {
+                "id": item.get("id"),
+                "path": item.get("path"),
+                "required": bool(item.get("required", True)),
+                "passed": item.get("passed"),
+                "description": _bounded_text(item.get("description"), limit=300),
+            }
+        )
+        if len(checks) >= 8:
+            break
+    return {
+        "status": activation.get("status"),
+        "passed": activation.get("passed"),
+        "declared_check_count": activation.get("declared_check_count"),
+        "required_check_count": activation.get("required_check_count"),
+        "required_failure_count": activation.get("required_failure_count"),
+        "checks": checks,
     }
 
 
@@ -677,6 +730,40 @@ def compact_algorithm_semantic_review(value: Any) -> dict[str, Any]:
         "findings": findings,
         "knowledge_paths": _bounded_strings(review.get("knowledge_paths"), limit=12),
         "artifacts": _dict(review.get("artifacts")),
+    }
+
+
+def compact_round_reflection(value: Any) -> dict[str, Any]:
+    reflection = _dict(value)
+    if not reflection:
+        return {}
+    findings: list[dict[str, Any]] = []
+    for item in _list(reflection.get("candidate_findings")):
+        if not isinstance(item, dict):
+            continue
+        findings.append(
+            {
+                "candidate_id": _bounded_text(item.get("candidate_id"), limit=80),
+                "outcome": normalize_hypothesis_outcome(item.get("outcome")),
+                "causal_interpretation": _bounded_text(item.get("causal_interpretation"), limit=900),
+            }
+        )
+        if len(findings) >= 4:
+            break
+    next_action = _dict(reflection.get("next_action"))
+    return {
+        "schema_version": reflection.get("schema_version"),
+        "round_index": reflection.get("round_index"),
+        "hypothesis_outcome": normalize_hypothesis_outcome(
+            reflection.get("hypothesis_outcome") or reflection.get("status")
+        ),
+        "summary": _bounded_text(reflection.get("summary"), limit=1200),
+        "candidate_findings": findings,
+        "next_action": {
+            "action": _bounded_text(next_action.get("action"), limit=80),
+            "rationale": _bounded_text(next_action.get("rationale"), limit=1200),
+            "required_activation_checks": _bounded_strings(next_action.get("required_activation_checks"), limit=12),
+        },
     }
 
 
@@ -774,6 +861,34 @@ def compact_hypothesis_payload(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def normalize_hypothesis_outcome(value: Any) -> str:
+    outcome = str(value or "").strip().lower()
+    if outcome == "supported":
+        return "supported"
+    if outcome == "refuted":
+        return "refuted"
+    if outcome in {"mixed", "inconclusive_not_exercised", "inconclusive"}:
+        return "inconclusive"
+    return ""
+
+
+def inferred_hypothesis_outcome(
+    *,
+    decision: str,
+    status: str,
+    mechanism_activation: dict[str, Any],
+    round_reflection: dict[str, Any],
+) -> str:
+    recorded = normalize_hypothesis_outcome(round_reflection.get("hypothesis_outcome"))
+    if recorded:
+        return recorded
+    if mechanism_activation.get("passed") is False:
+        return "inconclusive"
+    if decision in {"promoted", "baseline_incumbent"} or status in {"validated_success", "validated_baseline"}:
+        return "supported"
+    return "refuted"
+
+
 # ---------------------------------------------------------------------------
 # 经验条目构造：把不同方向结局转成有适用条件和禁忌的可召回记录。
 # ---------------------------------------------------------------------------
@@ -830,6 +945,7 @@ def candidate_lesson_from_direction(
         "strategy_type": direction.get("strategy_type"),
         "method_package_id": direction.get("method_package_id"),
         "outcome": outcome,
+        "hypothesis_outcome": direction.get("hypothesis_outcome"),
         "applicability": applicability,
         "contraindications": contraindications,
         "evidence": {
@@ -838,6 +954,9 @@ def candidate_lesson_from_direction(
             "decision": direction.get("decision"),
             "status": direction.get("status"),
             "score_relation": direction.get("score_relation"),
+            "hypothesis_outcome": direction.get("hypothesis_outcome"),
+            "mechanism_activation": _dict(direction.get("mechanism_activation")),
+            "round_reflection": _dict(direction.get("round_reflection")),
             "artifact_refs": direction.get("artifact_refs") or {},
         },
         "confidence": "candidate",
@@ -863,6 +982,7 @@ def repair_lesson_from_direction(
         "strategy_type": direction.get("strategy_type"),
         "method_package_id": direction.get("method_package_id"),
         "outcome": "same_direction_attempt_recovered",
+        "hypothesis_outcome": direction.get("hypothesis_outcome"),
         "applicability": [
             "when the first attempt is illegal or legal-but-not-better but carries useful patch evidence",
             "when repair feedback includes exact rejected edits, failure signatures, and incumbent context",
@@ -872,6 +992,8 @@ def repair_lesson_from_direction(
             "direction_id": direction.get("direction_id"),
             "round_index": direction.get("round_index"),
             "attempt_count": len(attempts),
+            "mechanism_activation": _dict(direction.get("mechanism_activation")),
+            "round_reflection": _dict(direction.get("round_reflection")),
             "artifact_refs": direction.get("artifact_refs") or {},
         },
         "confidence": "candidate",
@@ -919,6 +1041,7 @@ def agent_generated_quality_lesson_from_direction(
         "strategy_type": direction.get("strategy_type"),
         "method_package_id": direction.get("method_package_id"),
         "outcome": "recovered_after_quality_repair" if recovered else "blocked_by_quality_gate",
+        "hypothesis_outcome": direction.get("hypothesis_outcome"),
         "applicability": [
             "when an agent-generated solver is created or evolved from IO and requirement documents",
             "when JA rejects a proposal before evaluator scoring",
@@ -934,6 +1057,8 @@ def agent_generated_quality_lesson_from_direction(
             "quality_risks": quality_risks[:8],
             "self_check_risks": self_check_risks[:8],
             "runtime_import_risks": runtime_import_risks[:8],
+            "mechanism_activation": _dict(direction.get("mechanism_activation")),
+            "round_reflection": _dict(direction.get("round_reflection")),
             "artifact_refs": direction.get("artifact_refs") or {},
         },
         "confidence": "candidate",
@@ -989,6 +1114,7 @@ def algorithm_semantic_lesson_from_direction(
             if recovered
             else ("blocked_by_semantic_review" if blocking else "semantic_warning_observed")
         ),
+        "hypothesis_outcome": direction.get("hypothesis_outcome"),
         "applicability": [
             "when generated code claims the same named method or invariant",
             "when the cited knowledge contract is active for the current problem family",
@@ -1008,6 +1134,8 @@ def algorithm_semantic_lesson_from_direction(
                 for finding in findings
                 if str(finding.get("knowledge_path") or "").strip()
             )[:12],
+            "mechanism_activation": _dict(direction.get("mechanism_activation")),
+            "round_reflection": _dict(direction.get("round_reflection")),
             "artifact_refs": direction.get("artifact_refs") or {},
         },
         "confidence": "candidate",
@@ -1028,12 +1156,43 @@ def algorithm_semantic_reviews_from_direction(direction: dict[str, Any]) -> list
     ]
 
 
-def direction_semantically_validated(direction: dict[str, Any]) -> bool:
+def direction_has_verified_blocking_semantic_finding(direction: dict[str, Any]) -> bool:
     reviews = algorithm_semantic_reviews_from_direction(direction)
     if not reviews:
         return False
     final = reviews[-1]
-    return final.get("status") in {"pass", "warning"} and final.get("accepted") is not False
+    if any(
+        isinstance(finding, dict) and bool(finding.get("blocking"))
+        for finding in _list(final.get("findings"))
+    ):
+        return True
+    if final.get("status") in {"unavailable", "skipped"}:
+        return False
+    return False
+
+
+def direction_semantically_validated(direction: dict[str, Any]) -> bool:
+    return not direction_has_verified_blocking_semantic_finding(direction)
+
+
+def direction_validated_lesson_eligible(direction: dict[str, Any]) -> bool:
+    if direction.get("decision") != "promoted":
+        return False
+    activation = _dict(direction.get("mechanism_activation"))
+    if activation.get("passed") is False:
+        return False
+    return not direction_has_verified_blocking_semantic_finding(direction)
+
+
+def validated_lesson_confidence(direction: dict[str, Any]) -> str:
+    reviews = algorithm_semantic_reviews_from_direction(direction)
+    if any(
+        review.get("status") in {"pass", "warning"}
+        and review.get("accepted") is not False
+        for review in reviews
+    ):
+        return "core_activation_and_semantic_validated"
+    return "core_and_activation_validated"
 
 
 def algorithm_semantic_direction_recovered(direction: dict[str, Any]) -> bool:

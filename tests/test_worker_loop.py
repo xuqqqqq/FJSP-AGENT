@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,12 +12,16 @@ from unittest.mock import patch
 from harness_agent.context.packet import ContextPacketRequest, write_context_packet
 from harness_agent.orchestration.loop import (
     agent_generated_baseline_memory_payload,
+    competitive_direction_plans,
     current_round_repair_feedback,
+    evaluate_mechanism_activation,
     round_attempt_payload,
     run_agent_generated_baseline,
+    run_competing_worker_cycles,
     run_worker_cycle_with_in_round_repairs,
     run_worker_loop,
     select_agent_generated_baseline_cycle,
+    should_attempt_in_round_repair,
     worker_proposal_diagnostics,
 )
 from harness_agent.core.models import TaskContract
@@ -28,6 +34,8 @@ from harness_agent.agents.judgment import AgenticJudgment
 from harness_agent.core.runner import RunSummary
 from harness_agent.agents.semantic import AlgorithmSemanticReviewResult
 from harness_agent.orchestration.cycle import (
+    collect_worktree_snapshot,
+    judgment_with_result_revalidation,
     prepare_candidate_worktree,
     render_worktree_patch,
     run_worker_cycle,
@@ -1261,11 +1269,339 @@ class SafeFeasibilityProtectedEditWorker:
 
 
 class WorkerLoopTests(unittest.TestCase):
+    def test_ja_acceptance_is_bound_to_validated_candidate_output(self) -> None:
+        initial = AgenticJudgment(
+            accepted=True,
+            right=True,
+            stage="code_generation",
+            issues=[],
+            suggestions=[],
+            checks={},
+        )
+        invalid = RunSummary(
+            total=1,
+            valid=0,
+            failed=1,
+            best_experiment_id=None,
+            best_metrics={},
+            validation_summary={"top_errors": [{"error": "schedule record 0 is malformed"}]},
+        )
+
+        judgment = judgment_with_result_revalidation(judgment=initial, smoke_summary=invalid)
+
+        self.assertFalse(judgment.accepted)
+        self.assertEqual(["candidate_result_revalidation_failed"], judgment.issues)
+        self.assertEqual(
+            ["schedule record 0 is malformed"],
+            judgment.checks["result_revalidation"]["top_errors"],
+        )
+
+    def test_ja_accepts_reproduced_valid_candidate_output(self) -> None:
+        initial = AgenticJudgment(
+            accepted=True,
+            right=True,
+            stage="code_generation",
+            issues=[],
+            suggestions=[],
+            checks={},
+        )
+        valid = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="smoke",
+            best_metrics={"makespan": 42},
+        )
+
+        judgment = judgment_with_result_revalidation(judgment=initial, smoke_summary=valid)
+
+        self.assertTrue(judgment.accepted)
+        self.assertEqual("candidate_result_revalidation", judgment.stage)
+        self.assertTrue(judgment.checks["result_revalidation"]["passed"])
+
+    def test_competing_workers_execute_candidates_concurrently(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "standard_fjsp_tiny.example.json")
+            gate = threading.Barrier(3, timeout=2.0)
+            worker_threads: set[int] = set()
+            thread_lock = threading.Lock()
+
+            def fake_cycle(**kwargs):  # noqa: ANN003 - mirrors the orchestration call surface.
+                candidate_id = kwargs["direction_plan"]["candidate_variant"]["candidate_id"]
+                with thread_lock:
+                    worker_threads.add(threading.get_ident())
+                gate.wait()
+                summary = RunSummary(
+                    total=1,
+                    valid=1,
+                    failed=0,
+                    best_experiment_id=candidate_id,
+                    best_metrics={"makespan": 100},
+                )
+                cycle = SimpleNamespace(
+                    summary=summary,
+                    agentic_judgment=AgenticJudgment(
+                        accepted=True,
+                        right=True,
+                        stage="accepted",
+                        issues=[],
+                        suggestions=[],
+                        checks={},
+                    ),
+                    worker_result=SimpleNamespace(status="ok"),
+                    worktree_path=tmp_path / candidate_id,
+                    patch_path=tmp_path / f"{candidate_id}.patch",
+                )
+                return cycle, tmp_path / f"{candidate_id}.json", [{"semantic_review": {"status": "pass"}}]
+
+            direction_plan = {
+                "direction_id": "parallel",
+                "candidate_variants": [
+                    {"candidate_id": f"c{index}", "next_mutation": {"change": str(index)}}
+                    for index in range(3)
+                ],
+            }
+            with patch(
+                "harness_agent.orchestration.loop.run_worker_cycle_with_in_round_repairs",
+                side_effect=fake_cycle,
+            ):
+                _cycle, _context, _attempts, result, _selected = run_competing_worker_cycles(
+                    contract=contract,
+                    project_root=ROOT,
+                    output_dir=tmp_path / "round_000",
+                    base_context_packet_path=tmp_path / "context.json",
+                    round_index=0,
+                    worker=NullWorker(),
+                    experiment_id="parallel-competition-test",
+                    max_steps=1,
+                    max_runtime_seconds=10,
+                    apply_worker_changes=False,
+                    baseline_summary=RunSummary(0, 0, 0, None, {}),
+                    incumbent_key=(-120.0,),
+                    baseline_generation=None,
+                    previous_rounds=[],
+                    repair_attempts=0,
+                    direction_plan=direction_plan,
+                    semantic_reviewer=None,
+                    assignment_issuer=SimpleNamespace(),
+                    worker_input_root=ROOT,
+                    user_intervention=None,
+                    max_competing_workers=3,
+                )
+
+            self.assertEqual(3, len(worker_threads))
+            self.assertEqual("parallel", result["execution_mode"])
+            self.assertEqual(3, result["max_concurrency"])
+            self.assertEqual(["c0", "c1", "c2"], [item["candidate_id"] for item in result["candidates"]])
+
+    def test_mechanism_activation_uses_nested_evaluator_telemetry(self) -> None:
+        summary = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="candidate",
+            best_metrics={
+                "makespan": 100,
+                "solver_evidence": {"diagnostics": {"expanded_states": 12, "modes": ["beam"]}},
+            },
+        )
+        activation = evaluate_mechanism_activation(
+            {
+                "activation_checks": [
+                    {
+                        "id": "expanded",
+                        "path": "best_metrics.solver_evidence.diagnostics.expanded_states",
+                        "operator": "gte",
+                        "expected": 10,
+                    },
+                    {
+                        "id": "beam_mode",
+                        "path": "best_metrics.solver_evidence.diagnostics.modes",
+                        "operator": "contains",
+                        "expected": "beam",
+                    },
+                ]
+            },
+            summary,
+        )
+
+        self.assertTrue(activation["passed"])
+        self.assertEqual("passed", activation["status"])
+        self.assertTrue(all(item["passed"] for item in activation["checks"]))
+
+    def test_only_research_tournament_variants_may_change_method_family(self) -> None:
+        base = {
+            "direction_id": "d000",
+            "experiment_stage": "probe",
+            "method_family": "beam",
+            "method_package_id": "beam-package",
+            "candidate_variants": [
+                {
+                    "candidate_id": "tabu",
+                    "hypothesis": "Compare tabu.",
+                    "next_mutation": {"change": "Implement tabu comparison."},
+                    "method_family": "tabu",
+                    "method_package_id": "tabu-package",
+                    "activation_checks": [{"path": "best_metrics.tabu_moves", "operator": "gt", "expected": 0}],
+                }
+            ],
+        }
+
+        probe = competitive_direction_plans(base, limit=2)[0]
+        self.assertEqual("beam", probe["method_family"])
+        self.assertEqual("beam-package", probe["method_package_id"])
+        self.assertEqual(1, len(probe["activation_checks"]))
+
+        tournament = dict(base)
+        tournament["experiment_stage"] = "research_tournament"
+        compared = competitive_direction_plans(tournament, limit=2)[0]
+        self.assertEqual("tabu", compared["method_family"])
+        self.assertEqual("tabu-package", compared["method_package_id"])
+
+    def test_competing_workers_select_best_fully_eligible_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "standard_fjsp_tiny.example.json")
+            scores = {"c0": 100, "c1": 80, "c2": 90}
+
+            def fake_cycle(**kwargs):  # noqa: ANN003 - mirrors the orchestration call surface.
+                candidate_id = kwargs["direction_plan"]["candidate_variant"]["candidate_id"]
+                makespan = scores[candidate_id]
+                summary = RunSummary(
+                    total=1,
+                    valid=1,
+                    failed=0,
+                    best_experiment_id=candidate_id,
+                    best_metrics={"makespan": makespan},
+                    best_candidate_id=candidate_id,
+                    best_candidate_metrics={"avg_makespan": makespan},
+                    candidate_summaries=[],
+                    pareto_frontier=[],
+                    validation_summary={},
+                )
+                cycle = SimpleNamespace(
+                    summary=summary,
+                    agentic_judgment=AgenticJudgment(
+                        accepted=True,
+                        right=True,
+                        stage="accepted",
+                        issues=[],
+                        suggestions=[],
+                        checks={},
+                    ),
+                    worker_result=SimpleNamespace(status="ok"),
+                    worktree_path=tmp_path / candidate_id,
+                    patch_path=tmp_path / f"{candidate_id}.patch",
+                )
+                semantic = (
+                    {"status": "repair_required", "accepted": False, "findings": [{"blocking": True}]}
+                    if candidate_id == "c1"
+                    else {"status": "pass", "accepted": True, "findings": []}
+                )
+                return cycle, tmp_path / f"{candidate_id}.json", [{"semantic_review": semantic}]
+
+            direction_plan = {
+                "direction_id": "d000",
+                "candidate_variants": [
+                    {
+                        "candidate_id": candidate_id,
+                        "hypothesis": f"variant {candidate_id}",
+                        "next_mutation": {"change": f"change {candidate_id}"},
+                    }
+                    for candidate_id in scores
+                ],
+            }
+            baseline = RunSummary(0, 0, 0, None, {})
+            with patch(
+                "harness_agent.orchestration.loop.run_worker_cycle_with_in_round_repairs",
+                side_effect=fake_cycle,
+            ):
+                cycle, _context, _attempts, result, selected = run_competing_worker_cycles(
+                    contract=contract,
+                    project_root=ROOT,
+                    output_dir=tmp_path / "round_000",
+                    base_context_packet_path=tmp_path / "context.json",
+                    round_index=0,
+                    worker=NullWorker(),
+                    experiment_id="competition-test",
+                    max_steps=1,
+                    max_runtime_seconds=10,
+                    apply_worker_changes=False,
+                    baseline_summary=baseline,
+                    incumbent_key=(-120.0,),
+                    baseline_generation=None,
+                    previous_rounds=[],
+                    repair_attempts=0,
+                    direction_plan=direction_plan,
+                    semantic_reviewer=None,
+                    assignment_issuer=SimpleNamespace(),
+                    worker_input_root=ROOT,
+                    user_intervention=None,
+                    max_competing_workers=4,
+                )
+
+            self.assertEqual("c2", selected["candidate_variant"]["candidate_id"])
+            self.assertEqual("c2", result["selected_candidate_id"])
+            self.assertTrue(result["selected_for_promotion"])
+            blocked = next(item for item in result["candidates"] if item["candidate_id"] == "c1")
+            self.assertFalse(blocked["semantic_eligible"])
+            self.assertEqual(90, cycle.summary.best_metrics["makespan"])
+
+    def test_soft_accepted_legal_non_improvement_does_not_consume_repair_attempt(self) -> None:
+        cycle = SimpleNamespace(
+            worker_result=WorkerResult(
+                status="ok",
+                changed_files=["examples/agent_generated_fjsp_solver.py"],
+                summary="Legal but not better.",
+            ),
+            agentic_judgment=AgenticJudgment(
+                accepted=False,
+                right=False,
+                stage="quality_contract",
+                issues=["agent_generated_solver_self_check_incomplete"],
+                suggestions=[],
+                checks={
+                    "soft_accepted_by_diagnostic_smoke": {
+                        "reason": "fixed evaluator proved complete legal output",
+                    }
+                },
+            ),
+            summary=RunSummary(
+                total=1,
+                valid=1,
+                failed=0,
+                best_experiment_id="candidate",
+                best_metrics={"makespan": 2648},
+            ),
+        )
+
+        self.assertFalse(
+            should_attempt_in_round_repair(
+                cycle,
+                incumbent_key=(-2648.0,),
+                semantic_review={"status": "pass", "accepted": True},
+            )
+        )
+
     def test_candidate_worktree_stages_first_instance_for_worker_read_only_access(self) -> None:
         contract = TaskContract.load(ROOT / "configs" / "standard_fjsp_tiny.example.json")
         with tempfile.TemporaryDirectory() as tmp:
-            worktree = Path(tmp) / "candidate"
-            prepare_candidate_worktree(project_root=ROOT, contract=contract, worktree_path=worktree)
+            tmp_path = Path(tmp)
+            context_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    docs=[ROOT / "examples" / "web_demo_io.md"],
+                    output_path=tmp_path / "context.json",
+                )
+            )
+            worktree = tmp_path / "candidate"
+            prepare_candidate_worktree(
+                project_root=ROOT,
+                contract=contract,
+                worktree_path=worktree,
+                context_packet_path=context_path,
+            )
 
             manifest_path = worktree / ".algoforge_worker_inputs" / "manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -1276,6 +1612,11 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual(
                 (ROOT / "examples" / "standard_fjsp_tiny.fjs").read_bytes(),
                 local_path.read_bytes(),
+            )
+            mirrored_io = worktree / ".algoforge_worker_inputs" / "docs" / "000_web_demo_io.md"
+            self.assertEqual(
+                (ROOT / "examples" / "web_demo_io.md").read_text(encoding="utf-8"),
+                mirrored_io.read_text(encoding="utf-8"),
             )
 
     def test_main_agent_direction_plan_reaches_every_attempt_context(self) -> None:
@@ -1301,7 +1642,7 @@ class WorkerLoopTests(unittest.TestCase):
                         "planner": "test",
                     }
 
-            run_worker_loop(
+            result = run_worker_loop(
                 contract=contract,
                 project_root=ROOT,
                 output_dir=tmp_path / "loop",
@@ -1322,6 +1663,76 @@ class WorkerLoopTests(unittest.TestCase):
 
             self.assertEqual("decoder repair", round_context["loop_feedback"]["current_direction_plan"]["title"])
             self.assertEqual(["decoder only"], round_context["loop_feedback"]["current_direction_plan"]["change_scope"])
+            self.assertTrue(result.rounds[0].round_reflection)
+            self.assertTrue(
+                (tmp_path / "loop" / "round_000" / "main_agent_reflection" / "round_reflection.json").is_file()
+            )
+
+    def test_round_gate_pauses_after_main_analysis_and_user_direction_replans(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+            planner_feedback: list[dict] = []
+            gate_calls: list[tuple[int, str]] = []
+
+            class InterventionPlanner:
+                def plan_direction(self, request):  # noqa: ANN001 - follows planner protocol.
+                    planner_feedback.append(request.loop_feedback)
+                    user_direction = (request.loop_feedback.get("user_intervention") or {}).get("direction")
+                    return {
+                        "schema_version": 1,
+                        "direction_id": f"d{request.round_index:03d}",
+                        "title": user_direction or f"automatic direction {request.round_index}",
+                        "strategy_type": "local_search_operator",
+                        "hypothesis": user_direction or "Improve one bounded operator.",
+                        "diagnosis": "The prior round did not improve the incumbent.",
+                        "observed_shortcomings": ["The candidate neighborhood remained too narrow."],
+                        "evidence_summary": ["Core rolled the candidate back."],
+                        "direction_judgment": user_direction or "Try the next evidence-backed component.",
+                        "change_scope": [user_direction or "one operator"],
+                        "preserve": [],
+                        "avoid": [],
+                        "knowledge_paths": [],
+                        "acceptance_checks": ["fixed evaluator"],
+                        "stop_conditions": ["repair budget exhausted"],
+                    }
+
+            def gate(next_round_index, previous_round, proposed_direction):  # noqa: ANN001
+                gate_calls.append((next_round_index, proposed_direction["title"]))
+                self.assertEqual(0, previous_round.round_index)
+                return "Expand critical reassignment insertion positions."
+
+            run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=NullWorker(),
+                main_agent=InterventionPlanner(),
+                experiment_id="test_round_intervention",
+                iterations=2,
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+                in_round_repair_attempts=0,
+                round_intervention=gate,
+            )
+
+            round_context = json.loads(
+                (tmp_path / "loop" / "round_001" / "context_packet.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual([(1, "automatic direction 1")], gate_calls)
+        self.assertEqual(3, len(planner_feedback))
+        self.assertEqual(
+            "Expand critical reassignment insertion positions.",
+            planner_feedback[-1]["user_intervention"]["direction"],
+        )
+        self.assertEqual(
+            "Expand critical reassignment insertion positions.",
+            round_context["loop_feedback"]["user_intervention"]["direction"],
+        )
 
     def test_in_round_repair_continues_from_previous_candidate_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1454,7 +1865,9 @@ class WorkerLoopTests(unittest.TestCase):
             round_record = result.rounds[0]
             self.assertEqual("authorization_required", round_record.worker_status)
             self.assertNotIn("in_round_repair", round_record.proposal_diagnostics)
-            self.assertFalse((tmp_path / "loop" / "round_000" / "repair_001").exists())
+            self.assertFalse(
+                (tmp_path / "loop" / "round_000" / "repair_001" / "context_packet.json").exists()
+            )
             issues = round_record.candidate_summary["validation_summary"]["agentic_judgment"]["issues"]
             self.assertIn("worker_status_not_usable: authorization_required", issues)
 
@@ -1518,8 +1931,13 @@ class WorkerLoopTests(unittest.TestCase):
 
             round_001_context = json.loads((tmp_path / "loop" / "round_001" / "context_packet.json").read_text(encoding="utf-8"))
             feedback = round_001_context["loop_feedback"]
-            self.assertEqual("available", feedback["failure_memory"]["status"])
-            self.assertIn("proposal_apply_rejections", feedback["failure_memory"]["must_avoid"])
+            self.assertEqual("provisional_review_required", feedback["failure_memory"]["status"])
+            self.assertEqual([], feedback["failure_memory"]["must_avoid"])
+            self.assertTrue(feedback["failure_memory"]["review_required"])
+            self.assertIn(
+                "proposal_apply_rejections",
+                feedback["failure_memory"]["recent_failures"][0]["failure_signatures"],
+            )
             self.assertIn("proposal_apply_rejections", feedback["next_round_guidance"]["avoid"])
             self.assertTrue(feedback["next_round_guidance"]["must_do"])
 
@@ -1595,7 +2013,7 @@ class WorkerLoopTests(unittest.TestCase):
             )
             self.assertIn("repair current_round_repair.previous_attempts", repair_context["loop_feedback"]["instructions"][0])
 
-    def test_semantic_review_blocks_then_repairs_inside_same_direction(self) -> None:
+    def test_semantic_review_does_not_drive_worker_repair(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
@@ -1618,36 +2036,21 @@ class WorkerLoopTests(unittest.TestCase):
                 in_round_repair_attempts=1,
             )
 
-            self.assertEqual(2, worker.calls)
-            self.assertTrue(worker.saw_semantic_repair)
-            self.assertEqual("promoted", result.rounds[0].decision)
-            self.assertEqual("pass", result.rounds[0].semantic_review["status"])
-            repair = result.rounds[0].proposal_diagnostics["in_round_repair"]
-            self.assertTrue(repair["recovered"])
-            self.assertIn(
-                "algorithm_semantic_review_repair_required",
-                repair["attempts"][0]["failure_signatures"],
-            )
-
+            self.assertEqual(1, worker.calls)
+            self.assertFalse(worker.saw_semantic_repair)
+            self.assertIsNone(result.rounds[0].semantic_review)
+            self.assertNotIn("in_round_repair", result.rounds[0].proposal_diagnostics)
             repair_context = json.loads(
                 (tmp_path / "loop" / "round_000" / "repair_001" / "context_packet.json").read_text(
                     encoding="utf-8"
                 )
             )
-            target = repair_context["loop_feedback"]["current_round_repair"]["repair_targets"][
-                "algorithm_semantic_review"
-            ]
-            self.assertEqual("reverse_move_memory", target["blocking_findings"][0]["category"])
-            self.assertIn("inverse remains tabu", target["blocking_findings"][0]["required_test"])
-
-            loop_payload = json.loads((tmp_path / "loop" / "loop_result.json").read_text(encoding="utf-8"))
-            semantic_memory = loop_payload["experience_memory"]["algorithm_semantic_memory"]
-            self.assertEqual(1, semantic_memory["repair_required_attempt_count"])
-            self.assertEqual(1, semantic_memory["recovered_direction_count"])
-            self.assertIn("reverse_move_memory", semantic_memory["recurring_categories"][0]["text"])
-            validated = loop_payload["experience_memory"]["memory_tiers"]["validated_lessons"]
-            self.assertEqual(1, len(validated))
-            self.assertEqual("core_and_semantic_validated", validated[0]["confidence"])
+            serialized = json.dumps(
+                repair_context["loop_feedback"]["current_round_repair"],
+                ensure_ascii=False,
+            )
+            self.assertNotIn("algorithm_semantic_review", serialized)
+            self.assertNotIn("reverse_move_memory", serialized)
 
     def test_semantic_review_exhaustion_rolls_back_even_when_objective_improves(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1680,8 +2083,10 @@ class WorkerLoopTests(unittest.TestCase):
                 (tmp_path / "loop" / "round_001" / "context_packet.json").read_text(encoding="utf-8")
             )
             failure_memory = round_one_context["loop_feedback"]["failure_memory"]
-            self.assertIn("algorithm_semantic_review_repair_required", failure_memory["must_avoid"])
-            self.assertNotIn("legal_but_not_strictly_better", failure_memory["must_avoid"])
+            self.assertEqual([], failure_memory["must_avoid"])
+            signatures = failure_memory["recent_failures"][0]["failure_signatures"]
+            self.assertIn("algorithm_semantic_review_repair_required", signatures)
+            self.assertNotIn("legal_but_not_strictly_better", signatures)
 
     def test_semantic_review_unavailable_blocks_promotion_without_code_repair(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1720,7 +2125,7 @@ class WorkerLoopTests(unittest.TestCase):
                 memory.get("algorithm_semantic_memory", {}).get("repair_required_attempt_count", 0),
             )
 
-    def test_legal_no_improvement_spends_same_direction_refinement_budget(self) -> None:
+    def test_legal_no_improvement_ends_attempt_without_unconstrained_repair(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
@@ -1741,14 +2146,14 @@ class WorkerLoopTests(unittest.TestCase):
                 in_round_repair_attempts=1,
             )
 
-            self.assertEqual(2, worker.calls)
-            self.assertTrue(worker.saw_refinement_feedback)
-            self.assertEqual(["promoted"], [item.decision for item in result.rounds])
-            self.assertEqual(1, result.rounds[0].proposal_diagnostics["in_round_repair"]["repair_attempt_count"])
-            self.assertTrue((tmp_path / "loop" / "round_000" / "repair_001").exists())
+            self.assertEqual(1, worker.calls)
+            self.assertFalse(worker.saw_refinement_feedback)
+            self.assertEqual(["rolled_back"], [item.decision for item in result.rounds])
+            self.assertNotIn("in_round_repair", result.rounds[0].proposal_diagnostics)
+            self.assertFalse((tmp_path / "loop" / "round_000" / "repair_001").exists())
             loop_result = json.loads((tmp_path / "loop" / "loop_result.json").read_text(encoding="utf-8"))
             self.assertEqual(1, loop_result["hypothesis_graph"]["direction_count"])
-            self.assertEqual(2, loop_result["hypothesis_graph"]["attempt_count"])
+            self.assertEqual(1, loop_result["hypothesis_graph"]["attempt_count"])
             self.assertTrue(loop_result["experience_memory"]["memory_tiers"]["candidate_lessons"])
 
     def test_baseline_memory_keeps_better_core_valid_semantic_repair_anchor(self) -> None:
@@ -1973,7 +2378,7 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertNotIn("agent_generated_solver_repair_plan", targets)
         self.assertNotIn("agent_generated_solver_method_stage", targets)
 
-    def test_semantic_repair_feedback_excludes_warnings_and_objective_refinement(self) -> None:
+    def test_semantic_feedback_is_excluded_from_repair_targets(self) -> None:
         feedback = current_round_repair_feedback(
             attempt_index=1,
             max_repair_attempts=3,
@@ -2004,15 +2409,13 @@ class WorkerLoopTests(unittest.TestCase):
             ],
         )
 
-        target = feedback["repair_targets"]["algorithm_semantic_review"]
         serialized = json.dumps(feedback, ensure_ascii=False)
-        self.assertEqual(["inverse_tabu"], [item["finding_id"] for item in target["blocking_findings"]])
+        self.assertNotIn("algorithm_semantic_review", feedback["repair_targets"])
+        self.assertNotIn("inverse_tabu", serialized)
         self.assertNotIn("insertion_window", serialized)
         self.assertNotIn("optional insertion-window", serialized)
-        self.assertFalse(any("material refinement" in item for item in feedback["must_do"]))
-        self.assertTrue(any("same-direction implementation repair" in item for item in feedback["must_do"]))
 
-    def test_semantic_repair_uses_latest_incomplete_method_coverage(self) -> None:
+    def test_semantic_coverage_is_excluded_from_repair_targets(self) -> None:
         feedback = current_round_repair_feedback(
             attempt_index=2,
             max_repair_attempts=3,
@@ -2050,15 +2453,10 @@ class WorkerLoopTests(unittest.TestCase):
             ],
         )
 
-        target = feedback["repair_targets"]["algorithm_semantic_review"]
-        self.assertEqual(["search"], [item["component_id"] for item in target["implementation_coverage"]])
-        self.assertEqual(
-            ["decode_search"],
-            [item["group_id"] for item in target["coupled_group_coverage"]],
-        )
         serialized = json.dumps(feedback, ensure_ascii=False)
+        self.assertNotIn("algorithm_semantic_review", feedback["repair_targets"])
+        self.assertNotIn("decode_search", serialized)
         self.assertNotIn('"decoder", "status": "missing"', serialized)
-        self.assertIn("complete remaining-work list", serialized)
 
     def test_non_core_repair_base_is_not_labeled_core_anchor(self) -> None:
         feedback = current_round_repair_feedback(
@@ -2206,7 +2604,7 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertIn("baseline_generation_rule", baseline_context["worker_instruction"])
             self.assertEqual([], baseline_context["baseline_generation"]["hidden_incumbent_files"])
 
-    def test_agent_generated_baseline_repairs_quality_contract_before_measurement(self) -> None:
+    def test_agent_generated_baseline_does_not_repair_source_quality_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             contract_path = _write_standard_agent_generated_contract(tmp_path)
@@ -2230,36 +2628,25 @@ class WorkerLoopTests(unittest.TestCase):
                 in_round_repair_attempts=1,
             )
 
-            self.assertTrue(worker.saw_quality_repair_targets)
+            self.assertFalse(worker.saw_quality_repair_targets)
             self.assertEqual("agent_generated", result.baseline_source)
             self.assertIsNotNone(result.baseline_generation)
             generation = result.baseline_generation or {}
             self.assertEqual("ok", generation["status"])
-            self.assertEqual("code_generation", generation["agentic_judgment"]["stage"])
+            self.assertEqual("candidate_result_revalidation", generation["agentic_judgment"]["stage"])
             self.assertTrue(generation["agentic_judgment"]["accepted"], generation["agentic_judgment"]["issues"])
             self.assertEqual(1, generation["summary"]["valid"])
             self.assertEqual(2, generation["in_round_repair"]["attempt_count"])
             self.assertEqual(1, generation["in_round_repair"]["repair_attempt_count"])
             self.assertTrue(generation["in_round_repair"]["recovered"])
-            first_attempt = generation["in_round_repair"]["attempts"][0]
-            self.assertNotIn("agent_generated_solver_quality_contract_missing", first_attempt["failure_signatures"])
-            self.assertIn("agent_generated_solver_self_check_incomplete", first_attempt["failure_signatures"])
             repair_context = json.loads(
                 (tmp_path / "loop" / "agent_generated_baseline" / "repair_001" / "context_packet.json").read_text(
                     encoding="utf-8"
                 )
             )
             repair_targets = repair_context["loop_feedback"]["current_round_repair"]["repair_targets"]
-            self.assertIn("agent_generated_solver_expected_contract", repair_targets)
-            self.assertIn("stable_operation_identity", json.dumps(repair_targets, ensure_ascii=False))
-            self.assertIn(
-                "create_or_replace the full solver entrypoint",
-                json.dumps(repair_context["loop_feedback"]["instructions"], ensure_ascii=False),
-            )
-            self.assertIn(
-                "missing solver entrypoints require create_or_replace",
-                repair_context["worker_instruction"]["baseline_generation_rule"],
-            )
+            self.assertIn("result_revalidation_top_errors", repair_targets)
+            self.assertNotIn("agent_generated_solver_expected_contract", repair_targets)
             self.assertLess(result.baseline_key[0], 0.0)
             quality_summary = worker_loop_agent_quality_summary(result)
             self.assertTrue(quality_summary["baseline"]["enabled"])
@@ -2362,7 +2749,7 @@ class WorkerLoopTests(unittest.TestCase):
             )
             self.assertEqual(2, generation["in_round_repair"]["final_attempt_index"])
 
-    def test_agent_generated_baseline_repair_preserves_semantic_progress_separately_from_core_anchor(self) -> None:
+    def test_agent_generated_baseline_ignores_semantic_repair_progress(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             contract_path = _write_standard_agent_generated_contract(tmp_path)
@@ -2485,25 +2872,14 @@ class WorkerLoopTests(unittest.TestCase):
                     repair_attempts=2,
                 )
 
-            self.assertEqual([0, 1, 2], semantic_attempts)
-            self.assertEqual(worktrees[0], project_roots[1])
-            self.assertEqual(worktrees[1], project_roots[2])
-            self.assertEqual(2500, summary.best_metrics["makespan"])
-            self.assertEqual(worktrees[2], worktree)
-            self.assertEqual(2, generation["selected_attempt_index"])
-            attempts = generation["in_round_repair"]["attempts"]
-            self.assertEqual("repair_required", attempts[1]["semantic_review"]["status"])
-            self.assertEqual(0, attempts[1]["semantic_review"]["core_quality_regression"]["anchor_attempt_index"])
-            self.assertIn("baseline_core_anchor_quality_regression", attempts[1]["failure_signatures"])
-            repair_context = json.loads(
-                (tmp_path / "loop" / "agent_generated_baseline" / "repair_002" / "context_packet.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            targets = repair_context["loop_feedback"]["current_round_repair"]["repair_targets"]
-            self.assertEqual(1, targets["baseline_core_valid_anchor"]["attempt_index"])
-            self.assertEqual("tight_arc", targets["algorithm_semantic_review"]["blocking_findings"][0]["finding_id"])
-            self.assertNotIn("agent_generated_solver_method_stage", targets)
+            self.assertEqual([0], semantic_attempts)
+            self.assertEqual(1, len(project_roots))
+            self.assertEqual("source_project_without_incumbent_solvers", project_roots[0].name)
+            self.assertEqual(0, summary.total)
+            self.assertNotIn("makespan", summary.best_metrics)
+            self.assertEqual("agent_generated_baseline_failed_worktree", worktree.name)
+            self.assertNotIn("selected_attempt_index", generation)
+            self.assertNotIn("in_round_repair", generation)
 
     def test_agent_generated_baseline_memory_reaches_first_improvement_round(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2541,8 +2917,8 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual("validated_baseline", feedback["direction_graph"]["directions"][0]["status"])
             self.assertIn("agent_generated_quality_memory", feedback["experience_memory"])
             quality_memory = feedback["experience_memory"]["agent_generated_quality_memory"]
-            self.assertEqual(1, quality_memory["rejected_attempt_count"])
-            self.assertEqual(1, quality_memory["recovered_direction_count"])
+            self.assertNotIn("rejected_attempt_count", quality_memory)
+            self.assertNotIn("recovered_direction_count", quality_memory)
             self.assertTrue(
                 any(
                     (
@@ -2560,7 +2936,7 @@ class WorkerLoopTests(unittest.TestCase):
                 )
             )
 
-    def test_agent_generated_baseline_semantic_review_repairs_before_acceptance(self) -> None:
+    def test_agent_generated_baseline_repair_excludes_semantic_targets(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             contract_path = _write_standard_agent_generated_contract(tmp_path)
@@ -2598,10 +2974,8 @@ class WorkerLoopTests(unittest.TestCase):
                     / "context_packet.json"
                 ).read_text(encoding="utf-8")
             )
-            semantic_target = repair_context["loop_feedback"]["current_round_repair"]["repair_targets"][
-                "algorithm_semantic_review"
-            ]
-            self.assertEqual("reverse_move_memory", semantic_target["blocking_findings"][0]["category"])
+            repair_targets = repair_context["loop_feedback"]["current_round_repair"]["repair_targets"]
+            self.assertNotIn("algorithm_semantic_review", repair_targets)
             semantic_summary = worker_loop_semantic_review_summary(result)
             self.assertEqual(3, semantic_summary["baseline_review_attempt_count"])
             self.assertEqual(1, semantic_summary["status_counts"]["repair_required"])
@@ -2871,7 +3245,8 @@ class WorkerLoopTests(unittest.TestCase):
                 apply_worker_changes=False,
             )
 
-            self.assertTrue(result.agentic_judgment.accepted)
+            self.assertFalse(result.agentic_judgment.accepted)
+            self.assertEqual(["candidate_result_revalidation_failed"], result.agentic_judgment.issues)
             self.assertIsNotNone(result.smoke_summary)
             self.assertEqual(1, result.smoke_summary.total)
             self.assertEqual(0, result.smoke_summary.valid)
@@ -2884,7 +3259,54 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertFalse(cycle_result["smoke_gate"]["passed"])
             self.assertFalse(cycle_result["smoke_gate"]["full_evaluation_started"])
 
-    def test_agent_generated_ja_rejection_records_diagnostic_smoke_feedback(self) -> None:
+    def test_smoke_quick_test_failure_becomes_repairable_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+            failure = subprocess.CalledProcessError(
+                1,
+                "python -m py_compile examples/dummy_solver.py",
+                stderr="compile failed",
+            )
+
+            with patch("harness_agent.orchestration.cycle.GraphHarnessRunner.run", side_effect=failure):
+                result = run_worker_cycle(
+                    contract=contract,
+                    project_root=ROOT,
+                    output_dir=tmp_path / "cycle",
+                    context_packet_path=context_path,
+                    worker=ImproveOnceWorker(),
+                    experiment_id="test_quick_test_failure",
+                    max_steps=1,
+                    max_runtime_seconds=30,
+                    apply_worker_changes=False,
+                )
+
+            self.assertEqual(1, result.summary.total)
+            self.assertEqual(0, result.summary.valid)
+            self.assertEqual(1, result.summary.failed)
+            self.assertEqual(
+                {"failed_quick_test": 1},
+                result.summary.validation_summary["status_counts"],
+            )
+
+    def test_candidate_snapshot_ignores_opencode_runtime_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            solver = root / "examples" / "solver.py"
+            runtime_file = root / ".opencode" / "node_modules" / "runtime.js"
+            solver.parent.mkdir(parents=True)
+            runtime_file.parent.mkdir(parents=True)
+            solver.write_text("print('ok')\n", encoding="utf-8")
+            runtime_file.write_text("generated\n", encoding="utf-8")
+
+            snapshot = collect_worktree_snapshot(root)
+
+            self.assertIn("examples/solver.py", snapshot)
+            self.assertFalse(any(path.startswith(".opencode/") for path in snapshot))
+
+    def test_agent_generated_result_revalidation_failure_drives_repair_feedback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             contract_path = _write_standard_agent_generated_contract(tmp_path)
@@ -2904,23 +3326,21 @@ class WorkerLoopTests(unittest.TestCase):
             )
 
             self.assertFalse(result.agentic_judgment.accepted)
-            self.assertNotIn("agent_generated_solver_quality_contract_missing", result.agentic_judgment.issues)
-            self.assertIn("agent_generated_solver_self_check_incomplete", result.agentic_judgment.issues)
-            self.assertEqual(0, result.summary.total)
-            self.assertIsNotNone(result.diagnostic_smoke_summary)
-            self.assertEqual(1, result.diagnostic_smoke_summary.total)
-            self.assertEqual(0, result.diagnostic_smoke_summary.valid)
-            diagnostic_payload = json.dumps(
-                result.diagnostic_smoke_summary.validation_summary,
+            self.assertEqual(["candidate_result_revalidation_failed"], result.agentic_judgment.issues)
+            self.assertEqual(1, result.summary.total)
+            self.assertIsNotNone(result.smoke_summary)
+            self.assertEqual(1, result.smoke_summary.total)
+            self.assertEqual(0, result.smoke_summary.valid)
+            revalidation_payload = json.dumps(
+                result.agentic_judgment.checks["result_revalidation"],
                 ensure_ascii=False,
             )
-            self.assertIn("list", diagnostic_payload)
+            self.assertIn("list", revalidation_payload)
 
             cycle_result = json.loads((tmp_path / "cycle" / "cycle_result.json").read_text(encoding="utf-8"))
-            self.assertFalse(cycle_result["smoke_gate"]["enabled"])
-            self.assertTrue(cycle_result["diagnostic_smoke"]["enabled"])
-            self.assertTrue(cycle_result["diagnostic_smoke"]["diagnostic_only"])
-            self.assertFalse(cycle_result["diagnostic_smoke"]["passed"])
+            self.assertTrue(cycle_result["smoke_gate"]["enabled"])
+            self.assertFalse(cycle_result["smoke_gate"]["passed"])
+            self.assertFalse(cycle_result["diagnostic_smoke"]["enabled"])
 
             attempt = round_attempt_payload(
                 result,
@@ -2932,9 +3352,9 @@ class WorkerLoopTests(unittest.TestCase):
                 max_repair_attempts=2,
                 previous_attempts=[attempt],
             )
-            self.assertIn("diagnostic_smoke_invalid_candidate", feedback["avoid"])
-            self.assertIn("diagnostic_smoke_top_errors", feedback["repair_targets"])
-            self.assertIn("list", json.dumps(feedback["repair_targets"]["diagnostic_smoke_top_errors"], ensure_ascii=False))
+            self.assertIn("candidate_result_revalidation_failed", feedback["avoid"])
+            self.assertIn("result_revalidation_top_errors", feedback["repair_targets"])
+            self.assertIn("list", json.dumps(feedback["repair_targets"]["result_revalidation_top_errors"], ensure_ascii=False))
 
     def test_soft_accepts_generated_solver_quality_gap_after_valid_diagnostic_smoke(self) -> None:
         judgment = AgenticJudgment(
@@ -3136,7 +3556,7 @@ class WorkerLoopTests(unittest.TestCase):
             )
         )
 
-    def test_code_judgment_rejects_incomplete_local_search_acceptance(self) -> None:
+    def test_code_judgment_does_not_inspect_local_search_source_semantics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
@@ -3154,13 +3574,9 @@ class WorkerLoopTests(unittest.TestCase):
                 apply_worker_changes=False,
             )
 
-            self.assertFalse(result.agentic_judgment.accepted)
-            self.assertIn("incomplete_solution_acceptance_risk", result.agentic_judgment.issues)
-            self.assertEqual(0, result.summary.total)
-            self.assertFalse(result.full_evaluation_started)
-            checks = result.agentic_judgment.checks
-            self.assertIn("empty_schedule_scored_as_zero", checks["incomplete_solution_acceptance_risks"][0])
-            self.assertIn("decoder_can_return_partial_schedule", checks["incomplete_solution_acceptance_risks"][0])
+            self.assertTrue(result.agentic_judgment.accepted)
+            self.assertNotIn("incomplete_solution_acceptance_risk", result.agentic_judgment.issues)
+            self.assertTrue(result.full_evaluation_started)
 
     def test_code_judgment_rejects_partial_apply_rejections(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3325,7 +3741,7 @@ class WorkerLoopTests(unittest.TestCase):
             risks = result.agentic_judgment.checks["agent_generated_runtime_import_risks"]
             self.assertIn("examples/agent_generated_helper.py", risks[0])
 
-    def test_code_judgment_rejects_protected_promoted_fact_regression(self) -> None:
+    def test_code_judgment_does_not_semantically_inspect_protected_facts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
@@ -3356,10 +3772,9 @@ class WorkerLoopTests(unittest.TestCase):
                 apply_worker_changes=False,
             )
 
-            self.assertFalse(result.agentic_judgment.accepted)
-            self.assertIn("protected_promoted_fact_regression", result.agentic_judgment.issues)
-            regressions = result.agentic_judgment.checks["protected_promoted_fact_regressions"]
-            self.assertIn("normalization", regressions[0])
+            self.assertTrue(result.agentic_judgment.accepted)
+            self.assertNotIn("protected_promoted_fact_regression", result.agentic_judgment.issues)
+            self.assertNotIn("protected_promoted_fact_regressions", result.agentic_judgment.checks)
 
     def test_protected_fact_guard_ignores_future_ablation_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3427,7 +3842,7 @@ class WorkerLoopTests(unittest.TestCase):
             )
 
             self.assertTrue(result.agentic_judgment.accepted)
-            self.assertEqual([], result.agentic_judgment.checks["protected_promoted_fact_regressions"])
+            self.assertNotIn("protected_promoted_fact_regressions", result.agentic_judgment.checks)
 
     def test_feasibility_protected_fact_allows_safe_dispatch_edit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3465,9 +3880,9 @@ class WorkerLoopTests(unittest.TestCase):
             )
 
             self.assertTrue(result.agentic_judgment.accepted)
-            self.assertEqual([], result.agentic_judgment.checks["protected_promoted_fact_regressions"])
+            self.assertNotIn("protected_promoted_fact_regressions", result.agentic_judgment.checks)
 
-    def test_code_judgment_rejects_incremental_edit_without_rule_hypothesis(self) -> None:
+    def test_code_judgment_does_not_require_rule_hypothesis_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
@@ -3488,9 +3903,9 @@ class WorkerLoopTests(unittest.TestCase):
                 apply_worker_changes=False,
             )
 
-            self.assertFalse(result.agentic_judgment.accepted)
-            self.assertIn("missing_rule_operator_hypotheses", result.agentic_judgment.issues)
-            self.assertFalse(result.full_evaluation_started)
+            self.assertTrue(result.agentic_judgment.accepted)
+            self.assertNotIn("missing_rule_operator_hypotheses", result.agentic_judgment.issues)
+            self.assertTrue(result.full_evaluation_started)
 
     def test_code_judgment_rejects_empty_slot_proposal_without_risk_note(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

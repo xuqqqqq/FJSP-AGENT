@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from harness_agent.agents.incumbent_audit import build_incumbent_capability_audit
+
 from harness_agent.context.compaction import (
     ROUND_CONTEXT_MAX_CHARS,
     ROUND_FEEDBACK_MAX_CHARS,
@@ -18,7 +20,16 @@ from harness_agent.context.compaction import (
 )
 from harness_agent.context.loader import load_context_packet
 from harness_agent.domains.context import get_domain_context_provider
-from harness_agent.context.knowledge import method_package_catalog, resolve_method_package, select_knowledge_cards
+from harness_agent.context.knowledge import (
+    knowledge_query_catalog,
+    method_family_catalog,
+    method_package_catalog,
+    resolve_worker_implementation_skills,
+    resolve_method_package,
+    select_knowledge_cards,
+    select_tagged_knowledge_cards,
+    selection_cards,
+)
 from harness_agent.core.models import TaskContract
 from harness_agent.domains.families import get_problem_family
 from harness_agent.slots.contract import ResolvedCodeSlot
@@ -117,10 +128,15 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         active_features=active_features,
     )
     auto_cards = knowledge_selection.cards
+    strategy_card_paths = selection_cards(
+        problem_family=contract.problem_family,
+        stage="strategy",
+    )
     package_catalog = (
         method_package_catalog(
             problem_family=contract.problem_family,
             active_features=active_features,
+            knowledge_query_tags=["__direction_selection_pending__"],
         )
         if agent_generated_solver
         else {
@@ -131,8 +147,17 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
             "recommended_package_id": None,
         }
     )
+    query_catalog = knowledge_query_catalog(problem_family=contract.problem_family)
+    family_catalog = method_family_catalog(
+        problem_family=contract.problem_family,
+        active_features=active_features,
+    )
     knowledge_card_paths = _unique_paths([*request.knowledge_cards, *auto_cards])
     knowledge_cards = [_source_payload(path, request.max_chars_per_source) for path in knowledge_card_paths]
+    strategy_selection_cards = [
+        _source_payload(path, min(request.max_chars_per_source, 12_000))
+        for path in strategy_card_paths
+    ]
     # `required_order` 是 worker 的最小阅读顺序控制，用于把“先看契约/实例/slot，
     # 再改代码”这种流程固化在上下文里，而不是依赖模型自行猜顺序。
     required_order = [
@@ -207,6 +232,8 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
             "solver_command_template": contract.commands.solver,
             "evaluator_command_template": contract.commands.evaluator,
             "quick_test_command": contract.commands.quick_test,
+            "solution_contract": domain_context_provider.solution_contract(),
+            "solution_format": domain_context_provider.solution_contract().get("format"),
             "resources": {key: str(value) for key, value in contract.resources.items()},
             "formal_verdict_owner": "AlgoForge Core",
             "worker_self_evaluation_policy": (
@@ -243,8 +270,11 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         "instance_diagnostics": instance_diagnostics,
         "documents": docs,
         "knowledge_cards": knowledge_cards,
+        "strategy_selection_cards": strategy_selection_cards,
         "auto_knowledge_cards": [str(path) for path in auto_cards],
         "knowledge_selection": knowledge_selection.audit,
+        "knowledge_query_catalog": query_catalog,
+        "method_family_catalog": family_catalog,
         "method_package_catalog": package_catalog,
         "previous_report": previous_report,
         "previous_pipeline_memory": previous_pipeline_memory,
@@ -318,9 +348,23 @@ def write_refreshed_context_packet(
     incumbent_code_context = _incumbent_code_context(refreshed, project_root=project_root)
     if incumbent_code_context:
         refreshed["incumbent_code_context"] = incumbent_code_context
+        incumbent_capability_audit = build_incumbent_capability_audit(
+            incumbent_code_context,
+            project_root=project_root,
+        )
+        if incumbent_capability_audit:
+            refreshed["incumbent_capability_audit"] = incumbent_capability_audit
     compacted_feedback = compact_json(loop_feedback, max_chars=ROUND_FEEDBACK_MAX_CHARS)
     refreshed["loop_feedback"] = compacted_feedback.payload
     activate_method_package_context(
+        refreshed,
+        direction_plan=(
+            loop_feedback.get("current_direction_plan")
+            if isinstance(loop_feedback.get("current_direction_plan"), dict)
+            else None
+        ),
+    )
+    activate_direction_knowledge_context(
         refreshed,
         direction_plan=(
             loop_feedback.get("current_direction_plan")
@@ -393,8 +437,9 @@ def activate_method_package_context(
 ) -> dict[str, Any] | None:
     """把一个选中的 Method Package 注入 worker 上下文。
 
-    约束是“一轮只激活一个包”。这样可以避免不同算法流派的资料被同时混入，
-    导致 worker 在同一 direction 中拼接出不可审计的混合策略。
+    一轮最多激活一个完整 Method Package，避免两套完整参考实现互相覆盖。
+    这不限制 Main 选择多个兼容方法族；互补实现知识由独立的 Worker Skills
+    精确匹配并组合。
     """
 
     task = context.get("task") if isinstance(context.get("task"), dict) else {}
@@ -403,15 +448,23 @@ def activate_method_package_context(
         if isinstance(context.get("method_package_catalog"), dict)
         else {}
     )
-    if catalog.get("status") != "ok" or not catalog.get("packages"):
+    if catalog.get("status") != "ok":
         context.pop("active_method_package", None)
         return None
     active_features = [str(item) for item in catalog.get("active_features") or []]
     requested_id = str((direction_plan or {}).get("method_package_id") or "").strip()
+    if not requested_id:
+        context.pop("active_method_package", None)
+        return None
     package = resolve_method_package(
         problem_family=str(task.get("problem_family") or ""),
         package_id=requested_id,
         active_features=active_features,
+        knowledge_query_tags=[
+            str(item)
+            for item in (direction_plan or {}).get("knowledge_query") or []
+            if str(item).strip()
+        ],
     )
     if not package:
         context.pop("active_method_package", None)
@@ -450,12 +503,71 @@ def activate_method_package_context(
         "asset_records": package_cards,
         "worker_rule": (
             "Adapt this one package to the active IO and solver contract. Implement every required component and "
-            "coupled group in its implementation_contract before claiming the method is complete. Do not blend in "
-            "a second algorithm family during the same direction. Same-direction repairs must close the latest "
-            "missing/partial component matrix rather than switching methods or patching one symptom in isolation."
+            "coupled group in its implementation_contract before claiming the method is complete. It may be "
+            "combined only with method families explicitly selected by Main and matched to Worker Skills. "
+            "Same-direction repairs must close the latest missing/partial component matrix rather than switching "
+            "methods or patching one symptom in isolation."
         ),
     }
     return context["active_method_package"]
+
+
+def activate_direction_knowledge_context(
+    context: dict[str, Any],
+    *,
+    direction_plan: dict[str, Any] | None,
+    max_chars_per_asset: int = 10_000,
+) -> dict[str, Any] | None:
+    """Run second-stage retrieval after Main has selected a method direction."""
+
+    task = context.get("task") if isinstance(context.get("task"), dict) else {}
+    catalog = context.get("method_package_catalog") if isinstance(context.get("method_package_catalog"), dict) else {}
+    plan = direction_plan if isinstance(direction_plan, dict) else {}
+    query = [str(item).strip().lower() for item in plan.get("knowledge_query") or [] if str(item).strip()]
+    method_families = plan.get("method_families") or [plan.get("method_family")]
+    skill_selection = resolve_worker_implementation_skills(
+        problem_family=str(task.get("problem_family") or ""),
+        method_families=method_families,
+        active_features=[str(item) for item in catalog.get("active_features") or []],
+        knowledge_query_tags=query,
+    )
+    context["active_worker_implementation_skills"] = skill_selection
+    if not query:
+        context.pop("active_direction_knowledge", None)
+        return None
+    selection = select_tagged_knowledge_cards(
+        problem_family=str(task.get("problem_family") or ""),
+        knowledge_query_tags=query,
+        instance_diagnostics=(
+            context.get("instance_diagnostics")
+            if isinstance(context.get("instance_diagnostics"), dict)
+            else None
+        ),
+        active_features=[str(item) for item in catalog.get("active_features") or []],
+    )
+    paths = [str(path) for path in selection.cards]
+    existing_cards = [item for item in context.get("knowledge_cards") or [] if isinstance(item, dict)]
+    by_path = {str(item.get("path") or ""): item for item in existing_cards if str(item.get("path") or "")}
+    records: list[dict[str, Any]] = []
+    for path in selection.cards:
+        key = str(path)
+        record = by_path.get(key) or _source_payload(path, max_chars_per_asset)
+        by_path[key] = record
+        records.append(record)
+    context["knowledge_cards"] = list(by_path.values())
+    context["active_direction_knowledge"] = {
+        "method_family": str(plan.get("method_family") or ""),
+        "method_families": skill_selection.get("method_families") or [],
+        "query": query,
+        "paths": paths,
+        "asset_records": records,
+        "audit": selection.audit,
+        "worker_rule": (
+            "Read only these second-stage cards and the matched Worker Implementation Skills. Combine only the "
+            "method families selected by Main, and convert them into explicit behavioral deliverables."
+        ),
+    }
+    return context["active_direction_knowledge"]
 
 
 def _unique_strings(values: list[str]) -> list[str]:

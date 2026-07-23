@@ -15,11 +15,46 @@ import shlex
 import subprocess
 from pathlib import Path
 
-from harness_agent.context.loader import load_context_dict
 from ..deepseek_client import load_local_env, resolve_secret
-from harness_agent.core.runner import CREATE_NEW_PROCESS_GROUP, kill_process_tree
-from harness_agent.context.worker import worker_context_sections
-from ..worker import CodingWorker, ExperimentSpec, WorkerCapabilities, WorkerResult
+from harness_agent.context.worker import (
+    WORKER_ASSIGNMENT_MAX_CHARS,
+    WORKER_ASSIGNMENT_SOFT_CHARS,
+)
+from harness_agent.core.cancellation import CancellationToken
+from harness_agent.core.runner import (
+    CREATE_NEW_PROCESS_GROUP,
+    cleanup_process_descendants,
+    kill_process_tree,
+)
+from ..worker import CodingWorker, ExperimentSpec, WorkerAssignment, WorkerCapabilities, WorkerResult
+
+
+DEFAULT_OPENCODE_MODEL = "deepseek/deepseek-v4-pro"
+OPENCODE_WORKER_AGENT = "algoforge-worker"
+MIN_OPENCODE_AGENT_STEPS = 8
+MAX_OPENCODE_AGENT_STEPS = 16
+WORKER_RUNTIME_POLICY_MAX_CHARS = 4_000
+OPENCODE_WORKER_ROLE_PROMPT = """You are `algoforge-worker`.
+
+Execute the attached validated WorkerAssignment as the sole planning input.
+Do not re-diagnose or replace the assigned direction. Load every selected
+`implementation_skills` entry, study its implementation guidance, and decide
+how to combine only the method families selected by Main. Skill references and
+code examples are advisory: adopt, adapt, combine, or reject them based on the
+incumbent and task evidence while preserving the assignment's hard contracts.
+Read only `target_file`, those Skills, and `read_set`; edit only `target_file`,
+and keep unrelated behavior unchanged. In baseline mode, a missing `target_file`
+is expected: create it instead of treating its absence as a blocker. In
+improvement or repair mode, read the existing `target_file` before editing it.
+Do not use subagents, questions, or network access. If the assignment is
+incomplete or contradictory, report the concrete blocker instead of expanding
+scope. During execution, publish concise Simplified Chinese commentary before
+each meaningful phase: what evidence you are checking, what implementation
+decision follows from it, what you changed, and what the latest check proves.
+Keep code, commands, paths, and symbol names unchanged. Do not expose hidden
+chain-of-thought; report only concise engineering reasoning grounded in visible
+evidence. Return a concise Simplified Chinese report of changed files and checks run.
+"""
 
 
 class OpenCodeWorker(CodingWorker):
@@ -33,12 +68,34 @@ class OpenCodeWorker(CodingWorker):
     3. 保存可审计产物，便于主流程判断是否接受候选。
     """
 
-    def __init__(self, executable: str = "opencode", model: str | None = None) -> None:
-        self.executable = executable
-        executable_path = Path(executable)
-        self.executable_path = str(executable_path.resolve()) if executable_path.exists() else shutil.which(executable)
-        self.model = model or os.environ.get("OPENCODE_MODEL")
+    def __init__(
+        self,
+        executable: str = "opencode",
+        model: str | None = None,
+        variant: str | None = None,
+        timeout_seconds: int | None = None,
+        cancellation: CancellationToken | None = None,
+    ) -> None:
+        configured_executable = (
+            os.environ.get("OPENCODE_EXECUTABLE") or executable
+            if executable == "opencode"
+            else executable
+        )
+        self.executable = configured_executable
+        executable_path = Path(configured_executable)
+        self.executable_path = (
+            str(executable_path.resolve()) if executable_path.exists() else shutil.which(configured_executable)
+        )
+        # Fresh candidate worktrees have no project-local model history.  An
+        # explicit default keeps `opencode run` non-interactive in services.
+        self.model = model or os.environ.get("OPENCODE_MODEL") or DEFAULT_OPENCODE_MODEL
+        self.variant = (variant or os.environ.get("OPENCODE_WORKER_VARIANT") or "").strip()
         self.run_command = os.environ.get("OPENCODE_RUN_COMMAND", "run")
+        self.timeout_seconds = resolve_optional_timeout_seconds(
+            timeout_seconds,
+            env_var="OPENCODE_WORKER_TIMEOUT_SECONDS",
+        )
+        self.cancellation = cancellation
 
     def capabilities(self) -> WorkerCapabilities:
         available = self.executable_path is not None
@@ -52,20 +109,37 @@ class OpenCodeWorker(CodingWorker):
     def run_experiment(self, spec: ExperimentSpec) -> WorkerResult:
         """执行一次 OpenCode worker 周期并收集审计产物。
 
-        `ExperimentSpec` 中最关键的三段数据流是：
-        - `context_packet_path`：只读上下文，供 prompt 引导 agent；
-        - `worktree_path`：唯一允许被 agent 直接修改的候选目录；
-        - `output_dir`：worker 自己的提示词、命令、日志、stderr 归档位。
+        `worker_assignment_path` 是唯一规划输入；完整 Context Packet 仍由
+        Main Agent、JA、Semantic Reviewer 和 Core 使用，不会传给 Worker。
+        `worktree_path` 是唯一允许直接修改的候选目录，`output_dir` 只保存
+        Worker 的协议、命令、事件和 stderr 证据。
 
         返回值只描述本次 worker 进程是否正常结束，不直接声明候选算法已
         通过 evaluator。
         """
+        if self.cancellation is not None:
+            self.cancellation.raise_if_cancelled()
         output_dir = (
             Path(spec.output_dir)
             if spec.output_dir
             else Path(spec.worktree_path) / ".algoforge_worker" / spec.experiment_id
         ).resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            assignment_path, assignment = self._load_assignment(spec)
+            self._validate_required_inputs(assignment=assignment, worktree_path=Path(spec.worktree_path))
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            error_path = output_dir / "worker_assignment_error.json"
+            error_path.write_text(
+                json_dumps({"status": "invalid_assignment", "reason": str(exc)}),
+                encoding="utf-8",
+            )
+            return WorkerResult(
+                status="invalid_assignment",
+                changed_files=[],
+                summary=f"OpenCode was not started because the Main Agent assignment is invalid: {exc}",
+                artifacts={"output_dir": str(output_dir), "assignment_error": str(error_path)},
+            )
         if self.executable_path is None:
             return WorkerResult(
                 status="unavailable",
@@ -74,56 +148,94 @@ class OpenCodeWorker(CodingWorker):
                 artifacts={"output_dir": str(output_dir)},
             )
 
-        context_sections = self._context_sections(spec)
-        prompt = self._prompt(spec, context_sections=context_sections)
+        prompt = self._prompt(spec, assignment=assignment)
         prompt_path = output_dir / "opencode_prompt.md"
         budget_path = output_dir / "opencode_context_budget.json"
         stdout_path = output_dir / "opencode.stdout.txt"
+        events_path = output_dir / "opencode_events.jsonl"
         stderr_path = output_dir / "opencode.stderr.txt"
         command_path = output_dir / "opencode_command.json"
+        runtime_config_path = output_dir / "opencode_runtime_config.json"
         prompt_path.write_text(prompt, encoding="utf-8")
+        assignment_chars = len(assignment_path.read_text(encoding="utf-8"))
+        context_budget = worker_context_budget_payload(
+            prompt_chars=len(prompt),
+            assignment_chars=assignment_chars,
+        )
         budget_path.write_text(
-            json_dumps(
-                {
-                    "stable_chars": len(context_sections["stable"]),
-                    "dynamic_chars": len(context_sections["dynamic"]),
-                    "prompt_chars": len(prompt),
-                    "approx_prompt_tokens_at_4_chars": (len(prompt) + 3) // 4,
-                    "note": "Provider tokenization and OpenCode internal tool turns determine billed tokens.",
-                }
-            ),
+            json_dumps(context_budget),
             encoding="utf-8",
         )
-        command = self._command(prompt_path)
+        runtime_config = self._runtime_config(
+            spec,
+            assignment=assignment,
+            attachment_paths=[prompt_path, assignment_path],
+        )
+        runtime_config_path.write_text(json_dumps(runtime_config), encoding="utf-8")
+        command = self._command(
+            prompt_path,
+            assignment_path,
+            worktree_path=Path(spec.worktree_path),
+        )
         command_path.write_text(json_dumps(command), encoding="utf-8")
 
         # OpenCode 直接改 worktree，所以 stdout/stderr 不是装饰性日志，
         # 而是回溯本轮行为、定位超时/鉴权失败的第一手证据。
-        popen_kwargs: dict[str, object] = {
-            "cwd": spec.worktree_path,
-            "env": opencode_subprocess_environment(),
-            "text": True,
-            "stdout": subprocess.PIPE,
-            "stderr": subprocess.PIPE,
-        }
-        if os.name == "nt":
-            popen_kwargs["creationflags"] = CREATE_NEW_PROCESS_GROUP
-        else:
-            popen_kwargs["start_new_session"] = True
-        process = subprocess.Popen(command, **popen_kwargs)
-        try:
-            stdout, stderr = process.communicate(timeout=max(1, spec.max_runtime_seconds))
-        except subprocess.TimeoutExpired as exc:
-            # 超时后必须显式结束整棵进程树，避免子进程继续占用 worktree、
-            # 文件句柄或外部 provider 连接。
-            kill_process_tree(process)
-            stdout, stderr = process.communicate()
-            stdout_path.write_text(stdout or exc.stdout or "", encoding="utf-8")
-            stderr_path.write_text(stderr or exc.stderr or "", encoding="utf-8")
+        timed_out = False
+        # OpenCode emits one JSON object per line. Writing its streams directly
+        # to disk lets the Web monitor expose public commentary while the model
+        # is still working, instead of dumping the whole trace after exit.
+        with (
+            events_path.open("w", encoding="utf-8", buffering=1) as events_stream,
+            stderr_path.open("w", encoding="utf-8", buffering=1) as stderr_stream,
+        ):
+            popen_kwargs: dict[str, object] = {
+                "cwd": spec.worktree_path,
+                "env": opencode_subprocess_environment(runtime_config=runtime_config),
+                "stdin": subprocess.DEVNULL,
+                "text": True,
+                "stdout": events_stream,
+                "stderr": stderr_stream,
+            }
+            if os.name == "nt":
+                popen_kwargs["creationflags"] = CREATE_NEW_PROCESS_GROUP
+            else:
+                popen_kwargs["start_new_session"] = True
+            process = subprocess.Popen(command, **popen_kwargs)
+            registration = (
+                self.cancellation.register_terminator(lambda: kill_process_tree(process))
+                if self.cancellation is not None
+                else None
+            )
+            try:
+                process.wait(timeout=self.timeout_seconds)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                # 超时后必须显式结束整棵进程树，避免子进程继续占用 worktree、
+                # 文件句柄或外部 provider 连接。
+                kill_process_tree(process)
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    kill_process_tree(process)
+                    try:
+                        process.kill()
+                    except OSError:
+                        pass
+            finally:
+                events_stream.flush()
+                stderr_stream.flush()
+                if self.cancellation is not None:
+                    self.cancellation.unregister_terminator(registration)
+
+        stdout = events_path.read_text(encoding="utf-8", errors="replace")
+        stderr = stderr_path.read_text(encoding="utf-8", errors="replace")
+        stdout_path.write_text(stdout, encoding="utf-8")
+        if timed_out:
             return WorkerResult(
                 status="timeout",
                 changed_files=[],
-                summary=f"OpenCode exceeded {spec.max_runtime_seconds} seconds.",
+                summary=f"OpenCode exceeded {self.timeout_seconds} seconds.",
                 raw_log_path=str(stdout_path),
                 artifacts={
                     "output_dir": str(output_dir),
@@ -131,11 +243,16 @@ class OpenCodeWorker(CodingWorker):
                     "context_budget": str(budget_path),
                     "stderr": str(stderr_path),
                     "command": str(command_path),
+                    "runtime_config": str(runtime_config_path),
+                    "worker_assignment": str(assignment_path),
+                    "events": str(events_path),
                 },
             )
 
-        stdout_path.write_text(stdout, encoding="utf-8")
-        stderr_path.write_text(stderr, encoding="utf-8")
+        cleanup_process_descendants(process)
+        if self.cancellation is not None:
+            self.cancellation.raise_if_cancelled()
+
         status = opencode_status(process.returncode, stdout, stderr)
         summary = f"OpenCode exited with code {process.returncode}. Harness diff/evaluator artifacts decide acceptance."
         return WorkerResult(
@@ -150,10 +267,13 @@ class OpenCodeWorker(CodingWorker):
                 "stdout": str(stdout_path),
                 "stderr": str(stderr_path),
                 "command": str(command_path),
+                "runtime_config": str(runtime_config_path),
+                "worker_assignment": str(assignment_path),
+                "events": str(events_path),
             },
         )
 
-    def _command(self, prompt_path: Path) -> list[str]:
+    def _command(self, prompt_path: Path, assignment_path: Path, *, worktree_path: Path) -> list[str]:
         """构造最终命令行。
 
         使用 OpenCode 原生 file attachment 让说明在首个模型请求中直接可见，
@@ -164,170 +284,254 @@ class OpenCodeWorker(CodingWorker):
             command.extend(shlex.split(self.run_command, posix=False))
         if self.model:
             command.extend(["--model", self.model])
-        command.append("Follow the attached worker instructions and complete the bounded code task.")
+        if self.variant:
+            command.extend(["--variant", self.variant])
+        session_title = f"AlgoForge Worker {worktree_path.parent.name}"[:120]
+        # Explicit titles suppress OpenCode's auxiliary title-generation call.
+        command.extend(["--title", session_title])
+        command.extend(
+            [
+                "--agent",
+                OPENCODE_WORKER_AGENT,
+                "--format",
+                "json",
+                f"--dir={worktree_path.resolve()}",
+            ]
+        )
+        command.append("Execute the attached Main Agent assignment under the attached worker runtime policy.")
         # `--file` 是数组参数；使用等号形式可避免把后续位置参数误吞成第二个文件。
         command.append(f"--file={prompt_path}")
+        command.append(f"--file={assignment_path}")
         return command
 
-    def _prompt(
+    def _runtime_config(
         self,
         spec: ExperimentSpec,
         *,
-        context_sections: dict[str, str] | None = None,
-    ) -> str:
-        """生成给 OpenCode 的完整 worker 提示词。
+        assignment: WorkerAssignment,
+        attachment_paths: list[Path],
+    ) -> dict[str, object]:
+        """给 OpenCode 注入只对本次 worker 生效的硬执行边界。
 
-        stable/dynamic context 在这里以预裁剪后的 JSON 文本注入。该函数
-        只负责编排 worker 可见上下文，不参与任何结果验收逻辑。
+        提示词中的 ``max_steps`` 只是自然语言约束，OpenCode 不会据此限制
+        自己的工具轮次。这里用当前安装版本支持的 ``task: deny`` 真正禁止
+        子 Agent，并为读取、编辑、编译和一次 smoke 留出有限的主 Agent 步数。
         """
-        context_sections = context_sections or self._context_sections(spec)
-        local_inputs = self._local_input_hint(spec)
-        return f"""
-You are running inside an AlgoForge worker cycle.
+        requested_steps = max(1, int(spec.max_steps)) * 3
+        agent_steps = min(MAX_OPENCODE_AGENT_STEPS, max(MIN_OPENCODE_AGENT_STEPS, requested_steps))
+        worktree_path = Path(spec.worktree_path).resolve()
+        read_permissions: dict[str, str] = {"*": "deny"}
+        self._allow_worktree_path(read_permissions, worktree_path, assignment.target_file)
+        for item in assignment.read_set:
+            self._allow_worktree_path(read_permissions, worktree_path, str(item.get("path") or ""))
+        skill_permissions: str | dict[str, str] = "deny"
+        if assignment.implementation_skills:
+            skill_permissions = {"*": "deny"}
+            for item in assignment.implementation_skills:
+                skill_id = str(item.get("skill_id") or "").strip()
+                sandbox_path = str(item.get("sandbox_path") or "").strip()
+                skill_permissions[skill_id] = "allow"
+                self._allow_worktree_tree(read_permissions, worktree_path, sandbox_path)
+        edit_permissions: dict[str, str] = {"*": "deny"}
+        self._allow_worktree_path(edit_permissions, worktree_path, assignment.target_file)
+        bash_permissions = {
+            "*": "deny",
+            f"python -m py_compile {assignment.target_file}": "allow",
+            f'python -m py_compile "{assignment.target_file}"': "allow",
+        }
+        smoke_wrapper = Path(spec.worktree_path) / ".algoforge_worker_runtime" / "run_smoke.py"
+        if smoke_wrapper.is_file():
+            bash_permissions["python .algoforge_worker_runtime/run_smoke.py"] = "allow"
+        return {
+            "$schema": "https://opencode.ai/config.json",
+            "snapshot": False,
+            "agent": {
+                OPENCODE_WORKER_AGENT: {
+                    "description": "Bounded AlgoForge implementation worker",
+                    "mode": "primary",
+                    "prompt": OPENCODE_WORKER_ROLE_PROMPT,
+                    "steps": agent_steps,
+                    "permission": {
+                        "*": "deny",
+                        "read": read_permissions,
+                        "glob": "deny",
+                        "grep": "deny",
+                        "edit": edit_permissions,
+                        "bash": bash_permissions,
+                        "external_directory": {
+                            "*": "deny",
+                            **{str(path.resolve()): "allow" for path in attachment_paths},
+                        },
+                        "task": "deny",
+                        "question": "deny",
+                        "webfetch": "deny",
+                        "websearch": "deny",
+                        "list": "deny",
+                        "lsp": "deny",
+                        "todowrite": "deny",
+                        "doom_loop": "deny",
+                        "skill": skill_permissions,
+                    },
+                }
+            },
+        }
 
-The stable and priority context below are the authoritative worker view of the
-context packet. Do not read the full context packet again; inspect only the
-specific worktree source or knowledge asset paths needed for this direction.
+    @staticmethod
+    def _allow_worktree_path(permissions: dict[str, str], worktree_path: Path, relative: str) -> None:
+        """Allow one path in the forms emitted by OpenCode on Windows and POSIX."""
 
-Task:
-- State a concise natural-language strategy in your own working notes if useful.
-- Make at most {max(1, spec.max_steps)} small code-edit steps.
-- Modify only files allowed by the context packet edit_policy.
-- Do not edit forbidden paths such as .git or outputs.
-- Do not claim benchmark success. The harness will snapshot the worktree, run
-  the fixed evaluator, and decide whether this candidate is promoted.
-- Worker execution is intentionally narrow. You may run one compile check and
-  at most one fixed-seed short smoke using the first active instance. Do not run
-  the formal evaluator command, any benchmark command, multiple seeds, repeated
-  solver trials, the full test suite, or parameter sweeps. Core owns all formal
-  and multi-seed evaluation.
-- Use only the read-only instance mirror listed in Runtime paths for inspection
-  and the single worker smoke. Do not request the original external path.
-- Agent-generated solver entrypoints must accept `--time-limit-sec`. Treat it
-  as one shared wall-clock budget and return comfortably before it expires.
-  Check the deadline inside nested candidate scans, not only between restarts
-  or outer iterations. Bound every graph/sequence traversal by a visited set or
-  the parsed operation count.
-- Apply neighborhood moves transactionally: mutate a clone/snapshot, fully
-  decode and validate it, then commit it. A failed move must not leave the
-  current state, machine links, assignment, or sequences partially mutated.
-- Run at most one solver smoke, with `--time-limit-sec` no greater than 3
-  seconds. If it fails or times out, stop testing and leave the concrete error
-  for Core repair feedback; do not retry with inline loops or a longer budget.
-- Prefer a complete, reversible solver improvement over broad rewrites.
-- Treat `loop_feedback.current_direction_plan` as the Main Agent experiment
-  contract. Implement that direction and keep same-direction repairs inside its
-  change scope instead of switching to an unrelated method.
-- When `active_method_package` is present, read its assets and adapt that one
-  package to the active IO/CLI. Preserve its executable decoder, neighborhood,
-  tabu/aspiration, adaptive-search, and diversification structure. Do not blend
-  a second method family into the same direction or reduce the package to a
-  random hill climber while retaining the stronger method name.
-- When `loop_feedback.current_direction_plan.implementation_bundle` is present,
-  use its IDs together with `active_method_package.implementation_contract` as
-  one complete method implementation contract. Before editing, enumerate every
-  required component and coupled group in your working plan.
-  Implement the whole bundle coherently in this direction; do not stop after
-  fixing one convenient finding while other required components remain absent.
-- During same-direction repair, use the latest
-  `repair_targets.algorithm_semantic_review.implementation_coverage` matrix as
-  the component remaining-work list and `coupled_group_coverage` as the
-  integration remaining-work list. Preserve entries marked implemented and
-  repair every missing or partial entry before claiming completion.
-- If the priority context says `agent_generated_solver_quality_contract.enabled`
-  is true, create or edit the standalone solver entrypoint referenced by the
-  context packet's `evaluator_protocol.solver_command_template`. The code must
-  satisfy the listed parser, representation, decoder, coverage, eligibility,
-  precedence, non-overlap, runtime-bound, and incumbent-preservation
-  capabilities before optimizing objective value.
-- If priority context `round_type` is `baseline_or_single_round`, create or
-  replace the complete generated solver entrypoint when needed; do not preserve
-  a nonexistent incumbent. If `round_type` is `improvement_round`, preserve the
-  promoted incumbent skeleton unless the context says legality repair is
-  required.
-- For agent-generated baselines, stdout may include a short self-check, but the
-  decisive evidence is the actual code diff. Cite real function/variable/guard
-  names that exist in the file you changed. If you mention representation,
-  decoder, variant handling, runtime bounds, or incumbent preservation in notes
-  or self-check output, anchor each claim to source symbols in the changed file.
-- Because this worker edits files directly instead of returning structured
-  proposal JSON, include a source-level validation helper such as
-  `validate_schedule(...)` or `self_check_solution(...)` in the generated solver
-  and call it before writing output. It must reject missing/duplicate
-  operations, ineligible machines, duration mismatches, precedence violations,
-  and machine overlaps. It must also verify every active variant capability
-  listed under `agent_generated_solver_quality_contract.variant_required_code_capabilities`.
-  For example, sequence-dependent setup requires setup-aware same-machine arcs
-  such as `start >= prev_end + setup_time(...)`; no-wait requires successor
-  starts to match predecessor completion; release dates require starts no
-  earlier than the parsed release time.
-- Any parser, decoder, schedule builder, or validation/self-check helper you
-  define must be called by the runnable flow before the solution file is
-  written. Do not leave helper functions unused as evidence-only scaffolding.
-- Keep every quick-test solution, metrics file, and scratch artifact inside the
-  current worktree, for example under `.algoforge_worker_tmp/`. Never use
-  `%TEMP%`, `$env:TEMP`, `/tmp`, or any external directory that would require a
-  permission prompt. Finish after the bounded quick test instead of continuing
-  open-ended exploration.
-- Before finishing, verify that the solver entrypoint named by
-  `evaluator_protocol.solver_command_template` exists and is non-empty. If it
-  does not, continue implementing unless a concrete blocker makes editing
-  impossible.
+        normalized = relative.replace("\\", "/").strip()
+        if not normalized:
+            return
+        absolute = (worktree_path / normalized).resolve()
+        for pattern in (normalized, str(absolute), absolute.as_posix()):
+            permissions[pattern] = "allow"
 
-Stable task context:
-```json
-{context_sections["stable"]}
-```
+    @staticmethod
+    def _allow_worktree_tree(permissions: dict[str, str], worktree_path: Path, relative: str) -> None:
+        normalized = relative.replace("\\", "/").strip().rstrip("/")
+        if not normalized:
+            return
+        absolute = (worktree_path / normalized).resolve()
+        for pattern in (
+            normalized,
+            f"{normalized}/**",
+            str(absolute),
+            f"{absolute}{os.sep}**",
+            absolute.as_posix(),
+            f"{absolute.as_posix()}/**",
+        ):
+            permissions[pattern] = "allow"
 
-Priority context (dynamic tail):
-```json
-{context_sections["dynamic"]}
-```
+    def _load_assignment(self, spec: ExperimentSpec) -> tuple[Path, WorkerAssignment]:
+        """缺少 Main Agent 任务书时 fail closed，不启动外部进程。"""
 
-Runtime paths (dynamic; intentionally placed after cacheable instructions):
-- Worktree: {spec.worktree_path}
-- First active instance mirror: {local_inputs}
+        if not spec.worker_assignment_path:
+            raise ValueError("worker_assignment_path is required")
+        assignment_path = Path(spec.worker_assignment_path).resolve()
+        if not assignment_path.is_file():
+            raise ValueError(f"worker assignment does not exist: {assignment_path}")
+        return assignment_path, WorkerAssignment.load(assignment_path)
 
-If no safe edit is possible, leave the worktree unchanged and explain why in
-stdout.  The harness will record your stdout/stderr and the worktree delta.
-""".strip()
+    def _validate_required_inputs(self, *, assignment: WorkerAssignment, worktree_path: Path) -> None:
+        """确认 Main 声明的必读输入已被 Harness 精确镜像到沙箱。"""
 
-    def _local_input_hint(self, spec: ExperimentSpec) -> str:
-        """把本地镜像实例路径压缩成简短提示，避免 agent 请求越界原始路径。"""
-        manifest_path = Path(spec.worktree_path) / ".algoforge_worker_inputs" / "manifest.json"
-        try:
-            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError, ValueError):
-            return ".algoforge_worker_inputs/instances/ (when present)"
-        paths = [
-            str(item.get("local_path") or "")
-            for item in payload.get("instances") or []
-            if isinstance(item, dict) and item.get("local_path")
+        missing = [
+            str(item.get("path") or "")
+            for item in assignment.read_set
+            if item.get("required", True)
+            and not (worktree_path / str(item.get("path") or "")).exists()
         ]
-        return ", ".join(paths) if paths else ".algoforge_worker_inputs/instances/ (when present)"
+        if missing:
+            raise ValueError("required assignment inputs are missing from worktree: " + ", ".join(missing))
+        missing_skills = [
+            str(item.get("skill_id") or "")
+            for item in assignment.implementation_skills
+            if item.get("required", True)
+            and not (
+                worktree_path
+                / str(item.get("sandbox_path") or "")
+                / "SKILL.md"
+            ).is_file()
+        ]
+        if missing_skills:
+            raise ValueError("required Worker Implementation Skills are missing: " + ", ".join(missing_skills))
 
-    def _context_sections(self, spec: ExperimentSpec) -> dict[str, str]:
-        """把上下文包切成 stable/dynamic 两段，供 prompt 明确区分。
+    def _prompt(self, spec: ExperimentSpec, *, assignment: WorkerAssignment) -> str:
+        """返回短而稳定的执行协议；动态规划内容只存在于 JSON 任务书。"""
 
-        stable 部分偏任务常量，dynamic 部分偏当前轮反馈和修复尾部。即使
-        裁剪失败，也返回兜底 JSON，保证默认运行时仍可继续读取原始包。
-        """
-        try:
-            context = load_context_dict(Path(spec.context_packet_path))
-        except (OSError, json.JSONDecodeError, ValueError):
-            return {"stable": "{}", "dynamic": "{}"}
-        try:
-            return worker_context_sections(context)
-        except Exception as exc:  # noqa: BLE001 - OpenCode can still read the raw context packet.
-            fallback = json_dumps({"status": "unavailable", "reason": str(exc)}).strip()
-            return {"stable": "{}", "dynamic": fallback}
+        target_file_policy = (
+            "This is baseline mode. `target_file` is explicitly authorized but may not exist yet; "
+            "if it is absent, create it and continue instead of reporting a missing-input blocker."
+            if assignment.mode == "baseline"
+            else "This is improvement/repair mode. `target_file` is the required incumbent; read it before editing and preserve unrelated working behavior."
+        )
+        prompt = f"""
+# AlgoForge Coding Worker Runtime Policy
+
+Execute exactly the attached `WorkerAssignment` issued by the Main Agent.
+The assignment is the sole planning input for this worker.
+
+- Do not read or request the full Context Packet, method-package catalog,
+  history, experience memory, or unselected cards.
+- Load every listed `implementation_skills` entry and no unselected Skill.
+  Its examples are advisory implementation material: combine or adapt them
+  inside Main's selected method families and report material departures.
+- Read only `target_file`, paths listed in `read_set`, and files under selected Skill folders;
+  do not list, glob, recursively scan, or broadly explore the repository.
+- {target_file_policy}
+- Edit only `target_file`. Do not change contracts, knowledge assets, evaluator,
+  Harness code, runtime configuration, or any other file.
+- Work alone. Task/subagent, question, and network tools are disabled.
+- Implement every deliverable as reachable behavior in `implementation_order`;
+  preserve confirmed mechanisms and obey the completion rule.
+- A repair may close listed gaps but may not switch method package or rewrite
+  unrelated working behavior.
+- Apply stateful changes transactionally. A failed candidate action must not
+  leave partially mutated state.
+- Run at most one compile and one optional bounded smoke, exactly via
+  `python .algoforge_worker_runtime/run_smoke.py`. Never run the evaluator,
+  full tests, benchmarks, parameter sweeps, or ad-hoc commands.
+- Finish after the bounded edit and checks; Harness gates decide acceptance.
+
+Runtime identifiers:
+- assignment_id: {assignment.assignment_id}
+- direction_id: {assignment.direction_id}
+- mode: {assignment.mode}
+- worktree: {spec.worktree_path}
+""".strip()
+        if len(prompt) > WORKER_RUNTIME_POLICY_MAX_CHARS:
+            raise ValueError(
+                f"worker runtime policy exceeds {WORKER_RUNTIME_POLICY_MAX_CHARS} chars: {len(prompt)}"
+            )
+        return prompt
 
 
 def json_dumps(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2) + "\n"
 
 
-def opencode_subprocess_environment() -> dict[str, str]:
+def worker_context_budget_payload(*, prompt_chars: int, assignment_chars: int) -> dict[str, object]:
+    assignment_budget_status = (
+        "soft_target_exceeded"
+        if assignment_chars > WORKER_ASSIGNMENT_SOFT_CHARS
+        else "within_soft_target"
+    )
+    total_attached_chars = prompt_chars + assignment_chars
+    return {
+        "stable_policy_chars": prompt_chars,
+        "assignment_chars": assignment_chars,
+        "assignment_soft_limit_chars": WORKER_ASSIGNMENT_SOFT_CHARS,
+        "assignment_hard_limit_chars": WORKER_ASSIGNMENT_MAX_CHARS,
+        "assignment_budget_status": assignment_budget_status,
+        "assignment_budget_warning": (
+            "WorkerAssignment exceeds the preferred 12000-character target but remains within the "
+            "validated hard limit."
+            if assignment_budget_status == "soft_target_exceeded"
+            else None
+        ),
+        "prompt_chars": prompt_chars,
+        "total_attached_chars": total_attached_chars,
+        "approx_attached_tokens_at_4_chars": (total_attached_chars + 3) // 4,
+        "full_context_packet_visible": False,
+        "note": "Provider tokenization and OpenCode internal tool turns determine billed tokens.",
+    }
+
+
+def resolve_optional_timeout_seconds(explicit_value: int | None, *, env_var: str) -> int | None:
+    if explicit_value is not None:
+        parsed_value = int(explicit_value)
+        return max(1, parsed_value) if parsed_value > 0 else None
+    raw_value = os.environ.get(env_var)
+    if raw_value is None or not str(raw_value).strip():
+        return None
+    parsed_value = int(raw_value)
+    return max(1, parsed_value) if parsed_value > 0 else None
+
+
+def opencode_subprocess_environment(
+    *, runtime_config: dict[str, object] | None = None
+) -> dict[str, str]:
     """为子进程注入 provider 环境，但不把密钥文件复制进 worktree。
 
     这样 agent 进程能读取所需授权信息，同时隔离目录里只保留代码与日志，
@@ -339,7 +543,45 @@ def opencode_subprocess_environment() -> dict[str, str]:
     deepseek_key = resolve_secret("DEEPSEEK_API_KEY", file_env="DEEPSEEK_API_KEY_FILE")
     if deepseek_key:
         environment["DEEPSEEK_API_KEY"] = deepseek_key
+    if runtime_config:
+        existing_config: dict[str, object] = {}
+        existing_raw = environment.get("OPENCODE_CONFIG_CONTENT")
+        if existing_raw:
+            try:
+                parsed = json.loads(existing_raw)
+                if isinstance(parsed, dict):
+                    existing_config = parsed
+            except json.JSONDecodeError:
+                pass
+        # Provider 连接参数可以继承；agent、permission、instructions、plugin、
+        # MCP 和 Skill 必须从本轮干净配置重建，防止用户级配置重新开放能力。
+        connection_keys = {
+            "$schema",
+            "provider",
+            "enabled_providers",
+            "disabled_providers",
+            "logLevel",
+        }
+        safe_existing = {
+            key: value for key, value in existing_config.items() if key in connection_keys
+        }
+        environment["OPENCODE_CONFIG_CONTENT"] = json.dumps(
+            merge_nested_dicts(safe_existing, runtime_config),
+            ensure_ascii=False,
+        )
     return environment
+
+
+def merge_nested_dicts(base: dict[str, object], override: dict[str, object]) -> dict[str, object]:
+    """递归合并 OpenCode 配置，并让本轮安全边界覆盖同名用户设置。"""
+    merged = dict(base)
+    for key, value in override.items():
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = merge_nested_dicts(current, value)
+        else:
+            merged[key] = value
+    return merged
 
 
 def opencode_status(returncode: int, stdout: str, stderr: str) -> str:

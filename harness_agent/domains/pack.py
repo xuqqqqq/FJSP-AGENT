@@ -83,6 +83,7 @@ class DomainMethodPackage:
     title: str
     description: str = ""
     strategy_types: list[str] = field(default_factory=list)
+    activation_tags: list[str] = field(default_factory=list)
     required_features: list[str] = field(default_factory=list)
     excluded_features: list[str] = field(default_factory=list)
     assets: list[Path] = field(default_factory=list)
@@ -92,6 +93,8 @@ class DomainMethodPackage:
     implementation_contract_assets: list[Path] = field(default_factory=list)
     implementation_contract: dict[str, Any] = field(default_factory=dict)
     default_priority: int = 0
+    selection_enabled: bool = True
+    disabled_reason: str = ""
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -99,6 +102,7 @@ class DomainMethodPackage:
             "title": self.title,
             "description": self.description,
             "strategy_types": list(self.strategy_types),
+            "activation_tags": list(self.activation_tags),
             "required_features": list(self.required_features),
             "excluded_features": list(self.excluded_features),
             "assets": [str(path) for path in self.assets],
@@ -110,6 +114,64 @@ class DomainMethodPackage:
             "implementation_contract_assets": [str(path) for path in self.implementation_contract_assets],
             "implementation_contract": dict(self.implementation_contract),
             "default_priority": self.default_priority,
+            "selection_enabled": self.selection_enabled,
+            "disabled_reason": self.disabled_reason,
+        }
+
+
+@dataclass(frozen=True)
+class DomainMethodFamily:
+    """Main 可选择的规范方法族，不包含实现路径。"""
+
+    family_id: str
+    title: str
+    description: str = ""
+    query_tags: list[str] = field(default_factory=list)
+    required_features: list[str] = field(default_factory=list)
+    excluded_features: list[str] = field(default_factory=list)
+    incompatible_with: list[str] = field(default_factory=list)
+    default_priority: int = 0
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "family_id": self.family_id,
+            "title": self.title,
+            "description": self.description,
+            "query_tags": list(self.query_tags),
+            "required_features": list(self.required_features),
+            "excluded_features": list(self.excluded_features),
+            "incompatible_with": list(self.incompatible_with),
+            "default_priority": self.default_priority,
+        }
+
+
+@dataclass(frozen=True)
+class DomainWorkerImplementationSkill:
+    """Domain Pack 声明的 Coding Agent 实现 Skill。"""
+
+    skill_id: str
+    title: str
+    source_path: Path
+    description: str = ""
+    method_families: list[str] = field(default_factory=list)
+    activation_tags: list[str] = field(default_factory=list)
+    required_features: list[str] = field(default_factory=list)
+    excluded_features: list[str] = field(default_factory=list)
+    default_priority: int = 0
+    always_include: bool = False
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "skill_id": self.skill_id,
+            "title": self.title,
+            "description": self.description,
+            "source_path": str(self.source_path),
+            "method_families": list(self.method_families),
+            "activation_tags": list(self.activation_tags),
+            "required_features": list(self.required_features),
+            "excluded_features": list(self.excluded_features),
+            "default_priority": self.default_priority,
+            "always_include": self.always_include,
         }
 
 
@@ -126,6 +188,13 @@ class DomainPack:
     capability: DomainCapability
     base_cards: list[Path] = field(default_factory=list)
     tagged_cards: dict[str, list[Path]] = field(default_factory=dict)
+    strategy_selection_cards: list[Path] = field(default_factory=list)
+    direction_selection_cards: list[Path] = field(default_factory=list)
+    knowledge_query_default_limit: int = 6
+    knowledge_query_excluded_path_markers: list[str] = field(default_factory=list)
+    knowledge_query_tag_descriptions: dict[str, str] = field(default_factory=dict)
+    method_families: list[DomainMethodFamily] = field(default_factory=list)
+    worker_implementation_skills: list[DomainWorkerImplementationSkill] = field(default_factory=list)
     method_packages: list[DomainMethodPackage] = field(default_factory=list)
     edit_strategies: list[DomainEditStrategy] = field(default_factory=list)
     semantic_review_cards: list[Path] = field(default_factory=list)
@@ -151,6 +220,28 @@ class DomainPack:
                 return package
         return None
 
+    def method_family(self, family_id: str) -> DomainMethodFamily | None:
+        normalized = _normalize_key(family_id)
+        for family in self.method_families:
+            if _normalize_key(family.family_id) == normalized:
+                return family
+        return None
+
+    def worker_implementation_skill(self, skill_id: str) -> DomainWorkerImplementationSkill | None:
+        normalized = _normalize_key(skill_id)
+        for skill in self.worker_implementation_skills:
+            if _normalize_key(skill.skill_id) == normalized:
+                return skill
+        return None
+
+    def selection_cards(self, stage: str) -> list[Path]:
+        normalized = _normalize_key(stage)
+        if normalized == "strategy":
+            return list(self.strategy_selection_cards)
+        if normalized == "direction":
+            return list(self.direction_selection_cards)
+        return []
+
 
 def load_domain_pack(path: Path, *, project_root: Path = PROJECT_ROOT) -> DomainPack:
     """从 `domain_pack.json` 加载一个问题族包。"""
@@ -160,6 +251,8 @@ def load_domain_pack(path: Path, *, project_root: Path = PROJECT_ROOT) -> Domain
     aliases = [str(alias) for alias in payload.get("aliases") or [] if str(alias).strip()]
     capability_payload = payload.get("capability") or {}
     knowledge = payload.get("knowledge") or {}
+    selection_cards_payload = knowledge.get("selection_cards") or {}
+    knowledge_query_payload = knowledge.get("knowledge_query") or {}
     semantic_review = payload.get("semantic_review") or {}
     agent_generated_baseline = payload.get("agent_generated_baseline") or {}
     tagged_cards_payload = knowledge.get("tagged_cards") or {}
@@ -194,6 +287,37 @@ def load_domain_pack(path: Path, *, project_root: Path = PROJECT_ROOT) -> Domain
         capability=capability,
         base_cards=base_cards,
         tagged_cards=tagged_cards,
+        strategy_selection_cards=[
+            _resolve_pack_path(value, project_root=project_root)
+            for value in selection_cards_payload.get("strategy") or []
+            if str(value).strip()
+        ],
+        direction_selection_cards=[
+            _resolve_pack_path(value, project_root=project_root)
+            for value in selection_cards_payload.get("direction") or []
+            if str(value).strip()
+        ],
+        knowledge_query_default_limit=max(1, int(knowledge_query_payload.get("default_limit") or 6)),
+        knowledge_query_excluded_path_markers=[
+            str(value).strip().lower()
+            for value in knowledge_query_payload.get("exclude_path_markers") or []
+            if str(value).strip()
+        ],
+        knowledge_query_tag_descriptions={
+            str(tag).strip().lower(): str(description).strip()
+            for tag, description in (knowledge_query_payload.get("tag_descriptions") or {}).items()
+            if str(tag).strip() and str(description).strip()
+        },
+        method_families=[
+            _load_method_family(value)
+            for value in payload.get("method_families") or []
+            if isinstance(value, dict) and str(value.get("family_id") or "").strip()
+        ],
+        worker_implementation_skills=[
+            _load_worker_implementation_skill(value, project_root=project_root)
+            for value in payload.get("worker_implementation_skills") or []
+            if isinstance(value, dict) and str(value.get("skill_id") or "").strip()
+        ],
         method_packages=[
             _load_method_package(value, project_root=project_root)
             for value in payload.get("method_packages") or []
@@ -293,6 +417,46 @@ def _load_edit_strategy(value: Any, *, project_root: Path) -> DomainEditStrategy
     )
 
 
+def _load_method_family(value: dict[str, Any]) -> DomainMethodFamily:
+    return DomainMethodFamily(
+        family_id=str(value.get("family_id") or "").strip().lower(),
+        title=str(value.get("title") or value.get("family_id") or "").strip(),
+        description=str(value.get("description") or "").strip(),
+        query_tags=_normalized_terms(value.get("query_tags")),
+        required_features=_normalized_terms(value.get("required_features")),
+        excluded_features=_normalized_terms(value.get("excluded_features")),
+        incompatible_with=_normalized_terms(value.get("incompatible_with")),
+        default_priority=int(value.get("default_priority") or 0),
+    )
+
+
+def _load_worker_implementation_skill(
+    value: dict[str, Any],
+    *,
+    project_root: Path,
+) -> DomainWorkerImplementationSkill:
+    return DomainWorkerImplementationSkill(
+        skill_id=str(value.get("skill_id") or "").strip().lower(),
+        title=str(value.get("title") or value.get("skill_id") or "").strip(),
+        description=str(value.get("description") or "").strip(),
+        source_path=_resolve_pack_path(value.get("source_path") or "", project_root=project_root),
+        method_families=_normalized_terms(value.get("method_families")),
+        activation_tags=_normalized_terms(value.get("activation_tags")),
+        required_features=_normalized_terms(value.get("required_features")),
+        excluded_features=_normalized_terms(value.get("excluded_features")),
+        default_priority=int(value.get("default_priority") or 0),
+        always_include=bool(value.get("always_include", False)),
+    )
+
+
+def _normalized_terms(value: Any) -> list[str]:
+    return [
+        str(item).strip().lower()
+        for item in value or []
+        if str(item).strip()
+    ]
+
+
 def _load_method_package(value: dict[str, Any], *, project_root: Path) -> DomainMethodPackage:
     implementation_value = str(value.get("implementation_asset") or "").strip()
     contract_value = str(value.get("implementation_contract_asset") or "").strip()
@@ -306,6 +470,7 @@ def _load_method_package(value: dict[str, Any], *, project_root: Path) -> Domain
         title=str(value.get("title") or value.get("package_id") or "").strip(),
         description=str(value.get("description") or "").strip(),
         strategy_types=[str(item) for item in value.get("strategy_types") or [] if str(item).strip()],
+        activation_tags=[str(item).strip().lower() for item in value.get("activation_tags") or [] if str(item).strip()],
         required_features=[str(item) for item in value.get("required_features") or [] if str(item).strip()],
         excluded_features=[str(item) for item in value.get("excluded_features") or [] if str(item).strip()],
         assets=[
@@ -327,6 +492,8 @@ def _load_method_package(value: dict[str, Any], *, project_root: Path) -> Domain
         implementation_contract_assets=contract_assets,
         implementation_contract=implementation_contract,
         default_priority=int(value.get("default_priority") or 0),
+        selection_enabled=bool(value.get("selection_enabled", True)),
+        disabled_reason=str(value.get("disabled_reason") or "").strip(),
     )
 
 

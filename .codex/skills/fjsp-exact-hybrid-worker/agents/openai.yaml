@@ -1,0 +1,4 @@
+interface:
+  display_name: "FJSP Exact Hybrid Worker"
+  short_description: "Implement bounded exact and hybrid FJSP search"
+  default_prompt: "Study the selected exact-hybrid material and implement the assigned method family."
