@@ -17,6 +17,7 @@ from harness_agent.workers.opencode_worker import (
     DEFAULT_OPENCODE_MODEL,
     OPENCODE_WORKER_AGENT,
     OpenCodeWorker,
+    opencode_openai_key_available,
     opencode_status,
     opencode_subprocess_environment,
     worker_context_budget_payload,
@@ -73,6 +74,7 @@ class OpenCodeWorkerTests(unittest.TestCase):
             process.wait.return_value = 0
             process.returncode = 0
             with (
+                patch.dict(os.environ, {"OPENCODE_MODEL": ""}),
                 patch("harness_agent.workers.opencode_worker.subprocess.Popen", return_value=process) as popen,
                 patch("harness_agent.workers.opencode_worker.cleanup_process_descendants") as cleanup,
             ):
@@ -318,6 +320,39 @@ class OpenCodeWorkerTests(unittest.TestCase):
         worker = resolved["agent"][OPENCODE_WORKER_AGENT]
         self.assertNotIn("prompt", worker)
         self.assertEqual({"*": "deny", "task": "deny"}, worker["permission"])
+
+    def test_explicit_openai_compatible_gateway_reuses_deepseek_connection(self) -> None:
+        keys = (
+            "DEEPSEEK_API_KEY",
+            "DEEPSEEK_BASE_URL",
+            "OPENAI_API_KEY",
+            "OPENAI_API_KEY_FILE",
+            "OPENCODE_CONFIG_CONTENT",
+            "OPENCODE_OPENAI_COMPAT_FROM_DEEPSEEK",
+        )
+        previous = {key: os.environ.get(key) for key in keys}
+        try:
+            os.environ["DEEPSEEK_API_KEY"] = "compatible-gateway-key"
+            os.environ["DEEPSEEK_BASE_URL"] = "https://gateway.example/v1"
+            os.environ["OPENCODE_OPENAI_COMPAT_FROM_DEEPSEEK"] = "true"
+            for key in ("OPENAI_API_KEY", "OPENAI_API_KEY_FILE", "OPENCODE_CONFIG_CONTENT"):
+                os.environ.pop(key, None)
+            with patch("harness_agent.workers.opencode_worker.load_local_env"):
+                environment = opencode_subprocess_environment(runtime_config={"agent": {}})
+                available = opencode_openai_key_available()
+        finally:
+            for key, value in previous.items():
+                os.environ.pop(key, None)
+                if value is not None:
+                    os.environ[key] = value
+
+        config = json.loads(environment["OPENCODE_CONFIG_CONTENT"])
+        self.assertEqual("compatible-gateway-key", environment["OPENAI_API_KEY"])
+        self.assertEqual(
+            "https://gateway.example/v1",
+            config["provider"]["openai"]["options"]["baseURL"],
+        )
+        self.assertTrue(available)
 
     def test_opencode_status_classifies_authorization_failures(self) -> None:
         self.assertEqual(

@@ -43,6 +43,48 @@ tests/             单元与闭环回归测试
 
 更详细的职责和数据流见 [架构说明](docs/architecture.md)。
 
+## Docker Compose 启动
+
+仓库已包含 Web 服务、Python 依赖、Git、uv 和 OpenCode CLI 所需的完整镜像配置。
+clone 后无需先安装项目依赖，也无需创建 `.env`，即可直接启动页面：
+
+```bash
+git clone <repository-url>
+cd FJSP-AGENT
+docker compose up -d
+```
+
+浏览器访问 <http://localhost:7860/>。`docker compose ps` 显示 `healthy` 即表示
+Web 服务和 OpenCode CLI 均已随镜像启动。任务历史及运行产物保存在 Compose 命名卷
+`fjsp-agent_algoforge_outputs` 中，普通的 `docker compose down` 不会删除它。
+
+首次构建需要下载基础镜像及锁定依赖。Web 页面不依赖模型密钥即可启动，但真正提交
+算法生成任务前，需要复制模板并填入 DeepSeek 密钥：
+
+```bash
+cp .env.example .env
+# 编辑 .env 中的 DEEPSEEK_API_KEY
+docker compose up -d
+```
+
+常用运维命令：
+
+```bash
+docker compose logs -f algoforge
+docker compose restart algoforge
+docker compose down
+```
+
+如宿主机的 `7860` 已被占用，可在 `.env` 中修改 `FJSP_WEB_PORT`。容器健康探针为
+`GET /healthz`；缺少模型密钥不会让容器变为不健康，接口会通过
+`provider_configured` 单独报告该状态。
+
+选择 `openai/...` 模型时应在 `.env` 中提供 `OPENAI_API_KEY`。如果使用的是
+OpenAI 兼容网关，并且该网关有意复用现有的 `DEEPSEEK_API_KEY` 与
+`DEEPSEEK_BASE_URL`，可设置 `OPENCODE_OPENAI_COMPAT_FROM_DEEPSEEK=true`；
+该开关会同时为 OpenCode 注入 OpenAI provider 凭据和网关 `baseURL`，不应对
+官方 DeepSeek endpoint 启用。
+
 ## 环境
 
 项目使用仓库内 `uv` 环境：

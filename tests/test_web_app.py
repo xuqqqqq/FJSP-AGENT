@@ -27,6 +27,7 @@ from harness_agent.web.server import (
     scan_opencode_worker_trace,
     scan_code_attempt_progress,
     scan_round_reflection_progress,
+    service_health_payload,
     summarize_code_evolution_progress,
     summarize_worker_manifest,
     stop_job,
@@ -52,14 +53,20 @@ class WebAppTests(unittest.TestCase):
             for key in (
                 "DEEPSEEK_API_KEY",
                 "DEEPSEEK_API_KEY_FILE",
+                "DEEPSEEK_BASE_URL",
                 "OPENAI_API_KEY",
+                "OPENAI_API_KEY_FILE",
                 "OPENCODE_MODEL",
+                "OPENCODE_OPENAI_COMPAT_FROM_DEEPSEEK",
             )
         }
         os.environ.pop("DEEPSEEK_API_KEY", None)
         os.environ.pop("DEEPSEEK_API_KEY_FILE", None)
+        os.environ.pop("DEEPSEEK_BASE_URL", None)
         os.environ.pop("OPENAI_API_KEY", None)
+        os.environ.pop("OPENAI_API_KEY_FILE", None)
         os.environ.pop("OPENCODE_MODEL", None)
+        os.environ.pop("OPENCODE_OPENAI_COMPAT_FROM_DEEPSEEK", None)
 
     def tearDown(self) -> None:
         _JOBS.clear()
@@ -84,6 +91,16 @@ class WebAppTests(unittest.TestCase):
         self.assertTrue(mark_stale_persisted_job_interrupted(payload))
         self.assertEqual("interrupted", payload["status"])
         self.assertEqual(4, payload["summary"]["worker_summary"]["completed_round_count"])
+
+    def test_service_health_does_not_require_provider_credentials(self) -> None:
+        with patch("harness_agent.web.server.OpenCodeWorker") as worker_cls:
+            worker_cls.return_value.capabilities.return_value.supports_code_generation = True
+            payload = service_health_payload()
+
+        self.assertEqual("ok", payload["status"])
+        self.assertEqual("algoforge-web", payload["service"])
+        self.assertTrue(payload["opencode_available"])
+        self.assertFalse(payload["provider_configured"])
 
     def test_stop_job_cancels_active_task_and_preserves_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -220,6 +237,17 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual("openai/gpt-5.4", status["opencode_model"])
         self.assertTrue(status["provider_keys"]["openai"])
         self.assertNotIn("test-secret-must-not-leak", json.dumps(status))
+
+    def test_provider_status_accepts_explicit_openai_compatible_gateway(self) -> None:
+        os.environ["DEEPSEEK_API_KEY"] = "compatible-secret-must-not-leak"
+        os.environ["DEEPSEEK_BASE_URL"] = "https://gateway.example/v1"
+        os.environ["OPENCODE_OPENAI_COMPAT_FROM_DEEPSEEK"] = "true"
+        with patch("harness_agent.web.server.load_local_env"):
+            status = deepseek_status_payload()
+
+        self.assertTrue(status["provider_keys"]["openai"])
+        self.assertEqual("deepseek_compatible_gateway", status["provider_key_sources"]["openai"])
+        self.assertNotIn("compatible-secret-must-not-leak", json.dumps(status))
 
     def test_create_job_preserves_frontend_opencode_model_selection(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

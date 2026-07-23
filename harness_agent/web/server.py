@@ -31,7 +31,12 @@ from harness_agent.core.cancellation import CancellationToken, TaskCancelled
 from harness_agent.agents.opencode_main import OpenCodeMainAgent
 from harness_agent.domains.io import parse_standard_fjsp
 from harness_agent.orchestration.standard import StandardWorkerLoopRequest, run_standard_worker_loop
-from harness_agent.workers.opencode_worker import DEFAULT_OPENCODE_MODEL, OpenCodeWorker
+from harness_agent.workers.opencode_worker import (
+    DEFAULT_OPENCODE_MODEL,
+    OpenCodeWorker,
+    opencode_openai_key_available,
+    opencode_openai_key_source,
+)
 
 
 # 路径与显示上限集中在这里，避免 HTTP handler 和任务线程各自推导目录。
@@ -454,7 +459,8 @@ def deepseek_status_payload() -> dict[str, Any]:
     key_file_value = os.environ.get("DEEPSEEK_API_KEY_FILE", "").strip()
     key_file_status = inspect_secret_file(key_file_value)
     configured = api_key_present or bool(key_file_status.get("has_content"))
-    openai_configured = bool(os.environ.get("OPENAI_API_KEY", "").strip())
+    openai_configured = opencode_openai_key_available()
+    openai_key_source = opencode_openai_key_source()
     env_files = [env_file_status(path) for path in local_env_candidates()]
     env_example = PROJECT_ROOT / ".env.example"
     default_opencode_model = os.environ.get("OPENCODE_MODEL", DEFAULT_OPENCODE_MODEL)
@@ -473,6 +479,10 @@ def deepseek_status_payload() -> dict[str, Any]:
         "provider_keys": {
             "deepseek": configured,
             "openai": openai_configured,
+        },
+        "provider_key_sources": {
+            "deepseek": "deepseek" if configured else None,
+            "openai": openai_key_source,
         },
         "diagnosis": deepseek_config_diagnosis(
             configured=configured,
@@ -494,6 +504,8 @@ def deepseek_status_payload() -> dict[str, Any]:
             "accepted_sources": [
                 "进程环境变量 DEEPSEEK_API_KEY",
                 "进程环境变量 DEEPSEEK_API_KEY_FILE 指向的私有文本文件",
+                "OpenAI provider 使用 OPENAI_API_KEY 或 OPENAI_API_KEY_FILE",
+                "OpenAI 兼容网关可显式启用 OPENCODE_OPENAI_COMPAT_FROM_DEEPSEEK",
                 "FJSP_AGENT_ENV_FILE 指向的 env 文件",
                 "仓库根目录或当前工作目录下的 .env / .env.local",
             ],
@@ -502,10 +514,24 @@ def deepseek_status_payload() -> dict[str, Any]:
                 r"DEEPSEEK_API_KEY_FILE=C:\Users\ASUS\.secrets\deepseek_api_key.txt",
                 "DEEPSEEK_MODEL=deepseek-v4-pro",
                 "DEEPSEEK_BASE_URL=https://api.deepseek.com",
+                "OPENAI_API_KEY=sk-你的 OpenAI 密钥",
+                "OPENCODE_MODEL=openai/gpt-5.4",
             ],
             "safe_note": ".env 和 .env.local 已被 .gitignore 忽略；不要把真实密钥写进 .env.example 或提交到 git。",
         },
         "note": "只返回配置诊断，不返回密钥内容。",
+    }
+
+
+def service_health_payload() -> dict[str, Any]:
+    """Return liveness separately from optional model-provider readiness."""
+
+    worker_capabilities = OpenCodeWorker().capabilities()
+    return {
+        "status": "ok",
+        "service": "algoforge-web",
+        "opencode_available": worker_capabilities.supports_code_generation,
+        "provider_configured": is_deepseek_configured(),
     }
 
 
@@ -2757,6 +2783,9 @@ class AlgoForgeWebHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib handler API
         parsed = urlparse(self.path)
+        if parsed.path == "/healthz":
+            self._json(200, service_health_payload())
+            return
         if parsed.path == "/":
             self._serve_static("index.html")
             return
