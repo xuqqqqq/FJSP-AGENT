@@ -1,0 +1,28 @@
+name: fjsp-agent
+
+services:
+  algoforge:
+    build:
+      context: .
+      args:
+        UV_VERSION: "0.11.28"
+        OPENCODE_VERSION: "1.17.11"
+    image: fjsp-harness-agent:local
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${FJSP_WEB_PORT:-7860}:7860"
+    env_file:
+      - path: .env
+        required: false
+      - path: .env.local
+        required: false
+    environment:
+      OPENCODE_EXECUTABLE: /usr/local/bin/opencode
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - algoforge_outputs:/app/outputs
+    stop_grace_period: 30s
+
+volumes:
+  algoforge_outputs:

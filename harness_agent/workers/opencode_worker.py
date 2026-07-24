@@ -30,6 +30,7 @@ from ..worker import CodingWorker, ExperimentSpec, WorkerAssignment, WorkerCapab
 
 
 DEFAULT_OPENCODE_MODEL = "deepseek/deepseek-v4-pro"
+OPENCODE_OPENAI_COMPAT_ENV = "OPENCODE_OPENAI_COMPAT_FROM_DEEPSEEK"
 OPENCODE_WORKER_AGENT = "algoforge-worker"
 MIN_OPENCODE_AGENT_STEPS = 8
 MAX_OPENCODE_AGENT_STEPS = 16
@@ -543,7 +544,25 @@ def opencode_subprocess_environment(
     deepseek_key = resolve_secret("DEEPSEEK_API_KEY", file_env="DEEPSEEK_API_KEY_FILE")
     if deepseek_key:
         environment["DEEPSEEK_API_KEY"] = deepseek_key
-    if runtime_config:
+    openai_key = resolve_secret("OPENAI_API_KEY", file_env="OPENAI_API_KEY_FILE")
+    if openai_key:
+        environment["OPENAI_API_KEY"] = openai_key
+
+    compatibility_config: dict[str, object] = {}
+    if opencode_openai_compat_enabled():
+        if deepseek_key and not openai_key:
+            environment["OPENAI_API_KEY"] = deepseek_key
+        compatible_base_url = environment.get("DEEPSEEK_BASE_URL", "").strip()
+        if compatible_base_url:
+            compatibility_config = {
+                "provider": {
+                    "openai": {
+                        "options": {"baseURL": compatible_base_url},
+                    }
+                }
+            }
+
+    if runtime_config or compatibility_config:
         existing_config: dict[str, object] = {}
         existing_raw = environment.get("OPENCODE_CONFIG_CONTENT")
         if existing_raw:
@@ -565,11 +584,38 @@ def opencode_subprocess_environment(
         safe_existing = {
             key: value for key, value in existing_config.items() if key in connection_keys
         }
+        connection_config = merge_nested_dicts(compatibility_config, safe_existing)
         environment["OPENCODE_CONFIG_CONTENT"] = json.dumps(
-            merge_nested_dicts(safe_existing, runtime_config),
+            merge_nested_dicts(connection_config, runtime_config or {}),
             ensure_ascii=False,
         )
     return environment
+
+
+def opencode_openai_compat_enabled() -> bool:
+    """Return whether a DeepSeek-named OpenAI-compatible gateway is explicit."""
+
+    raw_value = os.environ.get(OPENCODE_OPENAI_COMPAT_ENV, "").strip().lower()
+    return raw_value in {"1", "true", "yes", "on"}
+
+
+def opencode_openai_key_available() -> bool:
+    """Check OpenAI credentials, including the explicitly enabled gateway alias."""
+
+    return opencode_openai_key_source() is not None
+
+
+def opencode_openai_key_source() -> str | None:
+    """Identify the non-secret source used for the OpenAI provider."""
+
+    load_local_env()
+    if resolve_secret("OPENAI_API_KEY", file_env="OPENAI_API_KEY_FILE"):
+        return "openai"
+    compatible_key = resolve_secret("DEEPSEEK_API_KEY", file_env="DEEPSEEK_API_KEY_FILE")
+    compatible_base_url = os.environ.get("DEEPSEEK_BASE_URL", "").strip()
+    if opencode_openai_compat_enabled() and compatible_key and compatible_base_url:
+        return "deepseek_compatible_gateway"
+    return None
 
 
 def merge_nested_dicts(base: dict[str, object], override: dict[str, object]) -> dict[str, object]:
