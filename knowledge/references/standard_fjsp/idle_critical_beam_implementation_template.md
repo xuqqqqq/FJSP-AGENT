@@ -1,4 +1,4 @@
-# Idle-critical Beam 实现模板
+# 空闲关键 Beam 实现模板
 
 来源依据：用户提供的 `fjsp_idle_critical_solver.py` 快照，以及 `knowledge/references/standard_fjsp/high_flexibility_idle_critical_beam_blueprint.md`。原快照的 Beam 宽度是一个实现样例，不是对所有实例有效的常量。
 

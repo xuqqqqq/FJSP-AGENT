@@ -1,4 +1,4 @@
 interface:
-  display_name: "FJSP Constructive Search Worker"
-  short_description: "Implement constructive and Beam search for FJSP"
-  default_prompt: "Study the selected constructive-search material and implement the assigned method families."
+  display_name: "FJSP 构造搜索执行器"
+  short_description: "实现 FJSP 构造与 Beam 搜索"
+  default_prompt: "研读已选的构造搜索材料，并实现 assignment 指定的方法族。"

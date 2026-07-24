@@ -1,85 +1,74 @@
 ---
 id: operator-standard-fjsp-awls-hgtsa-execution-skeleton
 type: operator
-title: Standard FJSP AWLS/HGTSA Local-Search Execution Skeleton
+title: 标准 FJSP AWLS/HGTSA 局部搜索执行骨架
 tags: [operator, fjsp, standard-fjsp, agent-generated-solver, awls, n7, n8, nk, k-insertion, tabu-search, critical-path, implementation-skeleton]
 source: distilled_from_local_examples_and_operator_cards
 status: implementation_skeleton
 ---
 
-## Purpose
+## 目的
 
-This card is for an agent-generated standard FJSP solver after it already has a
-legal parser, constructor, and output writer. It describes the minimum
-executable structure needed before claiming AWLS, N7/N8, NK, k-insertion, or
-critical-path local search. It is method knowledge, not backend solver code.
+本卡适用于已经具备合法 parser、constructor 与 output writer 的 agent-generated
+标准 FJSP solver。它描述了在宣称实现 AWLS、N7/N8、NK、k-insertion 或关键路径局
+部搜索之前，至少需要具备的可执行结构。它提供的是方法知识，而不是后端 solver 代码。
 
-Do not copy instance scores, known optima, or previous solution schedules into a
-solver. The generated solver must derive every schedule from the active IO
-document and the current instance file.
+不要把实例分数、已知最优值或以往解出的排程复制进 solver。生成的 solver 必须从当前
+激活的 IO 文档和当前实例文件出发，自行推导每一份 schedule。
 
-## Required Code Shape
+## 必需代码形态
 
-A real FJSP local-search implementation should have these connected pieces:
+真正的 FJSP local-search 实现应包含以下相互连通的部分：
 
-1. Stable operation identity.
-   Use one key such as `(job_id, op_id)` from parser through constructor,
-   decoder, neighborhood moves, self-check, and output. Store processing options
-   in `op_info[(job_id, op_id)]` or an equivalent map.
+1. 稳定的工序标识。
+   从 parser 到 constructor、decoder、neighborhood moves、self-check 与输出，
+   统一使用 `(job_id, op_id)` 这类 key。加工选项应存放在
+   `op_info[(job_id, op_id)]` 或等价映射中。
 
-2. Search state.
-   Maintain both `assignment[op] = machine_id` and
-   `machine_sequences[machine_id] = [op, ...]`. A schedule list alone is not
-   enough for N7/N8/NK style moves because the move is about machine arcs.
+2. 搜索状态。
+   同时维护 `assignment[op] = machine_id` 与
+   `machine_sequences[machine_id] = [op, ...]`。单独的 schedule list 不足以支撑
+   N7/N8/NK 风格的 move，因为这类 move 作用于 machine arc。
 
-3. Full active decoder.
-   Implement a `decode_state(...)`-style function that:
-   - verifies every operation appears exactly once in one machine sequence;
-   - verifies the assigned machine is eligible for that operation;
-   - builds job-precedence arcs and same-machine sequence arcs;
-   - schedules operations by a topological/progress loop, not by replaying all
-     operations machine by machine;
-   - rejects cycles, missing operations, duplicate operations, and partial
-     schedules;
-   - returns both a full schedule and a true makespan.
+3. 完整的 active decoder。
+   实现一个 `decode_state(...)` 风格函数，它需要：
+   - 验证每道工序恰好出现在某一条 machine sequence 中一次；
+   - 验证所分配的机器对该工序是合法候选机；
+   - 构建 job-precedence arc 与 same-machine sequence arc；
+   - 通过 topological/progress loop 调度工序，而不是按机器顺序整条回放所有工序；
+   - 拒绝 cycle、缺失工序、重复工序与部分 schedule；
+   - 同时返回完整 schedule 与真实 makespan。
 
-4. Critical-path evidence.
-   After decoding, compute or approximate critical operations/critical blocks
-   from the decoded graph. A move that ignores the critical path should not be
-   called N7/N8/AWLS local search.
+4. 关键路径证据。
+   decode 后，应从解码图中计算或近似关键工序/关键块。忽略关键路径的 move，不应被称
+   为 N7/N8/AWLS local search。
 
-5. Same-machine N7/N8 move generator.
-   Generate bounded moves on critical machine blocks, such as adjacent exchange,
-   block-head insertion, block-tail insertion, and selected critical operation
-   relocation within or near the critical block. Each move must create a new
-   `assignment + machine_sequences` state and then call the full decoder.
+5. 同机 N7/N8 move 生成器。
+   在关键机器块上生成有界 move，例如相邻交换、块首插入、块尾插入，以及在关键块内部
+   或附近对选定关键工序进行重定位。每个 move 都必须生成新的
+   `assignment + machine_sequences` 状态，再调用完整 decoder。
 
-6. NK / k-insertion machine reassignment.
-   For selected critical operations, enumerate other eligible machines and a
-   small set of insertion positions on the target machine. Good first position
-   sets are near the operation's current time window, around target-machine
-   critical blocks, the earliest feasible position, and the machine tail. Do not
-   decode every possible position when the instance is large; score or sample a
-   bounded shortlist first.
+6. NK / k-insertion 换机重分配。
+   对选定关键工序，枚举其它 eligible machine 以及目标机器上的少量插入位置。一个好的
+   初始位置集合通常包括：靠近该工序当前时间窗、目标机器关键块附近、最早可行位置以及
+   机器尾部。实例较大时，不要把所有可能位置全部 decode；应先对有界 shortlist 打分或
+   采样。
 
-7. Tabu or bounded improvement loop.
-   Keep `current_state/current_makespan` separate from
-   `best_state/best_makespan`. It is acceptable for the current tabu step to be
-   non-improving, but the emitted solver result must remain the best decoded
-   incumbent. Use tabu keys for reverse arcs or return-to-machine moves, apply
-   aspiration when a tabu move beats the global best, and cap iterations,
-   neighbor count, and wall-clock time.
+7. Tabu 或有界改进循环。
+   保持 `current_state/current_makespan` 与 `best_state/best_makespan` 相互独
+   立。当前 tabu 步可以是非改善的，但 solver 最终输出必须仍然是已解码的最优
+   incumbent。对逆向弧或 return-to-machine move 使用 tabu key；当 tabu move 优于全
+   局最优时应用 aspiration，并限制迭代次数、邻居数量与墙钟时间。
 
-## Implementation Micro-Templates
+## 实现微模板
 
-These snippets are intentionally compact and instance-neutral. They are examples
-of reusable method structure that a coding agent can adapt to the active parser
-and output schema. They are not backend orchestration code.
+这些片段有意保持紧凑，并与具体实例无关。它们展示的是 coding agent 可适配到当前
+parser 与 output schema 的可复用方法结构，而不是后端编排代码。
 
-### Move Record And Application
+### Move 记录与应用
 
-Use a move object that can express both same-machine N8-like relocation and
-change-machine k-insertion. Do not mutate the incumbent state in place.
+应使用能够同时表达 same-machine N8-like relocation 与 change-machine
+k-insertion 的 move object。不要原地修改 incumbent state。
 
 ```python
 def apply_move(state, move):
@@ -99,12 +88,10 @@ def apply_move(state, move):
     return SearchState(assignment=assignment, machine_sequences=sequences)
 ```
 
-### Critical Blocks From A Decoded Schedule
+### 从已解码 Schedule 提取关键块
 
-If a solver already has `decode_state(...)`, it should derive critical blocks
-from decoded timing instead of moving random operations. A simple first version
-can identify zero-slack operations, then split consecutive operations on the
-same machine.
+如果 solver 已经具备 `decode_state(...)`，就应从解码时序中提取关键块，而不是移动随
+机工序。一个简单的首版可以先识别 zero-slack operations，再把同机连续工序切分为块。
 
 ```python
 def critical_blocks(decoded, state):
@@ -128,10 +115,10 @@ def critical_blocks(decoded, state):
     return blocks
 ```
 
-### N8-Like Same-Machine Candidate Generator
+### 类 N8 的同机候选生成器
 
-N8 is not just a random swap. A useful small version moves critical operations
-around critical blocks and a small outside window, then decodes each candidate.
+N8 不只是随机交换。一个有用的小型版本会围绕关键块及其外侧小窗口移动关键工序，再对
+每个候选执行 decode。
 
 ```python
 def generate_n8_like_neighbors(state, decoded, *, window=3):
@@ -161,11 +148,10 @@ def generate_n8_like_neighbors(state, decoded, *, window=3):
                 }
 ```
 
-### K-Insertion / NK Candidate Generator
+### K-Insertion / NK 候选生成器
 
-For FJSP flexibility, focus on critical operations and insert them into a small
-set of target-machine positions. This is stronger than random reassignment
-because it uses criticality and candidate-machine alternatives.
+针对 FJSP 的柔性，应聚焦关键工序，并把它们插入一小组目标机器位置中。由于它利用了关
+键性与候选机器替代关系，因此比随机重分配更强。
 
 ```python
 def insertion_positions_for(machine_seq, op, decoded, *, window=2):
@@ -198,11 +184,11 @@ def generate_k_insertion_neighbors(state, decoded, op_info, *, max_ops=12):
                 }
 ```
 
-### Candidate Shortlist
+### 候选短名单
 
-Decode a bounded shortlist, not every possible move. A simple proxy can combine
-criticality, target-machine load, and operation duration. The proxy only orders
-candidates; final acceptance must use decoded makespan.
+应只 decode 有界 shortlist，而不是所有可能 move。一个简单 proxy 可以结合 criticality、
+目标机器负载与工序时长。proxy 只用于排序候选；最终接受仍必须依据 decode 后的
+makespan。
 
 ```python
 def move_proxy(move, state, decoded, op_info):
@@ -218,12 +204,11 @@ def shortlist_moves(moves, state, decoded, op_info, *, limit=200):
     return ranked[:limit]
 ```
 
-### Tabu Loop With Diversification
+### 带多样化的 Tabu 循环
 
-Pure first-improvement hill climbing is usually too concentrated: it only moves
-inside one basin. A minimal tabu loop should keep `current` and `best` separate,
-allow non-improving current moves, use aspiration for global improvement, and
-perturb/restart after stagnation.
+纯粹的 first-improvement hill climbing 往往过于集中，只会在单个 basin 内移动。最小
+tabu loop 应保持 `current` 与 `best` 分离，允许非改善的当前 move，在出现全局改善时
+使用 aspiration，并在停滞后进行 perturb/restart。
 
 ```python
 def tabu_search(initial_state, decode_state, op_info, rng, deadline):
@@ -283,10 +268,10 @@ def tabu_search(initial_state, decode_state, op_info, rng, deadline):
     return best, best_decoded
 ```
 
-### Minimal Perturbation
+### 最小扰动
 
-Perturbation should diversify without destroying legality. Always decode after
-perturbation and fall back to the best state if decoding fails.
+扰动应在不破坏合法性的前提下实现多样化。每次 perturbation 后都要重新 decode；若
+decode 失败，应回退到 best state。
 
 ```python
 def perturb_state(state, rng, *, moves=3):
@@ -302,63 +287,56 @@ def perturb_state(state, rng, *, moves=3):
     return candidate
 ```
 
-## Minimum Self-Check Evidence
+## 最低自检证据
 
-When the worker submits `solver_contract_self_check`, the evidence should name
-real source symbols corresponding to this skeleton:
+当 worker 提交 `solver_contract_self_check` 时，证据应指向与该骨架相对应的真实源码符号：
 
-- parser/operation map: e.g. `parse_instance`, `op_info`, `all_ops`;
-- state representation: e.g. `assignment`, `machine_sequences`, `SearchState`;
-- decoder: e.g. `decode_state`, `predecessors`, `successors`, `ready`,
-  `progressed`, `topological_order`;
-- neighborhoods: e.g. `generate_n8_neighbors`,
-  `generate_k_insertion_neighbors`, `apply_move`;
-- incumbent preservation: e.g. `best_state`, `best_schedule`,
-  `if decoded is None: continue`, `if candidate_makespan < best_makespan`;
-- runtime bounds: e.g. `deadline`, `max_iterations`, `neighbor_limit`,
-  `no_improve_limit`.
+- parser / operation map：例如 `parse_instance`、`op_info`、`all_ops`
+- state representation：例如 `assignment`、`machine_sequences`、`SearchState`
+- decoder：例如 `decode_state`、`predecessors`、`successors`、`ready`、
+  `progressed`、`topological_order`
+- neighborhoods：例如 `generate_n8_neighbors`、
+  `generate_k_insertion_neighbors`、`apply_move`
+- incumbent preservation：例如 `best_state`、`best_schedule`、
+  `if decoded is None: continue`、`if candidate_makespan < best_makespan`
+- runtime bounds：例如 `deadline`、`max_iterations`、`neighbor_limit`、
+  `no_improve_limit`
 
-## Red Flags
+## 红旗信号
 
-Treat these as shallow or invalid local search even if the text mentions AWLS,
-N7, N8, or NK:
+即使文本中提到 AWLS、N7、N8 或 NK，以下情况也应视为浅层或无效的 local search：
 
-1. Only changing dispatch weights, ready-list tie-breaks, or random seeds.
-2. Moving schedule dictionaries without rebuilding machine sequences.
-3. Replaying `machine_sequences` in machine-major order and updating
-   `job_ready`, which can schedule a job successor before its predecessor.
-4. Swapping two output intervals in-place without a full decode.
-5. Comparing a partial, empty, or deadlocked candidate as if it had makespan 0.
-6. Replacing `best_schedule` after a failed or worse candidate.
-7. Claiming k-insertion while never enumerating alternative eligible machines.
-8. Using only improving random hill climbing after the representation and
-   decoder already exist; this has intensification but almost no diversification.
-9. Calling a perturbation "diversification" while it is never decoded or can
-   overwrite the global best.
+1. 只修改 dispatch weight、ready-list tie-break 或随机 seed。
+2. 移动 schedule 字典，却不重建 machine_sequences。
+3. 以 machine-major 顺序回放 `machine_sequences` 并更新 `job_ready`，从而可能在前驱
+   完成前调度某作业后继工序。
+4. 不经过完整 decode，就原地交换两个输出区间。
+5. 把部分、空或死锁候选当成 makespan 为 0 的候选进行比较。
+6. 在候选失败或更差后仍替换 `best_schedule`。
+7. 声称实现了 k-insertion，却从不枚举替代 eligible machine。
+8. 在表示与 decoder 已存在后，仍只使用“只接受改善”的随机 hill climbing；这只有
+   intensification，几乎没有 diversification。
+9. 把某个从不 decode、或可能覆盖全局最优的扰动称为“diversification”。
 
-## Evolution Guidance
+## 演进指导
 
-If the promoted incumbent is only a legal constructive solver, the next useful
-increment is usually:
+如果当前被 promotion 的 incumbent 只是一个合法构造式 solver，下一步通常最有价值的增
+量是：
 
-1. add `assignment + machine_sequences` extraction from the incumbent schedule;
-2. add `decode_state` and prove it reproduces a complete legal schedule;
-3. add one bounded critical-block same-machine move;
-4. add one bounded alternative-machine insertion move;
-5. add tabu memory and candidate shortlisting.
+1. 添加从 incumbent schedule 中提取 `assignment + machine_sequences` 的逻辑；
+2. 添加 `decode_state`，并证明它能重现完整合法 schedule；
+3. 添加一个有界的 critical-block 同机 move；
+4. 添加一个有界的异机插入 move；
+5. 添加 tabu memory 与 candidate shortlisting。
 
-If a previous round already added random machine reassignment hill climbing,
-the next round should not add another random hill climber. Upgrade it by:
+如果上一轮已经加入了随机换机 hill climbing，下一轮就不应再添加另一个随机 hill
+climber。应按以下方向升级：
 
-1. selecting operations from critical path/critical blocks instead of all ops;
-2. replacing random insertion positions with bounded N8 and k-insertion
-   candidate sets;
-3. adding tabu memory, aspiration, and occasional perturbation so the search has
-   both intensification and diversification;
-4. keeping the emitted result equal to the best decoded incumbent, never the
-   last non-improving current state.
+1. 从 critical path / critical blocks 中选取工序，而不是对所有工序一视同仁；
+2. 用有界 N8 与 k-insertion 候选集替代随机插入位置；
+3. 加入 tabu memory、aspiration 与偶发 perturbation，使搜索同时具备
+   intensification 与 diversification；
+4. 保证最终输出等于已解码的最优 incumbent，而不是最后一个非改善的当前状态。
 
-Make only one of these structural increments in a round unless the previous
-round explicitly repaired that same direction. Preserve the promoted incumbent
-and rollback any candidate that fails decoding or is worse under the Core
-evaluator.
+除非上一轮明确是在修复同一方向，否则每一轮只做其中一个结构性增量。要保留已被
+promotion 的 incumbent，并回滚任何 decode 失败或在 Core evaluator 下更差的候选。

@@ -9,78 +9,56 @@ status: local_report_indexed
 
 # FJSP 场景调研报告 2025-10-17
 
-## Source
+## 来源
 
-- Local PDF: `knowledge/imported/local_papers/raw/FJSP场景调研报告10-17.pdf`
-- Pages: 144
-- Imported from local WeChat file on 2026-06-25.
+- 本地 PDF：`knowledge/imported/local_papers/raw/FJSP场景调研报告10-17.pdf`
+- 页数：144
+- 于 2026-06-25 从本地微信文件导入。
 
-## Relevant Idea
+## 相关要点
 
-This report is a broad FJSP scene and variant survey rather than a single
-algorithm paper. It is useful as the first local map for moving the harness from
-standard benchmark FJSP toward industrial variants.
+这份报告是一份广泛的 FJSP 场景与变体综述，而不是单篇算法论文。它可作为一张本地总览图，帮助 harness 从标准基准 FJSP 走向工业变体。
 
-The report covers:
+报告覆盖：
 
-- industrial scenarios: aluminum coil rolling and semiconductor manufacturing;
-- classic FJSP modeling: machine assignment, operation sequencing, mathematical
-  model, and disjunctive graph representation;
-- objective variants: makespan, conventional/non-conventional criteria,
-  multi-objective optimization, energy, quality, tardiness, and robustness;
-- constraint variants: time lag/no-wait, machine unavailability, batching,
-  setup times, transportation, reentrance, and alternative/complex routes;
-- solver families: exact methods, dispatching/constructive heuristics,
-  single-solution metaheuristics, population metaheuristics, hybrid
-  metaheuristics, RL/DRL, graph/attention models, and LLM heuristic evolution.
+- 工业场景：铝卷轧制和半导体制造；
+- 经典 FJSP 建模：机器分配、工序排序、数学模型和析取图表示；
+- 目标变体：makespan、常规/非常规指标、多目标优化、能耗、质量、延期和鲁棒性；
+- 约束变体：time lag/no-wait、machine unavailability、batching、setup times、transportation、reentrance 以及替代/复杂工艺路线；
+- 求解方法族：精确方法、派工/构造启发式、单解元启发式、群体元启发式、混合元启发式、RL/DRL、graph/attention 模型以及 LLM heuristic evolution。
 
-## Platform Impact
+## 对平台的影响
 
-The report reinforces that the platform should treat "standard FJSP" as only
-one problem family capability, not the final scope.
+这份报告进一步说明，平台应把“standard FJSP”视为众多问题族能力之一，而不是最终范围。
 
-Implications for `fjsp_harness_agent`:
+对 `fjsp_harness_agent` 的含义：
 
-- Problem-family cards should grow into variant cards with explicit constraint
-  capabilities, not just names. Candidate variant tags include `time_lag_fjsp`,
-  `machine_unavailability_fjsp`, `batching_fjsp`, `setup_time_fjsp`,
-  `transportation_fjsp`, `reentrant_fjsp`, `alternative_route_fjsp`,
-  `dynamic_fjsp`, and `multi_objective_fjsp`.
-- Method Packages should support variant-specific components. Examples:
-  lag-aware decoding, no-wait block moves, maintenance-window insertion, batch
-  formation, setup-aware sequence scoring, transport-aware move scoring,
-  reentrance cycle checks, and route-choice neighborhoods.
-- Context packets should carry the active variant constraints and forbid workers
-  from changing parser/evaluator semantics unless the user confirms a new IO
-  contract.
-- Knowledge selection should be tag-driven. This survey should be retrieved
-  whenever the task asks for FJSP variants, industrial constraints, dynamic
-  scheduling, or LLM/RL-assisted heuristic evolution.
-- Evaluation should remain contract-gated. For variants, the platform needs new
-  evaluators/validators before worker code evolution can be trusted.
+- Problem-family card 应扩展为带显式约束能力的变体 card，而不只是名称。候选变体标签包括 `time_lag_fjsp`、`machine_unavailability_fjsp`、`batching_fjsp`、`setup_time_fjsp`、`transportation_fjsp`、`reentrant_fjsp`、`alternative_route_fjsp`、`dynamic_fjsp` 和 `multi_objective_fjsp`。
+- Method Package 应支持变体特有组件。例如：lag-aware decoding、no-wait block move、maintenance-window insertion、batch formation、setup-aware sequence scoring、transport-aware move scoring、reentrance cycle check 和 route-choice neighborhood。
+- Context packet 应携带当前生效的变体约束，并禁止 worker 在未得到用户确认新 IO contract 的情况下更改 parser/evaluator 语义。
+- Knowledge 选择应由标签驱动。凡任务涉及 FJSP 变体、工业约束、动态调度或 LLM/RL 辅助的 heuristic evolution，都应检索这份调研。
+- Evaluation 必须继续受 contract 约束。对于变体，在可信任 worker 代码演化之前，平台需要新的 evaluator/validator。
 
-## Useful Variant Map
+## 有用的变体地图
 
-| Variant/constraint | Why it matters | Harness adaptation target |
+| 变体/约束 | 重要性 | Harness 适配目标 |
 | --- | --- | --- |
-| Time lag / no-wait | Common in semiconductor and high-temperature processes; makes naive schedules infeasible. | Parser/evaluator fields for min/max lag; decoder and no-wait block components. |
-| Machine unavailability | Maintenance and outages fragment machine calendars. | Machine calendar validator; availability-aware insertion component. |
-| Batching | Common in semiconductor and process industries; adds batch formation decisions. | Batch schema; batch compatibility/capacity evaluator; batch neighborhood package. |
-| Setup times | Sequence-dependent setup changes move scoring and machine sequence evaluation. | Setup matrix input contract; setup-aware objective and neighborhood components. |
-| Transportation | Cross-machine or cross-factory logistics affect start times and objective value. | Transport-time schema; transport-aware decoder/evaluator. |
-| Reentrance | Semiconductor and rolling flows revisit machines; increases cycle/resource contention. | Reentrance-aware graph model and cycle checks. |
-| Alternative routes | Jobs may have multiple process routes, not only alternative machines. | Route-choice layer in state representation and route-switch neighborhoods. |
-| Dynamic/multi-objective FJSP | Real production has new jobs, failures, energy, quality, and tardiness objectives. | Rolling contract updates, multi-objective evaluator keys, and policy/RL hooks. |
+| Time lag / no-wait | 常见于半导体和高温工艺；会让朴素调度失效。 | 为 min/max lag 增加 parser/evaluator 字段；提供 decoder 和 no-wait block 组件。 |
+| Machine unavailability | 维护与停机会把机器日历切碎。 | machine calendar validator；availability-aware insertion 组件。 |
+| Batching | 常见于半导体和流程工业；会引入 batch formation 决策。 | batch schema；batch compatibility/capacity evaluator；batch neighborhood package。 |
+| Setup times | sequence-dependent setup 会改变 move scoring 和 machine sequence 评估。 | setup matrix 输入合同；setup-aware objective 与 neighborhood 组件。 |
+| Transportation | 跨机器或跨工厂物流会影响开始时间和目标值。 | transport-time schema；transport-aware decoder/evaluator。 |
+| Reentrance | 半导体和轧制流程会重复访问机器；增加循环与资源竞争。 | reentrance-aware graph model 和 cycle check。 |
+| Alternative routes | 作业可能有多条工艺路线，而不只是替代机器。 | state representation 中的 route-choice 层，以及 route-switch neighborhood。 |
+| Dynamic/multi-objective FJSP | 真实生产会出现新作业、故障、能耗、质量和延期等目标。 | 滚动 contract 更新、multi-objective evaluator key，以及 policy/RL hook。 |
 
-## How To Use This Card
+## 如何使用这张卡
 
-Use this card when planning:
+在规划以下事项时使用这张卡：
 
-- a new problem-family capability card;
-- a new Method Package for an industrial FJSP variant;
-- a RAG query for FJSP constraints beyond standard public benchmarks;
-- future skill design for FJSP-specific heuristic evolution.
+- 新的问题族 capability card；
+- 某个工业 FJSP 变体的新 Method Package；
+- 面向标准公开基准之外 FJSP 约束的 RAG 查询；
+- 未来面向 FJSP 专用 heuristic evolution 的 skill 设计。
 
-Do not use this survey card as direct proof that a solver implementation is
-correct. It is a design and scoping source; correctness still comes from the
-active task contract and evaluator.
+不要把这张 survey card 当作 solver 实现正确性的直接证据。它只用于设计与范围界定；正确性仍来自当前生效的任务合同和 evaluator。

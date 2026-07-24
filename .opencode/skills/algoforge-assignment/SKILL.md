@@ -1,74 +1,46 @@
 ---
 name: algoforge-assignment
-description: Execute AlgoForge's strict Main-Agent-to-Coding-Worker handoff using a validated WorkerAssignment without exposing the full Context Packet to the worker.
+description: 使用经过校验的 WorkerAssignment 执行 AlgoForge 严格的 Main Agent 到 Coding Worker 交接，同时不向 worker 暴露完整 Context Packet。
 ---
 
-# AlgoForge Assignment Contract
+# AlgoForge 交接契约
 
-Use this skill when the task needs a strict split between planning and execution.
+## 触发条件
 
-## Roles
+- 任务需要把规划与执行严格拆分。
+- 需要在不暴露完整 Context Packet 的前提下，把 Main 的决策交给 Coding Worker 执行。
 
-- `algoforge-main` diagnoses, selects direction, and emits the handoff.
-- `requirements-method-analyst` and `evidence-analyst` are read-only support subagents. The harness exposes at most one of them per Main invocation.
-- `algoforge-worker` executes only the supplied assignment.
+## 读取顺序
 
-## Required handoff
+1. Main 先读取当前 `PlanningPacket` 与受限证据。
+2. 若 harness 为本轮开放只读分析子代理，则 Main 只把当前附件路径交给该单一子代理。
+3. Worker 只读取 harness 编译后的 `WorkerAssignment`，并自行加载其中信任的 Worker Implementation Skills。
 
-The handoff must be exactly one JSON object with these top-level keys:
+## 执行步骤
 
-```json
-{
-  "direction_plan": {},
-  "worker_assignment": {}
-}
-```
+1. Main 完成诊断、方案比较与方向选择。
+2. Main 产出且只产出一个顶层为 `direction_plan` 与 `worker_assignment` 的 JSON 对象。
+3. `direction_plan` 必须包含诊断、备选方案、选择理由、一个主方法族、证据支持的补充方法族、可选 exact method package、保留规则、完整实现顺序、交付物、检查项、停止条件与完成规则。
+4. 若是 incumbent 改进轮，还必须包含结构化 incumbent assessment 与一个可证伪的下一步 mutation。
+5. Main 在检查证据、比较方案和做决定时，用简体中文输出 commentary；最终 JSON 中的 `reasoning_trace` 仅用于审计与兜底，不得伪装成实时 commentary。
+6. Harness 校验并编译交接为 `WorkerAssignment`；Worker 只按该对象执行。
 
-`direction_plan` must contain diagnosis, alternatives, selection rationale, one
-primary canonical method family plus only evidence-backed complementary families,
-an optional exact method package, preservation rules, complete implementation
-order, deliverables, checks, stop conditions, and a completion rule.
+## 权限与边界
 
-For an incumbent improvement round it must also contain a structured incumbent
-assessment and one falsifiable next mutation. The assessment must separate
-audited existing capabilities from concrete implementation limits and unknowns;
-the mutation must name the existing symbols/configurations it changes and the
-measurements that would disprove the bottleneck hypothesis.
+- `algoforge-main` 只读；仅可使用本轮 harness 开放的单一 analyst 子代理。
+- Main 不必读取完整 incumbent 源码；Harness 已提供受限 AST capability audit。已审计存在的机制不得被 Main 描述为缺失。
+- analyst 子代理只读，且不使用 `bash` 或 `edit`。
+- `algoforge-worker` 不得替换 Main 选定的方法族；只能在代码层面研究并组合 allow-list 中的 Worker Implementation Skills。
+- `task`、`question`、网络、未选 Skills、广泛仓库发现、完整 Context Packet、method catalog、experience memory 与旧尝试都对 Worker 禁止。
+- repair revision 必须保留 direction id、method package 与 target file。
 
-Main emits Simplified Chinese commentary while it inspects evidence, compares
-alternatives, and reaches a decision. These native model events are the primary
-Main Agent thinking process shown in the user interface. The final JSON also
-contains a bounded `reasoning_trace` for audit and fallback; it must not be used
-to impersonate live commentary when native commentary exists. Neither channel
-may invent tool runs or measurements absent from the PlanningPacket.
+## 交付物
 
-The Harness validates and compiles the handoff into `WorkerAssignment`. That
-compiled object is the Worker's sole planning input and defines its exact
-`target_file`, `read_set`, deliverables, implementation order, preservation and
-forbidden rules, latest feedback, checks, budgets, runtime contract, lineage, and
-trusted IDs of matched Worker Implementation Skills. The Worker loads those Skills
-itself; Main never supplies Skill filesystem paths or copies Skill prose into the
-assignment.
+- 一个满足契约的交接 JSON。
+- 一个由 Harness 编译出的 `WorkerAssignment`，精确定义 `target_file`、`read_set`、交付物、实现顺序、保留/禁止规则、最新反馈、检查项、预算、runtime contract、lineage 和可信 Skill ID。
 
-## Guardrails
+## 验证与停止条件
 
-- `algoforge-main` is read-only and may use `task` only for the single analyst subagent enabled by the harness for that invocation.
-- Main must pass the exact current PlanningPacket attachment path to that analyst; the analyst may read only those attachment paths.
-- `algoforge-main` need not read full incumbent source. The Harness supplies a
-  bounded AST capability audit with symbols, control expressions, loops, and
-  call edges. Main must not describe an audited existing mechanism as missing.
-- The analyst subagents are read-only and do not use `bash` or `edit`.
-- `algoforge-worker` must not replace Main's selected families. It may study and
-  combine the allow-listed Worker Implementation Skills at code level; `task`,
-  `question`, network, unselected Skills, and broad repository discovery remain denied.
-- A repair revision must preserve direction id, method package, and target file.
-- The Worker must not read the full Context Packet, method catalog, experience memory, or old attempts.
-
-## Authoring guidance
-
-- The backend remains algorithm-agnostic. Named algorithm behavior comes only
-  from the selected knowledge/Skill/Method Package inputs.
-- A method package is complete only when all required components and coupled
-  groups have reachable behavior; names or unused helpers are not evidence.
-- Preserve Core-valid incumbent behavior and let the fixed evaluator decide
-  legality and objective improvement.
+- 两个通道都不得编造 `PlanningPacket` 中不存在的工具运行或测量结果。
+- method package 只有在所有必需组件与耦合组都具备可达行为时才算完整。
+- 保留 Core 已验证的 incumbent 行为，由固定 evaluator 决定合法性与目标改进；若交接越权或不完整，停止下发给 Worker。

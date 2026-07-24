@@ -1,106 +1,54 @@
 ---
 name: fjsp-agent-generated-solver
-description: Use when generating, reviewing, or evolving a standalone agent-written FJSP/FJSP-SDST solver from requirement and IO documents, especially when the backend must remain algorithm-agnostic and solver code must be produced by the coding agent rather than supplied by platform orchestration.
+description: 在依据需求文档与 IO 文档生成、审查或演进独立的 agent 编写 FJSP/FJSP-SDST 求解器时使用，尤其适用于后端必须保持算法无关且求解器代码需由 Coding Agent 自主产出的场景。
 ---
 
-# FJSP Agent-Generated Solver
+# FJSP 自主生成求解器
 
-Use this skill to keep standalone solver generation agent-owned while giving it
-strong legality and search-quality guardrails.
+## 触发条件
 
-## Workflow
+- 需要从需求文档和 IO 契约直接生成、修补或演进独立运行的 FJSP/FJSP-SDST 求解器。
+- 后端必须保持算法无关，解码器、邻域和搜索逻辑必须由 Coding Agent 在候选代码中实现。
+- 需要在不依赖平台内部求解器实现的前提下完成合法性、可演进性和独立 CLI 交付。
 
-1. Read the active requirement document, IO contract, evaluator protocol, and
-   instance diagnostics before choosing an algorithm.
-2. Identify the active variant features: alternative machines, sequence-
-   dependent setup, time lags, no-wait, calendars, batching, transport, release
-   dates, due dates, or objective changes.
-3. Read `references/solver_contract.md` for the invariant contract.
-4. For any active FJSP variant beyond standard alternative-machine precedence,
-   read `knowledge/principles/agent_generated_variant_quality_contracts.md`
-   when it is present in the project.
-5. For standard FJSP agent-generated baseline creation or legality repair,
-   read `knowledge/references/standard_fjsp/standard_fjsp_agent_generated_reference_skeleton.md`
-   when it is present in the project. Treat it as a portable code-level
-   skeleton to adapt to the active IO, not as a fixed instance solution.
-6. For standard FJSP local-search or neighborhood evolution, read
-   `knowledge/references/standard_fjsp/standard_fjsp_agent_generated_neighborhood_templates.md`
-   only after the incumbent has reachable `assignment`, `machine_sequences`,
-   and a progress decoder. Use it to implement executable move structures
-   before claiming critical-block, N8/NK, k-insertion, tabu, or AWLS.
-7. For FJSP-SDST agent-generated solver work, read
-   `knowledge/references/sdst/awls_sdst_agent_generated_transfer_notes.md` when it is
-   present in the project. Treat it as AWLS-derived method transfer, not source
-   code to copy.
-8. For FJSP-SDST or any variant with setup-aware sequencing, read
-   `references/decoder_neighborhood.md`.
-9. Propose one natural-language rule/operator hypothesis before writing code.
-10. Generate solver code from the IO contract. Do not import backend solver
-   internals, evaluator code, or previous solution files.
-11. Self-check standalone CLI (`--input`, `--output`, `--seed`), active IO
-   parsing, declared output schema, processing-time equality, full operation
-   coverage, machine eligibility, precedence, non-overlap, variant constraints,
-    incumbent preservation, and runtime before claiming a candidate is ready for
-    Core evaluation.
-    The CLI must also accept `--time-limit-sec`; use one shared deadline, check
-    it inside nested candidate loops, and apply moves transactionally so failed
-    candidates cannot corrupt the current state.
-12. After Core confirms legality, compare every claimed search method with the
-    full candidate source and the active semantic-review knowledge contract.
-    For standard FJSP, read
-    `knowledge/references/standard_fjsp/standard_fjsp_algorithm_semantic_review_contract.md`
-    when it is present.
-    In particular, verify current/global-best separation, reverse-move tabu
-    attributes, aspiration, exact critical-path propagation, tight critical
-    blocks, and named-neighborhood fidelity. Treat evidence-backed blocking
-    findings as same-direction repair targets before promotion.
-13. When loop feedback contains `agent_generated_quality_memory` or
-    `algorithm_semantic_memory`, repair its
-   recurring parser, representation, constructor, decoder, variant-handling, or
-   self-check gaps before proposing a new objective-improvement operator.
+## 读取顺序
 
-## Backend Boundary
+1. 先读当前需求文档、IO 契约、evaluator 协议和实例诊断。
+2. 识别激活变体：alternative machines、sequence-dependent setup、time lag、no-wait、calendar、batching、transport、release/due date 或目标变化。
+3. 读取 `references/solver_contract.md`。
+4. 若项目中存在且当前变体已激活，读取 `knowledge/principles/agent_generated_variant_quality_contracts.md`。
+5. 若是标准 FJSP 的 baseline 创建或合法性修补，且项目中存在，读取 `knowledge/references/standard_fjsp/standard_fjsp_agent_generated_reference_skeleton.md`。
+6. 若要演进标准 FJSP 邻域，且 incumbent 已具备可达的 `assignment`、`machine_sequences` 与 progress decoder，读取 `knowledge/references/standard_fjsp/standard_fjsp_agent_generated_neighborhood_templates.md`。
+7. 若是 FJSP-SDST 的自主求解器工作，且项目中存在，读取 `knowledge/references/sdst/awls_sdst_agent_generated_transfer_notes.md`。
+8. 若当前变体需要 setup-aware sequencing，读取 `knowledge/references/sdst/agent_generated_decoder_neighborhood.md`。
 
-- Treat this skill as method guidance, not a solver implementation.
-- Do not ask backend orchestration to provide decoder or neighborhood code.
-- Do not hardcode FJSP-SDST algorithms into generic pipeline, evaluator,
-  parser, promotion, or web code.
-- Put reusable algorithmic knowledge in this skill, knowledge cards, domain
-  packs, Method Packages, or worker context.
-- Promotion remains owned by the fixed Core evaluator.
-- Code-level knowledge templates may be copied and adapted by the coding agent,
-  but they must remain IO-derived and instance-agnostic.  Do not copy a solved
-  schedule, fixed operation order, benchmark-specific score, or previous output.
+## 执行步骤
 
-## Success Standard
+1. 在写代码前先提出一个自然语言规则或 operator 假设。
+2. 仅依据活动 IO 契约生成求解器代码，不导入后端求解器内部实现、evaluator 代码或既有解文件。
+3. 实现独立 CLI，至少覆盖 `--input`、`--output`、`--seed` 与 `--time-limit-sec`。
+4. 统一 operation identity、表示、构造、邻域、解码和输出路径，确保候选 move 失败时不会污染当前状态。
+5. 提交 Core 前完成自检：活动 IO 解析、输出 schema、加工时长一致性、全工序覆盖、机器资格、precedence、non-overlap、变体约束、incumbent 保留和运行时边界。
+6. 若 Core 已确认合法，再对照活动语义审查契约核实声明的方法是否真的在代码中闭合；若项目中存在 `knowledge/references/standard_fjsp/standard_fjsp_algorithm_semantic_review_contract.md`，标准 FJSP 需补读。
+7. 若回路反馈含有 `agent_generated_quality_memory` 或 `algorithm_semantic_memory`，优先修复其反复出现的 parser、representation、constructor、decoder、variant-handling 或 self-check 缺口，再引入新的改进 operator。
 
-A useful generated solver must be both legal and evolvable:
+## 权限与边界
 
-- It must produce a complete schedule under the declared IO schema.
-- It must be runnable as a standalone script with the solver command interface
-  in the active evaluator protocol.
-- It must preserve one operation identity representation through parsing,
-  construction, local search, decoding, and output.
-- It must check that every output interval has `end - start` equal to the
-  selected machine's processing time.
-- It must keep every move bounded by runtime and legality checks.
-- It must keep the incumbent schedule if a neighborhood fails, times out, or
-  cannot decode a complete candidate.
-- It must explain which prior promoted mechanism it preserves and which single
-  rule/operator it changes.
+- 本 Skill 提供方法约束，不替代 solver 实现。
+- 不要求后端编排提供 decoder 或 neighborhood 代码。
+- 不把 FJSP-SDST 或其他变体算法硬编码进通用 pipeline、evaluator、parser、promotion 或 web 代码。
+- 可复用知识模板，但必须保持 IO 派生、实例无关；不得复制已求解排程、固定工序顺序、基准特定分数或旧输出。
+- promotion 仍只由固定的 Core evaluator 决定。
 
-## Experience Memory Use
+## 交付物
 
-Run-local experience memory is feedback, not a solver template.  Use it to
-decide which structural gaps to repair or preserve:
+- 一个可独立运行的求解器入口。
+- 与活动协议一致的解析、解码、搜索和输出路径。
+- 对“保留了哪项既有机制、改动了哪个单一规则或 operator”的简明说明。
+- 结构化自检证据，能定位到实际函数、变量或 guard。
 
-- Repeated `active_io_parser` or `operation_level_ready_list_constructor` gaps
-  mean the next proposal should recover parser and constructor structure before
-  local search.
-- Repeated decoder, coverage, eligibility, or incumbent-preservation gaps mean
-  every neighborhood candidate must be decoded and checked before makespan
-  comparison.
-- Repeated self-check gaps mean `solver_contract_self_check` must cite concrete
-  code evidence for each expected capability.
-- Recovered quality gaps should be preserved in later rounds unless evaluator
-  feedback identifies that mechanism as the failure source.
+## 验证与停止条件
+
+- 只有在求解器能输出完整合法排程、满足 CLI 契约、保持统一表示并对失败候选保留 incumbent 时，才可进入 Core。
+- 任一 move 或候选若超时、解码失败、违反资格/precedence/non-overlap/变体语义，必须丢弃并保留当前最佳可行解。
+- 若发现重复的结构性缺口，先修复该缺口；未修复前停止扩大方法范围或宣称新搜索机制已就绪。

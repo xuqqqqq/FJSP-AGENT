@@ -3,29 +3,42 @@ name: fjsp-coupled-local-search-worker
 description: 为受控 Coding Agent 实现 FJSP assignment 与 machine sequence 耦合局部搜索，包括关键路径/关键块、换机重插、交换插入、VND/ILS/Tabu 接受与重启。用于 Main 已选择 coupled_local_search 方法族时，要求形成可迭代闭环并保留独立 incumbent。
 ---
 
-# FJSP Coupled Local Search Worker
+# FJSP 耦合局部搜索执行器
 
-先读取 WorkerAssignment 中与 `assignment_aware_local_search`、`machine_reassignment`、`assignment_search`、`critical_path`、`critical_block`、`local_search`、`ils` 或 `tabu_search` 相关的获准知识卡。按当前 incumbent 证据选择邻域，不把方法名当作实现完成。
+## 触发条件
 
-设计关键块、同机移动、换机重插、Tabu/AWLS 接受或权重更新时，可按需参考 [awls-coupled-loop-template.md](references/awls-coupled-loop-template.md)。模板来自项目 AWLS/HGTSA 行为契约和参考求解器，不是强制架构；Coding Agent 可以采用其他能形成完整可验证闭环的实现。
+- Main 已选择 `coupled_local_search` 方法族。
+- `WorkerAssignment` 授权了 `assignment_aware_local_search`、`machine_reassignment`、`assignment_search`、`critical_path`、`critical_block`、`local_search`、`ils` 或 `tabu_search` 相关知识。
 
-## 状态与评价
+## 读取顺序
 
-- 解显式包含 assignment 和每台机器的 operation order。
-- 每次换机、交换、插入或块重排后执行完整 DAG/等价精确解码；发现环或非法状态立即丢弃。
-- current state 可为接受策略暂时变差，global feasible incumbent 永不退化。
-- tabu key、逆移动、aspiration、停滞和扰动必须进入实际生成、选择、应用和更新路径。
+1. 先读 `WorkerAssignment` 与当前 incumbent 证据。
+2. 读取获准知识卡，按当前瓶颈选择邻域。
+3. 需要设计关键块、同机 move、换机重插或 Tabu/AWLS 接受时，再参考 `knowledge/references/standard_fjsp/awls_coupled_search_loop_template.md`。
 
-## 邻域闭环
+## 执行步骤
 
-1. 从解码结果提取关键/近关键工序、机器紧弧和关键块。
-2. 生成有界但非一次性的同机交换/插入/短块重排，以及柔性工序的替代机器重插。
-3. 精确评价可行候选，按 makespan、结构和接受规则选择 move。
-4. 接受后更新 current、memory、关键结构和 global best，再继续多轮 VND/ILS/Tabu。
-5. 停滞时使用有界扰动或新入口重启；deadline 前始终能返回 global best。
+1. 维护同时包含 `assignment` 与每台机器 operation order 的显式状态。
+2. 每次换机、交换、插入或块重排后执行完整 DAG 或等价精确解码，非法状态立即丢弃。
+3. 从解码结果提取关键/近关键工序、机器紧弧和关键块。
+4. 生成有界但可迭代的同机交换、插入、短块重排与替代机器重插候选。
+5. 按 makespan、结构与接受规则精确评价候选，并更新 `current`、memory、关键结构与 `global best`。
+6. 停滞时执行有界扰动或新入口重启，并在 deadline 前始终保留可返回的 `global best`。
 
-## 规模与证据
+## 权限与边界
 
-参数必须由实例规模、可选机器分布、关键结构和实际耗时决定。若 evaluator 预算大量闲置，扩大迭代、候选覆盖或重启深度；若邻域未激活，不得声称局部搜索有效。
+- 不能把方法名、少量浅扫描或未激活邻域当作局部搜索已完成。
+- `current state` 可暂时变差，但全局可行 `incumbent` 不得退化。
+- tabu key、逆移动、aspiration、停滞与扰动必须进入实际生成、选择、应用和更新路径。
+- 若同时授权构造 Skill，只消费其入口池并共享解码器与 incumbent。
 
-在 assignment 允许时记录各邻域 generated/evaluated/accepted/improved、换机与顺序 move 分布、迭代/重启数、阶段耗时和 best trajectory。若同时获准构造 Skill，只消费其可行入口池并共享同一解码器与 incumbent。
+## 交付物
+
+- 一个可迭代运行的耦合局部搜索闭环。
+- assignment 允许时的激活证据：各邻域 generated/evaluated/accepted/improved、换机与顺序 move 分布、迭代/重启数、阶段耗时和 best trajectory。
+
+## 验证与停止条件
+
+- 参数必须由实例规模、可选机器分布、关键结构和实测耗时驱动。
+- 若预算显著闲置，优先扩大迭代、候选覆盖或重启深度。
+- 若邻域未真实激活或无法保持独立 incumbent，停止宣称局部搜索有效。

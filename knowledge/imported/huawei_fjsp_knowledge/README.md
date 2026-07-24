@@ -10,7 +10,7 @@
 - `schema.md`：早期卡片格式。
 - `todo_downloads.md`：尚未补齐的外部资料。
 
-早期 `operators/` 中经过清理且仍可复用的实现知识已迁移到 `knowledge/references/standard_fjsp/`；带具体算例、种子和结果的 `lessons/` 已迁移到 `knowledge/experiment_memory/imported_runs/`。迁移后的文件保留原有 frontmatter/source 字段以维持来源关系。
+早期 `operators/` 中经过清理且仍可复用的实现知识已迁移到 `knowledge/references/standard_fjsp/`。旧 `lessons/` 属于过期运行历史，已按周保留规则删除，不再作为知识资产或 Skill 输入。
 
 ## 使用边界
 

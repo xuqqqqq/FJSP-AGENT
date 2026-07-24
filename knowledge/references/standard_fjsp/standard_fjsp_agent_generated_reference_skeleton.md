@@ -1,22 +1,19 @@
-# Standard FJSP Agent-Generated Reference Skeleton
+# 标准 FJSP Agent-Generated 参考骨架
 
-Use this card when a coding agent must create or repair a standalone
-`examples/agent_generated_fjsp_solver.py` for standard FJSP from IO documents.
+当 coding agent 需要依据 IO 文档，为标准 FJSP 创建或修复独立的
+`examples/agent_generated_fjsp_solver.py` 时，可使用本卡。
 
-This is a portable code-level reference, not a hidden platform solver.  The
-agent may copy and adapt the structure, but it must parse the active input file,
-respect the active output schema, and cite the functions it actually submits in
-`solver_contract_self_check`.
+这是可移植的代码级参考，不是隐藏的平台 solver。agent 可以复制并适配其结构，但必须
+解析当前激活的输入文件，遵守当前输出 schema，并在 `solver_contract_self_check` 中引
+用它实际提交的函数。
 
-Do not hardcode instance sizes, machine choices, operation orders, makespan
-values, LB/UB values, or previous solution files.
+不要硬编码实例规模、机器选择、工序顺序、makespan 数值、LB/UB 数值或先前的解文件。
 
-Machine ids in public standard-FJSP text files may be 0-based or 1-based.  Do
-not unconditionally subtract 1 inside the candidate-token loop.  First collect
-all raw ids, infer the base from `machine_count`, and normalize exactly once
-when building `eligible`.
+公开标准 FJSP 文本文件中的 machine id 既可能是 0-based，也可能是 1-based。不要在
+candidate-token loop 内无条件减 1。应先收集全部原始 id，再结合 `machine_count`
+推断基准，并在构建 `eligible` 时仅做一次标准化。
 
-## Complete Baseline Skeleton
+## 完整 Baseline 骨架
 
 ```python
 from __future__ import annotations
@@ -360,14 +357,14 @@ if __name__ == "__main__":
     main()
 ```
 
-## Required Evidence Names
+## 必需证据名称
 
-When using this skeleton, cite concrete submitted symbols:
+使用该骨架时，应引用实际提交的具体符号：
 
-- `parse_instance` for `active_io_parser`
-- `initial_ready_list_state` for `operation_level_ready_list_constructor`
-- `assignment` and `machine_sequences` for `stable_operation_identity` and sequence state
-- `decode_state` for progress/topological decoder
-- `coverage_ok` for complete schedule coverage
-- `validate_schedule` for eligibility, duration, precedence, and non-overlap
-- `apply_reassignment_move` and `improve_by_alternative_machine` for guarded local search
+- `parse_instance` 对应 `active_io_parser`
+- `initial_ready_list_state` 对应 `operation_level_ready_list_constructor`
+- `assignment` 与 `machine_sequences` 对应 `stable_operation_identity` 与 sequence state
+- `decode_state` 对应 progress/topological decoder
+- `coverage_ok` 对应完整 schedule coverage
+- `validate_schedule` 对应 eligibility、duration、precedence 与 non-overlap 检查
+- `apply_reassignment_move` 与 `improve_by_alternative_machine` 对应受保护的 local search

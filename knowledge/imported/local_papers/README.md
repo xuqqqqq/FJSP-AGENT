@@ -1,30 +1,26 @@
-# Local Paper Index
+# 本地论文索引
 
-This folder indexes local papers available on this machine.  Raw PDF files are
-stored under `knowledge/imported/local_papers/raw/` for local reading and retrieval, but
-that directory is intentionally ignored by Git because many papers may not be
-redistributable in a public repository.
+本目录索引当前机器上可用的本地论文。原始 PDF 保存在
+`knowledge/imported/local_papers/raw/`，供本地阅读和检索。由于部分论文可能不允许在公开仓库中再次分发，该目录有意不纳入 Git。
 
-## Imported Local PDFs
+## 已导入的本地 PDF
 
-| Paper file | Why it matters for FJSP Harness Agent |
+| 论文文件 | 对 FJSP Harness Agent 的价值 |
 | --- | --- |
-| `FJSP场景调研报告10-17.pdf` | Local scene survey covering standard FJSP, aluminum rolling, semiconductor manufacturing, constraint variants, solver families, and AI/LLM heuristic evolution; indexed by `knowledge/references/general_fjsp/fjsp_scene_survey_2025_10_17.md`. |
-| `基于混合遗传禁忌搜索算法的作业车间调度方法_谢晋 (1).pdf` | Hybrid genetic/tabu-search workflow; useful for neighborhood and tabu-loop strategy cards. |
-| `2025_RCIM_A_disjunctive_graph_based_metaheuristic_for_flexible_job_shop_scheduling_problems_considering_fixture_shortages.pdf` | Disjunctive-graph metaheuristic for FJSP variants with resource shortages; useful for industrial extensions. |
-| `智能制造系统中柔性作业车间调度的有效局部搜索算法.pdf` | Local-search design for FJSP; useful for operator library. |
-| `大规模柔性作业车间调度问题分解建模和求解方法_刘海涛.pdf` | Large-scale decomposition; useful for industrial-size scheduling. |
-| `基于End-to-end分层强化学习的大规模动态柔性作业车间调度问题研究_雷坤.pdf` | Hierarchical RL for large-scale dynamic FJSP; useful for future learning-worker design. |
-| `基于双层注意力网络的强化学习方法求解柔性作业车间调度问题_王皓焱.pdf` | Attention-based RL for FJSP; useful for state/action representation ideas. |
-| `基于改进DQN算法的柔性作业车间调度问题_王强.pdf` | DQN-style dispatching reference; useful for lightweight policy learning. |
-| `基于深度强化学习的大规模柔性作业车间调度问题研究_郑婷娟.pdf` | DRL for large-scale FJSP; useful for generalization discussion. |
-| `柔性作业车间中图嵌入的深度强化调度策略研究_陈明童.pdf` | Graph embedding for FJSP dispatching; useful for graph-state context packets. |
-| `融合深度强化学习和流体模型的柔性车间动态调度方法研究_丁林山.pdf` | Hybrid DRL/fluid model scheduling; useful for dynamic scheduling variants. |
+| `FJSP场景调研报告10-17.pdf` | 覆盖标准 FJSP、铝轧制、半导体制造、约束变体、求解器家族和 AI/LLM 启发式演进；已索引到 `knowledge/references/general_fjsp/fjsp_scene_survey_2025_10_17.md`。 |
+| `基于混合遗传禁忌搜索算法的作业车间调度方法_谢晋 (1).pdf` | 混合遗传与禁忌搜索流程，可用于邻域和禁忌循环策略卡。 |
+| `2025_RCIM_A_disjunctive_graph_based_metaheuristic_for_flexible_job_shop_scheduling_problems_considering_fixture_shortages.pdf` | 面向工装短缺变体的析取图元启发式，可用于工业约束扩展。 |
+| `智能制造系统中柔性作业车间调度的有效局部搜索算法.pdf` | FJSP 局部搜索设计，可用于算子知识。 |
+| `大规模柔性作业车间调度问题分解建模和求解方法_刘海涛.pdf` | 大规模分解方法，可用于工业规模调度。 |
+| `基于End-to-end分层强化学习的大规模动态柔性作业车间调度问题研究_雷坤.pdf` | 大规模动态 FJSP 的分层强化学习，可用于后续学习型 Worker 设计。 |
+| `基于双层注意力网络的强化学习方法求解柔性作业车间调度问题_王皓焱.pdf` | 基于注意力的 FJSP 强化学习，可用于状态与动作表示。 |
+| `基于改进DQN算法的柔性作业车间调度问题_王强.pdf` | DQN 风格派工参考，可用于轻量策略学习。 |
+| `基于深度强化学习的大规模柔性作业车间调度问题研究_郑婷娟.pdf` | 大规模 FJSP 深度强化学习，可用于泛化能力讨论。 |
+| `柔性作业车间中图嵌入的深度强化调度策略研究_陈明童.pdf` | FJSP 图嵌入派工，可用于图状态上下文设计。 |
+| `融合深度强化学习和流体模型的柔性车间动态调度方法研究_丁林山.pdf` | 深度强化学习与流体模型混合调度，可用于动态调度变体。 |
 
-## Next Knowledge Tasks
+## 后续知识任务
 
-1. Read each PDF and create a short knowledge card under `knowledge/references/` or
-   `knowledge/operators/`.
-2. Link every operator card to a harness module: parser, evaluator, strategy
-   library, hypothesis graph, or worker prompt.
-3. Keep raw PDF filenames stable so local retrieval scripts can locate them.
+1. 阅读每份 PDF，在 `knowledge/references/` 下建立简短知识卡。
+2. 为每张知识卡标明对应的 parser、evaluator、策略库、假设图或 Worker 使用场景。
+3. 保持原始 PDF 文件名稳定，便于本地检索脚本定位。

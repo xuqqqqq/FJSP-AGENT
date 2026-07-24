@@ -138,6 +138,11 @@
                     </div>
                     <div class="status-actions">
                       <span id="job-status" class="status-pill">排队中</span>
+                      <div id="resume-job-controls" class="resume-job-controls hidden">
+                        <label for="resume-additional-rounds">追加轮数</label>
+                        <input id="resume-additional-rounds" type="number" min="1" max="20" value="3" />
+                        <button type="button" id="resume-job" title="保留 incumbent 和历史证据继续迭代">继续迭代</button>
+                      </div>
                       <button class="stop-job-button hidden" type="button" id="stop-job" title="停止当前任务">停止任务</button>
                     </div>
                   </div>
@@ -303,7 +308,11 @@
                     <span class="section-kicker">全局与项目资源</span>
                     <h2>Skills 与知识库</h2>
                   </div>
-                  <button class="ghost compact-button" type="button" id="refresh-resources">刷新资源</button>
+                  <div class="resource-head-actions">
+                    <button class="ghost compact-button" type="button" id="create-skill">新建 Skill</button>
+                    <button class="ghost compact-button" type="button" id="create-knowledge">新建知识卡</button>
+                    <button class="ghost compact-button" type="button" id="refresh-resources">刷新资源</button>
+                  </div>
                 </div>
                 <div class="resource-toolbar">
                   <div class="resource-kind-tabs" role="tablist" aria-label="资源类型">
@@ -568,6 +577,123 @@
         </div>
       </section>
     </div>
-    <script src="/static/app.js?v=20260721-unified-thread-1"></script>
+    <dialog id="resume-dialog" class="resume-dialog" aria-labelledby="resume-dialog-title">
+      <form id="resume-dialog-form">
+        <div class="resume-dialog-head">
+          <div>
+            <span class="section-kicker">继续实验</span>
+            <h2 id="resume-dialog-title">继续迭代</h2>
+          </div>
+          <button type="button" id="resume-dialog-close" class="dialog-close" aria-label="关闭">×</button>
+        </div>
+        <p id="resume-dialog-job" class="muted"></p>
+        <label class="field compact">
+          <span>追加轮数</span>
+          <input id="resume-dialog-rounds" type="number" min="1" max="20" value="3" required />
+        </label>
+        <div class="resume-dialog-actions">
+          <button type="button" id="resume-dialog-cancel" class="ghost">取消</button>
+          <button type="submit" id="resume-dialog-submit" class="primary">开始续跑</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="resource-dialog" class="resource-dialog" aria-labelledby="resource-dialog-title">
+      <form id="resource-dialog-form">
+        <div class="resource-dialog-head">
+          <div>
+            <span class="section-kicker">项目资源</span>
+            <h2 id="resource-dialog-title">新建 Skill</h2>
+          </div>
+          <button type="button" id="resource-dialog-close" class="dialog-close" aria-label="关闭">×</button>
+        </div>
+
+        <div class="resource-editor-tabs" role="tablist" aria-label="新建资源类型">
+          <button type="button" class="active" data-resource-editor-category="skill" role="tab" aria-selected="true">Skill</button>
+          <button type="button" data-resource-editor-category="knowledge" role="tab" aria-selected="false">知识卡</button>
+        </div>
+
+        <section id="resource-skill-fields" class="resource-form-section">
+          <div class="resource-form-grid">
+            <label class="field compact">
+              <span>Skill 名称</span>
+              <input id="resource-skill-name" placeholder="例如：fjsp-new-method-worker" maxlength="64" />
+            </label>
+            <label class="field compact">
+              <span>显示名称</span>
+              <input id="resource-skill-title" placeholder="例如：FJSP 新方法执行器" maxlength="100" />
+            </label>
+          </div>
+          <label class="field compact">
+            <span>触发描述</span>
+            <textarea id="resource-skill-description" rows="3" maxlength="1024" placeholder="说明这个 Skill 做什么，以及什么任务或方法族应触发它"></textarea>
+          </label>
+          <fieldset class="resource-option-group">
+            <legend>适用方法族</legend>
+            <div id="resource-skill-families" class="resource-checkbox-grid"></div>
+          </fieldset>
+          <label class="field compact">
+            <span>激活标签</span>
+            <input id="resource-skill-tags" list="resource-tag-options" placeholder="例如：beam_search, construction" />
+          </label>
+          <label class="field compact">
+            <span>默认提示词</span>
+            <input id="resource-skill-prompt" maxlength="500" placeholder="使用该 Skill 时的默认任务提示" />
+          </label>
+          <label class="field compact">
+            <span>执行指令 Markdown</span>
+            <textarea id="resource-skill-body" class="resource-body-editor" rows="15"></textarea>
+          </label>
+          <label class="resource-register-option">
+            <input id="resource-skill-register" type="checkbox" checked />
+            <span>注册到标准 FJSP Domain Pack，允许 Worker 按方法族自动匹配</span>
+          </label>
+        </section>
+
+        <section id="resource-knowledge-fields" class="resource-form-section" hidden>
+          <div class="resource-form-grid">
+            <label class="field compact">
+              <span>知识卡标题</span>
+              <input id="resource-knowledge-title" maxlength="160" />
+            </label>
+            <label class="field compact">
+              <span>文件标识</span>
+              <input id="resource-knowledge-slug" placeholder="例如：beam-width-budget" maxlength="80" />
+            </label>
+            <label class="field compact">
+              <span>知识分类</span>
+              <select id="resource-knowledge-destination"></select>
+            </label>
+            <label class="field compact">
+              <span>检索标签</span>
+              <input id="resource-knowledge-tags" list="resource-tag-options" placeholder="例如：beam_search, diversity" />
+            </label>
+          </div>
+          <label class="field compact">
+            <span>摘要</span>
+            <textarea id="resource-knowledge-summary" rows="3" maxlength="1024"></textarea>
+          </label>
+          <label class="field compact">
+            <span>证据或来源</span>
+            <textarea id="resource-knowledge-source" rows="2" maxlength="2000" placeholder="论文、官方文档、代码位置或可复现实验路径"></textarea>
+          </label>
+          <label class="field compact">
+            <span>知识正文 Markdown</span>
+            <textarea id="resource-knowledge-body" class="resource-body-editor" rows="15"></textarea>
+          </label>
+          <label class="resource-register-option">
+            <input id="resource-knowledge-register" type="checkbox" />
+            <span>已人工审核，注册到二阶段标签检索（仅稳定方法参考可用）</span>
+          </label>
+        </section>
+
+        <datalist id="resource-tag-options"></datalist>
+        <p id="resource-dialog-status" class="resource-dialog-status" aria-live="polite"></p>
+        <div class="resource-dialog-actions">
+          <button type="button" id="resource-dialog-cancel" class="ghost">取消</button>
+          <button type="submit" id="resource-dialog-submit" class="primary">创建资源</button>
+        </div>
+      </form>
+    </dialog>
+    <script src="/static/app.js?v=20260724-resource-authoring-1"></script>
   </body>
 </html>

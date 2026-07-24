@@ -1,42 +1,37 @@
 # HeurAgenix
 
-## Source
+## 来源
 
-- Code: [microsoft/HeurAgenix](https://github.com/microsoft/HeurAgenix)
-- Paper summary: [HeurAgenix on Hugging Face Papers](https://huggingface.co/papers/2506.15196)
-- Paper page: [HeurAgenix OpenReview](https://openreview.net/forum?id=xxSK3ZNAhh)
+- 代码：[microsoft/HeurAgenix](https://github.com/microsoft/HeurAgenix)
+- 论文摘要：[HeurAgenix on Hugging Face Papers](https://huggingface.co/papers/2506.15196)
+- 论文页面：[HeurAgenix OpenReview](https://openreview.net/forum?id=xxSK3ZNAhh)
 
-## Relevant Idea
+## 相关要点
 
-HeurAgenix is described as an LLM-driven hyper-heuristic framework that evolves
-a pool of heuristics and then selects among them for problem states.  This is
-closer to our target than one-shot solver generation because it separates:
+HeurAgenix 被描述为一个由 LLM 驱动的 hyper-heuristic 框架：它先演化一组 heuristics，再根据问题状态在其中进行选择。与一次性生成整个 solver 相比，这更接近我们的目标，因为它把以下环节分开了：
 
-- heuristic generation;
-- heuristic evaluation;
-- heuristic selection;
-- state-aware use of a heuristic pool.
+- 启发式生成；
+- 启发式评估；
+- 启发式选择；
+- 面向状态地使用 heuristic pool。
 
-## Impact on FJSP Harness Agent
+## 对 FJSP Harness Agent 的影响
 
-The harness should avoid treating each generated solver as an isolated artifact.
-It should learn a reusable pool of FJSP strategy fragments:
+harness 不应把每个生成的 solver 都当成孤立 artifact。
+它应学习一组可复用的 FJSP 策略片段：
 
-- dispatching rules;
-- machine selection rules;
-- route selection rules;
-- setup-reduction rules;
-- batch construction rules;
-- local search operators.
+- dispatching rules；
+- 机器选择规则；
+- 路线选择规则；
+- setup-reduction rules；
+- batch 构造规则；
+- local search operators。
 
-The future selector can be a simple bandit, a learned policy, or an LLM-based
-selector.  The first implementation should keep the selector outside the trusted
-validator path.
+未来的 selector 可以是简单的 bandit、学习型 policy，或基于 LLM 的 selector。第一版实现应把 selector 放在受信 validator 路径之外。
 
-## Module Mapping
+## 模块映射
 
-- `Strategy Library`: stores reusable rule fragments.
-- `Hypothesis Graph`: tracks evolution and compatibility of fragments.
-- `Policy Recommender`: selects top-k strategy configurations for a new case.
-- `Benchmark Runner`: compares selected strategies under the same evaluator.
-
+- `Strategy Library`：存储可复用的规则片段。
+- `Hypothesis Graph`：跟踪片段的演化与兼容性。
+- `Policy Recommender`：为新 case 选择 top-k 策略配置。
+- `Benchmark Runner`：在同一 evaluator 下比较所选策略。

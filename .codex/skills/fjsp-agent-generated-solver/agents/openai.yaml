@@ -1,4 +1,4 @@
 interface:
-  display_name: "FJSP Agent Solver"
-  short_description: "Guide agent-written FJSP variant solvers"
-  default_prompt: "Use $fjsp-agent-generated-solver when generating or evolving a standalone FJSP/FJSP-variant solver from IO and requirement docs."
+  display_name: "FJSP 自主求解器"
+  short_description: "指导自主编写的 FJSP 变体求解器"
+  default_prompt: "在需要依据 IO 与需求文档生成或演进独立 FJSP/FJSP 变体求解器时使用 $fjsp-agent-generated-solver。"

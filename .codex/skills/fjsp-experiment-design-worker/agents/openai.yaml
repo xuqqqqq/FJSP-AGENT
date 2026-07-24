@@ -1,4 +1,4 @@
 interface:
-  display_name: "FJSP Experiment Design Worker"
-  short_description: "Instrument and execute falsifiable FJSP worker experiments"
-  default_prompt: "Implement the assigned mechanism with activation evidence and bounded local checks."
+  display_name: "FJSP 实验设计执行器"
+  short_description: "插桩并执行可证伪的 FJSP Worker 实验"
+  default_prompt: "在激活证据和有界本地检查的约束下实现 assignment 指定的机制。"

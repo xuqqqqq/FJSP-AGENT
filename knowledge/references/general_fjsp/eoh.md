@@ -1,38 +1,34 @@
-# Evolution of Heuristics (EoH)
+# 启发式演化（EoH）
 
-## Source
+## 来源
 
-- Paper: [Evolution of Heuristics: Towards Efficient Automatic Algorithm Design Using Large Language Model](https://arxiv.org/html/2401.02051v3)
-- Code: [FeiLiu36/EOH](https://github.com/FeiLiu36/EOH)
+- 论文：[Evolution of Heuristics: Towards Efficient Automatic Algorithm Design Using Large Language Model](https://arxiv.org/html/2401.02051v3)
+- 代码：[FeiLiu36/EOH](https://github.com/FeiLiu36/EOH)
 
-## Relevant Idea
+## 相关要点
 
-EoH combines large language models with evolutionary computation for automatic
-heuristic design.  The important pattern for this project is not a specific
-heuristic, but the representation and evolution loop:
+EoH 将大语言模型与 evolutionary computation 结合起来，用于自动启发式设计。对本项目更重要的不是某个具体 heuristic，而是其表示与演化闭环：
 
-- represent a heuristic idea in natural language;
-- turn the idea into executable code;
-- evaluate the code with an external objective;
-- select, mutate, and recombine promising heuristic ideas.
+- 先用自然语言表示一个 heuristic 思路；
+- 再把这个思路变成可执行代码；
+- 用外部目标函数评估代码；
+- 对有前景的 heuristic 思路进行选择、变异和重组。
 
-## Impact on FJSP Harness Agent
+## 对 FJSP Harness Agent 的影响
 
-FJSP Harness Agent should preserve a strategy-first workflow:
+FJSP Harness Agent 应保留“策略优先”的工作流：
 
-1. Worker writes `strategy.md`.
-2. Worker writes or patches solver code.
-3. Harness runs fixed evaluator.
-4. Experiment Ledger records whether the strategy improved or failed.
-5. Hypothesis Graph evolves strategy families, not only numeric parameters.
+1. Worker 编写 `strategy.md`。
+2. Worker 编写或修补 solver 代码。
+3. Harness 运行固定的 evaluator。
+4. Experiment Ledger 记录该策略是改进了还是失败了。
+5. Hypothesis Graph 演化的是策略家族，而不只是数值参数。
 
-This supports the user's requirement that the agent can change rules and
-operators, not merely tune command-line parameters.
+这与用户要求一致：agent 应能改变规则和算子，而不是仅仅调命令行参数。
 
-## Module Mapping
+## 模块映射
 
-- `Context Packet`: include current hypothesis and relevant prior strategies.
-- `CodingWorker`: require natural-language strategy before code.
-- `Experiment Ledger`: record strategy lineage and objective metrics.
-- `Hypothesis Graph`: support mutation, crossover, pruning, and promotion.
-
+- `Context Packet`：包含当前假设和相关历史策略。
+- `CodingWorker`：要求先给出自然语言策略，再写代码。
+- `Experiment Ledger`：记录策略谱系和目标指标。
+- `Hypothesis Graph`：支持变异、交叉、剪枝和 promotion。

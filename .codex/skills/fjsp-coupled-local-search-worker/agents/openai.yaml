@@ -1,4 +1,4 @@
 interface:
-  display_name: "FJSP Coupled Local Search Worker"
-  short_description: "Implement assignment and sequence local search for FJSP"
-  default_prompt: "Study the selected local-search material and implement the assigned method families."
+  display_name: "FJSP 耦合局部搜索执行器"
+  short_description: "实现 FJSP 的分配与顺序局部搜索"
+  default_prompt: "研读已选的局部搜索材料，并实现 assignment 指定的方法族。"

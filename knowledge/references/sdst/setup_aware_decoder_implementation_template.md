@@ -1,6 +1,6 @@
-# Setup-aware 解码模板
+# 含 Setup 语义的解码模板
 
-来源依据：`.codex/skills/fjsp-awls-sdst-adapter/references/awls_sdst_adaptation.md` 与活动 setup IO 契约。先确定 setup 索引、dummy predecessor、anticipatory/non-anticipatory 语义，再选择下述分支。
+来源依据：`knowledge/references/sdst/awls_sdst_adaptation_implementation.md` 与活动 setup IO 契约。先确定 setup 索引、dummy predecessor、anticipatory/non-anticipatory 语义，再选择下述分支。
 
 ```python
 def place_after_machine_predecessor(problem, op, machine, machine_pred, job_ready, machine_ready):

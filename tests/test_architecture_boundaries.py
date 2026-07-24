@@ -88,6 +88,24 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             skill_text = (PROJECT_ROOT / source / "SKILL.md").read_text(encoding="utf-8")
             self.assertIn(f"name: {skill_id}", skill_text)
 
+    def test_domain_pack_algorithm_cards_live_in_knowledge(self) -> None:
+        manifest = json.loads(
+            (PROJECT_ROOT / "domain_packs" / "standard_fjsp" / "domain_pack.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        tagged_cards = (manifest.get("knowledge") or {}).get("tagged_cards") or {}
+        allowed_skill_references = {
+            ".codex/skills/fjsp-agent-generated-solver/references/solver_contract.md",
+        }
+        misplaced: list[str] = []
+        for paths in tagged_cards.values():
+            for path in paths if isinstance(paths, list) else []:
+                normalized = str(path).replace("\\", "/")
+                if normalized.startswith(".codex/skills/") and normalized not in allowed_skill_references:
+                    misplaced.append(normalized)
+        self.assertEqual([], sorted(set(misplaced)))
+
     def test_skill_markdown_project_references_exist(self) -> None:
         missing: list[str] = []
         for skill_path in sorted((PROJECT_ROOT / ".codex" / "skills").glob("*/SKILL.md")):

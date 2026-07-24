@@ -1,9 +1,9 @@
-# Method Package Protocol
+# 方法包协议
 
 Method Package 是 Agent 可检索、可实现、可审查的一套完整算法资料，不是后端求解器插件。
 通用后端只读取结构化契约、传递上下文、执行候选代码并核验结果；算法原理、参考实现和行为要求均保存在本目录或对应 Skill 中。
 
-## Package Contents
+## 包内容
 
 每个方法包由领域包 `domain_pack.json` 注册，通常包含：
 
@@ -13,7 +13,7 @@ Method Package 是 Agent 可检索、可实现、可审查的一套完整算法�
 - 可选参考实现：供 Coding Agent 阅读并按当前需求/IO 重写，不由后端直接运行或复制。
 - `semantic_assets`：只给 Semantic Reviewer 的精炼行为契约；不包含大体量参考实现，避免每次审查重复计费。
 
-## Generic Contract
+## 通用契约
 
 `implementation_contract.json` 不使用后端预定义的算法枚举。每个包自行声明：
 
@@ -34,7 +34,7 @@ Method Package 是 Agent 可检索、可实现、可审查的一套完整算法�
 
 这三类包走相同的数据流和验收逻辑，不需要在后端增加对应算法分支。
 
-## Runtime Rules
+## 运行规则
 
 1. Main Agent 根据需求、IO、实例特征和方法包兼容条件选择一个包。
 2. 完整契约原样绑定到方向计划；组件或耦合组不得静默截断。

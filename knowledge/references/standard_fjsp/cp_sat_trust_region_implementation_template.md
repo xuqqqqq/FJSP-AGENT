@@ -1,4 +1,4 @@
-# CP-SAT 与 Trust Region 模板
+# CP-SAT 与信任域模板
 
 来源依据：`knowledge/references/standard_fjsp/cp_sat_hybrid_blueprint.md`。API 名称按 OR-Tools 风格表达，只有 runtime contract 已提供相应依赖时才能使用。
 

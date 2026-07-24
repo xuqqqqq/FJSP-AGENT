@@ -517,9 +517,9 @@ class ContextPacketTests(unittest.TestCase):
         auto_cards = {Path(path).name for path in packet["auto_knowledge_cards"]}
         self.assertIn("awls_sdst_adapter_notes.md", auto_cards)
         self.assertIn("awls_sdst_agent_generated_transfer_notes.md", auto_cards)
-        self.assertIn("decoder_neighborhood.md", auto_cards)
+        self.assertIn("agent_generated_decoder_neighborhood.md", auto_cards)
         self.assertNotIn("awls_sdst_hudata20_baseline_notes.md", auto_cards)
-        self.assertNotIn("fjsp_sdst_agent_generated_search_memory_20260707.md", auto_cards)
+        self.assertNotIn("fjsp_sdst_search_observation_20260723.md", auto_cards)
 
     def test_context_packet_summarizes_multiple_sdst_shapes_without_prefix_bias(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

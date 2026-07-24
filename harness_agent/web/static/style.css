@@ -825,6 +825,102 @@ h3 {
   gap: 8px;
 }
 
+.resume-job-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.resume-job-controls label {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.resume-job-controls input {
+  width: 54px;
+  min-height: 32px;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.resume-job-controls button,
+.history-resume-button {
+  min-height: 32px;
+  padding: 0 11px;
+  color: #fff;
+  background: var(--primary);
+}
+
+.resume-job-controls button:hover,
+.history-resume-button:hover {
+  background: var(--primary-text);
+}
+
+.resume-job-controls button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.resume-dialog {
+  width: min(420px, calc(100vw - 32px));
+  padding: 0;
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.resume-dialog::backdrop {
+  background: rgba(16, 24, 40, 0.48);
+}
+
+.resume-dialog form {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+}
+
+.resume-dialog-head,
+.resume-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.resume-dialog-head h2,
+.resume-dialog p {
+  margin: 0;
+}
+
+.resume-dialog-head h2 {
+  margin-top: 4px;
+  font-size: 18px;
+}
+
+.dialog-close {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.resume-dialog-actions {
+  justify-content: flex-end;
+}
+
+.resume-dialog-actions button {
+  min-height: 36px;
+  padding: 0 14px;
+}
+
 .stop-job-button {
   min-height: 32px;
   padding: 0 11px;
@@ -1285,6 +1381,11 @@ h3 {
   opacity: 0.58;
 }
 
+.history-resume-button {
+  min-width: 58px;
+  min-height: 34px;
+}
+
 .resource-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-bottom: 18px;
@@ -1311,6 +1412,13 @@ h3 {
   gap: 12px;
   align-items: center;
   margin-bottom: 12px;
+}
+
+.resource-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .resource-kind-tabs {
@@ -1376,6 +1484,18 @@ h3 {
   text-align: left;
 }
 
+.resource-list-group {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 12px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--rail);
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .resource-list-item:hover,
 .resource-list-item.active {
   border-left-color: var(--primary);
@@ -1433,6 +1553,154 @@ h3 {
   border: 0;
   border-top: 1px solid var(--border);
   background: var(--surface-soft);
+}
+
+.resource-dialog {
+  width: min(860px, calc(100vw - 32px));
+  max-height: min(88vh, 900px);
+  padding: 0;
+  overflow: hidden;
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.resource-dialog::backdrop {
+  background: rgba(16, 24, 40, 0.48);
+}
+
+.resource-dialog form {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  gap: 14px;
+  max-height: min(88vh, 900px);
+  padding: 20px;
+}
+
+.resource-dialog-head,
+.resource-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.resource-dialog-head h2 {
+  margin: 4px 0 0;
+  font-size: 18px;
+}
+
+.resource-editor-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid var(--border);
+}
+
+.resource-editor-tabs button {
+  min-height: 38px;
+  color: var(--text-muted);
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--surface);
+}
+
+.resource-editor-tabs button:last-child {
+  border-right: 0;
+}
+
+.resource-editor-tabs button.active {
+  color: var(--primary-text);
+  background: var(--primary-soft);
+}
+
+.resource-form-section {
+  min-height: 0;
+  padding-right: 4px;
+  overflow: auto;
+}
+
+.resource-form-section[hidden] {
+  display: none;
+}
+
+.resource-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.resource-option-group {
+  margin: 0 0 12px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--border);
+}
+
+.resource-option-group legend {
+  padding: 0 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.resource-checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+
+.resource-checkbox-grid label,
+.resource-register-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.resource-checkbox-grid input,
+.resource-register-option input {
+  width: auto;
+  min-height: auto;
+  margin-top: 3px;
+}
+
+.resource-body-editor {
+  min-height: 280px;
+  font-family: var(--mono);
+}
+
+.resource-register-option {
+  margin: 8px 0 2px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--info);
+  background: var(--info-soft);
+}
+
+.resource-dialog-status {
+  min-height: 22px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.resource-dialog-status.success {
+  color: var(--success);
+}
+
+.resource-dialog-status.error {
+  color: var(--danger);
+}
+
+.resource-dialog-actions {
+  justify-content: flex-end;
+}
+
+.resource-dialog-actions button {
+  min-height: 36px;
+  padding: 0 14px;
 }
 
 .model-allocation {
@@ -1763,6 +2031,12 @@ pre {
     flex-direction: column;
   }
 
+  .status-strip,
+  .status-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .main-stage {
     padding: 18px 14px 34px;
   }
@@ -1805,6 +2079,15 @@ pre {
 
   .resource-preview {
     height: 520px;
+  }
+
+  .resource-form-grid,
+  .resource-checkbox-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .resource-head-actions {
+    justify-content: flex-start;
   }
 
   .agent-runtime-note {

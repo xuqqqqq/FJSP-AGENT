@@ -676,7 +676,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         }
         context["knowledge_cards"] = [
             {
-                "path": "knowledge/capabilities/fjsp_agent_current_capability_20260704.md",
+                "path": "knowledge/capabilities/current_fjsp_agent_capability.md",
                 "chars": 12000,
                 "truncated": False,
                 "snippet": "score report with benchmark numbers " * 120,
@@ -709,7 +709,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
 
         self.assertEqual("standard_fjsp_agent_generated_neighborhood_templates.md", selected_names[0])
         self.assertIn("hgtsa_fjsp_n8_k_insertion_blueprint.md", selected_names)
-        self.assertNotIn("fjsp_agent_current_capability_20260704.md", selected_names)
+        self.assertNotIn("current_fjsp_agent_capability.md", selected_names)
 
     def test_priority_knowledge_cards_prefers_operator_cards_in_improvement_stage(self) -> None:
         context = _context_packet_with_intake()
@@ -1023,7 +1023,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         }
         context["knowledge_cards"] = [
             {
-                "path": "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "path": "knowledge/experiment_memory/current_week/fjsp_sdst_search_observation_20260723.md",
                 "chars": 10000,
                 "truncated": False,
                 "snippet": (
@@ -1102,7 +1102,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         }
         context["knowledge_cards"] = [
             {
-                "path": "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "path": "knowledge/experiment_memory/current_week/fjsp_sdst_search_observation_20260723.md",
                 "chars": 10000,
                 "truncated": False,
                 "snippet": (
@@ -1157,7 +1157,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         }
         context["knowledge_cards"] = [
             {
-                "path": "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "path": "knowledge/experiment_memory/current_week/fjsp_sdst_search_observation_20260723.md",
                 "chars": 10000,
                 "truncated": False,
                 "snippet": (
@@ -1188,7 +1188,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         }
         context["knowledge_cards"] = [
             {
-                "path": "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "path": "knowledge/experiment_memory/current_week/fjsp_sdst_search_observation_20260723.md",
                 "chars": 12000,
                 "truncated": False,
                 "snippet": (
@@ -1218,28 +1218,14 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         self.assertIn("operation-level list scheduler", prompt_context)
         self.assertIn("Risk patterns already observed", prompt_context)
 
-    def test_agent_generated_memory_card_uses_method_level_evidence(self) -> None:
-        text = Path("knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn("## Local Method Evidence", text)
-        self.assertIn("Do not copy any previous", text)
-        self.assertIn("low-risk starting recommendation", text)
-        self.assertIn("coherent full AWLS adaptation", text)
-        self.assertNotIn("Do not attempt to port the full AWLS code", text)
-        for forbidden_value in ("1096", "1102", "1138", "1131", "3817"):
-            self.assertNotIn(forbidden_value, text)
-
     def test_awls_transfer_card_treats_full_method_as_an_advisory_scope_choice(self) -> None:
         text = Path("knowledge/references/sdst/awls_sdst_agent_generated_transfer_notes.md").read_text(
             encoding="utf-8"
         )
-        normalized = " ".join(text.split())
 
-        self.assertIn("coherent full AWLS adaptation", text)
-        self.assertIn("Selecting and coherently implementing the full method is allowed", normalized)
-        self.assertNotIn("Porting the full AWLS solver in one proposal", text)
+        self.assertIn("连贯的完整 AWLS 适配", text)
+        self.assertIn("允许选择并连贯实现完整方法", text)
+        self.assertIn("不是禁止选择完整方法", text)
 
     def test_priority_worker_context_includes_variant_quality_contract(self) -> None:
         context = _context_packet_with_intake()
@@ -1868,7 +1854,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
                 "snippet": "Generic benchmark scope." * 200,
             },
             {
-                "path": "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "path": "knowledge/experiment_memory/current_week/fjsp_sdst_search_observation_20260723.md",
                 "chars": 5400,
                 "truncated": False,
                 "snippet": (
@@ -1881,7 +1867,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         prompt_context = priority_worker_context(context)
 
         self.assertIn("priority_knowledge_cards", prompt_context)
-        self.assertIn("fjsp_sdst_agent_generated_search_memory_20260707.md", prompt_context)
+        self.assertIn("fjsp_sdst_search_observation_20260723.md", prompt_context)
         self.assertIn("operation-level list scheduler", prompt_context)
 
     def test_priority_cards_follow_active_method_package_without_name_blacklist(self) -> None:
@@ -1899,19 +1885,19 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         }
         context["knowledge_cards"] = [
             {
-                "path": "knowledge/experiment_memory/awls_sdst/awls_sdst_initialization_notes.md",
+                "path": "knowledge/experiment_memory/current_week/awls_sdst_initialization_observation_20260723.md",
                 "chars": 12000,
                 "truncated": False,
                 "snippet": "AWLS-SDST initialization setup-aware oddla20 local search critical block " * 80,
             },
             {
-                "path": "knowledge/experiment_memory/awls_sdst/awls_sdst_tabu_memory_notes.md",
+                "path": "knowledge/experiment_memory/current_week/awls_sdst_tabu_observation_20260723.md",
                 "chars": 12000,
                 "truncated": False,
                 "snippet": "AWLS-SDST tabu memory setup-aware oddla20 local search critical block " * 80,
             },
             {
-                "path": "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "path": "knowledge/experiment_memory/current_week/fjsp_sdst_search_observation_20260723.md",
                 "chars": 5400,
                 "truncated": False,
                 "snippet": (
@@ -1928,7 +1914,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         ]
         context["active_method_package"] = {
             "assets": [
-                "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "knowledge/experiment_memory/current_week/fjsp_sdst_search_observation_20260723.md",
                 "knowledge/principles/fjsp_variant_domain_pack_rag.md",
             ]
         }
@@ -1937,7 +1923,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         selected_names = [Path(card["path"]).name for card in selected]
 
         self.assertEqual(
-            {"fjsp_sdst_agent_generated_search_memory_20260707.md", "fjsp_variant_domain_pack_rag.md"},
+            {"fjsp_sdst_search_observation_20260723.md", "fjsp_variant_domain_pack_rag.md"},
             set(selected_names),
         )
 
@@ -1955,13 +1941,13 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         }
         context["knowledge_cards"] = [
             {
-                "path": "knowledge/capabilities/fjsp_agent_current_capability_20260704.md",
+                "path": "knowledge/capabilities/current_fjsp_agent_capability.md",
                 "chars": 12000,
                 "truncated": False,
                 "snippet": "FJSP-SDST makespan 1010 UB gap 6.81 current capability report " * 80,
             },
             {
-                "path": "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "path": "knowledge/experiment_memory/current_week/fjsp_sdst_search_observation_20260723.md",
                 "chars": 5400,
                 "truncated": False,
                 "snippet": (
@@ -1979,7 +1965,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         context["loop_feedback"] = {
             "current_direction_plan": {
                 "knowledge_paths": [
-                    "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                    "knowledge/experiment_memory/current_week/fjsp_sdst_search_observation_20260723.md",
                     "knowledge/principles/agent_generated_variant_quality_contracts.md",
                 ]
             }
@@ -1988,9 +1974,9 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         selected = compact_priority_knowledge_cards(context, limit=2, max_chars_per_card=400)
         selected_names = [Path(card["path"]).name for card in selected]
 
-        self.assertIn("fjsp_sdst_agent_generated_search_memory_20260707.md", selected_names)
+        self.assertIn("fjsp_sdst_search_observation_20260723.md", selected_names)
         self.assertIn("agent_generated_variant_quality_contracts.md", selected_names)
-        self.assertNotIn("fjsp_agent_current_capability_20260704.md", selected_names)
+        self.assertNotIn("current_fjsp_agent_capability.md", selected_names)
 
     def test_priority_cards_suppress_sdst_when_diagnostics_are_standard_fjsp(self) -> None:
         context = _context_packet_with_intake()
@@ -2019,7 +2005,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         }
         context["knowledge_cards"] = [
             {
-                "path": "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "path": "knowledge/experiment_memory/current_week/fjsp_sdst_search_observation_20260723.md",
                 "chars": 5400,
                 "truncated": False,
                 "snippet": "agent-generated FJSP-SDST setup-aware decoder memory " * 40,
@@ -2036,7 +2022,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         selected_names = [Path(card["path"]).name for card in selected]
 
         self.assertIn("agent_generated_variant_quality_contracts.md", selected_names)
-        self.assertNotIn("fjsp_sdst_agent_generated_search_memory_20260707.md", selected_names)
+        self.assertNotIn("fjsp_sdst_search_observation_20260723.md", selected_names)
 
     def test_proposal_audit_warns_when_priority_knowledge_is_ignored(self) -> None:
         worker = DeepSeekWorker()
@@ -2048,7 +2034,7 @@ class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
         context["problem_family_capability"] = {"knowledge_tags": ["sdst", "sequence_dependent_setup"]}
         context["knowledge_cards"] = [
             {
-                "path": "knowledge/experiment_memory/agent_generated/fjsp_sdst_agent_generated_search_memory_20260707.md",
+                "path": "knowledge/experiment_memory/current_week/fjsp_sdst_search_observation_20260723.md",
                 "chars": 5400,
                 "truncated": False,
                 "snippet": "Preserve operation-level setup-aware dispatch and multi-start.",

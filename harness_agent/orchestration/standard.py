@@ -15,6 +15,7 @@ from harness_agent.orchestration.loop import (
     WorkerLoopResult,
     compact_promotion_check,
     compact_proposal_audit,
+    load_worker_loop_result,
     round_record_payload,
     run_worker_loop,
     summary_payload,
@@ -46,6 +47,7 @@ class StandardWorkerLoopRequest:
     slot_manifest: Path | None = None
     project_intake_manifest: Path | None = None
     previous_pipeline_memory: Path | None = None
+    resume_loop_result: Path | None = None
     max_instances: int | None = None
     seeds: list[int] | None = None
     timeout_seconds: int = 60
@@ -99,6 +101,11 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
         )
     )
     # 3. 标准流程强制 agent_generated baseline；后端不会退回历史 solver。
+    resume_result = (
+        load_worker_loop_result(request.resume_loop_result)
+        if request.resume_loop_result is not None
+        else None
+    )
     loop_result = run_worker_loop(
         contract=contract,
         project_root=request.project_root,
@@ -119,6 +126,7 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
         max_competing_workers=max(1, min(4, request.max_competing_workers)),
         round_intervention=request.round_intervention,
         cancellation=request.cancellation,
+        resume_from=resume_result,
     )
     # 4. 闭环结束后只做报告汇总，不重新解释或改写 Core 的 promotion 结论。
     manifest = standard_worker_manifest(
@@ -280,6 +288,13 @@ def standard_worker_manifest(
             "slot_manifest": str(request.slot_manifest) if request.slot_manifest else None,
             "project_intake_manifest": str(request.project_intake_manifest) if request.project_intake_manifest else None,
             "previous_pipeline_memory": str(request.previous_pipeline_memory) if request.previous_pipeline_memory else None,
+            "resume_loop_result": str(request.resume_loop_result) if request.resume_loop_result else None,
+            "resumed_round_count": len(loop_result.rounds) - max(0, request.iterations)
+            if request.resume_loop_result
+            else 0,
+            "additional_iterations": max(0, request.iterations)
+            if request.resume_loop_result
+            else 0,
             "seeds": request.seeds or [0],
             "baseline_source": "agent_generated",
             "agent_generated_solver_path": request.agent_generated_solver_path,

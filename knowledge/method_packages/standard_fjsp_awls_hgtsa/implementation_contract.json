@@ -2,8 +2,8 @@
   "schema_version": 1,
   "contract_id": "standard_fjsp_awls_hgtsa_complete_method",
   "mode": "complete_method_package",
-  "completion_rule": "Every required component must be implemented through reachable solver code in the same direction before the method claim can pass semantic review.",
-  "variant_rule": "Adapt every component to all active requirement and IO constraints. Variant-specific knowledge extends this contract instead of disabling its core search lifecycle.",
+  "completion_rule": "只有当每个必需组件都通过同向的、可达的求解器代码实现后，该方法声明才能通过语义审查。",
+  "variant_rule": "必须让每个组件适配所有当前激活的需求与 IO 约束。变体特定知识应扩展本合同，而不是禁用其核心搜索生命周期。",
   "fallback_improvement_order": [
     "same_machine_neighborhood",
     "alternative_machine_neighborhood",
@@ -19,103 +19,103 @@
   "required_components": [
     {
       "component_id": "state_and_initialization",
-      "title": "Explicit search state and legal initialization",
+      "title": "显式搜索状态与合法初始化",
       "required_behaviors": [
-        "Maintain operation assignment and explicit per-machine sequences using stable operation identities.",
-        "Construct at least one complete legal state from the active IO and preserve seeded reproducibility.",
-        "Keep current state and global-best state as separate clones or immutable snapshots."
+        "使用稳定的工序标识维护工序分配以及显式的逐机器顺序。",
+        "基于当前激活的 IO 构造至少一个完整合法状态，并保持基于种子的可复现性。",
+        "将当前状态与全局最优状态保持为彼此独立的克隆或不可变快照。"
       ],
-      "evidence_required": "Reachable initialization and clone paths used by solve()."
+      "evidence_required": "由 solve() 使用的、可达的初始化与克隆路径。"
     },
     {
       "component_id": "progress_decoder",
-      "title": "Complete progress decoder",
+      "title": "完整进度解码器",
       "required_behaviors": [
-        "Decode job and machine precedence together until every operation is scheduled.",
-        "Reject cycles, deadlocks, partial coverage, ineligible assignments, and active-variant violations without mutating the incumbent.",
-        "Use selected processing durations and validate the complete output before serialization."
+        "联合解码作业优先约束与机器优先约束，直到每道工序都被排定。",
+        "在不修改当前最优解的前提下，拒绝环、死锁、部分覆盖、不可加工分配以及当前变体违规。",
+        "使用已选加工时长，并在序列化前验证完整输出。"
       ],
-      "evidence_required": "Reachable decoder, deadlock guard, coverage checks, and final validation."
+      "evidence_required": "可达的解码器、死锁保护、覆盖检查和最终校验。"
     },
     {
       "component_id": "critical_graph_and_blocks",
-      "title": "Exact critical graph and tight machine blocks",
+      "title": "精确关键图与紧机器块",
       "required_behaviors": [
-        "Compute forward and backward timing on the current disjunctive graph.",
-        "Identify zero-slack critical operations.",
-        "Build maximal critical machine blocks only across tight machine arcs."
+        "在当前析取图上计算前向与后向时间。",
+        "识别零松弛的关键工序。",
+        "仅沿紧机器弧构建最大关键机器块。"
       ],
-      "evidence_required": "Reachable timing propagation and tight-arc block extraction consumed by neighborhood generation."
+      "evidence_required": "供邻域生成使用的、可达的时间传播与紧弧块提取。"
     },
     {
       "component_id": "same_machine_neighborhood",
-      "title": "N7/N8-style and K-insertion machine-order neighborhood",
+      "title": "N7/N8 风格与 K-insertion 机器顺序邻域",
       "required_behaviors": [
-        "Generate bounded critical-block endpoint moves and non-adjacent K-insertion candidates.",
-        "Modify explicit machine order rather than only rescheduling fixed assignments.",
-        "Retain only fully decoded legal candidates and keep deadline checks inside nested scans."
+        "生成有界关键块端点移动以及非相邻 K-insertion 候选。",
+        "修改显式机器顺序，而不只是对固定分配重新排程。",
+        "仅保留完成解码后的合法候选，并在嵌套扫描内部保留截止时间检查。"
       ],
-      "evidence_required": "Reachable candidate generator showing endpoint/position bounds and more than adjacent swaps."
+      "evidence_required": "可达的候选生成器，能够体现端点/位置边界，且不止包含相邻交换。"
     },
     {
       "component_id": "alternative_machine_neighborhood",
-      "title": "Alternative-machine reassignment and bounded insertion",
+      "title": "替代机器重分配与有界插入",
       "required_behaviors": [
-        "Remove an operation from its old sequence and assign it only to an eligible target machine.",
-        "Derive a bounded target insertion window from job predecessor/successor timing and target-machine order.",
-        "Decode and validate each retained reassignment candidate under active variant constraints."
+        "将工序从原顺序中移除，并且只分配到可加工的目标机器上。",
+        "根据作业前驱/后继时间以及目标机器顺序，推导有界的目标插入窗口。",
+        "在当前激活的变体约束下，对每个保留的重分配候选进行解码和校验。"
       ],
-      "evidence_required": "Reachable reassignment generator and insertion-window calculation consumed by search."
+      "evidence_required": "供搜索使用的、可达的重分配生成器与插入窗口计算。"
     },
     {
       "component_id": "transactional_move_lifecycle",
-      "title": "Consistent candidate generation, scoring, and application",
+      "title": "一致的候选生成、评分与应用",
       "required_behaviors": [
-        "Carry one stable move identity and exact target parameters from generation through scoring and application.",
-        "Apply each candidate to a clone or restorable snapshot and commit only after complete decode succeeds.",
-        "Ensure a failed, timed-out, or cyclic candidate leaves current and global-best states unchanged."
+        "从生成到评分再到应用，全程携带同一个稳定的移动标识和精确目标参数。",
+        "将每个候选应用到克隆体或可恢复快照上，并且仅在完整解码成功后提交。",
+        "确保失败、超时或成环的候选不会改变当前状态与全局最优状态。"
       ],
-      "evidence_required": "One reachable move object/state path proving that the scored move is exactly the applied move."
+      "evidence_required": "一条可达的移动对象/状态路径，用以证明被评分的移动与被应用的移动完全一致。"
     },
     {
       "component_id": "tabu_and_aspiration",
-      "title": "Reverse-move tabu and global-best aspiration",
+      "title": "逆移动 tabu 与全局最优 aspiration",
       "required_behaviors": [
-        "Use the same attribute representation when testing a candidate and storing the inverse of an accepted move.",
-        "Cover both same-machine and machine-reassignment inverse moves without truncated or ambiguous sequence identity.",
-        "Allow a tabu move only when its fully decoded objective strictly improves the global best."
+        "在测试候选和存储已接受移动的逆操作时，使用相同的属性表示。",
+        "同时覆盖同机与换机重分配的逆移动，且顺序标识不得被截断或产生歧义。",
+        "仅当某个 tabu 移动完整解码后的目标值严格优于全局最优时，才允许接受它。"
       ],
-      "evidence_required": "Reachable tabu lookup/store paths and a behavioral inverse-move test."
+      "evidence_required": "可达的 tabu 查询/存储路径，以及一个行为层面的逆移动测试。"
     },
     {
       "component_id": "adaptive_weight_scoring",
-      "title": "Effective adaptive weight or zi scoring",
+      "title": "有效的自适应权重或 zi 评分",
       "required_behaviors": [
-        "Update operation weights and cooldown/age state from accepted search transitions.",
-        "Consume those changing values in reachable candidate scoring or selection.",
-        "Avoid dead variables, constant terms, or updates that cannot affect a move decision."
+        "根据已接受的搜索转移更新工序权重以及冷却/年龄状态。",
+        "在可达的候选评分或选择路径中使用这些变化值。",
+        "避免出现死变量、常数项或无法影响移动决策的更新。"
       ],
-      "evidence_required": "Reachable update and scoring paths plus a test showing ranking changes when adaptive state changes."
+      "evidence_required": "可达的更新与评分路径，以及一个能够表明自适应状态变化时排序会变化的测试。"
     },
     {
       "component_id": "diversification_and_best_preservation",
-      "title": "Bounded diversification with global-best preservation",
+      "title": "保持全局最优的有界多样化",
       "required_behaviors": [
-        "Trigger a bounded perturbation, restart, or controlled randomization after measured stagnation.",
-        "Diversification must change the reachable search trajectory while preserving the global best.",
-        "All random choices must derive from the declared seed."
+        "在可度量的停滞后触发有界扰动、重启或受控随机化。",
+        "多样化必须在保留全局最优的同时改变可达搜索轨迹。",
+        "所有随机选择都必须来源于声明的随机种子。"
       ],
-      "evidence_required": "Reachable stagnation trigger, diversification transition, and best-state preservation."
+      "evidence_required": "可达的停滞触发、多样化转移以及最优状态保持。"
     },
     {
       "component_id": "runtime_and_observability",
-      "title": "Shared runtime budget and stage contribution evidence",
+      "title": "共享运行时预算与阶段贡献证据",
       "required_behaviors": [
-        "Use one absolute deadline across construction, nested candidate scans, validation, and serialization.",
-        "Bound candidate materialization and machine-link traversal by explicit caps or operation count.",
-        "Expose counters for evaluated, feasible, accepted, and improving moves so dead stages can be detected."
+        "在构造、嵌套候选扫描、校验和序列化全过程中使用同一个绝对截止时间。",
+        "通过显式上限或工序数，对候选物化和机器链路遍历进行界定。",
+        "暴露已评估、可行、已接受和改进型移动的计数器，以便检测失效阶段。"
       ],
-      "evidence_required": "Reachable deadline checks and stage counters produced by the solver or self-check."
+      "evidence_required": "由求解器或自检产生的、可达的截止时间检查和阶段计数器。"
     }
   ],
   "coupled_groups": [
@@ -126,7 +126,7 @@
         "same_machine_neighborhood",
         "alternative_machine_neighborhood"
       ],
-      "rule": "Tightening critical blocks must not be accepted without the paired sequence and reassignment neighborhoods that preserve useful search coverage."
+      "rule": "若没有与之配套、能够保持有效搜索覆盖的顺序邻域和重分配邻域，则不得接受对关键块的收紧。"
     },
     {
       "group_id": "move_lifecycle_bundle",
@@ -134,7 +134,7 @@
         "transactional_move_lifecycle",
         "tabu_and_aspiration"
       ],
-      "rule": "The move that is evaluated, selected, applied, and stored as inverse tabu must remain the same identifiable move."
+      "rule": "被评估、被选中、被应用并被存储为逆 tabu 的移动，必须始终是同一个可识别移动。"
     },
     {
       "group_id": "adaptive_search_bundle",
@@ -143,7 +143,7 @@
         "diversification_and_best_preservation",
         "runtime_and_observability"
       ],
-      "rule": "Adaptive pressure and diversification count as implemented only when reachable decisions change and runtime evidence shows the stages execute."
+      "rule": "只有当可达决策发生变化且运行时证据表明相关阶段确实执行时，自适应压力与多样化才算已实现。"
     }
   ]
 }

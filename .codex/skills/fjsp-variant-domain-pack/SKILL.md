@@ -1,62 +1,46 @@
 ---
 name: fjsp-variant-domain-pack
-description: Use when adding, adapting, or reviewing FJSP problem-family variants such as SDST, time-lag/no-wait, machine unavailability, batching, transportation, reentrant routes, dynamic arrivals, or multi-objective FJSP; guides Domain Pack, RAG, Skill, Method Package, and evaluator-contract design while keeping solver algorithms out of generic backend orchestration.
+description: 在新增、适配或审查 FJSP 问题族变体时使用，例如 SDST、time-lag/no-wait、machine unavailability、batching、transportation、reentrant routes、dynamic arrivals 或 multi-objective FJSP；用于指导 Domain Pack、RAG、Skill、Method Package 与 evaluator 契约设计，同时保持求解器算法不进入通用后端编排。
 ---
 
-# FJSP Variant Domain Pack
+# FJSP 变体领域包
 
-Use this skill to keep FJSP-variant support platform-first and contract-gated.
+## 触发条件
 
-## Workflow
+- 需要新增、适配或审查 FJSP 变体支持，例如 SDST、time-lag/no-wait、machine unavailability、batching、transportation、reentrant routes、dynamic arrivals 或 multi-objective FJSP。
+- 需要设计或修订 Domain Pack、RAG、Skill、Method Package 与 evaluator 契约，而不是直接把变体算法塞进通用后端。
 
-1. Read `knowledge/principles/fjsp_variant_domain_pack_rag.md`.
-2. Read the active task IO/evaluator docs and instance diagnostics.
-3. If the request concerns benchmark claims, read
-   `knowledge/benchmarks/fjsp_benchmark_scope.md`. Read
-   `knowledge/capabilities/fjsp_agent_current_capability_20260704.md` only for
-   an explicit dated capability audit.
-4. If the request concerns agent-generated FJSP-SDST solver evolution rather
-   rather than an existing method-asset adaptation, read
-   `knowledge/references/sdst/awls_sdst_agent_generated_transfer_notes.md`,
-   then use `$fjsp-agent-generated-solver` for standalone-solver legality and
-   neighborhood guidance.
-5. If the request introduces industrial or non-standard constraints, read
-   `knowledge/references/general_fjsp/fjsp_scene_survey_2025_10_17.md`.
-6. Identify variant constraints before proposing code: setup, lag/no-wait,
-   calendars, batching, transport, routes, releases, due dates, or objective
-   changes.
-7. Choose knowledge cards by Domain Pack tags and one selected Method Package.
-   Keep the Worker Assignment compact and direction-local.
-8. Require a natural-language rule/operator hypothesis before worker code.
-9. Promote only by Core evaluator results.
+## 读取顺序
 
-## Backend Boundary
+1. 先读 `knowledge/principles/fjsp_variant_domain_pack_rag.md`。
+2. 再读当前任务的 IO/evaluator 文档和实例诊断。
+3. 若请求涉及 benchmark 口径，读取 `knowledge/benchmarks/fjsp_benchmark_scope.md`。
+4. 若请求是 agent-generated FJSP-SDST 求解器演进而不是既有方法资产适配，读取 `knowledge/references/sdst/awls_sdst_agent_generated_transfer_notes.md`，再转用 `$fjsp-agent-generated-solver`。
+5. 若引入工业或非标准约束，读取 `knowledge/references/general_fjsp/fjsp_scene_survey_2025_10_17.md`。
 
-- Put variant algorithm knowledge in Domain Packs, knowledge cards, Skills,
-  Method Packages, and Worker Assignments.
-- Keep generic backend code limited to loading contracts, diagnostics,
-  Domain Pack metadata, selected packages, knowledge-card snippets, and benchmark
-  reports.
-- For standalone agent-generated solvers, keep decoder and neighborhood
-  patterns in skills or knowledge references. Do not put reusable solver code
-  in generic backend orchestration.
-- Do not hardcode SDST, no-wait, batching, transport, or other variant
-  heuristics into generic orchestration.
-- Do not change parser/evaluator semantics unless the user confirms a new IO
-  contract.
-- Treat LB/UB/BKS as diagnostics, not solver inputs.
+## 执行步骤
 
-## Minimum Variant Pack
+1. 在提代码前识别激活的变体约束：setup、lag/no-wait、calendar、batching、transport、route、release/due date 或目标变化。
+2. 按 Domain Pack 标签选择 knowledge cards 和一个已选 Method Package。
+3. 保持 Worker Assignment 紧凑且只围绕当前方向。
+4. 要求 worker 在写代码前先提出自然语言规则或 operator 假设。
+5. 仅以 Core evaluator 结果决定 promotion。
 
-For a new FJSP variant, add or update:
+## 权限与边界
 
-- supported variants and aliases;
-- IO contract notes and evaluator invariants;
-- canonical objectives and optional diagnostics;
-- solver or adapter entrypoints;
-- knowledge tags and cards;
-- optional Method Packages with implementation and behavior contracts;
-- smoke and performance benchmark ladders.
+- 变体算法知识放在 Domain Packs、knowledge cards、Skills、Method Packages 与 Worker Assignments 中。
+- 通用后端只负责加载契约、诊断、元数据、知识片段和 benchmark 报告。
+- 对独立 agent-generated solver，只把 decoder 与 neighborhood 模式放在 skill 或知识引用中，不写进通用编排。
+- 不把 SDST、no-wait、batching、transport 等变体启发式硬编码进通用编排。
+- 未经用户确认新的 IO 契约前，不改变 parser/evaluator 语义。
+- LB/UB/BKS 仅作诊断，不作 solver 输入。
 
-First prove legality and IO stability. Then improve makespan or other declared
-objectives under the fixed evaluator.
+## 交付物
+
+- 与当前变体匹配的 Domain Pack 设计或修订方案。
+- 最小必要集合：supported variants 与 alias、IO/evaluator 说明、目标与诊断、solver 或 adapter 入口、knowledge tags/cards、可选 Method Package、smoke 与 benchmark 梯度。
+
+## 验证与停止条件
+
+- 先证明合法性与 IO 稳定，再改进 makespan 或其他声明目标。
+- 若变体支持依赖通用后端硬编码、改变固定 evaluator 口径，或未识别清楚活动约束，停止继续扩写。

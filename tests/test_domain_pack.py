@@ -494,7 +494,7 @@ class DomainPackTests(unittest.TestCase):
         self.assertIn("knowledge/references/sdst/awls_sdst_adapter_notes.md", card_paths)
         self.assertIn("knowledge/references/sdst/awls_sdst_agent_generated_transfer_notes.md", card_paths)
         self.assertIn(
-            ".codex/skills/fjsp-awls-sdst-adapter/references/awls_sdst_adaptation.md",
+            "knowledge/references/sdst/awls_sdst_adaptation_implementation.md",
             card_paths,
         )
         self.assertFalse(any(path.startswith("knowledge/experiment_memory/") for path in card_paths))
@@ -542,7 +542,7 @@ class DomainPackTests(unittest.TestCase):
         auto_cards = {Path(path).name for path in packet["auto_knowledge_cards"]}
         self.assertIn("standard_fjsp_format.md", auto_cards)
         self.assertIn("fjsp_variant_domain_pack_rag.md", auto_cards)
-        self.assertNotIn("fjsp_sdst_agent_generated_search_memory_20260707.md", auto_cards)
+        self.assertNotIn("fjsp_sdst_search_observation_20260723.md", auto_cards)
         self.assertNotIn("awls_sdst_hudata20_baseline_notes.md", auto_cards)
 
     def test_context_packet_adds_agent_generated_solver_quality_cards(self) -> None:
@@ -589,7 +589,7 @@ class DomainPackTests(unittest.TestCase):
         self.assertIn("standard_fjsp_agent_generated_reference_skeleton.md", auto_cards)
         self.assertNotIn("standard_fjsp_agent_generated_neighborhood_templates.md", auto_cards)
         self.assertNotIn("standard_fjsp_awls_hgtsa_execution_skeleton.md", auto_cards)
-        self.assertNotIn("fjsp_sdst_agent_generated_search_memory_20260707.md", auto_cards)
+        self.assertNotIn("fjsp_sdst_search_observation_20260723.md", auto_cards)
         self.assertNotIn("decoder_neighborhood.md", auto_cards)
         catalog = packet["method_package_catalog"]
         self.assertIsNone(catalog["recommended_package_id"])

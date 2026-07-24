@@ -1,174 +1,117 @@
 ---
 id: awls-sdst-agent-generated-transfer-notes
 type: method-transfer
-title: AWLS-SDST Method Transfer For Agent-Generated Solvers
+title: 面向 Agent 自主生成求解器的 AWLS-SDST 方法迁移
 tags: [fjsp, sdst, awls, agent-generated-solver, agent-generated-transfer, method-transfer, critical-block, tabu-search, zi]
 status: active
 ---
 
-# AWLS-SDST Method Transfer For Agent-Generated Solvers
+# 面向 Agent-Generated Solver 的 AWLS-SDST 方法迁移
 
-## Purpose
+## 目的
 
-Use this card when a coding worker must create or evolve a standalone
-agent-generated FJSP-SDST solver from requirement and IO documents.
+当 coding worker 需要依据 requirement 和 IO 文档创建或演化一个独立的 agent-generated FJSP-SDST solver 时，应使用这张卡。
 
-This is method guidance distilled from local AWLS-derived solvers. It is not a
-solver implementation, not a complete code template, and not a benchmark target.
-Do not copy local solver source, prior schedules, or instance-specific scores.
-The worker should reason from these ideas and independently adapt, combine,
-simplify, or reimplement them under the active IO and evaluator contract. The
-appropriate scope may be one auditable operator, several coupled mechanisms, or
-a coherent full AWLS adaptation, depending on the selected direction, incumbent
-state, instance evidence, and budget. The staged order below is a recommendation,
-not a ban on complete-method selection.
+这里的内容是从本地 AWLS 衍生 solver 中提炼出的方式指导。它不是 solver 实现，不是完整代码模板，也不是 benchmark 目标。不要拷贝本地 solver 源码、历史 schedule 或实例特定分数。worker 应基于这些思路，在当前 IO 和 evaluator contract 下独立地适配、组合、简化或重写。合适的范围可以是一个可审计算子、若干耦合机制，或一套连贯的完整 AWLS 适配，具体取决于所选方向、incumbent 状态、实例证据和预算。下述分阶段顺序是建议，而不是禁止选择完整方法。
 
-## Transfer Boundary
+## 迁移边界
 
-For agent-generated solvers, transfer AWLS as algorithm structure:
+对于 agent-generated solver，应迁移 AWLS 的算法结构，而不是照搬平台代码：
 
-- complete representation: operation-to-machine assignment plus ordered
-  operation sequence per machine;
-- setup-aware decoder: every trial move must decode to all operations while
-  respecting job precedence and machine setup arcs;
-- critical-path and critical-block focus: generate local moves around operations
-  that can affect makespan, not arbitrary all-pairs moves;
-- bounded candidate windows: use AWLS RK/LK-style windows or critical-machine
-  windows to reduce target insertion positions;
-- tabu and aspiration: remember recently disrupted local sequences, but allow a
-  tabu move if a fully decoded candidate strictly improves the incumbent;
-- adaptive perturbation: use `zi`-like weights only as candidate ranking
-  pressure after legality and useful neighborhoods exist.
+- 完整表示：包含 operation-to-machine assignment 和每台机器上的有序 operation sequence；
+- setup-aware decoder：每次试探 move 都必须在尊重 job precedence 和 machine setup arc 的前提下，把所有 operations 完整 decode 出来；
+- critical-path 与 critical-block 聚焦：local move 应围绕可能影响 makespan 的 operation 生成，而不是任意全对扫描；
+- 有界候选窗口：用 AWLS 的 RK/LK 风格窗口，或基于 critical machine 的窗口，缩小目标插入位置；
+- tabu 与 aspiration：记住最近被扰动的局部 sequence，但若某个 fully decoded 候选严格改进 incumbent，则允许 tabu move；
+- 自适应扰动：只有在合法性和有效 neighborhood 已存在后，才把类似 `zi` 的权重作为候选排序压力使用。
 
-Do not transfer AWLS as platform backend code. Do not import evaluator internals
-or `harness_agent` helpers from an `examples/agent_generated*.py` runtime.
+不要把 AWLS 当作平台 backend 代码迁移。不要在 `examples/agent_generated*.py` 运行时中导入 evaluator 内部实现或 `harness_agent` helper。
 
-## Recommended Build Order
+## 推荐构建顺序
 
-This order is a low-risk implementation path, not a mandatory architecture.
-An Agent may reorder or combine stages when it can preserve legality, explain
-the coupling, and verify the resulting behavior.
+这个顺序是低风险实现路径，不是强制架构。
+只要能保持合法性、解释耦合关系并验证结果行为，Agent 可以重排或合并阶段。
 
-1. Recover a legal operation-level, setup-aware multi-start constructor.
-2. Convert the best schedule into a stable representation:
-   `assignment[(job_id, op_id)]` and `machine_sequences[machine_id]`.
-3. Add one decoder that rebuilds start/end times from this representation and
-   rejects partial, cyclic, duplicate, missing, or ineligible candidates.
-4. Extract critical operations and machine critical blocks from the decoded
-   incumbent.
-5. Add one same-machine critical-block operator: adjacent swap, boundary move,
-   or bounded insertion. Score only after full decode.
-6. Add one alternate-machine insertion operator for critical operations with
-   alternative eligible machines. Limit target positions by an RK/LK-like
-   window or a small setup-aware insertion window, then full-decode candidates.
-7. Add short-term tabu memory only after the move generator can repeatedly
-   produce legal improving or tying candidates.
-8. Add `zi`-style adaptive ranking only after critical-block and change-machine
-   neighborhoods exist. `zi` should perturb candidate order, not replace
-   makespan as the objective.
+1. 先恢复一个合法的、operation-level、setup-aware 的 multi-start constructor。
+2. 把最佳 schedule 转成稳定表示：
+   `assignment[(job_id, op_id)]` 和 `machine_sequences[machine_id]`。
+3. 增加一个 decoder，从该表示重建 start/end time，并拒绝 partial、cyclic、duplicate、missing 或 ineligible 候选。
+4. 从 decode 后的 incumbent 中提取 critical operations 和 machine critical blocks。
+5. 增加一个同机 critical-block 算子：相邻交换、边界移动或有界插入。只有 full decode 之后才打分。
+6. 为具备替代可行机器的 critical operation 增加一个换机插入算子。用 RK/LK 风格窗口或小型 setup-aware insertion window 限定目标位置，然后对候选做 full decode。
+7. 只有当 move generator 能稳定地产生合法且改进或持平的候选后，才加入短期 tabu memory。
+8. 只有在 critical-block 和 change-machine neighborhood 都具备后，才加入 `zi` 风格的自适应排序。`zi` 应扰动候选顺序，而不是替代 makespan 作为目标。
 
-## Critical-Block Neighborhood Shape
+## Critical-Block Neighborhood 形状
 
-AWLS-style same-machine search should not scan every pair first. A generated
-solver can use this compact pattern:
+AWLS 风格的同机搜索不应一开始就扫描所有 pair。生成的 solver 可以使用以下紧凑模式：
 
-- identify operations on at least one critical path or on the latest-finishing
-  machine;
-- group consecutive critical operations on the same machine into blocks;
-- try moves at block boundaries before trying broad random relocation;
-- for each candidate sequence, decode the whole schedule and require identical
-  operation coverage;
-- accept only strict makespan improvement unless a bounded stochastic search is
-  explicitly implemented.
+- 识别至少位于一条 critical path 上，或位于最晚完工机器上的 operations；
+- 把同一台机器上连续的 critical operations 分组成 block；
+- 先尝试 block 边界处的 move，再考虑大范围随机重定位；
+- 对每个候选 sequence，都要 decode 整个 schedule，并要求 operation coverage 完全一致；
+- 除非明确实现了有界随机搜索，否则只接受 makespan 的严格改进。
 
-Setup time is part of the machine arc. Lower setup time alone is only a
-tie-breaker or filter; it is not proof of improvement.
+setup time 是 machine arc 的一部分。单独更低的 setup time 只能作为 tie-breaker 或过滤条件，不能证明改进成立。
 
-## RK/LK-Style Change-Machine Insertion
+## RK/LK 风格的换机插入
 
-For an operation with an alternate eligible machine, avoid inserting into every
-position on the target machine. A standalone solver can approximate AWLS RK/LK
-windows with information available after decoding:
+对于拥有替代可行机器的 operation，不要尝试插入目标机器上的所有位置。独立 solver 可以利用 decode 之后可获得的信息，近似实现 AWLS 的 RK/LK 窗口：
 
-- predecessor readiness: the moved operation cannot start before its job
-  predecessor completes;
-- successor tail pressure: moves that delay a job successor on the critical
-  suffix are riskier;
-- target machine sequence: positions near operations whose end time is after
-  predecessor readiness are usually more relevant than positions far earlier;
-- fallback positions: keep a few boundary positions so the window does not
-  become empty or over-pruned.
+- predecessor readiness：被移动的 operation 不能早于其 job 前驱完成前开始；
+- successor tail pressure：会推迟 critical suffix 上 job 后继的 move 风险更高；
+- target machine sequence：那些结束时间晚于 predecessor readiness 的 operation 附近位置，通常比更早的位置更相关；
+- fallback positions：保留少量边界位置，避免窗口为空或被过度裁剪。
 
-Use the window only to select candidates. The acceptance score must be the
-fully decoded makespan under setup-aware machine arcs.
+窗口只用于筛选候选。接受分数必须基于考虑 setup-aware machine arc 后 fully decoded makespan。
 
-## Head/Tail And Proxy Scoring
+## Head/Tail 与代理打分
 
-AWLS uses head/tail information to rank candidate moves efficiently. In an
-agent-generated solver, keep this conservative:
+AWLS 使用 head/tail 信息高效排序候选 move。在 agent-generated solver 中，应保持保守：
 
-- use earliest start/end and optional remaining-job tail estimates to order a
-  small top-k candidate list;
-- use setup delta, bottleneck load, or critical-tail pressure as secondary
-  ranking features;
-- never promote a proxy score directly over decoded makespan;
-- if a proxy disagrees with decoded quality repeatedly, preserve the decoder and
-  adjust the candidate filter, not the evaluator contract.
+- 用 earliest start/end 以及可选的 remaining-job tail 估计，对少量 top-k 候选排序；
+- 把 setup delta、bottleneck load 或 critical-tail pressure 作为次级排序特征；
+- 绝不能让 proxy score 直接凌驾于 decoded makespan 之上；
+- 如果 proxy 多次与 decode 质量冲突，应保留 decoder，并调整候选过滤器，而不是改 evaluator contract。
 
-## Tabu And Aspiration
+## Tabu 与 Aspiration
 
-Tabu memory is useful only when move quality is already reasonable.
+只有当 move 质量本身已经合理时，tabu memory 才有意义。
 
-- Store a short key for the affected local sequence, moved operation, source
-  machine, and target machine.
-- Keep tenure small and bounded by instance size or iteration count.
-- Skip a tabu candidate unless full decode proves it strictly improves the
-  incumbent makespan.
-- Do not use tabu to accept partial schedules, lower setup-only candidates, or
-  candidates that fail operation coverage.
+- 为受影响的局部 sequence、被移动的 operation、源机器和目标机器存储简短 key。
+- tenure 保持较小，并受实例规模或迭代次数约束。
+- 除非 full decode 证明其严格改进 incumbent makespan，否则跳过 tabu candidate。
+- 不要利用 tabu 接受 partial schedule、仅 setup 更低的候选，或 operation coverage 不完整的候选。
 
-## `zi`-Style Adaptive Pressure
+## `zi` 风格的自适应压力
 
-The useful part of AWLS `zi` is adaptive pressure during stagnation, not a magic
-formula. For generated solvers:
+AWLS 中 `zi` 的有用之处，在于停滞期间的自适应压力，而不是某个神奇公式。对生成型 solver 来说：
 
-- features may include criticality, recent move frequency, bottleneck machine,
-  setup-heavy adjacent arcs, and stagnation count;
-- apply the perturbation to candidate ordering among legal candidate moves;
-- decay or reset pressure after improvement;
-- keep makespan primary and keep full-decoded acceptance.
+- 特征可包括 criticality、近期 move 频率、bottleneck machine、setup-heavy 相邻 arc 和 stagnation count；
+- 把扰动应用于合法候选 move 之间的排序；
+- 在改进后衰减或重置压力；
+- 始终保持 makespan 为主目标，并坚持 full-decoded acceptance。
 
-Avoid changing only a constant multiplier or critical flag after the search has
-plateaued. Without a real neighborhood, `zi` becomes random tie-breaking.
+当搜索已进入平台期时，避免只改一个常数乘子或 critical 标志。没有真实 neighborhood 时，`zi` 只会退化成随机 tie-breaking。
 
-## Failure Patterns To Avoid
+## 需要避免的失败模式
 
-- Mechanically transplanting a full AWLS implementation without independently
-  mapping its representation, decoder, neighborhoods, search control, active
-  variant semantics, and runtime budget. Selecting and coherently implementing
-  the full method is allowed when evidence supports that scope.
-- Rewriting the parser, evaluator, solution schema, or benchmark semantics.
-- Importing backend `harness_agent` modules from standalone generated solver
-  files.
-- Replacing a promoted constructive skeleton instead of adding a bounded move
-  around it.
-- Mixing operation ids, `(job_id, op_id)` pairs, and schedule dictionaries in
-  one decoder.
-- Returning `[]`, `None`, or a partial schedule and scoring it as makespan `0`.
-- Treating LB/UB/BKS, prior run scores, or prior solution files as solver
-  inputs.
-- Optimizing total setup time as the primary objective when the contract says
-  makespan.
+- 在没有独立梳理其 representation、decoder、neighborhood、search control、当前变体语义和 runtime budget 的前提下，机械移植整套 AWLS 实现。若证据支持该范围，允许选择并连贯实现完整方法。
+- 重写 parser、evaluator、solution schema 或 benchmark 语义。
+- 在独立生成的 solver 文件中导入 backend `harness_agent` 模块。
+- 用新的 bounded move 替换已经 promoted 的 constructive skeleton，而不是围绕它增量扩展。
+- 在同一个 decoder 中混用 operation id、`(job_id, op_id)` pair 和 schedule dictionary。
+- 返回 `[]`、`None` 或 partial schedule，并把它按 makespan `0` 打分。
+- 把 LB/UB/BKS、历史运行分数或旧 solution 文件当成 solver 输入。
+- 当合同声明目标是 makespan 时，却把总 setup time 作为主优化目标。
 
-## Worker Self-Check
+## Worker 自检
 
-Before submitting a proposal, the worker should be able to say:
+在提交方案前，worker 应能够说明：
 
-- which AWLS idea is being transferred and which existing incumbent mechanism
-  is preserved;
-- which representation the decoder accepts and returns;
-- how the candidate window is bounded;
-- how full operation coverage is verified after every trial move;
-- why the selected scope is appropriate, whether it is one incremental
-  operator, a hybrid composition, or a coherent full-method adaptation;
-- how Core can ablate the operator without changing IO or evaluator semantics.
+- 迁移的是 AWLS 的哪一条思路，以及保留了哪个现有 incumbent 机制；
+- decoder 接受和返回的表示是什么；
+- 候选窗口如何设界；
+- 每次试探 move 后如何验证完整 operation coverage；
+- 为什么当前选择的范围是合适的，它究竟是单个增量算子、混合组合，还是连贯的完整方法适配；
+- Core 如何在不改变 IO 或 evaluator 语义的前提下，对该算子做消融。

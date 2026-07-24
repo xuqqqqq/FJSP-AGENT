@@ -1,36 +1,31 @@
-# Harness Agent Design Principles
+# Harness Agent 设计原则
 
-## Principle 1: Evaluator Is the Source of Truth
+## 原则 1：Evaluator 是事实来源
 
-LLM workers may write code and explain results, but their claims are not final.
-Only the harness-run evaluator result can mark a candidate as valid or improved.
+LLM worker 可以编写代码并解释结果，但它们的陈述不是最终结论。
+只有 harness 实际运行得到的 evaluator 结果，才能判定候选方案有效或确有改进。
 
-## Principle 2: Strategy Before Code
+## 原则 2：先有策略，再写代码
 
-Following EoH-style automatic heuristic design, workers should first express the
-heuristic idea in natural language.  This makes later reflection and crossover
-possible.
+遵循 EoH 风格的自动启发式设计，worker 应先用自然语言表达启发式思路。
+这样后续才可能进行反思、变异和交叉。
 
-## Principle 3: Evolve Rule Fragments, Not Only Parameters
+## 原则 3：演化的是规则片段，而不只是参数
 
-The agent must be able to modify dispatching rules, local-search operators,
-route-choice logic, and batching logic.  Numeric parameter tuning is only one
-kind of mutation.
+agent 必须能够修改派工规则、局部搜索算子、路径选择逻辑和 batching 逻辑。
+数值参数调优只是变异的一种形式。
 
-## Principle 4: Standard FJSP First, Industrial Variants Next
+## 原则 4：先做标准 FJSP，再做工业变体
 
-Standard FJSP makes the harness measurable with public instances and makespan.
-Industrial variants then test whether the same harness can absorb new documents,
-metrics, and constraints.
+标准 FJSP 让 harness 能基于公开实例和 makespan 进行可度量验证。
+工业变体则用于检验同一套 harness 是否能吸收新的文档、指标和约束。
 
-## Principle 5: Knowledge Cards Are Advisory
+## 原则 5：Knowledge Card 只提供建议
 
-The knowledge base guides strategy generation and context construction.  It
-must not override the task contract or evaluator.
+知识库用于指导策略生成和上下文构造。
+它不能覆盖任务合同，也不能取代 evaluator。
 
-## Principle 6: Instance Diagnostics Guide Strategy Only
+## 原则 6：实例诊断只用于指导策略
 
-Parsed instance profiles and active constraint ratios help Main choose an
-appropriate Method Package and direction. Best-known/LB/UB references remain
-reporting-side diagnostics and never become Worker search inputs; promotion
-remains evaluator-backed objective improvement.
+解析后的实例画像和当前约束比例可帮助 Main 选择合适的 Method Package 与方向。
+best-known/LB/UB 参考始终只是报告侧诊断信息，绝不能成为 Worker 的搜索输入；promotion 仍必须以 evaluator 支持的目标改进为准。

@@ -1,31 +1,27 @@
-# FJSPLib and Standard Benchmark Families
+# FJSPLib 与标准基准家族
 
-## Source
+## 来源
 
-- Benchmark page: [FJSPLib](https://scheduleopt.github.io/benchmarks/fjsplib)
-- Instance repository: [SchedulingLab/fjsp-instances](https://github.com/SchedulingLab/fjsp-instances)
-- General benchmark survey: [Job Shop Scheduling Benchmark: Environments and Instances](https://arxiv.org/pdf/2308.12794)
+- 基准页面：[FJSPLib](https://scheduleopt.github.io/benchmarks/fjsplib)
+- 实例仓库：[SchedulingLab/fjsp-instances](https://github.com/SchedulingLab/fjsp-instances)
+- 通用基准综述：[Job Shop Scheduling Benchmark: Environments and Instances](https://arxiv.org/pdf/2308.12794)
 
-## Relevant Idea
+## 相关要点
 
-FJSPLib collects common flexible job-shop benchmark families and best-known
-solutions.  Families listed there include Brandimarte, Hurink, Dauzere, Barnes,
-Kacem, Fattahi, and Behnke.
+FJSPLib 汇集了常见的 flexible job-shop 基准家族及其 best-known solutions。其中列出的家族包括 Brandimarte、Hurink、Dauzere、Barnes、Kacem、Fattahi 和 Behnke。
 
-## Impact on FJSP Harness Agent
+## 对 FJSP Harness Agent 的影响
 
-Standard FJSP tests should be the first public validation layer before industrial
-variants.  They provide:
+在进入工业变体之前，标准 FJSP 测试应作为第一层公开验证。它提供：
 
-- a clean makespan objective;
-- public instance families;
-- known upper/lower bound references;
-- a way to compare against common baselines.
+- 清晰的 makespan 目标；
+- 公开的实例家族；
+- 已知的 upper/lower bound 参考；
+- 与常见 baseline 进行比较的方式。
 
-## Module Mapping
+## 模块映射
 
-- `examples/standard_fjsp_evaluator.py`: validates makespan schedules.
-- `Task Contract`: can reference best-known solution CSV when available.
-- `Benchmark Runner`: should support family-level batch runs and gap reports.
-- `Report`: should separate standard FJSP gap from industrial custom metrics.
-
+- `examples/standard_fjsp_evaluator.py`：验证 makespan schedule。
+- `Task Contract`：在可用时可以引用 best-known solution CSV。
+- `Benchmark Runner`：应支持按 family 批量运行并输出 gap 报告。
+- `Report`：应把标准 FJSP 的 gap 与工业自定义指标分开报告。

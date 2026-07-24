@@ -5,38 +5,38 @@
     "knowledge/method_packages/standard_fjsp_awls_hgtsa/implementation_contract.json"
   ],
   "mode": "complete_method_package",
-  "completion_rule": "Every inherited search component and every SDST extension component must be reachable and behaviorally connected before the adapted method claim can pass semantic review.",
-  "variant_rule": "All construction, decoding, timing, neighborhood, acceptance, and output paths must preserve the sequence-dependent setup semantics declared by the active requirement and IO documents.",
+  "completion_rule": "只有当每个继承的搜索组件以及每个 SDST 扩展组件都可达且在行为上连通后，该适配方法声明才能通过语义审查。",
+  "variant_rule": "所有构造、解码、定时、邻域、接受和输出路径，都必须保持当前需求与 IO 文档声明的 sequence-dependent setup 语义。",
   "required_components": [
     {
       "component_id": "sdst_setup_semantics_and_decoder",
-      "title": "Requirement-derived setup semantics and complete setup-aware decoder",
+      "title": "源自需求的 setup 语义与完整 setup 感知解码器",
       "required_behaviors": [
-        "Read setup data and initial-setup conventions from the active IO contract without importing backend parser or evaluator code.",
-        "Compute each machine start from its immediate machine predecessor's completion plus the directed sequence-dependent setup time while also respecting job precedence.",
-        "Reject incomplete, cyclic, duplicate, ineligible, or setup-inconsistent schedules and emit processing intervals according to the active output contract rather than silently folding setup into processing duration."
+        "从当前激活的 IO contract 读取 setup 数据和初始 setup 约定，且不得导入后端解析器或评估器代码。",
+        "在同时满足作业优先约束的前提下，依据机器直接前驱的完成时刻加上有向 sequence-dependent setup time 计算每台机器上的开始时刻。",
+        "拒绝不完整、成环、重复、不可加工或与 setup 不一致的排程，并按照当前输出合同输出加工区间，而不是悄然将 setup 折叠进加工时长。"
       ],
-      "evidence_required": "Reachable standalone parser and decoder paths plus behavioral tests for asymmetric setup, changed predecessor, and first-on-machine semantics."
+      "evidence_required": "可达的独立解析器与解码器路径，以及针对非对称 setup、前驱变化和 first-on-machine 语义的行为测试。"
     },
     {
       "component_id": "sdst_setup_aware_neighborhood_evaluation",
-      "title": "Setup-aware sequence and reassignment candidate evaluation",
+      "title": "setup 感知顺序与重分配候选评估",
       "required_behaviors": [
-        "For every same-machine order move, account for all setup arcs removed and introduced around the changed sequence before acceptance.",
-        "For every alternative-machine move, remove the old setup links, insert with eligible target-machine predecessor/successor context, and use setup-aware bounded insertion positions.",
-        "Accept or rank final candidates only from a complete setup-aware decode under the active constraints; setup delta may filter or order candidates but cannot replace decoded objective comparison."
+        "对于每个同机顺序移动，在接受之前都要计入变更顺序周围所有被删除和新增的 setup arc。",
+        "对于每个换机移动，都要删除旧 setup 链接，在可加工的目标机器前驱/后继上下文中插入，并使用 setup 感知的有界插入位置。",
+        "仅能基于当前约束下完整的 setup 感知解码结果来接受或排序最终候选；setup 增量可以用于过滤或排序候选，但不能替代解码后的目标比较。"
       ],
-      "evidence_required": "Reachable same-machine and reassignment move paths that consume directed setup values and then invoke the complete decoder."
+      "evidence_required": "可达的同机与重分配移动路径，这些路径会消费有向 setup 值并随后调用完整解码器。"
     },
     {
       "component_id": "sdst_critical_timing_and_adaptation",
-      "title": "Setup-aware critical timing and adaptive search pressure",
+      "title": "setup 感知关键定时与自适应搜索压力",
       "required_behaviors": [
-        "Include active setup arcs in forward/backward timing and critical-machine tightness checks.",
-        "Recompute critical structure after accepted sequence or machine changes instead of reusing setup-obsolete timing.",
-        "When setup-derived features influence adaptive scoring or diversification, update and consume them in reachable move decisions without replacing the decoded objective."
+        "在前向/后向定时以及关键机器紧性检查中纳入当前激活的 setup arc。",
+        "在接受顺序或机器变更后重新计算关键结构，而不是复用已被 setup 变化淘汰的旧定时。",
+        "当源自 setup 的特征影响自适应评分或多样化时，应在可达的移动决策中更新并使用它们，但不能替代解码后的目标值。"
       ],
-      "evidence_required": "Reachable critical timing refresh and adaptive scoring paths with tests where predecessor-dependent setup changes criticality or ranking."
+      "evidence_required": "可达的关键定时刷新与自适应评分路径，以及能体现前驱相关 setup 改变关键性或排序的测试。"
     }
   ],
   "coupled_groups": [
@@ -50,7 +50,7 @@
         "sdst_setup_semantics_and_decoder",
         "sdst_setup_aware_neighborhood_evaluation"
       ],
-      "rule": "The exact setup-aware move that is generated and scored must be fully decoded with its new directed setup arcs before it can be accepted or committed."
+      "rule": "生成并评分的那个精确 setup 感知移动，必须先结合其新的有向 setup arc 完整解码，然后才能被接受或提交。"
     },
     {
       "group_id": "sdst_critical_adaptive_bundle",
@@ -60,7 +60,7 @@
         "diversification_and_best_preservation",
         "sdst_critical_timing_and_adaptation"
       ],
-      "rule": "Criticality, adaptive pressure, and diversification must consume timing that reflects the current setup-aware machine sequences while preserving the global best."
+      "rule": "关键性、自适应压力和多样化必须使用能够反映当前 setup 感知机器顺序的定时信息，同时保持全局最优。"
     }
   ]
 }

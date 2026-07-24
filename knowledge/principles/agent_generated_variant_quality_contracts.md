@@ -1,75 +1,52 @@
 ---
 id: agent-generated-variant-quality-contracts
 type: principle
-title: Agent-Generated FJSP Variant Quality Contracts
+title: Agent 自主生成 FJSP 变体质量合同
 tags: [fjsp, variants, agent_generated_solver, io-contract, self-check]
 status: active
 ---
 
-# Agent-Generated FJSP Variant Quality Contracts
+# Agent-Generated FJSP 变体质量合同
 
-## Purpose
+## 目的
 
-Use this card when the coding worker writes or evolves a standalone
-agent-generated FJSP solver from requirement and IO documents.
+当 coding worker 需要根据 requirement 和 IO 文档编写或演化一个独立的 agent-generated FJSP solver 时，应使用这张卡。
 
-The backend should not provide solver algorithms.  It should provide the
-worker with the active feature contract and require code evidence that the
-generated solver implements and validates the relevant constraints.
+后端不应提供 solver 算法本体。它应向 worker 提供当前生效的 feature contract，并要求用代码证据证明生成的 solver 已实现并验证相关约束。
 
-## Active Feature Intake
+## 生效特征接入
 
-Read the task description, IO contract, evaluator protocol, and instance
-diagnostics before choosing a method.  Treat parsed diagnostics as stronger
-evidence than broad RAG cards that merely list supported variants.
+在选择方法前，先读取任务说明、IO contract、evaluator protocol 和实例诊断。与只罗列支持变体的大而泛的 RAG card 相比，解析后的诊断信息应被视为更强证据。
 
-Only implement a variant feature when it is active in the current context.
-Do not add SDST, no-wait, calendar, batching, transport, release-date, due-date,
-or multi-objective assumptions to a standard FJSP instance.
+只有当某个变体特征在当前上下文中处于生效状态时，才实现它。
+不要在标准 FJSP 实例中加入 SDST、no-wait、calendar、batching、transport、release-date、due-date 或 multi-objective 的假设。
 
-## Evidence Contract
+## 证据合同
 
-For every generated solver, cite concrete source symbols for:
+对每一个生成出来的 solver，都要引用具体源码符号来证明以下内容：
 
-- standalone `--input`, `--output`, `--seed` CLI;
-- active parser for all jobs, operations, candidate machines, durations, and
-  active variant data;
-- stable operation identity across parser, construction, decode, search, and
-  output;
-- complete coverage, duplicate rejection, machine eligibility, duration
-  equality, precedence, non-overlap, runtime bounds, and incumbent preservation.
+- 独立的 `--input`、`--output`、`--seed` CLI；
+- 能处理全部 jobs、operations、candidate machines、durations 和当前变体数据的 parser；
+- 在 parser、construction、decode、search 和 output 之间保持稳定的 operation identity；
+- 完整覆盖、重复拒绝、机器资格、duration 一致性、precedence、non-overlap、runtime bounds 和 incumbent preservation。
 
-The `solver_contract_self_check` narrative fields are evidence fields, not
-free-form strategy notes. `representation`, `decoder`, `variant_handling`,
-`runtime_bounds`, and `incumbent_preservation` should each name source symbols
-from the submitted solver. If a field only describes an intention and no cited
-symbol appears in the code, repair the code or the self-check before running
-objective evaluation.
+`solver_contract_self_check` 中的叙述字段是证据字段，不是自由发挥的策略说明。`representation`、`decoder`、`variant_handling`、`runtime_bounds` 和 `incumbent_preservation` 都应分别点名提交 solver 中对应的源码符号。如果某个字段只写了意图，而代码里没有对应引用符号，那么在进入目标评估前，应先修复代码或 self-check。
 
-For active variants, add evidence for the matching constraint:
+对于已生效的变体，还要补充对应约束的证据：
 
-- `sequence_dependent_setup`: setup on adjacent same-machine arcs and full
-  decode before comparing a sequence move;
-- `no_wait`: each successor starts exactly at predecessor completion;
-- `time_lag`: min/max lag bounds are applied between predecessor completion and
-  successor start;
-- `machine_calendar`: scheduled intervals fit availability and avoid
-  unavailable windows;
-- `batching`: batch capacity and compatibility are checked;
-- `transportation`: travel/transport time contributes to successor readiness;
-- `release_dates`: no operation/job starts before its parsed release time;
-- `due_dates`: due-date, lateness, or tardiness terms are computed when part of
-  the declared objective;
-- `multi_objective`: candidate comparison follows the declared weights,
-  priority order, or Pareto rule.
+- `sequence_dependent_setup`：同机相邻弧上的 setup 处理，以及在比较 sequence move 前完成 full decode；
+- `no_wait`：每个后继都必须恰好在前驱完成时开始；
+- `time_lag`：在前驱完成与后继开始之间应用 min/max lag bounds；
+- `machine_calendar`：调度区间必须落在可用时间内，并避开 unavailable windows；
+- `batching`：检查 batch capacity 和 compatibility；
+- `transportation`：travel/transport time 必须计入后继就绪时间；
+- `release_dates`：任何 operation/job 都不能早于解析出的 release time 开始；
+- `due_dates`：如果它属于声明目标的一部分，就要计算 due-date、lateness 或 tardiness 项；
+- `multi_objective`：候选比较必须遵循声明的 weights、priority order 或 Pareto rule。
 
-## Repair Priority
+## 修复优先级
 
-If review reports missing parser, representation, constructor, decoder, or
-variant evidence, repair that structural gap before adding a new local-search
-idea.  A heuristic improvement that cannot pass its own active-feature
-self-check should not reach Core evaluator time.
+如果评审指出 parser、representation、constructor、decoder 或变体证据缺失，应先修复这些结构性缺口，再增加新的 local-search 思路。一个连自身 active-feature self-check 都无法通过的启发式改进，不应进入 Core evaluator 时间。
 
-Do not copy previous exact schedules or target makespans into the solver.
-Preserve reusable method lessons only, such as "operation-level ready-list
-construction should include active variant timing before tie-break scoring."
+不要把历史上的精确 schedule 或目标 makespan 拷贝进 solver。
+只保留可复用的方法经验，例如“operation-level 的 ready-list 构造在做 tie-break 打分前，应纳入当前生效变体的时间语义”。

@@ -1,50 +1,49 @@
 ---
 name: fjsp-awls-sdst-adapter
-description: Use when adapting or evolving AWLS-based Flexible Job Shop Scheduling solvers for FJSP-SDST with sequence-dependent setup times, especially when selecting a complete Method Package, writing Worker Assignments, or validating setup-aware timing, neighborhoods, tabu, and adaptive scoring under fixed IO/evaluator contracts.
+description: 在把基于 AWLS 的柔性作业车间求解器适配或演进为带 sequence-dependent setup time 的 FJSP-SDST 时使用，尤其适用于选择完整 Method Package、编写 Worker Assignment，或在固定 IO/evaluator 契约下验证 setup-aware timing、邻域、tabu 与自适应评分的场景。
 ---
 
-# FJSP AWLS-SDST Adapter
+# FJSP AWLS-SDST 适配
 
-Use this skill to keep AWLS-SDST work agent-first and evaluator-backed.
+## 触发条件
 
-## Workflow
+- 需要把 AWLS 类 FJSP 方法适配到带 sequence-dependent setup time 的 FJSP-SDST。
+- 需要选择完整 Method Package、编写 Worker Assignment，或验证 setup-aware timing、邻域、tabu 和自适应评分。
+- 任务受固定 IO/evaluator 契约约束，不能通过修改评测口径获得“适配成功”。
 
-1. Read the current task docs and the fixed evaluator contract.
-2. Read `references/awls_sdst_adaptation.md` before proposing AWLS changes.
-3. For benchmark or promotion work, read
-   `knowledge/benchmarks/fjsp_benchmark_scope.md`. Read
-   `knowledge/capabilities/fjsp_agent_current_capability_20260704.md` only when
-   the task explicitly asks for a dated capability audit.
-4. For new variant/domain-pack/RAG work, read
-   `knowledge/principles/fjsp_variant_domain_pack_rag.md`.
-5. If paper context is needed, read `references/paper_notes.md`; keep only compact claims in the worker prompt.
-6. Require the coding worker to propose a natural-language rule/operator hypothesis before code.
-7. Restrict code edits to the current Worker Assignment target; do not rewrite parser, evaluator, solution schema, or benchmark semantics.
-8. Promote only by Core evaluator results. Treat worker self-evaluation as diagnostic text.
+## 读取顺序
 
-## Required Constraints
+1. 先读当前任务文档与固定 evaluator 契约。
+2. 读取 `knowledge/references/sdst/awls_sdst_adaptation_implementation.md`。
+3. 若涉及 benchmark 或 promotion，读取 `knowledge/benchmarks/fjsp_benchmark_scope.md`。
+4. 若涉及新的 variant/domain-pack/RAG 工作，读取 `knowledge/principles/fjsp_variant_domain_pack_rag.md`。
+5. 若需要论文背景，再读取 `knowledge/references/sdst/awls_sdst_literature_notes.md`，但只把压缩后的结论带入 worker prompt。
 
-- Keep parser and evaluator behavior frozen. Standalone generated solvers must implement their own IO-derived parser and must not import `harness_agent`; platform method assets may reuse platform parsers only for validation.
-- The first AWLS-SDST milestone is legality: AWLS internal `update_time`, R/Q tails, and emitted records must respect setup gaps.
-- After legality, evolve N7/NK move evaluation and `zi` scoring to account for setup-aware head/tail timing.
-- Keep standard FJSP behavior unchanged when `instance.has_sequence_dependent_setup` is false.
-- Use one small active-task smoke before broader benchmark work.
-- Report LB and UB/BKS with separate gap-to-LB and gap-to-UB diagnostics; never use LB/UB as solver inputs.
-- Keep variant-specific algorithm knowledge in domain packs, knowledge cards, Skills, and Method Packages; do not hardcode it in generic backend orchestration.
+## 执行步骤
 
-## Suggested Stages
+1. 在代码前先提出一个自然语言规则或 operator 假设。
+2. 将改动限定在当前 Worker Assignment 的目标范围内，不重写 parser、evaluator、solution schema 或 benchmark 语义。
+3. 先完成 setup-aware 合法性闭合：确保 `update_time`、R/Q tails 和输出记录都尊重 setup gap。
+4. 合法后再演进 N7/NK 类 move 评价和 `zi` 评分，使其反映 setup-aware 的 head/tail timing。
+5. 先做一个小型活动任务 smoke，再决定是否扩大到更广的 benchmark。
+6. 仅以 Core evaluator 结果决定 promotion，worker 自评只当诊断说明。
 
-1. Setup-aware graph propagation and record output.
-2. Setup-aware same-machine and change-machine move evaluation.
-3. Adaptive perturbation inputs and update policy.
-4. Search control, restart diversity, and time budgets.
+## 权限与边界
 
-## Validation
+- parser 与 evaluator 行为必须冻结。
+- 独立生成的 solver 必须自带 IO 派生 parser，不得导入 `harness_agent`；平台方法资产只可在验证时复用平台 parser。
+- `instance.has_sequence_dependent_setup` 为 false 时，标准 FJSP 行为不得退化。
+- LB/UB/BKS 只能用于诊断汇报，不能作为 solver 输入。
+- 变体算法知识只放在 domain packs、knowledge cards、Skills 和 Method Packages 中，不写进通用后端编排。
 
-Always include:
+## 交付物
 
-- Standard FJSP smoke to prove backward compatibility.
-- One small SDST smoke derived from the active task to prove evaluator legality.
-- Broader claims require structurally diverse instances; do not route or validate by hardcoded instance names.
-- Fixed evaluator metrics with best-known CSV when available.
-- Rollback if any candidate changes parser/evaluator semantics or returns invalid schedules.
+- 一份围绕当前方向的 AWLS-SDST 适配方案或修补结果。
+- 清晰说明当前阶段是在修 setup-aware 合法性、move 评价、扰动评分还是搜索控制。
+- 与固定 evaluator 一致的验证记录，区分标准 FJSP 回归和 SDST 合法性 smoke。
+
+## 验证与停止条件
+
+- 必须至少包含一次标准 FJSP smoke 和一次来自活动任务的小型 SDST smoke。
+- 只有在 setup-aware 合法性稳定后，才继续扩大质量主张。
+- 若候选修改 parser/evaluator 语义、依赖硬编码实例名，或返回非法排程，立即停止并回滚该方向。

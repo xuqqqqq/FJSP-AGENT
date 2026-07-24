@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from harness_agent.context.packet import ContextPacketRequest, write_context_packet
 from harness_agent.orchestration.loop import (
+    WorkerLoopResult,
     agent_generated_baseline_memory_payload,
     competitive_direction_plans,
     current_round_repair_feedback,
@@ -1269,6 +1270,50 @@ class SafeFeasibilityProtectedEditWorker:
 
 
 class WorkerLoopTests(unittest.TestCase):
+    def test_resume_state_skips_baseline_generation_and_keeps_incumbent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            incumbent = tmp_path / "existing_incumbent"
+            incumbent.mkdir()
+            baseline_summary = RunSummary(
+                total=1,
+                valid=1,
+                failed=0,
+                best_experiment_id="baseline",
+                best_metrics={"makespan": 120.0},
+            )
+            resume_state = WorkerLoopResult(
+                baseline_key=(-120.0,),
+                final_key=(-110.0,),
+                final_worktree=incumbent,
+                rounds=[],
+                baseline_summary=baseline_summary,
+                baseline_source="agent_generated",
+                baseline_generation={"status": "ok", "source": "agent_generated"},
+            )
+            contract = TaskContract.load(ROOT / "configs" / "standard_fjsp_tiny.example.json")
+
+            with patch("harness_agent.orchestration.loop.run_agent_generated_baseline") as generate_baseline:
+                result = run_worker_loop(
+                    contract=contract,
+                    project_root=ROOT,
+                    output_dir=tmp_path / "worker_loop",
+                    context_packet_path=tmp_path / "context.json",
+                    worker=NullWorker(),
+                    experiment_id="resume-test",
+                    iterations=0,
+                    max_steps=1,
+                    max_runtime_seconds=1,
+                    apply_worker_changes=False,
+                    baseline_source="agent_generated",
+                    resume_from=resume_state,
+                )
+
+        generate_baseline.assert_not_called()
+        self.assertEqual((-120.0,), result.baseline_key)
+        self.assertEqual((-110.0,), result.final_key)
+        self.assertEqual(incumbent.resolve(), result.final_worktree)
+
     def test_ja_acceptance_is_bound_to_validated_candidate_output(self) -> None:
         initial = AgenticJudgment(
             accepted=True,

@@ -23,6 +23,9 @@ const state = {
   resourceCategory: "skill",
   selectedResourceId: null,
   resourceCatalogLoaded: false,
+  resourceAuthoring: {},
+  resourceEditorCategory: "skill",
+  resumeTargetJobId: null,
 };
 const DEFAULT_STANDARD_SEEDS = "0,1,2,3,4,5,6,7,8,9";
 const DEFAULT_CHAT_PLACEHOLDER = "例如：载入示例、检查配置、启动任务、查看历史任务";
@@ -156,7 +159,9 @@ async function loadResourceCatalog(options = {}) {
     throw new Error(payload.error || "资源目录读取失败");
   }
   state.resources = Array.isArray(payload.resources) ? payload.resources : [];
+  state.resourceAuthoring = payload.authoring || {};
   state.resourceCatalogLoaded = true;
+  renderResourceAuthoringOptions();
   renderResourceList();
 }
 
@@ -180,6 +185,27 @@ function renderResourceList() {
       .toLocaleLowerCase()
       .includes(query);
   });
+  const groupOrder = {
+    "planning-domain": 10,
+    "worker-foundation": 20,
+    "worker-method": 30,
+    "opencode-internal": 40,
+    "knowledge-governance": 5,
+    principles: 10,
+    benchmarks: 20,
+    "references/general_fjsp": 30,
+    "references/standard_fjsp": 40,
+    "references/sdst": 50,
+    method_packages: 60,
+    capabilities: 70,
+    experiment_memory: 80,
+    imported: 90,
+  };
+  resources.sort((left, right) => {
+    const order = (groupOrder[left.group] ?? 999) - (groupOrder[right.group] ?? 999);
+    if (order) return order;
+    return String(left.path || "").localeCompare(String(right.path || ""), "zh-CN");
+  });
   const categoryTotal = state.resources.filter((item) => item.category === state.resourceCategory).length;
   $("resource-count").textContent = query
     ? `${resources.length} / ${categoryTotal} 项`
@@ -189,7 +215,16 @@ function renderResourceList() {
     list.innerHTML = '<div class="resource-list-empty">没有匹配的资源。</div>';
     return;
   }
+  let currentGroup = null;
   for (const resource of resources) {
+    const group = resource.group || "other";
+    if (group !== currentGroup) {
+      currentGroup = group;
+      const heading = document.createElement("div");
+      heading.className = "resource-list-group";
+      heading.textContent = resource.group_label || "其他资源";
+      list.appendChild(heading);
+    }
     const button = document.createElement("button");
     button.type = "button";
     button.className = `resource-list-item${resource.id === state.selectedResourceId ? " active" : ""}`;
@@ -230,6 +265,181 @@ async function selectResource(resourceId) {
   $("resource-preview-path").textContent = payload.path || "-";
   $("resource-preview-meta").textContent = `${String(payload.format || "text").toUpperCase()} · ${formatFileSize(payload.size)}${payload.truncated ? " · 已截断" : ""}`;
   $("resource-preview-content").textContent = payload.content || "（空文件）";
+}
+
+const SKILL_BODY_TEMPLATE = `## 输入与前提
+
+- 读取 WorkerAssignment、当前目标文件和获准知识卡。
+
+## 工作流
+
+1. 验证输入、权限和前置不变量。
+2. 根据当前代码结构与预算选择实现方式。
+3. 完成最小且可复验的代码变更。
+
+## 权限与边界
+
+- 只修改授权文件，不改 evaluator、任务合同或知识资产。
+- 不把局部 smoke 当作正式 Core 证据。
+
+## 交付物
+
+- 可执行实现、激活证据、检查结果和风险说明。
+
+## 验证与停止条件
+
+- 明确通过条件、失败处理和停止条件。`;
+
+const KNOWLEDGE_BODY_TEMPLATE = `## 结论摘要
+
+## 适用问题与实例特征
+
+## 不适用条件和反例
+
+## 状态表示与关键不变量
+
+## 方法或伪代码
+
+## 实现选择，不是强制答案
+
+## 验证方式
+
+## 证据与来源`;
+
+function renderResourceAuthoringOptions() {
+  const families = state.resourceAuthoring.skill?.method_families || [];
+  const familyContainer = $("resource-skill-families");
+  if (familyContainer) {
+    familyContainer.innerHTML = "";
+    for (const family of families) {
+      const label = document.createElement("label");
+      label.innerHTML = `
+        <input type="checkbox" value="${escapeHtml(family.family_id || "")}" />
+        <span>${escapeHtml(family.title || family.family_id || "-")}</span>
+      `;
+      familyContainer.appendChild(label);
+    }
+  }
+  const destinations = state.resourceAuthoring.knowledge?.destinations || [];
+  const destinationSelect = $("resource-knowledge-destination");
+  if (destinationSelect) {
+    const labels = {
+      "reference-general": "通用 FJSP 方法知识",
+      "reference-standard": "标准 FJSP 实现知识",
+      "reference-sdst": "FJSP-SDST 变体知识",
+      principle: "原则与架构契约",
+      benchmark: "Benchmark、IO 与边界事实",
+      "experiment-memory": "本周实验记忆",
+      "imported-note": "外部导入摘要",
+    };
+    destinationSelect.innerHTML = destinations
+      .map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(labels[item.id] || item.path)}</option>`)
+      .join("");
+  }
+  const tags = state.resourceAuthoring.knowledge?.tags || state.resourceAuthoring.skill?.tags || [];
+  const datalist = $("resource-tag-options");
+  if (datalist) {
+    datalist.innerHTML = tags
+      .map((item) => `<option value="${escapeHtml(item.tag || item)}">${escapeHtml(item.description || "")}</option>`)
+      .join("");
+  }
+}
+
+function setResourceEditorCategory(category) {
+  state.resourceEditorCategory = category === "knowledge" ? "knowledge" : "skill";
+  document.querySelectorAll("[data-resource-editor-category]").forEach((button) => {
+    const active = button.dataset.resourceEditorCategory === state.resourceEditorCategory;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  $("resource-skill-fields").hidden = state.resourceEditorCategory !== "skill";
+  $("resource-knowledge-fields").hidden = state.resourceEditorCategory !== "knowledge";
+  $("resource-dialog-title").textContent = state.resourceEditorCategory === "skill" ? "新建 Skill" : "新建知识卡";
+  $("resource-dialog-status").textContent = "";
+}
+
+async function openResourceDialog(category) {
+  if (!state.resourceCatalogLoaded) await loadResourceCatalog();
+  renderResourceAuthoringOptions();
+  if (!$("resource-skill-body").value.trim()) $("resource-skill-body").value = SKILL_BODY_TEMPLATE;
+  if (!$("resource-knowledge-body").value.trim()) $("resource-knowledge-body").value = KNOWLEDGE_BODY_TEMPLATE;
+  setResourceEditorCategory(category);
+  const dialog = $("resource-dialog");
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
+}
+
+function closeResourceDialog() {
+  const dialog = $("resource-dialog");
+  if (typeof dialog.close === "function") dialog.close();
+  else dialog.removeAttribute("open");
+}
+
+function splitResourceTerms(value) {
+  return String(value || "")
+    .split(/[,，\s]+/)
+    .map((item) => item.trim().toLowerCase())
+    .filter((item, index, values) => item && values.indexOf(item) === index);
+}
+
+function buildResourcePayload() {
+  if (state.resourceEditorCategory === "skill") {
+    return {
+      category: "skill",
+      name: $("resource-skill-name").value,
+      title: $("resource-skill-title").value,
+      description: $("resource-skill-description").value,
+      body: $("resource-skill-body").value,
+      default_prompt: $("resource-skill-prompt").value,
+      method_families: [...$("resource-skill-families").querySelectorAll('input[type="checkbox"]:checked')]
+        .map((item) => item.value),
+      activation_tags: splitResourceTerms($("resource-skill-tags").value),
+      register: $("resource-skill-register").checked,
+    };
+  }
+  return {
+    category: "knowledge",
+    title: $("resource-knowledge-title").value,
+    slug: $("resource-knowledge-slug").value,
+    destination: $("resource-knowledge-destination").value,
+    summary: $("resource-knowledge-summary").value,
+    source: $("resource-knowledge-source").value,
+    body: $("resource-knowledge-body").value,
+    tags: splitResourceTerms($("resource-knowledge-tags").value),
+    register: $("resource-knowledge-register").checked,
+  };
+}
+
+async function submitResourceDialog(event) {
+  event.preventDefault();
+  const status = $("resource-dialog-status");
+  const submit = $("resource-dialog-submit");
+  status.textContent = "正在创建...";
+  status.className = "resource-dialog-status";
+  submit.disabled = true;
+  try {
+    const response = await fetch("/api/resources", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(buildResourcePayload()),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "资源创建失败");
+    state.resourceCatalogLoaded = false;
+    state.resourceCategory = payload.category === "knowledge" ? "knowledge" : "skill";
+    state.selectedResourceId = payload.id;
+    await loadResourceCatalog({force: true});
+    setResourceCategory(state.resourceCategory);
+    await selectResource(payload.id);
+    status.textContent = payload.registered ? "创建成功并已注册。" : "创建成功，当前未加入自动匹配。";
+    status.className = "resource-dialog-status success";
+    window.setTimeout(closeResourceDialog, 500);
+  } catch (error) {
+    status.textContent = error.message || "资源创建失败";
+    status.className = "resource-dialog-status error";
+  } finally {
+    submit.disabled = false;
+  }
 }
 
 function formatFileSize(value) {
@@ -379,6 +589,14 @@ function renderJobHistory(jobs) {
         status: job.status,
       }));
       item.appendChild(stopButton);
+    } else if (isResumableJob(job)) {
+      const resumeButton = document.createElement("button");
+      resumeButton.type = "button";
+      resumeButton.className = "history-resume-button";
+      resumeButton.title = `继续迭代：${job.title || job.id}`;
+      resumeButton.textContent = "续跑";
+      resumeButton.addEventListener("click", () => openResumeDialog(job));
+      item.appendChild(resumeButton);
     }
     container.appendChild(item);
   }
@@ -995,6 +1213,79 @@ function isActiveJobStatus(status) {
   return ["queued", "running", "waiting_for_user", "stopping"].includes(status);
 }
 
+function isResumableJob(job) {
+  return ["completed", "completed_with_warnings"].includes(job?.status)
+    && Boolean(job?.artifacts?.loop_result);
+}
+
+async function resumeCurrentJob() {
+  if (!state.currentJobId) return;
+  const additionalRounds = Math.max(1, Math.min(20, Number($("resume-additional-rounds").value || 3)));
+  await requestJobResume(state.currentJobId, additionalRounds, $("resume-job"));
+}
+
+function openResumeDialog(job) {
+  if (!isResumableJob(job)) return;
+  state.resumeTargetJobId = job.id;
+  $("resume-dialog-job").textContent = job.title || job.id;
+  $("resume-dialog-rounds").value = "3";
+  $("resume-dialog-submit").disabled = false;
+  $("resume-dialog-submit").textContent = "开始续跑";
+  $("resume-dialog").showModal();
+  $("resume-dialog-rounds").focus();
+}
+
+function closeResumeDialog() {
+  const dialog = $("resume-dialog");
+  if (dialog.open) dialog.close();
+  state.resumeTargetJobId = null;
+}
+
+async function submitResumeDialog(event) {
+  event.preventDefault();
+  if (!state.resumeTargetJobId) return;
+  const additionalRounds = Math.max(1, Math.min(20, Number($("resume-dialog-rounds").value || 3)));
+  const accepted = await requestJobResume(
+    state.resumeTargetJobId,
+    additionalRounds,
+    $("resume-dialog-submit"),
+  );
+  if (accepted) closeResumeDialog();
+}
+
+async function requestJobResume(jobId, additionalRounds, button) {
+  if (!jobId) return false;
+  button.disabled = true;
+  button.textContent = "启动中";
+  const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/resume`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({additional_rounds: additionalRounds}),
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    button.disabled = false;
+    button.textContent = button.id === "resume-dialog-submit" ? "开始续跑" : "继续迭代";
+    appendChatMessage("assistant", `续跑失败：${payload.error || response.statusText}`);
+    return false;
+  }
+  const job = payload.job;
+  if (job) {
+    state.currentJobId = job.id;
+    renderJob(job);
+  }
+  state.currentJobStatus = payload.status || "queued";
+  state.lastRenderedStatus = null;
+  appendChatMessage(
+    "assistant",
+    `已保留原 baseline、历史证据和 incumbent，追加 ${additionalRounds} 轮；Main Agent 将从下一轮继续分析。`,
+  );
+  await loadJobHistory();
+  showUnifiedConversation({scrollThread: true});
+  startPolling();
+  return true;
+}
+
 async function stopCurrentJob() {
   if (!state.currentJobId) return;
   await stopJob(state.currentJobId, {
@@ -1082,6 +1373,12 @@ function renderJob(job) {
   stopButton.classList.toggle("hidden", !stoppable && job.status !== "stopping");
   stopButton.disabled = job.status === "stopping";
   stopButton.textContent = job.status === "stopping" ? "正在停止" : "停止任务";
+  const resumeControls = $("resume-job-controls");
+  const resumable = isResumableJob(job);
+  resumeControls.classList.toggle("hidden", !resumable);
+  const resumeButton = $("resume-job");
+  resumeButton.disabled = false;
+  resumeButton.textContent = "继续迭代";
   if (job.status !== state.lastRenderedStatus) {
     state.lastRenderedStatus = job.status;
     appendChatMessage("assistant", `任务状态：${statusLabel(job.status)}`);
@@ -1559,6 +1856,12 @@ $("load-demo").addEventListener("click", loadDemo);
 $("job-form").addEventListener("submit", submitJob);
 $("refresh").addEventListener("click", refreshJob);
 $("refresh-history").addEventListener("click", loadJobHistory);
+$("create-skill").addEventListener("click", () => openResourceDialog("skill").catch((error) => {
+  $("resource-count").textContent = error.message || "无法打开 Skill 编辑器";
+}));
+$("create-knowledge").addEventListener("click", () => openResourceDialog("knowledge").catch((error) => {
+  $("resource-count").textContent = error.message || "无法打开知识卡编辑器";
+}));
 $("refresh-resources").addEventListener("click", () => loadResourceCatalog({force: true}).catch((error) => {
   $("resource-count").textContent = "读取失败";
   $("resource-list").innerHTML = `<div class="resource-list-empty">${escapeHtml(error.message)}</div>`;
@@ -1567,7 +1870,23 @@ $("resource-search").addEventListener("input", renderResourceList);
 document.querySelectorAll("[data-resource-category]").forEach((button) => {
   button.addEventListener("click", () => setResourceCategory(button.dataset.resourceCategory));
 });
+document.querySelectorAll("[data-resource-editor-category]").forEach((button) => {
+  button.addEventListener("click", () => setResourceEditorCategory(button.dataset.resourceEditorCategory));
+});
+$("resource-dialog-form").addEventListener("submit", submitResourceDialog);
+$("resource-dialog-close").addEventListener("click", closeResourceDialog);
+$("resource-dialog-cancel").addEventListener("click", closeResourceDialog);
+$("resource-dialog").addEventListener("click", (event) => {
+  if (event.target === $("resource-dialog")) closeResourceDialog();
+});
 $("stop-job").addEventListener("click", stopCurrentJob);
+$("resume-job").addEventListener("click", resumeCurrentJob);
+$("resume-dialog-form").addEventListener("submit", submitResumeDialog);
+$("resume-dialog-close").addEventListener("click", closeResumeDialog);
+$("resume-dialog-cancel").addEventListener("click", closeResumeDialog);
+$("resume-dialog").addEventListener("click", (event) => {
+  if (event.target === $("resume-dialog")) closeResumeDialog();
+});
 $("chat-form").addEventListener("submit", handleChatSubmit);
 $("reset-chat").addEventListener("click", initializeChat);
 [

@@ -25,8 +25,8 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from harness_agent.deepseek_client import is_deepseek_configured, load_local_env, local_env_candidates, normalize_deepseek_model
-from harness_agent.orchestration.loop import DEFAULT_IN_ROUND_REPAIR_ATTEMPTS
-from harness_agent.context.knowledge import method_package_catalog
+from harness_agent.orchestration.loop import DEFAULT_IN_ROUND_REPAIR_ATTEMPTS, load_worker_loop_result
+from harness_agent.context.knowledge import knowledge_query_catalog, method_family_catalog, method_package_catalog
 from harness_agent.core.cancellation import CancellationToken, TaskCancelled
 from harness_agent.agents.opencode_main import OpenCodeMainAgent
 from harness_agent.domains.io import parse_standard_fjsp
@@ -42,6 +42,17 @@ MAX_REQUEST_BYTES = 8 * 1024 * 1024
 MAX_ARTIFACT_CHARS = 240_000
 MAX_RESOURCE_CHARS = 240_000
 RESOURCE_TEXT_SUFFIXES = frozenset({".md", ".json", ".py", ".yaml", ".yml", ".csv", ".txt"})
+SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+KNOWLEDGE_SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
+KNOWLEDGE_DESTINATIONS = {
+    "reference-general": Path("references") / "general_fjsp",
+    "reference-standard": Path("references") / "standard_fjsp",
+    "reference-sdst": Path("references") / "sdst",
+    "principle": Path("principles"),
+    "benchmark": Path("benchmarks"),
+    "experiment-memory": Path("experiment_memory") / "current_week",
+    "imported-note": Path("imported") / "user_notes",
+}
 DEFAULT_STANDARD_SEEDS_TEXT = "0,1,2,3,4,5,6,7,8,9"
 DEFAULT_STANDARD_FJSP_DP18A_INSTANCE = PROJECT_ROOT / "examples" / "fjsp.dauzere.18a.m10j20c10.txt"
 DEFAULT_STANDARD_FJSP_DP18A_BOUNDS_CSV = (
@@ -55,6 +66,7 @@ _LOCK = threading.Lock()
 _ROUND_GATES: dict[str, "WebRoundInterventionGate"] = {}
 _JOB_CANCELLATIONS: dict[str, CancellationToken] = {}
 _ACTIVE_OUTPUT_ROOT = DEFAULT_OUTPUT_ROOT
+_RESOURCE_WRITE_LOCK = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -76,9 +88,10 @@ def resource_catalog() -> dict[str, Any]:
     """列出前端可浏览的项目 Skill 和知识资产，不暴露任意路径。"""
 
     resources: list[dict[str, Any]] = []
-    for category, relative_root in (
-        ("skill", Path(".codex") / "skills"),
-        ("knowledge", Path("knowledge")),
+    for resource_kind, category, relative_root in (
+        ("skill", "skill", Path(".codex") / "skills"),
+        ("opencode-skill", "skill", Path(".opencode") / "skills"),
+        ("knowledge", "knowledge", Path("knowledge")),
     ):
         root = (PROJECT_ROOT / relative_root).resolve()
         if not root.is_dir():
@@ -103,6 +116,7 @@ def resource_catalog() -> dict[str, Any]:
             resources.append(
                 resource_metadata(
                     category=category,
+                    resource_kind=resource_kind,
                     relative_root=relative_root,
                     relative_path=relative_path,
                     path=path,
@@ -114,6 +128,7 @@ def resource_catalog() -> dict[str, Any]:
             "skill": sum(item["category"] == "skill" for item in resources),
             "knowledge": sum(item["category"] == "knowledge" for item in resources),
         },
+        "authoring": resource_authoring_schema(),
     }
 
 
@@ -123,6 +138,7 @@ def read_resource(resource_id: str) -> dict[str, Any]:
     category, separator, relative_text = str(resource_id or "").partition(":")
     roots = {
         "skill": Path(".codex") / "skills",
+        "opencode-skill": Path(".opencode") / "skills",
         "knowledge": Path("knowledge"),
     }
     relative_root = roots.get(category)
@@ -135,7 +151,8 @@ def read_resource(resource_id: str) -> dict[str, Any]:
         raise ValueError("resource is outside the allowed catalog")
     text = path.read_text(encoding="utf-8-sig", errors="replace")
     metadata = resource_metadata(
-        category=category,
+        category="skill" if category in {"skill", "opencode-skill"} else category,
+        resource_kind=category,
         relative_root=relative_root,
         relative_path=relative_path.as_posix(),
         path=path,
@@ -151,6 +168,7 @@ def read_resource(resource_id: str) -> dict[str, Any]:
 def resource_metadata(
     *,
     category: str,
+    resource_kind: str | None = None,
     relative_root: Path,
     relative_path: str,
     path: Path,
@@ -163,9 +181,14 @@ def resource_metadata(
         except OSError:
             preview = ""
     title, description = resource_title_and_description(preview, path=path)
+    kind = resource_kind or category
+    group, group_label = resource_group(category=category, resource_kind=kind, relative_path=relative_path)
     return {
-        "id": f"{category}:{relative_path}",
+        "id": f"{kind}:{relative_path}",
         "category": category,
+        "resource_kind": kind,
+        "group": group,
+        "group_label": group_label,
         "title": title,
         "description": description,
         "path": (relative_root / relative_path).as_posix(),
@@ -198,6 +221,306 @@ def resource_title_and_description(text: str, *, path: Path) -> tuple[str, str]:
         if title and description:
             break
     return title or path.stem.replace("_", " "), description[:220]
+
+
+def resource_group(*, category: str, resource_kind: str, relative_path: str) -> tuple[str, str]:
+    parts = Path(relative_path).parts
+    if category == "skill":
+        if resource_kind == "opencode-skill":
+            return "opencode-internal", "OpenCode 内部执行 Skill"
+        skill_id = parts[0] if parts else "other"
+        if skill_id in {"fjsp-solver-foundation-worker", "fjsp-experiment-design-worker"}:
+            return "worker-foundation", "Worker 基础与实验"
+        if skill_id in {
+            "fjsp-constructive-search-worker",
+            "fjsp-coupled-local-search-worker",
+            "fjsp-exact-hybrid-worker",
+            "fjsp-population-memetic-worker",
+            "fjsp-sdst-adapter-worker",
+        }:
+            return "worker-method", "Worker 方法实现"
+        return "planning-domain", "规划、诊断与领域扩展"
+    top = parts[0] if parts else "other"
+    second = parts[1] if len(parts) > 1 else ""
+    if len(parts) == 1:
+        return "knowledge-governance", "知识库规范与总清单"
+    labels = {
+        "principles": "原则与架构契约",
+        "benchmarks": "Benchmark、IO 与边界事实",
+        "capabilities": "当前能力快照",
+        "method_packages": "完整 Method Package",
+        "experiment_memory": "本周实验记忆",
+        "imported": "导入材料与原始来源",
+    }
+    if top == "references":
+        reference_labels = {
+            "general_fjsp": "通用 FJSP 方法知识",
+            "standard_fjsp": "标准 FJSP 实现知识",
+            "sdst": "FJSP-SDST 变体知识",
+        }
+        return f"references/{second or 'other'}", reference_labels.get(second, "其他稳定参考")
+    return top, labels.get(top, "其他知识资产")
+
+
+def resource_authoring_schema() -> dict[str, Any]:
+    families = method_family_catalog(problem_family="FJSP").get("families") or []
+    query = knowledge_query_catalog(problem_family="FJSP")
+    return {
+        "skill": {
+            "name_pattern": SKILL_NAME_PATTERN.pattern,
+            "method_families": families,
+            "tags": query.get("tags") or [],
+        },
+        "knowledge": {
+            "destinations": [
+                {"id": key, "path": f"knowledge/{value.as_posix()}"}
+                for key, value in KNOWLEDGE_DESTINATIONS.items()
+            ],
+            "tags": query.get("tags") or [],
+        },
+    }
+
+
+def create_project_resource(payload: dict[str, Any]) -> dict[str, Any]:
+    """创建一个项目 Skill 或知识卡；只允许新建，禁止覆盖现有资产。"""
+
+    category = str(payload.get("category") or "").strip().lower()
+    with _RESOURCE_WRITE_LOCK:
+        if category == "skill":
+            return _create_project_skill(payload)
+        if category == "knowledge":
+            return _create_knowledge_card(payload)
+    raise ValueError("category must be skill or knowledge")
+
+
+def _create_project_skill(payload: dict[str, Any]) -> dict[str, Any]:
+    name = _resource_text(payload.get("name"), "Skill 名称", maximum=64)
+    if not SKILL_NAME_PATTERN.fullmatch(name):
+        raise ValueError("Skill 名称必须使用小写字母、数字和单连字符，且不能以连字符开头或结尾")
+    description = _resource_text(payload.get("description"), "触发描述", maximum=1024)
+    title = _resource_text(payload.get("title") or name, "显示名称", maximum=100)
+    body = _resource_text(payload.get("body"), "Skill 指令", maximum=120_000)
+    default_prompt = _resource_text(
+        payload.get("default_prompt") or f"使用 ${name} 完成当前任务。",
+        "默认提示词",
+        maximum=500,
+    )
+    method_families = _normalized_resource_terms(payload.get("method_families"), maximum=8)
+    activation_tags = _normalized_resource_terms(payload.get("activation_tags"), maximum=24)
+    register = coerce_bool(payload.get("register"), default=True)
+    if register and not method_families:
+        raise ValueError("加入 Worker 自动匹配时至少选择一个方法族")
+
+    skill_root = (PROJECT_ROOT / ".codex" / "skills").resolve()
+    skill_dir = (skill_root / name).resolve()
+    if not skill_dir.is_relative_to(skill_root):
+        raise ValueError("Skill 路径超出允许目录")
+    for root in (PROJECT_ROOT / ".codex" / "skills", PROJECT_ROOT / ".opencode" / "skills"):
+        if (root / name).exists():
+            raise ValueError(f"Skill 已存在：{name}")
+
+    instructions = body.strip()
+    if instructions.startswith("---"):
+        raise ValueError("Skill 指令不应包含 YAML frontmatter，表单会自动生成")
+    if not instructions.startswith("# "):
+        instructions = f"# {title}\n\n{instructions}"
+    skill_text = (
+        "---\n"
+        f"name: {name}\n"
+        f"description: {json.dumps(description, ensure_ascii=False)}\n"
+        "---\n\n"
+        f"{instructions.rstrip()}\n"
+    )
+    agent_text = (
+        "interface:\n"
+        f"  display_name: {json.dumps(title, ensure_ascii=False)}\n"
+        f"  short_description: {json.dumps(description[:80], ensure_ascii=False)}\n"
+        f"  default_prompt: {json.dumps(default_prompt, ensure_ascii=False)}\n"
+    )
+
+    manifest_path = PROJECT_ROOT / "domain_packs" / "standard_fjsp" / "domain_pack.json"
+    manifest = _read_resource_manifest(manifest_path) if register else None
+    if manifest is not None:
+        _append_worker_skill_registration(
+            manifest,
+            name=name,
+            title=title,
+            description=description,
+            method_families=method_families,
+            activation_tags=activation_tags,
+        )
+
+    skill_dir.mkdir(parents=True)
+    try:
+        (skill_dir / "SKILL.md").write_text(skill_text, encoding="utf-8")
+        agents_dir = skill_dir / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "openai.yaml").write_text(agent_text, encoding="utf-8")
+        if manifest is not None:
+            _write_resource_manifest(manifest_path, manifest)
+    except Exception:
+        for path in (skill_dir / "agents" / "openai.yaml", skill_dir / "SKILL.md"):
+            if path.exists():
+                path.unlink()
+        for path in (skill_dir / "agents", skill_dir):
+            if path.exists():
+                path.rmdir()
+        raise
+    result = read_resource(f"skill:{name}/SKILL.md")
+    result["registered"] = register
+    return result
+
+
+def _create_knowledge_card(payload: dict[str, Any]) -> dict[str, Any]:
+    title = _resource_text(payload.get("title"), "知识卡标题", maximum=160)
+    slug = _resource_text(payload.get("slug"), "知识卡标识", maximum=80).lower()
+    if not KNOWLEDGE_SLUG_PATTERN.fullmatch(slug):
+        raise ValueError("知识卡标识必须使用小写字母、数字、单连字符或下划线")
+    destination_id = str(payload.get("destination") or "").strip().lower()
+    relative_dir = KNOWLEDGE_DESTINATIONS.get(destination_id)
+    if relative_dir is None:
+        raise ValueError("未知知识分类")
+    summary = _resource_text(payload.get("summary"), "摘要", maximum=1024)
+    source = _resource_text(payload.get("source"), "证据或来源", maximum=2000)
+    body = _resource_text(payload.get("body"), "知识卡正文", maximum=160_000)
+    tags = _normalized_resource_terms(payload.get("tags"), maximum=24)
+    register = coerce_bool(payload.get("register"), default=False)
+    if register and not destination_id.startswith("reference-"):
+        raise ValueError("只有稳定方法参考可以加入自动检索；原则、Benchmark、实验记忆和导入材料需单独审核")
+    if register and not tags:
+        raise ValueError("加入自动检索时至少填写一个标签")
+
+    knowledge_root = (PROJECT_ROOT / "knowledge").resolve()
+    path = (knowledge_root / relative_dir / f"{slug}.md").resolve()
+    if not path.is_relative_to(knowledge_root):
+        raise ValueError("知识卡路径超出允许目录")
+    if path.exists():
+        raise ValueError(f"知识卡已存在：{path.relative_to(PROJECT_ROOT).as_posix()}")
+    content = body.strip()
+    if content.startswith("---"):
+        raise ValueError("知识卡正文不应包含 YAML frontmatter，表单会自动生成")
+    if not content.startswith("# "):
+        content = f"# {title}\n\n{content}"
+    metadata = (
+        "---\n"
+        f"title: {json.dumps(title, ensure_ascii=False)}\n"
+        f"description: {json.dumps(summary, ensure_ascii=False)}\n"
+        f"knowledge_type: {json.dumps(destination_id, ensure_ascii=False)}\n"
+        f"problem_family: \"standard_fjsp\"\n"
+        f"tags: {json.dumps(tags, ensure_ascii=False)}\n"
+        f"status: {json.dumps('reviewed' if register else 'draft', ensure_ascii=False)}\n"
+        f"source: {json.dumps(source, ensure_ascii=False)}\n"
+        f"created_at: {json.dumps(utc_timestamp(), ensure_ascii=False)}\n"
+        "---\n\n"
+    )
+
+    manifest_path = PROJECT_ROOT / "domain_packs" / "standard_fjsp" / "domain_pack.json"
+    manifest = _read_resource_manifest(manifest_path) if register else None
+    project_relative = path.relative_to(PROJECT_ROOT).as_posix()
+    if manifest is not None:
+        _append_knowledge_registration(manifest, path=project_relative, tags=tags, summary=summary)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.write_text(metadata + content.rstrip() + "\n", encoding="utf-8")
+        if manifest is not None:
+            _write_resource_manifest(manifest_path, manifest)
+    except Exception:
+        if path.exists():
+            path.unlink()
+        raise
+    result = read_resource(f"knowledge:{path.relative_to(knowledge_root).as_posix()}")
+    result["registered"] = register
+    return result
+
+
+def _resource_text(value: Any, label: str, *, maximum: int) -> str:
+    text = str(value or "").replace("\x00", "").strip()
+    if not text:
+        raise ValueError(f"{label}不能为空")
+    if len(text) > maximum:
+        raise ValueError(f"{label}超过长度上限 {maximum}")
+    return text
+
+
+def _normalized_resource_terms(value: Any, *, maximum: int) -> list[str]:
+    raw = value if isinstance(value, list) else re.split(r"[,，\s]+", str(value or ""))
+    result: list[str] = []
+    for item in raw:
+        term = str(item).strip().lower()
+        if not term or term in result:
+            continue
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", term):
+            raise ValueError(f"标签或方法族格式非法：{term}")
+        result.append(term)
+        if len(result) > maximum:
+            raise ValueError(f"标签数量不能超过 {maximum}")
+    return result
+
+
+def _read_resource_manifest(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"无法读取 Domain Pack：{exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("Domain Pack 必须是 JSON object")
+    return payload
+
+
+def _write_resource_manifest(path: Path, payload: dict[str, Any]) -> None:
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def _append_worker_skill_registration(
+    manifest: dict[str, Any],
+    *,
+    name: str,
+    title: str,
+    description: str,
+    method_families: list[str],
+    activation_tags: list[str],
+) -> None:
+    known_families = {
+        str(item.get("family_id") or "").strip().lower()
+        for item in manifest.get("method_families") or []
+        if isinstance(item, dict)
+    }
+    unknown = sorted(set(method_families) - known_families)
+    if unknown:
+        raise ValueError("未知方法族：" + ", ".join(unknown))
+    skills = manifest.setdefault("worker_implementation_skills", [])
+    if any(isinstance(item, dict) and item.get("skill_id") == name for item in skills):
+        raise ValueError(f"Domain Pack 已注册 Skill：{name}")
+    skills.append(
+        {
+            "skill_id": name,
+            "title": title,
+            "description": description,
+            "source_path": f".codex/skills/{name}",
+            "method_families": method_families,
+            "activation_tags": activation_tags,
+            "required_features": [],
+            "excluded_features": [],
+            "default_priority": 100,
+            "always_include": False,
+        }
+    )
+
+
+def _append_knowledge_registration(
+    manifest: dict[str, Any], *, path: str, tags: list[str], summary: str
+) -> None:
+    knowledge = manifest.setdefault("knowledge", {})
+    tagged_cards = knowledge.setdefault("tagged_cards", {})
+    query = knowledge.setdefault("knowledge_query", {})
+    descriptions = query.setdefault("tag_descriptions", {})
+    for tag in tags:
+        paths = tagged_cards.setdefault(tag, [])
+        if path not in paths:
+            paths.append(path)
+        descriptions.setdefault(tag, summary[:220])
 
 
 def parse_seeds(value: Any) -> list[int]:
@@ -265,6 +588,8 @@ def public_job(job: dict[str, Any]) -> dict[str, Any]:
         "coding_agent_trace": job.get("coding_agent_trace", []),
         "pending_intervention": job.get("pending_intervention"),
         "intervention_history": job.get("intervention_history", []),
+        "continuation": job.get("continuation"),
+        "continuation_history": job.get("continuation_history", []),
         "summary": job.get("summary", {}),
         "artifacts": job.get("artifacts", {}),
         "error": job.get("error"),
@@ -732,6 +1057,56 @@ def stop_job(job_id: str) -> dict[str, Any]:
     return {"accepted": True, "status": "stopping"}
 
 
+def resume_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Append improvement rounds to a terminal job without regenerating baseline."""
+
+    additional_rounds = coerce_int(payload.get("additional_rounds"), 3, minimum=1, maximum=20)
+    with _LOCK:
+        job = _JOBS.get(job_id)
+        if job is None:
+            raise KeyError("job not found")
+        status = str(job.get("status") or "")
+        if status not in {"completed", "completed_with_warnings"}:
+            raise ValueError(f"job cannot continue from status: {status}")
+        loop_result_path = (
+            Path(str(job.get("job_dir") or ""))
+            / "run"
+            / "standard_worker_loop"
+            / "worker_loop"
+            / "loop_result.json"
+        )
+        restored = load_worker_loop_result(loop_result_path)
+        completed_rounds = len(restored.rounds)
+        target_rounds = completed_rounds + additional_rounds
+        requested_at = utc_timestamp()
+        continuation = {
+            "active": True,
+            "requested_at": requested_at,
+            "source_status": status,
+            "loop_result": str(loop_result_path.resolve()),
+            "starting_round_index": max((item.round_index for item in restored.rounds), default=-1) + 1,
+            "completed_rounds_before": completed_rounds,
+            "additional_rounds": additional_rounds,
+            "target_rounds": target_rounds,
+        }
+        job["continuation"] = continuation
+        job.setdefault("continuation_history", []).append(dict(continuation))
+        job["config"]["max_rounds"] = target_rounds
+        job["status"] = "queued"
+        job["error"] = None
+        job["pending_intervention"] = None
+        append_event(
+            job,
+            (
+                f"用户请求继续迭代：保留原 baseline、{completed_rounds} 轮历史和当前 incumbent，"
+                f"从第 {continuation['starting_round_index'] + 1} 轮起追加 {additional_rounds} 轮。"
+            ),
+        )
+        write_job_status(job)
+    start_job(job_id)
+    return {"accepted": True, "status": "queued", "job": public_job(job)}
+
+
 def inspect_instance_profile(instance_path: Path) -> dict[str, Any]:
     """用正式 parser 提取算例规模和变种特征，失败时保留可展示错误。"""
 
@@ -982,10 +1357,21 @@ def run_job(job_id: str) -> None:
         config = job["config"]
         input_paths = job["inputs"]
         output_dir = Path(job["job_dir"]) / "run"
+        continuation = job.get("continuation") if isinstance(job.get("continuation"), dict) else {}
+        resume_loop_result = (
+            Path(str(continuation.get("loop_result"))).resolve()
+            if continuation.get("active") and continuation.get("loop_result")
+            else None
+        )
+        run_iterations = (
+            int(continuation.get("additional_rounds", 0) or 0)
+            if resume_loop_result is not None
+            else int(config["max_rounds"])
+        )
         append_event(
             job,
             (
-                f"启动 Agent 自写 solver 闭环：rounds={config['max_rounds']}，"
+                f"启动 Agent 自写 solver 闭环：本次 rounds={run_iterations}，"
                 f"seeds={config['seeds']}，Core 并行数={config['max_workers']}。"
             ),
         )
@@ -1008,7 +1394,9 @@ def run_job(job_id: str) -> None:
             max_subagents=config["main_max_subagents"],
             cancellation=cancellation,
         )
-        if config.get("pause_between_rounds") and int(config.get("max_rounds", 1)) > 1:
+        if config.get("pause_between_rounds") and (
+            run_iterations > 1 or resume_loop_result is not None
+        ):
             round_gate = WebRoundInterventionGate(job, cancellation=cancellation)
             with _LOCK:
                 _ROUND_GATES[job_id] = round_gate
@@ -1043,7 +1431,7 @@ def run_job(job_id: str) -> None:
                     semantic_reviewer=None,
                     previous_pipeline_memory=previous_memory_path,
                     max_instances=1,
-                    iterations=config["max_rounds"],
+                    iterations=run_iterations,
                     seeds=config["seeds"],
                     timeout_seconds=config["timeout_seconds"],
                     max_workers=config["max_workers"],
@@ -1053,6 +1441,7 @@ def run_job(job_id: str) -> None:
                     max_competing_workers=config["max_competing_workers"],
                     round_intervention=round_gate,
                     cancellation=cancellation,
+                    resume_loop_result=resume_loop_result,
                     apply_worker_changes=True,
                     promotion_repeats=config["promotion_repeats"],
                     agent_generated_solver_path=config["agent_generated_solver_path"],
@@ -1097,6 +1486,12 @@ def run_job(job_id: str) -> None:
                 job["status"] = "completed_with_warnings"
             job["summary"] = summary_payload
             job["artifacts"] = artifacts
+            if continuation.get("active"):
+                continuation["active"] = False
+                continuation["completed_at"] = utc_timestamp()
+                continuation["completed_rounds_after"] = round_summary["completed_round_count"]
+                if job.get("continuation_history"):
+                    job["continuation_history"][-1] = dict(continuation)
             append_event(
                 job,
                 (
@@ -1111,6 +1506,11 @@ def run_job(job_id: str) -> None:
             job["status"] = "stopped"
             job["error"] = None
             job["stopped_at"] = utc_timestamp()
+            if isinstance(job.get("continuation"), dict):
+                job["continuation"]["active"] = False
+                job["continuation"]["stopped_at"] = job["stopped_at"]
+                if job.get("continuation_history"):
+                    job["continuation_history"][-1] = dict(job["continuation"])
             append_event(job, "任务已按用户请求停止；已完成产物和 incumbent 已保留。", level="warning")
             write_job_status(job)
     except Exception as exc:  # noqa: BLE001 - web jobs should preserve failures as inspectable artifacts.
@@ -1119,6 +1519,11 @@ def run_job(job_id: str) -> None:
         with _LOCK:
             job["status"] = "failed"
             job["error"] = str(exc)
+            if isinstance(job.get("continuation"), dict):
+                job["continuation"]["active"] = False
+                job["continuation"]["failed_at"] = utc_timestamp()
+                if job.get("continuation_history"):
+                    job["continuation_history"][-1] = dict(job["continuation"])
             job["artifacts"]["exception"] = str(trace_path.resolve())
             append_event(job, f"执行失败：{exc}", level="error")
             write_job_status(job)
@@ -2811,6 +3216,16 @@ class AlgoForgeWebHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 - stdlib handler API
         parsed = urlparse(self.path)
         try:
+            if parsed.path == "/api/resources":
+                self._json(201, create_project_resource(self._read_json()))
+                return
+            if parsed.path.startswith("/api/jobs/") and parsed.path.endswith("/resume"):
+                parts = [item for item in parsed.path.split("/") if item]
+                if len(parts) != 4:
+                    self._json(404, {"error": "not found"})
+                    return
+                self._json(202, resume_job(parts[2], self._read_json()))
+                return
             if parsed.path.startswith("/api/jobs/") and parsed.path.endswith("/continue"):
                 parts = [item for item in parsed.path.split("/") if item]
                 if len(parts) != 4:
@@ -2867,6 +3282,7 @@ class AlgoForgeWebHandler(BaseHTTPRequestHandler):
         data = path.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)

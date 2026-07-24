@@ -1,4 +1,4 @@
 interface:
-  display_name: "FJSP AWLS-SDST"
-  short_description: "Adapt AWLS to setup-aware FJSP"
-  default_prompt: "Use $fjsp-awls-sdst-adapter to design and validate a complete AWLS-SDST Method Package adaptation under the fixed evaluator."
+  display_name: "FJSP AWLS-SDST 适配"
+  short_description: "将 AWLS 适配到带 setup 的 FJSP"
+  default_prompt: "在固定 evaluator 下设计并验证完整的 AWLS-SDST Method Package 适配时使用 $fjsp-awls-sdst-adapter。"

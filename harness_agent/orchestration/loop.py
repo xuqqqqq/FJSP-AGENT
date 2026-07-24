@@ -125,6 +125,7 @@ def run_worker_loop(
     max_competing_workers: int = 4,
     round_intervention: Callable[[int, LoopRoundRecord, dict[str, Any]], str | None] | None = None,
     cancellation: CancellationToken | None = None,
+    resume_from: WorkerLoopResult | None = None,
 ) -> WorkerLoopResult:
     """运行完整闭环；每轮只推进一个方向，incumbent 始终由 Core 证据保护。
 
@@ -140,53 +141,74 @@ def run_worker_loop(
     direction_planner = main_agent or EvidenceDrivenMainAgent()
     max_competing_workers = max(1, min(4, int(max_competing_workers)))
 
-    # 阶段 1：建立初始 incumbent。Web 标准流程强制 agent_generated，确保
-    # baseline 也是 Coding Agent 根据 IO/知识写出的，而不是后端预埋 solver。
-    normalized_baseline_source = normalize_baseline_source(baseline_source)
-    baseline_generation: dict[str, Any] | None = None
-    if normalized_baseline_source == "agent_generated":
-        baseline_worker_for_generation = baseline_worker or worker
-        baseline_summary, baseline_worktree, baseline_generation = run_agent_generated_baseline(
-            contract=contract,
-            project_root=project_root,
-            output_dir=output_dir,
-            context_packet_path=context_packet_path,
-            worker=baseline_worker_for_generation,
-            experiment_id=experiment_id,
-            max_steps=max_steps,
-            max_runtime_seconds=max_runtime_seconds,
-            semantic_reviewer=semantic_reviewer,
-            assignment_issuer=direction_planner,
-            direction_plan=plan_agent_generated_baseline_direction(
-                planner=direction_planner,
-                context_packet_path=context_packet_path,
-                output_dir=output_dir / "agent_generated_baseline" / "main_agent",
-            ),
-            repair_attempts=worker_loop_repair_attempt_budget(
-                baseline_worker_for_generation,
-                in_round_repair_attempts,
-            ),
-            cancellation=cancellation,
-        )
+    # 阶段 1：首次运行建立 baseline；续跑则恢复原始 baseline、完整历史和
+    # Core 已晋升的 incumbent，绝不重新生成 baseline 或丢失旧轮次证据。
+    if resume_from is not None:
+        normalized_baseline_source = normalize_baseline_source(resume_from.baseline_source)
+        baseline_generation = resume_from.baseline_generation
+        baseline_summary = resume_from.baseline_summary
+        baseline_worktree = resume_from.final_worktree.resolve()
+        if not baseline_worktree.exists():
+            raise FileNotFoundError(f"resume incumbent worktree does not exist: {baseline_worktree}")
     else:
-        baseline_worktree = output_dir / "baseline_worktree"
-        prepare_candidate_worktree(
-            project_root=project_root.resolve(),
-            contract=contract,
-            worktree_path=baseline_worktree,
-        )
-        baseline_summary = _run_harness(
-            contract=contract,
-            project_root=baseline_worktree,
-            output_dir=output_dir / "baseline_harness",
-            cancellation=cancellation,
-        )
-    incumbent_key = summary_objective_key(baseline_summary, contract.objectives)
+        normalized_baseline_source = normalize_baseline_source(baseline_source)
+        baseline_generation: dict[str, Any] | None = None
+        if normalized_baseline_source == "agent_generated":
+            baseline_worker_for_generation = baseline_worker or worker
+            baseline_summary, baseline_worktree, baseline_generation = run_agent_generated_baseline(
+                contract=contract,
+                project_root=project_root,
+                output_dir=output_dir,
+                context_packet_path=context_packet_path,
+                worker=baseline_worker_for_generation,
+                experiment_id=experiment_id,
+                max_steps=max_steps,
+                max_runtime_seconds=max_runtime_seconds,
+                semantic_reviewer=semantic_reviewer,
+                assignment_issuer=direction_planner,
+                direction_plan=plan_agent_generated_baseline_direction(
+                    planner=direction_planner,
+                    context_packet_path=context_packet_path,
+                    output_dir=output_dir / "agent_generated_baseline" / "main_agent",
+                ),
+                repair_attempts=worker_loop_repair_attempt_budget(
+                    baseline_worker_for_generation,
+                    in_round_repair_attempts,
+                ),
+                cancellation=cancellation,
+            )
+        else:
+            baseline_worktree = output_dir / "baseline_worktree"
+            prepare_candidate_worktree(
+                project_root=project_root.resolve(),
+                contract=contract,
+                worktree_path=baseline_worktree,
+            )
+            baseline_summary = _run_harness(
+                contract=contract,
+                project_root=baseline_worktree,
+                output_dir=output_dir / "baseline_harness",
+                cancellation=cancellation,
+            )
+    baseline_key = (
+        tuple(resume_from.baseline_key)
+        if resume_from is not None
+        else summary_objective_key(baseline_summary, contract.objectives)
+    )
+    incumbent_key = (
+        tuple(resume_from.final_key)
+        if resume_from is not None
+        else summary_objective_key(baseline_summary, contract.objectives)
+    )
     incumbent_worktree = baseline_worktree
-    if normalized_baseline_source == "agent_generated" and not agent_generated_baseline_is_accepted(
-        baseline_generation,
-        baseline_summary=baseline_summary,
-        baseline_key=incumbent_key,
+    if (
+        resume_from is None
+        and normalized_baseline_source == "agent_generated"
+        and not agent_generated_baseline_is_accepted(
+            baseline_generation,
+            baseline_summary=baseline_summary,
+            baseline_key=incumbent_key,
+        )
     ):
         stop_reason = agent_generated_baseline_failure_reason(
             baseline_generation,
@@ -215,9 +237,13 @@ def run_worker_loop(
         return result
     # 阶段 2：每个外层 round 对应一个改进方向；repair attempt 不额外消耗轮数。
     effective_repair_attempts = worker_loop_repair_attempt_budget(worker, in_round_repair_attempts)
-    round_records: list[LoopRoundRecord] = []
-    seen_proposal_fingerprints: set[str] = set()
-    for round_index in range(max(0, iterations)):
+    round_records = list(resume_from.rounds) if resume_from is not None else []
+    seen_proposal_fingerprints = {
+        item.proposal_fingerprint for item in round_records if item.proposal_fingerprint
+    }
+    first_round_index = max((item.round_index for item in round_records), default=-1) + 1
+    for round_offset in range(max(0, iterations)):
+        round_index = first_round_index + round_offset
         if cancellation is not None:
             cancellation.raise_if_cancelled()
         cycle_dir = output_dir / f"round_{round_index:03d}"
@@ -495,7 +521,7 @@ def run_worker_loop(
         round_records.append(replace(round_record, round_reflection=reflection))
 
     result = WorkerLoopResult(
-        baseline_key=summary_objective_key(baseline_summary, contract.objectives),
+        baseline_key=baseline_key,
         final_key=incumbent_key,
         final_worktree=incumbent_worktree,
         rounds=round_records,
@@ -2995,6 +3021,100 @@ def round_record_payload(item: LoopRoundRecord) -> dict[str, Any]:
         "round_reflection": item.round_reflection or {},
         "failure_signatures": round_failure_signatures(item),
     }
+
+
+def load_worker_loop_result(path: Path) -> WorkerLoopResult:
+    """Restore a completed loop so later rounds can continue the same experiment."""
+
+    source = path.resolve()
+    try:
+        payload = json.loads(source.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"cannot load worker loop result: {source}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"worker loop result must be a JSON object: {source}")
+    final_worktree_value = str(payload.get("final_worktree") or "").strip()
+    if not final_worktree_value:
+        raise ValueError(f"worker loop result has no incumbent worktree: {source}")
+    final_worktree = Path(final_worktree_value).resolve()
+    if not final_worktree.exists():
+        raise ValueError(f"worker loop incumbent is missing: {final_worktree}")
+    baseline_payload = payload.get("baseline_summary")
+    if not isinstance(baseline_payload, dict):
+        raise ValueError(f"worker loop result has no baseline summary: {source}")
+    rounds_payload = payload.get("rounds") or []
+    if not isinstance(rounds_payload, list):
+        raise ValueError(f"worker loop rounds must be a list: {source}")
+    return WorkerLoopResult(
+        baseline_key=_float_tuple(payload.get("baseline_key")),
+        final_key=_float_tuple(payload.get("final_key")),
+        final_worktree=final_worktree,
+        rounds=[
+            loop_round_record_from_payload(item)
+            for item in rounds_payload
+            if isinstance(item, dict)
+        ],
+        baseline_summary=run_summary_from_payload(baseline_payload),
+        baseline_source=str(payload.get("baseline_source") or "agent_generated"),
+        baseline_generation=(
+            payload.get("baseline_generation")
+            if isinstance(payload.get("baseline_generation"), dict)
+            else None
+        ),
+        status=str(payload.get("status") or "ok"),
+        stop_reason=str(payload.get("stop_reason") or "") or None,
+    )
+
+
+def run_summary_from_payload(payload: dict[str, Any]) -> RunSummary:
+    return RunSummary(
+        total=int(payload.get("total", 0) or 0),
+        valid=int(payload.get("valid", 0) or 0),
+        failed=int(payload.get("failed", 0) or 0),
+        best_experiment_id=str(payload.get("best_experiment_id") or "") or None,
+        best_metrics=dict(payload.get("best_metrics") or {}),
+        best_candidate_id=str(payload.get("best_candidate_id") or "") or None,
+        best_candidate_metrics=(
+            dict(payload.get("best_candidate_metrics") or {})
+            if payload.get("best_candidate_metrics") is not None
+            else None
+        ),
+        candidate_summaries=list(payload.get("candidate_summaries") or []),
+        pareto_frontier=list(payload.get("pareto_frontier") or []),
+        validation_summary=dict(payload.get("validation_summary") or {}),
+    )
+
+
+def loop_round_record_from_payload(payload: dict[str, Any]) -> LoopRoundRecord:
+    return LoopRoundRecord(
+        round_index=int(payload.get("round_index", 0) or 0),
+        decision=str(payload.get("decision") or "rolled_back"),
+        candidate_key=_float_tuple(payload.get("candidate_key")),
+        incumbent_key_after=_float_tuple(payload.get("incumbent_key_after")),
+        worker_status=str(payload.get("worker_status") or "unknown"),
+        worker_changed_files=[str(item) for item in payload.get("worker_changed_files") or []],
+        proposal_fingerprint=str(payload.get("proposal_fingerprint") or ""),
+        duplicate_proposal=bool(payload.get("duplicate_proposal")),
+        proposal_diagnostics=dict(payload.get("proposal_diagnostics") or {}),
+        candidate_summary=dict(payload.get("candidate_summary") or {}),
+        smoke_gate=dict(payload.get("smoke_gate") or {}),
+        promotion_check=dict(payload.get("promotion_check") or {}),
+        cycle_dir=str(payload.get("cycle_dir") or ""),
+        context_packet_path=str(payload.get("context_packet_path") or ""),
+        delta_path=str(payload.get("delta_path") or ""),
+        patch_path=str(payload.get("patch_path") or ""),
+        promoted_worktree=str(payload.get("promoted_worktree") or "") or None,
+        direction_plan=dict(payload.get("direction_plan") or {}),
+        semantic_review=dict(payload.get("semantic_review") or {}),
+        mechanism_activation=dict(payload.get("mechanism_activation") or {}),
+        round_reflection=dict(payload.get("round_reflection") or {}),
+    )
+
+
+def _float_tuple(value: Any) -> tuple[float, ...]:
+    if not isinstance(value, (list, tuple)) or not value:
+        raise ValueError("worker loop objective key is missing")
+    return tuple(float(item) for item in value)
 
 
 def compact_round_proposal_diagnostics(value: dict[str, Any] | None) -> dict[str, Any]:

@@ -15,6 +15,7 @@ from harness_agent.web.server import (
     _JOBS,
     _ROUND_GATES,
     browser_safe_json,
+    create_project_resource,
     create_job,
     deepseek_status_payload,
     latest_compatible_experience_memory,
@@ -22,6 +23,7 @@ from harness_agent.web.server import (
     mark_stale_persisted_job_interrupted,
     read_resource,
     resource_catalog,
+    resume_job,
     run_job,
     scan_opencode_main_trace,
     scan_opencode_worker_trace,
@@ -113,6 +115,73 @@ class WebAppTests(unittest.TestCase):
         self.assertIn('className = "history-stop-button"', script)
         self.assertIn("async function stopJob(jobId", script)
 
+    def test_frontend_exposes_completed_job_resume_control(self) -> None:
+        html = (ROOT / "harness_agent" / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "harness_agent" / "web" / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="resume-job"', html)
+        self.assertIn('id="resume-additional-rounds"', html)
+        self.assertIn('id="resume-dialog"', html)
+        self.assertIn('/resume`', script)
+        self.assertIn("async function resumeCurrentJob()", script)
+        self.assertIn("function openResumeDialog(job)", script)
+        self.assertIn('className = "history-resume-button"', script)
+
+    def test_resume_job_appends_round_budget_and_preserves_same_job(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job = create_job(self.job_payload(max_rounds=3), output_root=Path(tmp))
+            job["status"] = "completed"
+            loop_result_path = (
+                Path(job["job_dir"])
+                / "run"
+                / "standard_worker_loop"
+                / "worker_loop"
+                / "loop_result.json"
+            )
+            incumbent = loop_result_path.parent / "round_002" / "candidate_worktree"
+            incumbent.mkdir(parents=True)
+            loop_result_path.write_text(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "baseline_key": [-2257.0],
+                        "final_key": [-2195.0],
+                        "final_worktree": str(incumbent),
+                        "baseline_source": "agent_generated",
+                        "baseline_generation": {"status": "ok", "source": "agent_generated"},
+                        "baseline_summary": {
+                            "total": 1,
+                            "valid": 1,
+                            "failed": 0,
+                            "best_experiment_id": "baseline",
+                            "best_metrics": {"makespan": 2257.0},
+                        },
+                        "rounds": [
+                            {
+                                "round_index": index,
+                                "decision": "promoted" if index == 2 else "rolled_back",
+                                "candidate_key": [-2195.0],
+                                "incumbent_key_after": [-2195.0],
+                            }
+                            for index in range(3)
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            job["artifacts"]["loop_result"] = str(loop_result_path)
+
+            with patch("harness_agent.web.server.start_job") as start:
+                result = resume_job(job["id"], {"additional_rounds": 4})
+
+        self.assertTrue(result["accepted"])
+        self.assertEqual("queued", job["status"])
+        self.assertEqual(7, job["config"]["max_rounds"])
+        self.assertEqual(3, job["continuation"]["starting_round_index"])
+        self.assertEqual(4, job["continuation"]["additional_rounds"])
+        self.assertEqual(job["id"], result["job"]["id"])
+        start.assert_called_once_with(job["id"])
+
     def test_resource_catalog_exposes_only_project_skills_and_knowledge(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project_root = Path(tmp)
@@ -147,11 +216,109 @@ class WebAppTests(unittest.TestCase):
             'id="resource-search"',
             'id="resource-list"',
             'id="resource-preview-content"',
+            'id="create-skill"',
+            'id="create-knowledge"',
+            'id="resource-dialog"',
+            'id="resource-dialog-form"',
         ):
             self.assertIn(resource_id, html)
         self.assertIn('fetch("/api/resources")', script)
+        self.assertIn('method: "POST"', script)
+        self.assertIn("async function submitResourceDialog", script)
         self.assertIn("/api/resources/content?id=", script)
         self.assertIn("async function selectResource", script)
+
+    def test_create_project_skill_is_validated_and_registered_without_overwrite(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            manifest_path = project_root / "domain_packs" / "standard_fjsp" / "domain_pack.json"
+            manifest_path.parent.mkdir(parents=True)
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "family_id": "standard_fjsp",
+                        "method_families": [{"family_id": "constructive_search"}],
+                        "worker_implementation_skills": [],
+                        "knowledge": {"tagged_cards": {}, "knowledge_query": {"tag_descriptions": {}}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload = {
+                "category": "skill",
+                "name": "fjsp-demo-worker",
+                "title": "FJSP 演示执行器",
+                "description": "实现受控演示搜索。用于 Main 选择 constructive_search 时。",
+                "body": "## 工作流\n\n1. 读取 assignment。\n2. 实现并验证。",
+                "default_prompt": "实现当前 assignment。",
+                "method_families": ["constructive_search"],
+                "activation_tags": ["construction"],
+                "register": True,
+            }
+
+            with patch("harness_agent.web.server.PROJECT_ROOT", project_root):
+                created = create_project_resource(payload)
+                with self.assertRaisesRegex(ValueError, "Skill 已存在"):
+                    create_project_resource(payload)
+                with self.assertRaisesRegex(ValueError, "Skill 名称"):
+                    create_project_resource({**payload, "name": "../Bad Skill"})
+
+            skill_path = project_root / ".codex" / "skills" / "fjsp-demo-worker" / "SKILL.md"
+            agent_path = skill_path.parent / "agents" / "openai.yaml"
+            self.assertTrue(skill_path.is_file())
+            self.assertTrue(agent_path.is_file())
+            self.assertEqual("skill:fjsp-demo-worker/SKILL.md", created["id"])
+            self.assertTrue(created["registered"])
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual("fjsp-demo-worker", manifest["worker_implementation_skills"][0]["skill_id"])
+            self.assertEqual(["constructive_search"], manifest["worker_implementation_skills"][0]["method_families"])
+
+    def test_create_knowledge_card_registers_only_reviewed_stable_references(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            manifest_path = project_root / "domain_packs" / "standard_fjsp" / "domain_pack.json"
+            manifest_path.parent.mkdir(parents=True)
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "family_id": "standard_fjsp",
+                        "method_families": [],
+                        "worker_implementation_skills": [],
+                        "knowledge": {"tagged_cards": {}, "knowledge_query": {"tag_descriptions": {}}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload = {
+                "category": "knowledge",
+                "title": "Beam 宽度预算",
+                "slug": "beam-width-budget",
+                "destination": "reference-standard",
+                "summary": "根据层展开成本和剩余 deadline 决定 Beam 宽度。",
+                "source": "人工审核的算法说明与可复现实验。",
+                "body": "## 适用条件\n\n高柔性构造搜索。\n\n## 验证方式\n\n记录 expanded 和 retained。",
+                "tags": ["beam_search", "construction"],
+                "register": True,
+            }
+            with patch("harness_agent.web.server.PROJECT_ROOT", project_root):
+                created = create_project_resource(payload)
+                with self.assertRaisesRegex(ValueError, "只有稳定方法参考"):
+                    create_project_resource(
+                        {
+                            **payload,
+                            "slug": "unreviewed-run",
+                            "destination": "experiment-memory",
+                        }
+                    )
+
+            card_path = project_root / "knowledge" / "references" / "standard_fjsp" / "beam-width-budget.md"
+            self.assertTrue(card_path.is_file())
+            self.assertIn('status: "reviewed"', card_path.read_text(encoding="utf-8"))
+            self.assertTrue(created["registered"])
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            registered_path = "knowledge/references/standard_fjsp/beam-width-budget.md"
+            self.assertIn(registered_path, manifest["knowledge"]["tagged_cards"]["beam_search"])
+            self.assertIn(registered_path, manifest["knowledge"]["tagged_cards"]["construction"])
 
     def test_overview_does_not_render_nonfunctional_round_tabs(self) -> None:
         html = (ROOT / "harness_agent" / "web" / "static" / "index.html").read_text(encoding="utf-8")

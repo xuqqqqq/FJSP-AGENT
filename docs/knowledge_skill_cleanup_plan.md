@@ -10,10 +10,10 @@
 | --- | --- | --- | --- |
 | `principles/` | 架构边界、质量契约、变体建模原则 | 是 | 只保留跨算法、跨算例的稳定规则 |
 | `benchmarks/` | IO 格式、数据集范围、LB/BKS 事实 | 按问题族 | 只记录可核验事实，不写搜索结论 |
-| `capabilities/` | Agent 当前能力和缺口快照 | Main 可读，Worker 默认不读 | 带日期和证据，不冒充方法知识 |
+| `capabilities/` | Agent 当前能力和缺口快照 | Main 可读，Worker 默认不读 | 只保留当前有效版本，陈旧快照删除 |
 | `references/` | 可复用算法说明、伪代码、实现模板、论文归纳 | 由 Domain Pack/Method Package 精确选择 | 不包含目标算例得分和固定调度 |
 | `method_packages/` | 一次必须完整交付的方法组合及行为契约 | 每轮只激活一个 | 契约、参考实现和适用边界必须一致 |
-| `experiment_memory/` | 单次运行、种子、得分、失败尝试和阶段性经验 | 否 | 仅通过显式经验回放进入 Main，不参与默认 RAG |
+| `experiment_memory/` | 本周单次运行、种子、得分、失败尝试和阶段性经验 | 否 | 北京时间每周一清理此前记录，仅通过显式经验回放进入 Main |
 | `imported/` | 外部导入材料及来源说明 | 否 | 保留来源，不作为默认实现入口 |
 
 ## 目标目录
@@ -52,12 +52,16 @@ knowledge/
 6. 能力快照移入 `capabilities/`，不得作为 Worker 的默认方法卡。
 7. 外部代码库、数据集和论文摘录保留在 `imported/` 并保留来源说明。
 8. 所有 JSON、Skill、测试和文档引用一次性更新；不保留会掩盖漏改的旧路径兼容别名。
+9. 知识库回答“是什么、何时适用、证据与边界”；Skill 回答“何时触发、如何执行、产出与验收”。同一算法说明不得在两侧重复。
+10. 面向 Agent 的叙述统一使用中文；仅保留算法名、论文题名、路径、代码和协议字段等必要英文。
 
 ## 验证门禁
 
 - 所有 Domain Pack、知识卡、Skill reference、Method Package implementation/contract 路径存在。
 - Method Package `extends` 链可加载，父子组件和 coupled group 合并结果不变。
 - `experiment_memory/` 不进入默认知识检索或 Worker assignment。
+- 本周以前的实验记忆和陈旧能力快照不存在。
+- 剩余 Markdown 不存在整篇英文叙述；保留英文仅限技术标识、代码块和来源题名。
 - 通用后端不包含 FJSP decoder、邻域或搜索实现。
 - 可复用知识不包含会变化的 benchmark score、固定 schedule 或 previous output。
 - Skill frontmatter 和目录结构通过 `quick_validate.py`。
