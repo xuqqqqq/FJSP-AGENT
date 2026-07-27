@@ -12,3 +12,4 @@ outputs/
 .env.*
 !.env.example
 knowledge/local_papers/raw/
+notes_change/

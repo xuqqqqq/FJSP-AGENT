@@ -1,4 +1,4 @@
-"""标准 FJSP 与 FJSP-SDST 的固定 IO、数据模型和合法性验证。"""
+"""标准 FJSP、FJSP-SDST 与 FJSP-NFA 的固定 IO、数据模型和合法性验证。"""
 
 from __future__ import annotations
 
@@ -38,10 +38,19 @@ class Job:
 
 
 @dataclass(frozen=True)
-class StandardFjspInstance:
-    """标准 FJSP/FJSP-SDST 算例的只读结构。
+class MachineUnavailability:
+    """一道机器不可用区间。"""
 
-    这里是 parser/validator 共用的数据模型，强调“实例语义固定”。任何启发式、
+    machine_id: int
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
+class StandardFjspInstance:
+    """标准 FJSP/FJSP-SDST/FJSP-NFA 算例的只读结构。
+
+    这里是 parser/validator 共用的数据模型，强调"实例语义固定"。任何启发式、
     邻域、优先规则都不应塞进这个层次。
     """
 
@@ -52,6 +61,8 @@ class StandardFjspInstance:
     jobs: tuple[Job, ...]
     setup_times: SetupTimes = ()
     setup_time_kind: str = "none"
+    unavailability_intervals: tuple[MachineUnavailability, ...] = ()
+    unavailability_count: int = 0
 
     @property
     def operation_count(self) -> int:
@@ -60,6 +71,10 @@ class StandardFjspInstance:
     @property
     def has_sequence_dependent_setup(self) -> bool:
         return bool(self.setup_times)
+
+    @property
+    def has_machine_availability(self) -> bool:
+        return bool(self.unavailability_intervals)
 
 
 @dataclass(frozen=True)
@@ -78,19 +93,9 @@ class ScheduleRecord:
 
 
 def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
-    """解析标准 FJSP 以及已确认的 FJSP-SDST setup 尾部。
+    """解析标准 FJSP 以及已确认的 FJSP-SDST / FJSP-NFA 尾部。
 
     本模块只实现 IO 和合法性语义，不实现构造、邻域或搜索策略。
-
-    The format starts with three integers:
-
-    `job_count machine_count max_candidate_count`
-
-    Each job then gives its operation count.  Each operation gives a candidate
-    count followed by `(machine_id, processing_time)` pairs.  FJSP-SDST files
-    may append either an operation-pair setup matrix
-    (`machine_count * operation_count * operation_count`) or a HUdata job-pair
-    setup matrix (`machine_count * job_count * job_count`).
     """
 
     numbers = [int(token) for token in path.read_text(encoding="utf-8").split()]
@@ -133,7 +138,6 @@ def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
     if not machine_ids:
         raise ValueError(f"{path} has no machine candidates")
 
-    # Public FJSP datasets may number machines from 0 or 1.  Normalize to 0-based.
     min_machine = min(machine_ids)
     max_machine = max(machine_ids)
     if 0 <= min_machine and max_machine < machine_count:
@@ -158,13 +162,38 @@ def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
         jobs.append(Job(job_id=job_id, operations=tuple(ops)))
 
     operation_count = sum(len(job.operations) for job in jobs)
-    setup_times, setup_time_kind = _parse_optional_setup_times(
-        path=path,
-        tail=numbers[idx:],
-        job_count=job_count,
-        machine_count=machine_count,
-        operation_count=operation_count,
-    )
+    tail = numbers[idx:]
+    if not tail:
+        setup_times: SetupTimes = ()
+        setup_time_kind = "none"
+        unavailability_intervals: tuple[MachineUnavailability, ...] = ()
+        unavailability_count = 0
+    else:
+        sdst_result = _try_parse_setup_times(
+            tail=tail,
+            job_count=job_count,
+            machine_count=machine_count,
+            operation_count=operation_count,
+        )
+        if sdst_result is not None:
+            setup_times, setup_time_kind = sdst_result
+            unavailability_intervals = ()
+            unavailability_count = 0
+        else:
+            nfa_result = _try_parse_machine_availability(
+                tail=tail,
+                machine_count=machine_count,
+            )
+            if nfa_result is not None:
+                setup_times = ()
+                setup_time_kind = "none"
+                unavailability_intervals = tuple(nfa_result)
+                unavailability_count = len(nfa_result)
+            else:
+                raise ValueError(
+                    f"{path} has {len(tail)} trailing tokens that do not match "
+                    f"FJSP-SDST setup matrix or NFA machine availability intervals"
+                )
 
     return StandardFjspInstance(
         name=path.stem,
@@ -174,27 +203,24 @@ def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
         jobs=tuple(jobs),
         setup_times=setup_times,
         setup_time_kind=setup_time_kind,
+        unavailability_intervals=unavailability_intervals,
+        unavailability_count=unavailability_count,
     )
 
 
-def _parse_optional_setup_times(
+def _try_parse_setup_times(
     *,
-    path: Path,
     tail: list[int],
     job_count: int,
     machine_count: int,
     operation_count: int,
-) -> tuple[SetupTimes, str]:
-    """解析 FJSP-SDST 的可选 setup 尾部。
+) -> tuple[SetupTimes, str] | None:
+    """尝试解析 FJSP-SDST setup 尾部。
 
-    当前支持两类已确认格式：
-    1. operation-pair 矩阵；
-    2. HUdata 风格的 job-pair 矩阵。
-    如果尾部 token 数不匹配，宁可抛错，也不猜测其语义。
+    返回 ``(matrix, kind)`` 若尾部长度匹配 SDST 矩阵尺寸；
+    返回 ``None`` 表示尾部不是 SDST 格式。
     """
 
-    if not tail:
-        return (), "none"
     operation_pair_expected = machine_count * operation_count * operation_count
     job_pair_expected = machine_count * job_count * job_count
     if len(tail) == operation_pair_expected:
@@ -204,34 +230,67 @@ def _parse_optional_setup_times(
         dimension = job_count
         kind = "job_pair"
     else:
-        raise ValueError(
-            f"{path} has trailing tokens that do not match an FJSP-SDST setup matrix: "
-            f"trailing={len(tail)}, expected_operation_pair={operation_pair_expected}, "
-            f"expected_job_pair={job_pair_expected}"
-        )
+        return None
     cursor = 0
     setup_by_machine: list[tuple[tuple[int, ...], ...]] = []
-    for machine_id in range(machine_count):
+    for mid in range(machine_count):
         rows: list[tuple[int, ...]] = []
         for _ in range(dimension):
             row = tuple(tail[cursor : cursor + dimension])
             cursor += dimension
             if any(value < 0 for value in row):
-                raise ValueError(f"{path} has negative setup time for machine {machine_id}")
+                raise ValueError(f"negative setup time for machine {mid}")
             rows.append(row)
         setup_by_machine.append(tuple(rows))
     return tuple(setup_by_machine), kind
 
 
-def operation_index_lookup(instance: StandardFjspInstance) -> dict[OpKey, int]:
-    """建立 `(job_id, op_id)` 到全局工序索引的映射。
+def _try_parse_machine_availability(
+    *,
+    tail: list[int],
+    machine_count: int,
+) -> list[MachineUnavailability] | None:
+    """尝试解析 NFA 机器不可用区间尾部。
 
-    operation-pair setup 矩阵按“全局工序顺序”索引，因此 validator 需要这张查表。
+    格式: K + Kx3 (machine_id start end)
+    返回区间列表若格式匹配；返回 None 否则。
     """
+
+    if not tail or len(tail) < 1:
+        return None
+    K = tail[0]
+    expected = 1 + K * 3
+    if len(tail) != expected:
+        return None
+    intervals: list[MachineUnavailability] = []
+    pos = 1
+    for _ in range(K):
+        mid = tail[pos]
+        s = tail[pos + 1]
+        e = tail[pos + 2]
+        pos += 3
+        if not (0 <= mid < machine_count):
+            raise ValueError(
+                f"machine id {mid} out of range [0, {machine_count}) "
+                f"in availability interval [{s}, {e})"
+            )
+        if e <= s:
+            raise ValueError(
+                f"invalid availability interval [{s}, {e}): "
+                f"end must be greater than start"
+            )
+        intervals.append(MachineUnavailability(machine_id=mid, start=s, end=e))
+    return intervals
+
+
+def operation_index_lookup(instance: StandardFjspInstance) -> dict[OpKey, int]:
+    """建立 ``(job_id, op_id)`` 到全局工序索引的映射。"""
 
     return {
         (job.job_id, op.op_id): index
-        for index, (job, op) in enumerate((job, op) for job in instance.jobs for op in job.operations)
+        for index, (job, op) in enumerate(
+            (job, op) for job in instance.jobs for op in job.operations
+        )
     }
 
 
@@ -255,11 +314,7 @@ def setup_time_between(
 
 
 def load_solution(path: Path) -> list[ScheduleRecord]:
-    """读取 solver 输出的标准解格式。
-
-    parser 的职责仅限于结构和类型校验；调度可行性仍由 `validate_standard_schedule()`
-    统一判断。
-    """
+    """读取 solver 输出的标准解格式。"""
 
     raw = json.loads(path.read_text(encoding="utf-8"))
     records = raw.get("schedule")
@@ -277,21 +332,30 @@ def load_solution(path: Path) -> list[ScheduleRecord]:
                     end=int(item["end"]),
                 )
             )
-        except Exception as exc:  # noqa: BLE001 - convert malformed records into validation errors.
-            raise ValueError(f"schedule record {index} is malformed: {item!r}") from exc
+        except Exception as exc:
+            raise ValueError(
+                f"schedule record {index} is malformed: {item!r}"
+            ) from exc
     return parsed
 
 
-def write_solution(path: Path, instance: StandardFjspInstance, schedule: list[ScheduleRecord], strategy: str) -> None:
-    """按固定 JSON 协议输出解。
-
-    输出里只记录 evaluator 需要的排产事实和少量来源元数据，不嵌入任何“自证最优”
-    之类的求解侧结论。
-    """
+def write_solution(
+    path: Path,
+    instance: StandardFjspInstance,
+    schedule: list[ScheduleRecord],
+    strategy: str,
+) -> None:
+    """按固定 JSON 协议输出解。"""
 
     payload: dict[str, Any] = {
         "format": "standard_fjsp_schedule_v1",
-        "variant": "fjsp_sdst" if instance.has_sequence_dependent_setup else "standard_fjsp",
+        "variant": (
+            "fjsp_machine_availability"
+            if instance.has_machine_availability
+            else "fjsp_sdst"
+            if instance.has_sequence_dependent_setup
+            else "standard_fjsp"
+        ),
         "instance": instance.name,
         "strategy": strategy,
         "makespan": max((record.end for record in schedule), default=0),
@@ -315,17 +379,20 @@ def validate_standard_schedule(
     instance: StandardFjspInstance,
     schedule: list[ScheduleRecord],
 ) -> tuple[list[str], dict[str, float]]:
-    """验证标准 FJSP/FJSP-SDST 解的结构与时序合法性。
+    """验证标准 FJSP/FJSP-SDST/FJSP-NFA 解的结构与时序合法性。
 
-    这是 parser/validator 层的关键边界：它只判断“这份 schedule 是否满足实例 IO
-    语义”，并返回基础指标；不负责比较算法优劣，也不决定是否 promotion。
+    这是 parser/validator 层的关键边界：它只判断"这份 schedule 是否满足实例 IO
+    语义"，并返回基础指标；不负责比较算法优劣，也不决定是否 promotion。
     """
 
     errors: list[str] = []
     seen: dict[tuple[int, int], ScheduleRecord] = {}
 
     if len(schedule) != instance.operation_count:
-        errors.append(f"operation count mismatch: expected={instance.operation_count}, got={len(schedule)}")
+        errors.append(
+            f"operation count mismatch: expected={instance.operation_count}, "
+            f"got={len(schedule)}"
+        )
 
     candidate_duration: dict[tuple[int, int, int], int] = {}
     expected_ops: set[tuple[int, int]] = set()
@@ -333,28 +400,43 @@ def validate_standard_schedule(
         for op in job.operations:
             expected_ops.add((job.job_id, op.op_id))
             for candidate in op.candidates:
-                candidate_duration[(job.job_id, op.op_id, candidate.machine_id)] = candidate.duration
+                candidate_duration[
+                    (job.job_id, op.op_id, candidate.machine_id)
+                ] = candidate.duration
 
     for record in schedule:
         key = (record.job_id, record.op_id)
         if key in seen:
-            errors.append(f"duplicate operation: job={record.job_id}, op={record.op_id}")
+            errors.append(
+                f"duplicate operation: job={record.job_id}, op={record.op_id}"
+            )
         seen[key] = record
         if key not in expected_ops:
-            errors.append(f"unknown operation: job={record.job_id}, op={record.op_id}")
+            errors.append(
+                f"unknown operation: job={record.job_id}, op={record.op_id}"
+            )
         if record.start < 0:
-            errors.append(f"negative start: job={record.job_id}, op={record.op_id}, start={record.start}")
+            errors.append(
+                f"negative start: job={record.job_id}, op={record.op_id}, "
+                f"start={record.start}"
+            )
         if record.end < record.start:
-            errors.append(f"negative interval: job={record.job_id}, op={record.op_id}")
-        duration = candidate_duration.get((record.job_id, record.op_id, record.machine_id))
+            errors.append(
+                f"negative interval: job={record.job_id}, op={record.op_id}"
+            )
+        duration = candidate_duration.get(
+            (record.job_id, record.op_id, record.machine_id)
+        )
         if duration is None:
             errors.append(
-                f"machine is not a candidate: job={record.job_id}, op={record.op_id}, machine={record.machine_id}"
+                f"machine is not a candidate: job={record.job_id}, "
+                f"op={record.op_id}, machine={record.machine_id}"
             )
         elif record.duration != duration:
             errors.append(
                 f"duration mismatch: job={record.job_id}, op={record.op_id}, "
-                f"machine={record.machine_id}, expected={duration}, got={record.duration}"
+                f"machine={record.machine_id}, expected={duration}, "
+                f"got={record.duration}"
             )
 
     missing = sorted(expected_ops - set(seen))
@@ -367,7 +449,8 @@ def validate_standard_schedule(
             nxt = seen.get((job.job_id, op_idx + 1))
             if current and nxt and nxt.start < current.end:
                 errors.append(
-                    f"precedence violation: job={job.job_id}, op={op_idx} ends at {current.end}, "
+                    f"precedence violation: job={job.job_id}, "
+                    f"op={op_idx} ends at {current.end}, "
                     f"op={op_idx + 1} starts at {nxt.start}"
                 )
 
@@ -378,7 +461,10 @@ def validate_standard_schedule(
     total_setup_time = 0
     setup_count = 0
     for machine_id, records in by_machine.items():
-        sorted_records = sorted(records, key=lambda item: (item.start, item.end, item.job_id, item.op_id))
+        sorted_records = sorted(
+            records,
+            key=lambda item: (item.start, item.end, item.job_id, item.op_id),
+        )
         for left, right in zip(sorted_records, sorted_records[1:]):
             setup_time = setup_time_between(
                 instance,
@@ -408,4 +494,30 @@ def validate_standard_schedule(
     if instance.has_sequence_dependent_setup:
         metrics["setup_time"] = float(total_setup_time)
         metrics["setup_count"] = float(setup_count)
+    if instance.has_machine_availability:
+        availability_violations = 0
+        for interval in instance.unavailability_intervals:
+            for record in by_machine.get(interval.machine_id, []):
+                overlaps = not (
+                    record.start >= interval.end
+                    or record.end <= interval.start
+                )
+                if overlaps:
+                    errors.append(
+                        f"machine availability violation: "
+                        f"machine={interval.machine_id}, "
+                        f"op=({record.job_id},{record.op_id}) "
+                        f"[{record.start},{record.end}) "
+                        f"overlaps unavailable [{interval.start},{interval.end})"
+                    )
+                    availability_violations += 1
+        metrics["machine_availability_violations"] = float(
+            availability_violations
+        )
+        metrics["total_unavailable_duration"] = float(
+            sum(
+                interval.end - interval.start
+                for interval in instance.unavailability_intervals
+            )
+        )
     return errors, metrics

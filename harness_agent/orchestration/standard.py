@@ -62,6 +62,7 @@ class StandardWorkerLoopRequest:
     round_intervention: Callable[[int, Any, dict[str, Any]], str | None] | None = None
     cancellation: CancellationToken | None = None
     agent_generated_solver_path: str = "examples/agent_generated_fjsp_solver.py"
+    evaluator_path: str = "examples/standard_fjsp_evaluator.py"
     experiment_id: str = "standard_worker_loop"
     hypothesis: str = (
         "Improve the standard FJSP solver under the fixed evaluator. "
@@ -176,7 +177,7 @@ def build_standard_worker_contract_payload(request: StandardWorkerLoopRequest) -
     )
     solver = standard_solver_command(request)
     quick_test = f"python -m py_compile {solver_path}"
-    evaluator = "python examples/standard_fjsp_evaluator.py --instance {instance} --solution {solution} --metrics {metrics}"
+    evaluator = f"python {request.evaluator_path} --instance {{instance}} --solution {{solution}} --metrics {{metrics}}"
     if request.best_known_csv:
         best_known_csv = resolve_input_path(request.project_root, request.best_known_csv)
         resources["best_known_csv"] = str(best_known_csv)
@@ -213,7 +214,7 @@ def build_standard_worker_contract_payload(request: StandardWorkerLoopRequest) -
             "forbidden_paths": [
                 ".git",
                 "outputs",
-                "examples/standard_fjsp_evaluator.py",
+                request.evaluator_path,
             ],
         },
         "resources": resources,

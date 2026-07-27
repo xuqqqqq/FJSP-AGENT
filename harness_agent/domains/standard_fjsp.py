@@ -57,11 +57,13 @@ class StandardFjspContextProvider:
             else "unavailable"
         )
         sdst_instances = [item for item in profiled if item.get("variant") == "fjsp_sdst"]
+        nfa_instances = [item for item in profiled if item.get("variant") == "fjsp_machine_availability"]
         best_known_count = sum(1 for item in profiled if item.get("best_known_makespan") is not None)
         summary = {
             "instance_count": len(contract.instances),
             "profiled_count": len(profiled),
             "sdst_instance_count": len(sdst_instances),
+            "nfa_instance_count": len(nfa_instances),
             "shape_group_count": len(_instance_shape_groups(profiled)),
             "setup_time_kinds": sorted(
                 {str(item.get("setup_time_kind")) for item in profiled if item.get("setup_time_kind")}
@@ -436,6 +438,8 @@ def _instance_direction_hints(summary: dict[str, Any], profiled: list[dict[str, 
             hints.append("Setup is material; any later direction must preserve setup-aware timing semantics.")
     else:
         hints.append("No sequence-dependent setup matrix was detected in the parsed instances.")
+    if int(summary.get("nfa_instance_count", 0) or 0) > 0:
+        hints.append("Machine availability constraints are active; dispatch and insertion must check intervals before committing a start time.")
     hints.append(
         "Measured assignment structure: "
         f"avg_candidates={summary.get('avg_candidate_count', 0.0)}, "

@@ -10,7 +10,8 @@
     "description": "标准 FJSP 实例，包含工序优先约束、每道工序可选替代机器、机器容量不可重叠约束，并以总工期（makespan）作为默认目标。",
     "supported_variants": [
       "standard_fjsp",
-      "fjsp_with_best_known_gap"
+      "fjsp_with_best_known_gap",
+      "fjsp_machine_availability"
     ],
     "canonical_objectives": [
       {
@@ -57,7 +58,9 @@
       "critical_block_neighborhood",
       "machine_reassignment",
       "tabu_search",
-      "awls"
+      "awls",
+      "machine_calendar",
+      "maintenance"
     ]
   },
   "agent_generated_baseline": {

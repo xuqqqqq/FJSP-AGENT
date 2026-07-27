@@ -53,12 +53,14 @@ KNOWLEDGE_DESTINATIONS = {
     "reference-general": Path("references") / "general_fjsp",
     "reference-standard": Path("references") / "standard_fjsp",
     "reference-sdst": Path("references") / "sdst",
+    "reference-nfa": Path("references") / "nfa",
     "principle": Path("principles"),
     "benchmark": Path("benchmarks"),
     "experiment-memory": Path("experiment_memory") / "current_week",
     "imported-note": Path("imported") / "user_notes",
 }
 DEFAULT_STANDARD_SEEDS_TEXT = "0,1,2,3,4,5,6,7,8,9"
+DEFAULT_NFA_FFCR01_INSTANCE = PROJECT_ROOT / "examples" / "nfa_ffcr01.txt"
 DEFAULT_STANDARD_FJSP_DP18A_INSTANCE = PROJECT_ROOT / "examples" / "fjsp.dauzere.18a.m10j20c10.txt"
 DEFAULT_STANDARD_FJSP_DP18A_BOUNDS_CSV = (
     '"Instance","Family","Lower bound (LB)","Best-known upper bound (UB/BKS)","Note","Source URL"\n'
@@ -262,6 +264,7 @@ def resource_group(*, category: str, resource_kind: str, relative_path: str) -> 
             "general_fjsp": "通用 FJSP 方法知识",
             "standard_fjsp": "标准 FJSP 实现知识",
             "sdst": "FJSP-SDST 变体知识",
+            "nfa": "FJSP-NFA 变体知识",
         }
         return f"references/{second or 'other'}", reference_labels.get(second, "其他稳定参考")
     return top, labels.get(top, "其他知识资产")
@@ -737,13 +740,13 @@ def enrich_worker_manifest_from_loop_result(manifest: dict[str, Any]) -> dict[st
 # ---------------------------------------------------------------------------
 
 def make_demo_examples() -> dict[str, Any]:
-    """返回可直接运行的标准 FJSP DP18a 示例。"""
+    """返回可直接运行的 NFA 机器可用性 FJSP 示例。"""
 
-    requirement_name = "standard_fjsp_requirement.md"
-    io_name = "standard_fjsp_io.md"
+    requirement_name = "nfa_machine_availability_requirement.md"
+    io_name = "nfa_machine_availability_io.md"
     requirement = (PROJECT_ROOT / "examples" / requirement_name).read_text(encoding="utf-8")
     io_doc = (PROJECT_ROOT / "examples" / io_name).read_text(encoding="utf-8")
-    instance_name, instance = read_default_standard_fjsp_dp18a_instance()
+    instance_name, instance = read_default_nfa_ffcr01_instance()
     return {
         "requirement": {"name": requirement_name, "text": requirement},
         "io": {"name": io_name, "text": io_doc},
@@ -753,7 +756,7 @@ def make_demo_examples() -> dict[str, Any]:
             "text": DEFAULT_STANDARD_FJSP_DP18A_BOUNDS_CSV,
         },
         "config": {
-            "title": "标准 FJSP DP18a Agent 自写闭环测试",
+            "title": "NFA 机器可用性 FFCR01 Agent 自写闭环测试",
             "max_rounds": 10,
             "seeds": DEFAULT_STANDARD_SEEDS_TEXT,
             "timeout_seconds": 60,
@@ -765,14 +768,15 @@ def make_demo_examples() -> dict[str, Any]:
             "max_competing_workers": 4,
             "promotion_repeats": 1,
             "pause_between_rounds": True,
+            "evaluator_path": "examples/nfa_machine_availability_evaluator.py",
         },
     }
 
 
-def read_default_standard_fjsp_dp18a_instance() -> tuple[str, str]:
+def read_default_nfa_ffcr01_instance() -> tuple[str, str]:
     return (
-        DEFAULT_STANDARD_FJSP_DP18A_INSTANCE.name,
-        DEFAULT_STANDARD_FJSP_DP18A_INSTANCE.read_text(encoding="utf-8"),
+        DEFAULT_NFA_FFCR01_INSTANCE.name,
+        DEFAULT_NFA_FFCR01_INSTANCE.read_text(encoding="utf-8"),
     )
 
 
@@ -1157,6 +1161,8 @@ def inspect_instance_profile(instance_path: Path) -> dict[str, Any]:
             "max_candidate_count": parsed.max_candidate_count,
             "has_sequence_dependent_setup": parsed.has_sequence_dependent_setup,
             "setup_time_kind": parsed.setup_time_kind,
+            "has_machine_availability": parsed.has_machine_availability,
+            "unavailability_count": parsed.unavailability_count,
             "scale": parsed.job_count * parsed.machine_count * parsed.operation_count,
         }
     )
@@ -1238,14 +1244,17 @@ def method_package_features(profile: dict[str, Any]) -> list[str]:
     raw = [str(item).strip() for item in (profile.get("variant_features") or []) if str(item).strip()]
     if raw:
         return raw
+    result: list[str] = []
     if bool(profile.get("has_sequence_dependent_setup")):
-        return ["fjsp_sdst", "sequence_dependent_setup", "setup_time"]
-    return []
+        result.extend(["fjsp_sdst", "sequence_dependent_setup", "setup_time"])
+    if bool(profile.get("has_machine_availability")):
+        result.extend(["fjsp_machine_availability", "machine_calendar", "maintenance"])
+    return result
 
 
 def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
     canonical: set[str] = set()
-    aliases = {
+    sdst_aliases = {
         "fjsp_sdst",
         "sdst",
         "sequence_dependent_setup",
@@ -1253,13 +1262,27 @@ def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
         "setup_times",
         "setup_matrix",
     }
+    nfa_aliases = {
+        "fjsp_machine_availability",
+        "machine_calendar",
+        "maintenance",
+        "nfa",
+        "unavailability",
+    }
     for item in profile.get("variant_features") or []:
         text = str(item or "").strip().lower()
         if not text:
             continue
-        canonical.add("sequence_dependent_setup" if text in aliases else text)
+        if text in sdst_aliases:
+            canonical.add("sequence_dependent_setup")
+        elif text in nfa_aliases:
+            canonical.add("machine_calendar")
+        else:
+            canonical.add(text)
     if bool(profile.get("has_sequence_dependent_setup")):
         canonical.add("sequence_dependent_setup")
+    if bool(profile.get("has_machine_availability")):
+        canonical.add("machine_calendar")
     return canonical
 
 
