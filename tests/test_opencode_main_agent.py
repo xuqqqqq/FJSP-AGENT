@@ -337,6 +337,104 @@ class OpenCodeMainAgentTests(unittest.TestCase):
             usage = json.loads((tmp_path / "main" / "main_agent_usage.json").read_text(encoding="utf-8"))
             self.assertEqual(1, usage["attempts"])
 
+    def test_fast_planning_uses_one_compact_call_without_subagents(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "context.json",
+                )
+            )
+            executable = tmp_path / "opencode.exe"
+            executable.write_text("placeholder", encoding="utf-8")
+            payload = {
+                "direction_selection": {
+                    "method_family": "constructive_search",
+                    "method_families": [{"id": "constructive_search", "role": "primary"}],
+                    "diagnosis": "当前构造搜索需要一个有界增量实验。",
+                    "knowledge_query": ["initialization", "decoder"],
+                },
+                "direction_brief": {
+                    "title": "快速构造实验",
+                    "strategy_type": "constructive_probe",
+                    "hypothesis": "一个受控构造变体可能改善 incumbent。",
+                    "diagnosis": "只修改一个可归因机制。",
+                    "change_scope": ["constructive ordering"],
+                },
+                "candidate_variants": [{"candidate_id": "must-be-ignored"}],
+                "activation_checks": [{"path": "telemetry.fake", "operator": "truthy"}],
+                "worker_assignment": {"objective": "must be ignored"},
+            }
+            events = {
+                "stdout": json.dumps(
+                    {
+                        "type": "text",
+                        "part": {"type": "text", "text": json.dumps(payload, ensure_ascii=False)},
+                    },
+                    ensure_ascii=False,
+                ),
+                "stderr": "",
+                "returncode": 0,
+                "timed_out": False,
+                "stalled": False,
+            }
+            agent = OpenCodeMainAgent(
+                executable=str(executable),
+                project_root=ROOT,
+                planning_mode="fast",
+            )
+
+            with patch.object(agent, "_run_once", return_value=events) as run_once:
+                plan = agent.plan_direction(
+                    DirectionPlanRequest(
+                        round_index=0,
+                        context_packet_path=context_path,
+                        loop_feedback={
+                            "round_type": "improvement",
+                            "competition": {"max_competing_workers": 6},
+                        },
+                        output_dir=tmp_path / "main",
+                    )
+                )
+
+            self.assertEqual(1, run_once.call_count)
+            call = run_once.call_args.kwargs
+            self.assertEqual("_fast", call["suffix"])
+            self.assertIsNone(call["allowed_specialist"])
+            self.assertIn("不要调用子 Agent", call["prompt"])
+            self.assertEqual("opencode_main_agent_fast", plan["planner"])
+            self.assertEqual("constructive_search", plan["method_family"])
+            self.assertEqual(["initialization", "decoder"], plan["knowledge_query"])
+            self.assertEqual("快速构造实验", plan["title"])
+            self.assertEqual([], plan["candidate_variants"])
+            self.assertEqual([], plan["activation_checks"])
+            self.assertEqual(0, plan["activation_contract_version"])
+            self.assertEqual(
+                "delegated_to_worker",
+                plan["worker_lane_policy"]["mechanism_selection"],
+            )
+            self.assertEqual(4, plan["worker_lane_policy"]["lane_count"])
+            fast_packet = tmp_path / "main" / "fast_planning_packet.json"
+            self.assertTrue(fast_packet.is_file())
+            self.assertLessEqual(len(fast_packet.read_text(encoding="utf-8")), 24_500)
+            packet = json.loads(fast_packet.read_text(encoding="utf-8"))
+            self.assertEqual(
+                ["direction_selection", "direction_brief"],
+                packet["planner_output_contract"]["top_level_keys"],
+            )
+            sanitized = json.loads(
+                (tmp_path / "main" / "planned_direction_raw.json").read_text(encoding="utf-8")
+            )
+            self.assertNotIn("candidate_variants", sanitized)
+            self.assertNotIn("activation_checks", sanitized)
+            self.assertNotIn("worker_assignment", sanitized)
+            self.assertEqual(
+                ["activation_checks", "candidate_variants", "worker_assignment"],
+                sanitized["ignored_output_fields"],
+            )
+            self.assertFalse((tmp_path / "main" / "implementation_planning_packet.json").exists())
+
     def test_historical_aggregates_read_competition_from_compact_direction_plan(self) -> None:
         rounds = []
         for index in range(3):

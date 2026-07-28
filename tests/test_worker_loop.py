@@ -19,6 +19,8 @@ from harness_agent.orchestration.loop import (
     candidate_incumbent_payload,
     competitive_direction_plans,
     compact_round_direction_plan,
+    continue_current_direction_plan,
+    continuing_direction_worker_lane,
     continuing_direction_worker_session,
     current_round_repair_feedback,
     direction_revision_base,
@@ -27,6 +29,7 @@ from harness_agent.orchestration.loop import (
     local_trial_candidate_eligible,
     round_attempt_payload,
     normalize_user_intervention,
+    plan_agent_generated_baseline_direction,
     plan_direction_with_fallback,
     run_agent_generated_baseline,
     run_competing_worker_cycles,
@@ -1285,6 +1288,28 @@ class SafeFeasibilityProtectedEditWorker:
 
 
 class WorkerLoopTests(unittest.TestCase):
+    def test_agent_generated_baseline_still_asks_main_once_in_fast_flow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = _write_test_context(tmp_path)
+            expected = {
+                "direction_id": "agent_generated_baseline",
+                "method_family": "constructive_search",
+            }
+            planner = SimpleNamespace(plan_direction=MagicMock(return_value=expected))
+
+            actual = plan_agent_generated_baseline_direction(
+                planner=planner,
+                context_packet_path=context_path,
+                output_dir=tmp_path / "main",
+            )
+
+        self.assertEqual(expected, actual)
+        planner.plan_direction.assert_called_once()
+        request = planner.plan_direction.call_args.args[0]
+        self.assertEqual(-1, request.round_index)
+        self.assertEqual("agent_generated_baseline", request.loop_feedback["round_type"])
+
     def test_session_reuse_requires_command_observation_and_nonempty_stream(self) -> None:
         requested = "ses_direction_123"
 
@@ -1482,6 +1507,39 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertEqual("d002", base["parent_direction_id"])
         self.assertEqual("constructive_search", base["method_family"])
         self.assertEqual(previous["candidate_variants"], base["candidate_variants"])
+
+    def test_continue_current_direction_preserves_family_and_candidates(self) -> None:
+        previous = {
+            "direction_id": "d002",
+            "title": "Pressure-regret refinement",
+            "method_family": "constructive_search",
+            "method_families": [{"id": "constructive_search", "role": "primary"}],
+            "knowledge_query": ["initialization", "decoder"],
+            "candidate_variants": [{"candidate_id": "pressure-regret"}],
+            "competition_result": {"selected_candidate_id": "pressure-regret"},
+        }
+        proposed = {
+            "direction_id": "d003-proposed",
+            "method_family": "coupled_local_search",
+            "candidate_variants": [{"candidate_id": "critical-block"}],
+        }
+
+        continued = continue_current_direction_plan(
+            previous_direction_plan=previous,
+            proposed_direction_plan=proposed,
+            round_index=3,
+        )
+
+        self.assertEqual("d003", continued["direction_id"])
+        self.assertEqual("d002", continued["parent_direction_id"])
+        self.assertEqual("constructive_search", continued["method_family"])
+        self.assertEqual(previous["method_families"], continued["method_families"])
+        self.assertEqual(previous["candidate_variants"], continued["candidate_variants"])
+        self.assertNotIn("competition_result", continued)
+        self.assertEqual(
+            "coupled_local_search",
+            continued["continuation"]["skipped_proposed_method_family"],
+        )
 
     def test_user_pivot_applies_only_declared_fields_and_rejects_protected_clear(self) -> None:
         original = {
@@ -1999,6 +2057,44 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertEqual("tabu", compared["method_family"])
         self.assertEqual("tabu-package", compared["method_package_id"])
 
+    def test_delegated_worker_lane_policy_expands_generic_parallel_lanes(self) -> None:
+        base = {
+            "direction_id": "d000",
+            "title": "Fast delegated checkpoint",
+            "experiment_stage": "probe",
+            "method_family": "constructive_search",
+            "method_families": [{"id": "constructive_search", "role": "primary"}],
+            "knowledge_query": ["initialization", "decoder"],
+            "candidate_variants": [],
+            "worker_lane_policy": {
+                "mechanism_selection": "delegated_to_worker",
+                "lane_count": 3,
+            },
+        }
+
+        expanded = competitive_direction_plans(base, limit=4)
+
+        self.assertEqual(3, len(expanded))
+        self.assertEqual(
+            ["constructive_search", "constructive_search", "constructive_search"],
+            [item["method_family"] for item in expanded],
+        )
+        self.assertEqual(
+            [["initialization", "decoder"]] * 3,
+            [item["knowledge_query"] for item in expanded],
+        )
+        self.assertTrue(all(item["candidate_variants"] == [] for item in expanded))
+        self.assertEqual(
+            3,
+            len(
+                {
+                    item["candidate_variant"]["candidate_id"]
+                    for item in expanded
+                    if isinstance(item.get("candidate_variant"), dict)
+                }
+            ),
+        )
+
     def test_compact_direction_plan_keeps_candidate_semantic_status_for_history(self) -> None:
         compacted = compact_round_direction_plan(
             {
@@ -2461,6 +2557,77 @@ class WorkerLoopTests(unittest.TestCase):
             applied_plan["title"],
         )
 
+    def test_round_gate_continue_skips_revision_call_and_keeps_active_direction(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+
+            class PivotSuggestingPlanner:
+                def __init__(self) -> None:
+                    self.calls = 0
+
+                def plan_direction(self, request):  # noqa: ANN001 - follows planner protocol.
+                    self.calls += 1
+                    pivot = request.round_index > 0
+                    family = "coupled_local_search" if pivot else "constructive_search"
+                    candidate = "critical-block" if pivot else "pressure-regret"
+                    return {
+                        "schema_version": 1,
+                        "direction_id": f"d{request.round_index:03d}",
+                        "title": f"{family} proposal",
+                        "method_family": family,
+                        "method_families": [{"id": family, "role": "primary"}],
+                        "strategy_type": "bounded_probe",
+                        "hypothesis": "Run one bounded candidate.",
+                        "change_scope": ["one bounded mechanism"],
+                        "candidate_variants": [{"candidate_id": candidate}],
+                        "activation_checks": [],
+                    }
+
+            planner = PivotSuggestingPlanner()
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=NullWorker(),
+                main_agent=planner,
+                experiment_id="test_continue_active_direction",
+                iterations=2,
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+                in_round_repair_attempts=0,
+                round_intervention=lambda *_args: {
+                    "source": "direction_change_timeout_default_continue",
+                    "direction_patch": {
+                        "action": "continue",
+                        "instructions": "Continue the active direction.",
+                    },
+                },
+            )
+
+            audit = json.loads(
+                (
+                    tmp_path
+                    / "loop"
+                    / "round_001"
+                    / "main_agent_user_revision"
+                    / "direction_patch.json"
+                ).read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(2, planner.calls)
+        self.assertEqual("deterministic_continue", audit["status"])
+        self.assertTrue(audit["skipped_planner_revision"])
+        self.assertEqual("constructive_search", result.rounds[1].direction_plan["method_family"])
+        self.assertEqual(
+            "pressure-regret",
+            result.rounds[1].direction_plan["candidate_variants"][0]["candidate_id"],
+        )
+
     def test_in_round_repair_continues_from_previous_candidate_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -2704,10 +2871,62 @@ class WorkerLoopTests(unittest.TestCase):
             restored = load_worker_loop_result(tmp_path / "loop" / "loop_result.json")
             self.assertEqual(["ses_refinement", "ses_refinement"], [item.worker_session_id for item in restored.rounds])
 
+    def test_fast_planning_uses_one_local_trial_per_lane_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+            worker = SameDirectionRefinementWorker()
+
+            class FastPlanner:
+                planning_mode = "fast"
+
+                def plan_direction(self, request):  # noqa: ANN001 - follows planner protocol.
+                    return {
+                        "schema_version": 1,
+                        "direction_id": f"fast-{request.round_index}",
+                        "title": "One checkpoint per outer round",
+                        "method_family": "constructive_search",
+                        "method_families": [{"id": "constructive_search", "role": "primary"}],
+                        "strategy_type": "dispatch_rule",
+                        "hypothesis": "Continue one bounded constructive experiment.",
+                        "worker_objective": "Run one Core-checked checkpoint.",
+                        "change_scope": ["one dispatch rule"],
+                        "activation_checks": [],
+                        "candidate_variants": [],
+                        "worker_lane_policy": {
+                            "mechanism_selection": "delegated_to_worker",
+                            "lane_count": 1,
+                        },
+                    }
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=worker,
+                main_agent=FastPlanner(),
+                experiment_id="test_fast_checkpoint",
+                iterations=2,
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+                in_round_repair_attempts=3,
+                max_competing_workers=1,
+            )
+
+        self.assertEqual(2, worker.calls)
+        self.assertEqual([None, "ses_refinement"], worker.requested_sessions)
+        self.assertEqual(2, len(result.rounds))
+
     def test_worker_session_is_cleared_only_for_direction_pivot(self) -> None:
         previous = SimpleNamespace(
             worker_session_id="ses_direction",
-            direction_plan={"method_family": "constructive_search"},
+            direction_plan={
+                "method_family": "constructive_search",
+                "selected_candidate_variant": {"candidate_id": "lane-02-minimal_risk"},
+            },
         )
 
         self.assertEqual(
@@ -2719,6 +2938,19 @@ class WorkerLoopTests(unittest.TestCase):
         )
         self.assertIsNone(
             continuing_direction_worker_session(
+                previous,
+                {"method_family": "coupled_local_search", "experiment_stage": "pivot"},
+            )
+        )
+        self.assertEqual(
+            "lane-02-minimal_risk",
+            continuing_direction_worker_lane(
+                previous,
+                {"method_family": "constructive_search", "experiment_stage": "probe"},
+            ),
+        )
+        self.assertIsNone(
+            continuing_direction_worker_lane(
                 previous,
                 {"method_family": "coupled_local_search", "experiment_stage": "pivot"},
             )

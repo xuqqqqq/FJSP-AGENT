@@ -736,6 +736,11 @@ def normalize_opencode_variant(value: Any) -> str:
     return normalized if normalized in {"low", "medium", "high"} else ""
 
 
+def normalize_main_planning_mode(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in {"fast", "research"} else "fast"
+
+
 def append_event(job: dict[str, Any], message: str, *, level: str = "info") -> None:
     """向前端事件流追加一条面向用户的阶段消息。"""
 
@@ -1199,6 +1204,7 @@ def make_demo_examples() -> dict[str, Any]:
             "worker_max_runtime_seconds": 120,
             "in_round_repair_attempts": DEFAULT_IN_ROUND_REPAIR_ATTEMPTS,
             "main_max_subagents": 4,
+            "main_planning_mode": "fast",
             "max_competing_workers": 4,
             "promotion_repeats": 1,
             "pause_between_rounds": True,
@@ -1233,6 +1239,9 @@ def deepseek_status_payload() -> dict[str, Any]:
         "opencode_model": default_opencode_model,
         "main_agent_model": os.environ.get("OPENCODE_MAIN_MODEL", default_opencode_model),
         "main_agent_variant": normalize_opencode_variant(os.environ.get("OPENCODE_MAIN_VARIANT")),
+        "main_planning_mode": normalize_main_planning_mode(
+            os.environ.get("OPENCODE_MAIN_PLANNING_MODE")
+        ),
         "coding_worker_model": os.environ.get("OPENCODE_WORKER_MODEL", default_opencode_model),
         "coding_worker_variant": normalize_opencode_variant(os.environ.get("OPENCODE_WORKER_VARIANT")),
         "main_max_subagents": coerce_int(
@@ -1452,6 +1461,9 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         "opencode_model": coding_worker_model,
         "main_agent_model": main_agent_model,
         "main_agent_variant": normalize_opencode_variant(payload.get("main_agent_variant")),
+        "main_planning_mode": normalize_main_planning_mode(
+            payload.get("main_planning_mode") or os.environ.get("OPENCODE_MAIN_PLANNING_MODE")
+        ),
         "coding_worker_model": coding_worker_model,
         "coding_worker_variant": normalize_opencode_variant(payload.get("coding_worker_variant")),
         "main_max_subagents": coerce_int(
@@ -1901,6 +1913,7 @@ def run_job(job_id: str) -> None:
             executable=config["opencode_executable"],
             model=config["main_agent_model"] or None,
             variant=config["main_agent_variant"] or None,
+            planning_mode=config["main_planning_mode"],
             project_root=PROJECT_ROOT,
             max_subagents=config["main_max_subagents"],
             cancellation=cancellation,
@@ -2226,7 +2239,7 @@ class WebRoundInterventionGate:
             ),
             "direction": DIRECTION_CHANGE_REJECTION_INSTRUCTION,
             "direction_patch": {
-                "action": "revise",
+                "action": "continue",
                 "instructions": DIRECTION_CHANGE_REJECTION_INSTRUCTION,
                 "preserve_unspecified": True,
             },

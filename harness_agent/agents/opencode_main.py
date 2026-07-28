@@ -55,6 +55,8 @@ from harness_agent.workers.opencode_worker import (
 OPENCODE_MAIN_AGENT = "algoforge-main"
 PLANNING_PACKET_MAX_CHARS = planning_packets.PLANNING_PACKET_MAX_CHARS
 MAIN_FORMAT_RETRY_TIMEOUT_SECONDS = 90
+FAST_MAIN_TIMEOUT_SECONDS = 120
+FAST_PLANNING_PACKET_MAX_CHARS = 20_000
 DEFAULT_MAIN_STALL_TIMEOUT_SECONDS = 15 * 60
 MAIN_STALL_POLL_SECONDS = 1.0
 DEFAULT_MAIN_AGENT_STEPS = 36
@@ -74,6 +76,7 @@ class OpenCodeMainAgent:
         timeout_seconds: int | None = None,
         stall_timeout_seconds: int | None = None,
         max_subagents: int | None = None,
+        planning_mode: str | None = None,
         cancellation: CancellationToken | None = None,
     ) -> None:
         configured_executable = (
@@ -108,6 +111,14 @@ class OpenCodeMainAgent:
             else int(os.environ.get("OPENCODE_MAIN_MAX_SUBAGENTS", "4"))
         )
         self.max_subagents = max(0, min(4, int(configured_subagents)))
+        configured_planning_mode = str(
+            planning_mode or os.environ.get("OPENCODE_MAIN_PLANNING_MODE") or "research"
+        ).strip().lower()
+        self.planning_mode = (
+            configured_planning_mode
+            if configured_planning_mode in {"fast", "research"}
+            else "research"
+        )
         configured_steps = int(os.environ.get("OPENCODE_MAIN_MAX_STEPS", DEFAULT_MAIN_AGENT_STEPS))
         self.max_steps = max(12, min(MAX_MAIN_AGENT_STEPS, configured_steps))
         self.cancellation = cancellation
@@ -120,6 +131,9 @@ class OpenCodeMainAgent:
             return self._fallback(request, reason="OpenCode executable is unavailable")
 
         request.output_dir.mkdir(parents=True, exist_ok=True)
+        if self.planning_mode == "fast":
+            return self._plan_direction_fast(request)
+
         context = load_context_dict(request.context_packet_path)
         incumbent_source_attachments = incumbent_source_files(context)
         planning_packet = build_planning_packet(
@@ -446,6 +460,191 @@ class OpenCodeMainAgent:
         }
         return write_direction_plan(request.output_dir, plan)
 
+    def _plan_direction_fast(self, request: DirectionPlanRequest) -> dict[str, Any]:
+        """Select one method direction and delegate mechanism design to Workers."""
+
+        context = load_context_dict(request.context_packet_path)
+        planning_packet = build_planning_packet(
+            context=context,
+            loop_feedback=request.loop_feedback,
+            round_index=request.round_index,
+        )
+        fast_packet = build_fast_planning_packet(planning_packet)
+        packet_path = request.output_dir / "fast_planning_packet.json"
+        packet_path.write_text(json_dumps(fast_packet), encoding="utf-8")
+
+        run = self._run_once(
+            output_dir=request.output_dir,
+            attachments=[packet_path],
+            prompt=(
+                "这是 AlgoForge 快速规划。附件 FastPlanningPacket 已包含完成决策所需的任务、实例画像、"
+                "incumbent 摘要、最近 Core 证据、方法族目录和输出约束。你只负责判断方法族和粗粒度方向，"
+                "不负责实现规划。不要加载 Skill，不要调用子 Agent，不要读取附件之外的文件，也不要输出"
+                "分步 commentary。只返回一个 JSON 对象，顶层严格包含 direction_selection 和 direction_brief。"
+                "direction_brief 只能描述假设、关注范围、影响、风险以及 preserve/avoid 边界；不要输出"
+                "candidate_variants、worker_assignment、activation_checks、deliverables、implementation_order、"
+                "next_mutation 或任何具体算法机制。并行 Worker 会在读取获准 Skill 和 incumbent 后各自选择机制。"
+                "高柔性画像可以作为证据，但必须先独立判断方法族，不能直接硬路由到某个 Skill。"
+                "若是同方向续跑，遵守 research_state 的继承策略，只更新粗粒度假设和关注范围。"
+                "所有字段名使用 schema 的英文 key，自然语言值使用简体中文。"
+            ),
+            suffix="_fast",
+            timeout_seconds=bounded_timeout_seconds(self.timeout_seconds, FAST_MAIN_TIMEOUT_SECONDS),
+            allowed_specialist=None,
+        )
+        usage_payload = summarize_opencode_events(run["stdout"])
+        usage_payload["attempts"] = 1
+        usage_payload["planning_mode"] = "fast"
+        self._write_usage(request.output_dir, usage_payload)
+
+        raw = extract_planned_direction(run["stdout"])
+        if raw is None:
+            return self._fallback(request, reason="Fast Main Agent did not return a valid direction plan")
+
+        raw_selection = raw.get("direction_selection")
+        if not isinstance(raw_selection, dict):
+            raw_selection = raw.get("direction_plan")
+        selection = normalize_direction_selection(
+            {"direction_selection": raw_selection} if isinstance(raw_selection, dict) else {},
+            planning_packet=planning_packet,
+            round_index=request.round_index,
+        )
+        if selection is None:
+            return self._fallback(
+                request,
+                reason="Fast Main Agent did not select a compatible method family",
+            )
+
+        selection_path = request.output_dir / "direction_selection.json"
+        selection_path.write_text(json_dumps(selection), encoding="utf-8")
+
+        implementation_context = dict(context)
+        activate_direction_knowledge_context(implementation_context, direction_plan=selection)
+        task = context.get("task") if isinstance(context.get("task"), dict) else {}
+        original_catalog = (
+            context.get("method_package_catalog")
+            if isinstance(context.get("method_package_catalog"), dict)
+            else {}
+        )
+        implementation_context["method_package_catalog"] = method_package_catalog(
+            problem_family=str(task.get("problem_family") or ""),
+            active_features=[str(item) for item in original_catalog.get("active_features") or []],
+            knowledge_query_tags=selection["knowledge_query"],
+        )
+
+        raw_brief = raw.get("direction_brief")
+        direction_brief = normalize_fast_direction_brief(
+            raw_brief if isinstance(raw_brief, dict) else {},
+            selection=selection,
+            round_index=request.round_index,
+        )
+        ignored_output_fields = sorted(
+            key
+            for key in (
+                "direction_plan",
+                "worker_assignment",
+                "candidate_variants",
+                "activation_checks",
+                "deliverables",
+                "implementation_order",
+                "next_mutation",
+            )
+            if key in raw
+        )
+        sanitized_raw = {
+            "direction_selection": raw_selection,
+            "direction_brief": direction_brief,
+        }
+        if ignored_output_fields:
+            sanitized_raw["ignored_output_fields"] = ignored_output_fields
+        (request.output_dir / "planned_direction_raw.json").write_text(
+            json_dumps(sanitized_raw),
+            encoding="utf-8",
+        )
+
+        direction_payload = {
+            **direction_brief,
+            "direction_id": selection["direction_id"],
+            "diagnosis": selection.get("diagnosis") or direction_brief.get("rationale_summary"),
+            "direction_judgment": direction_brief.get("rationale_summary"),
+            "selection_rationale": selection.get("selection_rationale")
+            or direction_brief.get("rationale_summary"),
+            "evidence_summary": selection.get("measured_evidence") or [],
+            "reasoning_trace": selection.get("reasoning_trace") or [],
+            "method_family": selection["method_family"],
+            "method_families": selection["method_families"],
+            "knowledge_query": selection["knowledge_query"],
+        }
+        plan = bind_direction_plan_to_method_catalog(
+            normalize_direction_plan(direction_payload, round_index=request.round_index),
+            context=implementation_context,
+        )
+        plan["method_family"] = selection["method_family"]
+        plan["method_families"] = selection["method_families"]
+        plan["knowledge_query"] = selection["knowledge_query"]
+        research_state = (
+            planning_packet.get("research_state")
+            if isinstance(planning_packet.get("research_state"), dict)
+            else {}
+        )
+        state_stage = str(research_state.get("experiment_stage") or "").strip()
+        if request.round_index >= 0 and state_stage in {
+            "probe",
+            "scale",
+            "pivot",
+            "research_tournament",
+        }:
+            plan["experiment_stage"] = state_stage
+        plan["direction_selection"] = selection
+        plan["direction_brief"] = direction_brief
+        max_workers = max(
+            1,
+            min(
+                4,
+                int((fast_packet.get("runtime_limits") or {}).get("max_competing_workers") or 1),
+            ),
+        )
+        plan["worker_lane_policy"] = {
+            "schema_version": 1,
+            "mechanism_selection": "delegated_to_worker",
+            "lane_count": max_workers,
+            "roles": [
+                "direct_evidence",
+                "minimal_risk",
+                "orthogonal_mechanism",
+                "diagnostic_value",
+            ][:max_workers],
+        }
+        plan["candidate_variants"] = []
+        plan["activation_checks"] = []
+        plan["activation_contract_version"] = 0
+        plan = enforce_improvement_direction_contract(
+            plan,
+            round_index=request.round_index,
+            loop_feedback=request.loop_feedback,
+        )
+        plan["planning_contract_status"] = {
+            "schema_version": 1,
+            "status": "satisfied",
+            "source": "fast_direction_delegation",
+            "mechanism_selection": "delegated_to_worker",
+            "maximum_worker_lanes": max_workers,
+            "planned_worker_lanes": max_workers,
+            "actual_started_candidates_source": "competition_result.candidates",
+            "activation_mode": "worker_owned_advisory",
+            "promotion_policy": "core_and_semantic_gates",
+        }
+        plan["planner"] = "opencode_main_agent_fast"
+        plan["planning_evidence"] = {
+            "planning_mode": "fast",
+            "fast_planning_packet_path": str(packet_path.resolve()),
+            "direction_selection_path": str(selection_path.resolve()),
+            "called_subagents": [],
+            "event_count": usage_payload.get("event_count", 0),
+            "compaction": usage_payload.get("compaction") or {},
+        }
+        return write_direction_plan(request.output_dir, plan)
+
     @staticmethod
     def _write_usage(output_dir: Path, usage_payload: dict[str, Any]) -> None:
         (output_dir / "main_agent_usage.json").write_text(
@@ -468,7 +667,7 @@ class OpenCodeMainAgent:
         evidence = build_round_reflection_evidence(request)
         evidence_path = request.output_dir / "round_evidence.json"
         evidence_path.write_text(json_dumps(evidence), encoding="utf-8")
-        if self.executable_path is None:
+        if self.executable_path is None or self.planning_mode == "fast":
             return write_round_reflection(request.output_dir, deterministic_round_reflection(request))
 
         reflection_run = self._run_once(
@@ -936,6 +1135,106 @@ build_implementation_planning_packet = planning_packets.build_implementation_pla
 compact_round_competition_result = planning_packets.compact_round_competition_result
 
 
+def build_fast_planning_packet(planning_packet: dict[str, Any]) -> dict[str, Any]:
+    """Keep only decision-critical evidence for the single-call planner."""
+
+    payload = {
+        "schema_version": 1,
+        "planning_stage": "fast_direction_plan",
+        "direction_id": planning_packet.get("direction_id"),
+        "task_digest": planning_packet.get("task_digest"),
+        "instance_diagnostics": planning_packet.get("instance_diagnostics"),
+        "research_state": planning_packet.get("research_state"),
+        "incumbent_evidence": planning_packet.get("incumbent_evidence"),
+        "incumbent_capability_audit": planning_packet.get("incumbent_capability_audit"),
+        "recent_round_evidence": planning_packet.get("recent_round_evidence"),
+        "latest_evidence": planning_packet.get("latest_evidence"),
+        "latest_attempt_evidence": planning_packet.get("latest_attempt_evidence"),
+        "historical_aggregates": planning_packet.get("historical_aggregates"),
+        "next_round_guidance": planning_packet.get("next_round_guidance"),
+        "user_intervention": planning_packet.get("user_intervention"),
+        "strategy_selection_cards": planning_packet.get("strategy_selection_cards"),
+        "knowledge_query_catalog": planning_packet.get("knowledge_query_catalog"),
+        "method_family_catalog": planning_packet.get("method_family_catalog"),
+        "runtime_limits": planning_packet.get("runtime_limits"),
+        "planner_output_contract": {
+            "top_level_keys": ["direction_selection", "direction_brief"],
+            "direction_selection_required_fields": [
+                "method_family",
+                "knowledge_query",
+                "diagnosis",
+                "selection_rationale",
+            ],
+            "direction_brief_required_fields": [
+                "title",
+                "strategy_type",
+                "hypothesis",
+                "rationale_summary",
+                "focus_paths",
+                "focus_symbols",
+                "effort",
+                "expected_impact",
+                "risk",
+                "change_scope",
+                "preserve",
+                "avoid",
+            ],
+            "forbidden_fields": [
+                "worker_assignment",
+                "candidate_variants",
+                "activation_checks",
+                "deliverables",
+                "implementation_order",
+                "next_mutation",
+            ],
+            "mechanism_selection": "delegated_to_worker_after_skill_loading",
+            "high_flexibility_policy": (
+                "Instance flexibility is evidence for Main's family judgment, not a hard route to a Skill."
+            ),
+        },
+    }
+    compacted = compact_json(payload, max_chars=FAST_PLANNING_PACKET_MAX_CHARS)
+    result = compacted.payload if isinstance(compacted.payload, dict) else payload
+    result["packet_budget"] = {
+        "max_chars": FAST_PLANNING_PACKET_MAX_CHARS,
+        "original_chars": compacted.original_chars,
+        "compacted": compacted.compacted,
+        "profile": compacted.profile,
+    }
+    return result
+
+
+def normalize_fast_direction_brief(
+    value: dict[str, Any],
+    *,
+    selection: dict[str, Any],
+    round_index: int,
+) -> dict[str, Any]:
+    """Keep fast Main output coarse and discard candidate-level implementation detail."""
+
+    hypothesis = str(value.get("hypothesis") or selection.get("diagnosis") or "")[:1200]
+    rationale = str(
+        value.get("rationale_summary")
+        or selection.get("selection_rationale")
+        or selection.get("diagnosis")
+        or ""
+    )[:1600]
+    return {
+        "title": str(value.get("title") or hypothesis or f"Direction {round_index}")[:200],
+        "strategy_type": str(value.get("strategy_type") or "worker_selected_mechanism")[:80],
+        "hypothesis": hypothesis or "在所选方法族内由 Worker 选择一个有界机制并交由 Core 验证。",
+        "rationale_summary": rationale,
+        "focus_paths": _bounded_string_list(value.get("focus_paths"), limit=8, chars=300),
+        "focus_symbols": _bounded_string_list(value.get("focus_symbols"), limit=12, chars=200),
+        "effort": str(value.get("effort") or "standard")[:40],
+        "expected_impact": str(value.get("expected_impact") or "")[:800],
+        "risk": str(value.get("risk") or "")[:800],
+        "change_scope": _bounded_string_list(value.get("change_scope"), limit=8, chars=500),
+        "preserve": _bounded_string_list(value.get("preserve"), limit=10, chars=500),
+        "avoid": _bounded_string_list(value.get("avoid"), limit=10, chars=500),
+    }
+
+
 def has_model_text(events_text: str) -> bool:
     """Distinguish malformed model output from a timeout containing only tool events."""
 
@@ -983,11 +1282,19 @@ def extract_planned_direction(events_text: str) -> dict[str, Any] | None:
             candidates.append(line)
             continue
         candidates.extend(_text_values(event))
-        if isinstance(event, dict) and "direction_plan" in event:
+        if isinstance(event, dict) and (
+            "direction_plan" in event or "direction_brief" in event
+        ):
             candidates.append(json.dumps(event, ensure_ascii=False))
     for candidate in reversed(candidates):
         parsed = _json_object_from_text(candidate)
-        if isinstance(parsed, dict) and isinstance(parsed.get("direction_plan"), dict):
+        if isinstance(parsed, dict) and (
+            isinstance(parsed.get("direction_plan"), dict)
+            or (
+                isinstance(parsed.get("direction_selection"), dict)
+                and isinstance(parsed.get("direction_brief"), dict)
+            )
+        ):
             return parsed
     return None
 

@@ -55,6 +55,10 @@ from harness_agent.orchestration.cycle import prepare_candidate_worktree, run_wo
 DEFAULT_IN_ROUND_REPAIR_ATTEMPTS = 3
 
 
+def planner_uses_fast_mode(planner: DirectionPlanningAgent) -> bool:
+    return str(getattr(planner, "planning_mode", "")).strip().lower() == "fast"
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -275,6 +279,10 @@ def run_worker_loop(
         return result
     # 阶段 2：每个外层 round 对应一个改进方向；repair attempt 不额外消耗轮数。
     effective_repair_attempts = worker_loop_repair_attempt_budget(worker, in_round_repair_attempts)
+    if planner_uses_fast_mode(direction_planner):
+        # A fast round is one parallel checkpoint. The selected lane continues
+        # in the next outer round with its existing session and Core feedback.
+        effective_repair_attempts = 0
     round_records = list(resume_from.rounds) if resume_from is not None else []
     seen_proposal_fingerprints = {
         item.proposal_fingerprint for item in round_records if item.proposal_fingerprint
@@ -345,7 +353,35 @@ def run_worker_loop(
                     planning_feedback,
                     user_intervention=user_intervention,
                 )
-                if user_intervention["direction_patch"]["action"] not in {"accept", "continue"}:
+                intervention_action = user_intervention["direction_patch"]["action"]
+                if intervention_action == "continue":
+                    direction_plan = continue_current_direction_plan(
+                        previous_direction_plan=previous_plan,
+                        proposed_direction_plan=direction_plan,
+                        round_index=round_index,
+                    )
+                    revision_dir = cycle_dir / "main_agent_user_revision"
+                    revision_dir.mkdir(parents=True, exist_ok=True)
+                    applied_plan_path = revision_dir / "applied_direction_plan.json"
+                    applied_plan_path.write_text(
+                        json.dumps(direction_plan, ensure_ascii=False, indent=2) + "\n",
+                        encoding="utf-8",
+                    )
+                    patch_audit = {
+                        "schema_version": 1,
+                        "status": "deterministic_continue",
+                        "action": "continue",
+                        "preserved_previous_direction": True,
+                        "skipped_planner_revision": True,
+                        "applied_plan_path": str(applied_plan_path.resolve()),
+                    }
+                    patch_path = revision_dir / "direction_patch.json"
+                    patch_path.write_text(
+                        json.dumps(patch_audit, ensure_ascii=False, indent=2) + "\n",
+                        encoding="utf-8",
+                    )
+                    user_intervention["direction_patch_path"] = str(patch_path.resolve())
+                elif intervention_action != "accept":
                     original_direction_plan = direction_revision_base(
                         proposed_direction_plan=direction_plan,
                         previous_direction_plan=previous_plan,
@@ -383,6 +419,10 @@ def run_worker_loop(
                 round_records[-1] if round_records else None,
                 direction_plan,
             )
+            continued_worker_lane_id = continuing_direction_worker_lane(
+                round_records[-1] if round_records else None,
+                direction_plan,
+            )
             (
                 cycle,
                 round_context_packet_path,
@@ -412,6 +452,7 @@ def run_worker_loop(
                 user_intervention=user_intervention,
                 max_competing_workers=max_competing_workers,
                 initial_session_id=continued_worker_session_id,
+                initial_session_candidate_id=continued_worker_lane_id,
                 cancellation=cancellation,
             )
             direction_plan = dict(direction_plan)
@@ -648,6 +689,7 @@ def run_competing_worker_cycles(
     user_intervention: dict[str, Any] | None,
     max_competing_workers: int,
     initial_session_id: str | None = None,
+    initial_session_candidate_id: str | None = None,
     cancellation: CancellationToken | None = None,
 ) -> tuple[Any, Path, list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     """Evaluate isolated Coding Worker variants and return the best eligible lane."""
@@ -690,7 +732,15 @@ def run_competing_worker_cycles(
                 assignment_issuer=assignment_issuer,
                 worker_input_root=worker_input_root,
                 user_intervention=user_intervention,
-                initial_session_id=(initial_session_id if candidate_index == 0 else None),
+                initial_session_id=(
+                    initial_session_id
+                    if initial_session_id
+                    and (
+                        candidate_id == initial_session_candidate_id
+                        or (not initial_session_candidate_id and candidate_index == 0)
+                    )
+                    else None
+                ),
                 cancellation=cancellation,
             )
             key = summary_objective_key(cycle.summary, contract.objectives)
@@ -839,6 +889,7 @@ def run_competing_worker_cycles(
         "measured_candidate_id": selected_variant.get("candidate_id") or "c00",
         "measured_objective_key": list(winner[0]),
         "continued_session_id": initial_session_id,
+        "continued_session_candidate_id": initial_session_candidate_id,
         "selected_session_id": str(winner_attempt.get("session_id") or "") or None,
         "selected_for_promotion": has_eligible_winner,
         "selected_for_promotion_check": has_eligible_winner,
@@ -891,6 +942,14 @@ def competitive_direction_plans(direction_plan: dict[str, Any], *, limit: int) -
         for item in direction_plan.get("candidate_variants") or []
         if isinstance(item, dict)
     ][:limit]
+    lane_policy = (
+        direction_plan.get("worker_lane_policy")
+        if isinstance(direction_plan.get("worker_lane_policy"), dict)
+        else {}
+    )
+    delegated = lane_policy.get("mechanism_selection") == "delegated_to_worker"
+    if not variants and delegated:
+        return delegated_worker_lane_plans(direction_plan, limit=limit)
     if limit <= 1 or not variants:
         return [direction_plan]
     result: list[dict[str, Any]] = []
@@ -940,6 +999,86 @@ def competitive_direction_plans(direction_plan: dict[str, Any], *, limit: int) -
         plan["candidate_variants"] = []
         result.append(plan)
     return result or [direction_plan]
+
+
+DELEGATED_WORKER_LANES = (
+    (
+        "direct_evidence",
+        "Direct evidence",
+        "Choose the bounded mechanism with the strongest direct support in current Core evidence and authorized Skills.",
+    ),
+    (
+        "minimal_risk",
+        "Minimal risk",
+        "Choose the smallest coherent mechanism change likely to preserve legality and incumbent behavior.",
+    ),
+    (
+        "orthogonal_mechanism",
+        "Orthogonal mechanism",
+        "Choose a mechanism materially different from the obvious direct-evidence lane while staying in the selected family.",
+    ),
+    (
+        "diagnostic_value",
+        "Diagnostic value",
+        "Choose a bounded mechanism whose Core result will most clearly confirm or falsify the direction hypothesis.",
+    ),
+)
+
+
+def delegated_worker_lane_plans(
+    direction_plan: dict[str, Any],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Compile generic parallel lanes without choosing an algorithm for Workers."""
+
+    policy = (
+        direction_plan.get("worker_lane_policy")
+        if isinstance(direction_plan.get("worker_lane_policy"), dict)
+        else {}
+    )
+    try:
+        requested = int(policy.get("lane_count") or limit)
+    except (TypeError, ValueError):
+        requested = limit
+    lane_count = max(1, min(4, int(limit), requested))
+    requested_roles = [str(item).strip() for item in policy.get("roles") or [] if str(item).strip()]
+    definitions = {item[0]: item for item in DELEGATED_WORKER_LANES}
+    ordered = [definitions[role] for role in requested_roles if role in definitions]
+    ordered.extend(item for item in DELEGATED_WORKER_LANES if item not in ordered)
+
+    result: list[dict[str, Any]] = []
+    base_direction_id = str(direction_plan.get("direction_id") or "direction")
+    base_title = str(direction_plan.get("title") or "Worker-selected mechanism")
+    base_hypothesis = str(direction_plan.get("hypothesis") or "")
+    for index, (role_id, role_title, role_objective) in enumerate(ordered[:lane_count]):
+        candidate_id = f"lane-{index + 1:02d}-{role_id}"[:48]
+        plan = dict(direction_plan)
+        plan["direction_id"] = f"{base_direction_id}-{candidate_id}"[:80]
+        plan["title"] = f"{base_title}: {role_title}"[:200]
+        plan["worker_objective"] = (
+            f"{role_objective} Inspect the incumbent and authorized Skills first, then independently choose and "
+            "implement one concrete mechanism. Preserve the incumbent fallback; do not stop at telemetry-only changes."
+        )[:1200]
+        plan["candidate_variant"] = {
+            "candidate_id": candidate_id,
+            "title": role_title,
+            "hypothesis": base_hypothesis,
+            "strategy_type": str(plan.get("strategy_type") or "worker_selected_mechanism"),
+            "lane_role": role_id,
+            "mechanism_selection": "delegated_to_worker",
+        }
+        plan["worker_lane"] = {
+            "schema_version": 1,
+            "lane_index": index,
+            "lane_role": role_id,
+            "mechanism_selection": "delegated_to_worker",
+        }
+        plan["candidate_variants"] = []
+        plan["activation_checks"] = []
+        plan["activation_contract_version"] = 0
+        result.append(plan)
+    return result
 
 
 def evaluate_mechanism_activation(
@@ -2100,6 +2239,23 @@ def continuing_direction_worker_session(
     return previous_round.worker_session_id
 
 
+def continuing_direction_worker_lane(
+    previous_round: LoopRoundRecord | None,
+    proposed_direction: dict[str, Any],
+) -> str | None:
+    """Return the stable lane ID that owns a reusable Worker session."""
+
+    if continuing_direction_worker_session(previous_round, proposed_direction) is None:
+        return None
+    previous_plan = previous_round.direction_plan or {}
+    selected = (
+        previous_plan.get("selected_candidate_variant")
+        if isinstance(previous_plan.get("selected_candidate_variant"), dict)
+        else {}
+    )
+    return str(selected.get("candidate_id") or "").strip() or None
+
+
 def primary_method_family(plan: dict[str, Any]) -> str:
     direct = str(plan.get("method_family") or "").strip().lower()
     if direct:
@@ -2706,15 +2862,14 @@ def plan_agent_generated_baseline_direction(
             "Generate from active IO and requirements; do not copy instance-specific schedules or scores.",
         ],
     }
+    request = DirectionPlanRequest(
+        round_index=-1,
+        context_packet_path=context_packet_path,
+        loop_feedback=feedback,
+        output_dir=output_dir,
+    )
     try:
-        return planner.plan_direction(
-            DirectionPlanRequest(
-                round_index=-1,
-                context_packet_path=context_packet_path,
-                loop_feedback=feedback,
-                output_dir=output_dir,
-            )
-        )
+        return planner.plan_direction(request)
     except TaskCancelled:
         raise
     except Exception as exc:  # noqa: BLE001 - baseline planning must retain deterministic fallback.
@@ -2723,14 +2878,7 @@ def plan_agent_generated_baseline_direction(
             "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
             encoding="utf-8",
         )
-        return EvidenceDrivenMainAgent().plan_direction(
-            DirectionPlanRequest(
-                round_index=-1,
-                context_packet_path=context_packet_path,
-                loop_feedback=feedback,
-                output_dir=output_dir,
-            )
-        )
+        return EvidenceDrivenMainAgent().plan_direction(request)
 
 
 def prepare_agent_generated_baseline_source_project(
@@ -3362,6 +3510,38 @@ DIRECTION_PIVOT_FIELDS = {
     "candidate_variants",
     "activation_checks",
 }
+
+
+def continue_current_direction_plan(
+    *,
+    previous_direction_plan: dict[str, Any],
+    proposed_direction_plan: dict[str, Any],
+    round_index: int,
+) -> dict[str, Any]:
+    """Advance the previous plan without paying for another Main revision."""
+
+    if not previous_direction_plan:
+        return dict(proposed_direction_plan)
+    plan = dict(previous_direction_plan)
+    previous_direction_id = str(plan.get("direction_id") or "").strip()
+    for key in (
+        "artifact_path",
+        "competition_result",
+        "mechanism_activation",
+        "selected_candidate_variant",
+        "user_intervention",
+    ):
+        plan.pop(key, None)
+    plan["direction_id"] = f"d{round_index:03d}"
+    if previous_direction_id:
+        plan["parent_direction_id"] = previous_direction_id
+    plan["experiment_stage"] = "probe"
+    plan["continuation"] = {
+        "status": "continued_by_user_policy",
+        "skipped_proposed_direction_id": proposed_direction_plan.get("direction_id"),
+        "skipped_proposed_method_family": proposed_direction_plan.get("method_family"),
+    }
+    return plan
 
 
 def normalize_user_intervention(value: Any, *, round_index: int) -> dict[str, Any]:

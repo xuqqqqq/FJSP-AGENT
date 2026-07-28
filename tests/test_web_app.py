@@ -141,6 +141,12 @@ class WebAppTests(unittest.TestCase):
             self.assertEqual("fjsp-project", job["config"]["starter_project"]["stripped_root"])
             self.assertNotIn(archive["base64"], json.dumps(job))
 
+    def test_create_job_defaults_main_planning_mode_to_fast(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job = create_job(self.job_payload(), output_root=Path(tmp))
+
+        self.assertEqual("fast", job["config"]["main_planning_mode"])
+
     def test_create_job_rejects_zip_path_traversal_and_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(ValueError, "unsafe path"):
@@ -1047,7 +1053,7 @@ class WebAppTests(unittest.TestCase):
                 },
             )
 
-        self.assertEqual("revise", result["direction_patch"]["action"])
+        self.assertEqual("continue", result["direction_patch"]["action"])
         self.assertEqual("direction_change_timeout_default_continue", result["source"])
         self.assertIn("Continue the previously active method family", result["direction_patch"]["instructions"])
         self.assertEqual("running", job["status"])
