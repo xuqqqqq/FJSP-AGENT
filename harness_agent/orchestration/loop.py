@@ -40,6 +40,7 @@ from harness_agent.agents.main import (
     WorkerAssignmentRequest,
     method_implementation_bundle,
     request_worker_assignment,
+    write_direction_plan,
 )
 from harness_agent.core.models import ObjectiveSpec, TaskContract
 from harness_agent.core.runner import RunSummary
@@ -87,6 +88,19 @@ class LoopRoundRecord:
     semantic_review: dict[str, Any] | None = None
     mechanism_activation: dict[str, Any] | None = None
     round_reflection: dict[str, Any] | None = None
+    worker_session_id: str | None = None
+
+
+@dataclass(frozen=True)
+class CandidateIncumbent:
+    """Best observed candidate for one evidence tier, independent of promotion."""
+
+    objective_key: tuple[float, ...]
+    worktree: Path
+    candidate_id: str
+    round_index: int
+    summary: dict[str, Any]
+    activation_status: str | None = None
 
 
 @dataclass(frozen=True)
@@ -102,6 +116,8 @@ class WorkerLoopResult:
     baseline_generation: dict[str, Any] | None = None
     status: str = "ok"
     stop_reason: str | None = None
+    best_legal_incumbent: CandidateIncumbent | None = None
+    best_activated_incumbent: CandidateIncumbent | None = None
 
 
 def run_worker_loop(
@@ -121,9 +137,10 @@ def run_worker_loop(
     promotion_repeats: int = 1,
     baseline_source: str = "current_project",
     baseline_worker: CodingWorker | None = None,
+    worker_input_root: Path | None = None,
     in_round_repair_attempts: int = DEFAULT_IN_ROUND_REPAIR_ATTEMPTS,
     max_competing_workers: int = 4,
-    round_intervention: Callable[[int, LoopRoundRecord, dict[str, Any]], str | None] | None = None,
+    round_intervention: Callable[[int, LoopRoundRecord, dict[str, Any]], Any] | None = None,
     cancellation: CancellationToken | None = None,
     resume_from: WorkerLoopResult | None = None,
 ) -> WorkerLoopResult:
@@ -201,6 +218,25 @@ def run_worker_loop(
         else summary_objective_key(baseline_summary, contract.objectives)
     )
     incumbent_worktree = baseline_worktree
+    best_legal_incumbent = (
+        resume_from.best_legal_incumbent
+        or CandidateIncumbent(
+            objective_key=tuple(resume_from.final_key),
+            worktree=resume_from.final_worktree.resolve(),
+            candidate_id="resumed_promoted_incumbent",
+            round_index=max((item.round_index for item in resume_from.rounds), default=-1),
+            summary={},
+        )
+        if resume_from is not None
+        else candidate_incumbent_from_baseline(
+            objective_key=incumbent_key,
+            worktree=baseline_worktree,
+            summary=baseline_summary,
+        )
+    )
+    best_activated_incumbent = (
+        resume_from.best_activated_incumbent if resume_from is not None else None
+    )
     if (
         resume_from is None
         and normalized_baseline_source == "agent_generated"
@@ -232,6 +268,8 @@ def run_worker_loop(
             baseline_generation=baseline_generation,
             status="baseline_generation_failed",
             stop_reason=stop_reason,
+            best_legal_incumbent=best_legal_incumbent,
+            best_activated_incumbent=best_activated_incumbent,
         )
         write_loop_report(output_dir=output_dir, result=result, problem_family=contract.problem_family)
         return result
@@ -258,6 +296,8 @@ def run_worker_loop(
             baseline_key=summary_objective_key(baseline_summary, contract.objectives),
             incumbent_key_before=incumbent_key,
             incumbent_worktree=incumbent_worktree,
+            best_legal_incumbent=best_legal_incumbent,
+            best_activated_incumbent=best_activated_incumbent,
             baseline_generation=baseline_generation,
             previous_rounds=round_records,
             current_round_repair=None,
@@ -281,6 +321,12 @@ def run_worker_loop(
             loop_feedback=planning_feedback,
             output_dir=cycle_dir / "main_agent",
         )
+        direction_plan = dict(direction_plan)
+        if round_records:
+            previous_plan = round_records[-1].direction_plan or {}
+            previous_direction_id = previous_plan.get("direction_id")
+            if previous_direction_id:
+                direction_plan.setdefault("parent_direction_id", previous_direction_id)
         if cancellation is not None:
             cancellation.raise_if_cancelled()
         user_intervention: dict[str, Any] | None = None
@@ -288,25 +334,55 @@ def run_worker_loop(
         # reviewed the completed prior round and published a concrete proposal.
         if round_index > 0 and round_records and round_intervention is not None:
             user_direction = round_intervention(round_index, round_records[-1], direction_plan)
-            if str(user_direction or "").strip():
-                user_intervention = {
-                    "direction": str(user_direction).strip()[:4_000],
-                    "applies_to_round": round_index,
-                    "source": "user_between_rounds",
-                }
+            if user_direction is not None and (
+                not isinstance(user_direction, str) or user_direction.strip()
+            ):
+                user_intervention = normalize_user_intervention(
+                    user_direction,
+                    round_index=round_index,
+                )
                 planning_feedback = apply_user_intervention_to_feedback(
                     planning_feedback,
                     user_intervention=user_intervention,
                 )
-                direction_plan = plan_direction_with_fallback(
-                    planner=direction_planner,
-                    round_index=round_index,
-                    context_packet_path=planning_context_packet_path,
-                    loop_feedback=planning_feedback,
-                    output_dir=cycle_dir / "main_agent_user_revision",
-                )
+                if user_intervention["direction_patch"]["action"] not in {"accept", "continue"}:
+                    original_direction_plan = direction_revision_base(
+                        proposed_direction_plan=direction_plan,
+                        previous_direction_plan=previous_plan,
+                        user_intervention=user_intervention,
+                    )
+                    revision_dir = cycle_dir / "main_agent_user_revision"
+                    revised_direction_plan = plan_direction_with_fallback(
+                        planner=direction_planner,
+                        round_index=round_index,
+                        context_packet_path=planning_context_packet_path,
+                        loop_feedback=planning_feedback,
+                        output_dir=revision_dir,
+                    )
+                    direction_plan, patch_audit = apply_user_direction_revision(
+                        original_direction_plan,
+                        revised_direction_plan,
+                        user_intervention=user_intervention,
+                    )
+                    revision_dir.mkdir(parents=True, exist_ok=True)
+                    applied_plan_path = revision_dir / "applied_direction_plan.json"
+                    applied_plan_path.write_text(
+                        json.dumps(direction_plan, ensure_ascii=False, indent=2) + "\n",
+                        encoding="utf-8",
+                    )
+                    patch_audit["applied_plan_path"] = str(applied_plan_path.resolve())
+                    patch_path = revision_dir / "direction_patch.json"
+                    patch_path.write_text(
+                        json.dumps(patch_audit, ensure_ascii=False, indent=2) + "\n",
+                        encoding="utf-8",
+                    )
+                    user_intervention["direction_patch_path"] = str(patch_path.resolve())
                 direction_plan["user_intervention"] = user_intervention
         try:
+            continued_worker_session_id = continuing_direction_worker_session(
+                round_records[-1] if round_records else None,
+                direction_plan,
+            )
             (
                 cycle,
                 round_context_packet_path,
@@ -332,15 +408,26 @@ def run_worker_loop(
                 direction_plan=direction_plan,
                 semantic_reviewer=semantic_reviewer,
                 assignment_issuer=direction_planner,
-                worker_input_root=project_root,
+                worker_input_root=(worker_input_root or project_root),
                 user_intervention=user_intervention,
                 max_competing_workers=max_competing_workers,
+                initial_session_id=continued_worker_session_id,
                 cancellation=cancellation,
             )
             direction_plan = dict(direction_plan)
             direction_plan["competition_result"] = competition_result
             direction_plan["selected_candidate_variant"] = selected_direction_plan.get("candidate_variant") or {}
             direction_plan["mechanism_activation"] = selected_direction_plan.get("mechanism_activation") or {}
+            best_legal_incumbent = update_candidate_incumbent(
+                best_legal_incumbent,
+                competition_result.get("best_legal_candidate"),
+                round_index=round_index,
+            )
+            best_activated_incumbent = update_candidate_incumbent(
+                best_activated_incumbent,
+                competition_result.get("best_activated_candidate"),
+                round_index=round_index,
+            )
         except TaskCancelled:
             raise
         except Exception as exc:  # noqa: BLE001 - failed worker rounds are feedback, not loop-ending failures.
@@ -439,9 +526,18 @@ def run_worker_loop(
         repair_summary = in_round_repair_summary(in_round_attempts)
         if repair_summary["repair_attempt_count"]:
             proposal_diagnostics["in_round_repair"] = repair_summary
+            proposal_diagnostics["local_trials"] = repair_summary
+        selected_attempt = next(
+            (
+                item
+                for item in in_round_attempts
+                if isinstance(item, dict) and item.get("disposition") == "selected"
+            ),
+            in_round_attempts[-1] if in_round_attempts else None,
+        )
         semantic_review = (
-            in_round_attempts[-1].get("semantic_review")
-            if in_round_attempts and isinstance(in_round_attempts[-1], dict)
+            selected_attempt.get("semantic_review")
+            if isinstance(selected_attempt, dict)
             else None
         )
         if isinstance(semantic_review, dict):
@@ -452,15 +548,7 @@ def run_worker_loop(
             if isinstance(direction_plan.get("mechanism_activation"), dict)
             else {}
         )
-        if mechanism_activation.get("passed") is False:
-            promotion_check = {
-                "status": "skipped",
-                "reason": "mechanism_not_activated",
-                "promoted": False,
-                "required_repeats": max(1, promotion_repeats),
-                "mechanism_activation": mechanism_activation,
-            }
-        elif semantic_review_blocks_promotion(semantic_review):
+        if semantic_review_blocks_promotion(semantic_review):
             promotion_check = {
                 "status": "skipped",
                 "reason": semantic_review_promotion_block_reason(semantic_review),
@@ -505,6 +593,7 @@ def run_worker_loop(
             direction_plan=direction_plan,
             semantic_review=semantic_review if isinstance(semantic_review, dict) else None,
             mechanism_activation=mechanism_activation,
+            worker_session_id=str(competition_result.get("selected_session_id") or "") or None,
         )
         reflection = reflect_on_completed_round(
             planner=direction_planner,
@@ -528,6 +617,8 @@ def run_worker_loop(
         baseline_summary=baseline_summary,
         baseline_source=normalized_baseline_source,
         baseline_generation=baseline_generation,
+        best_legal_incumbent=best_legal_incumbent,
+        best_activated_incumbent=best_activated_incumbent,
     )
     write_loop_report(output_dir=output_dir, result=result, problem_family=contract.problem_family)
     return result
@@ -556,6 +647,7 @@ def run_competing_worker_cycles(
     worker_input_root: Path,
     user_intervention: dict[str, Any] | None,
     max_competing_workers: int,
+    initial_session_id: str | None = None,
     cancellation: CancellationToken | None = None,
 ) -> tuple[Any, Path, list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     """Evaluate isolated Coding Worker variants and return the best eligible lane."""
@@ -598,31 +690,50 @@ def run_competing_worker_cycles(
                 assignment_issuer=assignment_issuer,
                 worker_input_root=worker_input_root,
                 user_intervention=user_intervention,
+                initial_session_id=(initial_session_id if candidate_index == 0 else None),
                 cancellation=cancellation,
             )
             key = summary_objective_key(cycle.summary, contract.objectives)
+            selected_attempt = next(
+                (
+                    item
+                    for item in attempts
+                    if isinstance(item, dict) and item.get("disposition") == "selected"
+                ),
+                attempts[-1] if attempts else None,
+            )
             semantic_review = (
-                attempts[-1].get("semantic_review")
-                if attempts and isinstance(attempts[-1], dict)
+                selected_attempt.get("semantic_review")
+                if isinstance(selected_attempt, dict)
                 else None
             )
             ja_accepted = bool(cycle.agentic_judgment.accepted)
             core_eligible = not _all_negative_infinity(key)
             semantic_eligible = not semantic_review_blocks_promotion(semantic_review)
             mechanism_activation = evaluate_mechanism_activation(candidate_plan, cycle.summary)
-            activation_eligible = bool(mechanism_activation.get("passed"))
-            eligible = ja_accepted and core_eligible and semantic_eligible and activation_eligible
+            activation_required = activation_contract_required(candidate_plan)
+            # Preserve the activation verdict as audit evidence, but do not
+            # include it in the promotion eligibility decision.
+            activation_eligible = (
+                mechanism_activation.get("passed") is True
+                if activation_required
+                else mechanism_activation.get("passed") is not False
+            )
+            eligible = core_eligible and semantic_eligible
             outcome = {
                 "candidate_id": candidate_id,
                 "candidate_index": candidate_index,
                 "status": "completed",
                 "eligible": eligible,
                 "ja_accepted": ja_accepted,
+                "ja_advisory_only": True,
                 "ja_stage": cycle.agentic_judgment.stage,
                 "ja_issues": list(cycle.agentic_judgment.issues),
                 "core_eligible": core_eligible,
                 "semantic_eligible": semantic_eligible,
                 "activation_eligible": activation_eligible,
+                "activation_required": activation_required,
+                "activation_advisory_only": True,
                 "mechanism_activation": mechanism_activation,
                 "objective_key": list(key),
                 "worker_status": cycle.worker_result.status,
@@ -632,6 +743,8 @@ def run_competing_worker_cycles(
                 "proposal_diagnostics": compact_round_proposal_diagnostics(
                     worker_proposal_diagnostics(cycle.worker_result)
                 ),
+                "local_trials": in_round_repair_summary(attempts),
+                "worker_session_id": str((selected_attempt or {}).get("session_id") or "") or None,
                 "semantic_review": semantic_review or {},
                 "cycle_dir": str(candidate_dir),
                 "worktree": str(cycle.worktree_path),
@@ -693,17 +806,46 @@ def run_competing_worker_cycles(
     has_eligible_winner = bool(eligible_completed)
     selected_plan = winner[5]
     selected_variant = selected_plan.get("candidate_variant") or {}
+    winner_attempts = winner[4]
+    winner_attempt = next(
+        (
+            item
+            for item in winner_attempts
+            if isinstance(item, dict) and item.get("disposition") == "selected"
+        ),
+        winner_attempts[-1] if winner_attempts else {},
+    )
+    best_legal_candidate = best_competition_candidate(
+        outcomes,
+        predicate=lambda item: bool(item.get("core_eligible")),
+    )
+    best_activated_candidate = best_competition_candidate(
+        outcomes,
+        predicate=lambda item: (
+            bool(item.get("core_eligible"))
+            and (item.get("mechanism_activation") or {}).get("passed") is True
+        ),
+    )
     result = {
         "status": "selected" if has_eligible_winner else "no_eligible_candidate",
         "candidate_count": len(candidate_plans),
         "eligible_candidate_count": len(eligible_completed),
         "execution_mode": "parallel" if concurrency > 1 else "serial",
         "max_concurrency": concurrency,
-        "selected_candidate_id": selected_variant.get("candidate_id") or "c00",
-        "selected_objective_key": list(winner[0]),
+        "selected_candidate_id": (
+            (selected_variant.get("candidate_id") or "c00") if has_eligible_winner else None
+        ),
+        "selected_objective_key": list(winner[0]) if has_eligible_winner else [],
+        "measured_candidate_id": selected_variant.get("candidate_id") or "c00",
+        "measured_objective_key": list(winner[0]),
+        "continued_session_id": initial_session_id,
+        "selected_session_id": str(winner_attempt.get("session_id") or "") or None,
         "selected_for_promotion": has_eligible_winner,
         "selected_for_promotion_check": has_eligible_winner,
         "selection_rule": "best Core objective among JA/Core/semantic-eligible isolated candidates",
+        "activation_advisory_only": True,
+        "best_legal_candidate": best_legal_candidate,
+        "best_activated_candidate": best_activated_candidate,
         "candidates": outcomes,
     }
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -712,6 +854,32 @@ def run_competing_worker_cycles(
         encoding="utf-8",
     )
     return winner[2], winner[3], winner[4], result, selected_plan
+
+
+def best_competition_candidate(
+    outcomes: list[dict[str, Any]],
+    *,
+    predicate: Callable[[dict[str, Any]], bool],
+) -> dict[str, Any] | None:
+    eligible = [
+        item
+        for item in outcomes
+        if item.get("status") == "completed"
+        and predicate(item)
+        and not _all_negative_infinity(tuple(float(value) for value in item.get("objective_key") or []))
+    ]
+    if not eligible:
+        return None
+    winner = max(eligible, key=lambda item: tuple(float(value) for value in item["objective_key"]))
+    return {
+        "candidate_id": winner.get("candidate_id"),
+        "objective_key": list(winner.get("objective_key") or []),
+        "worktree": winner.get("worktree"),
+        "summary": winner.get("summary") or {},
+        "mechanism_activation": winner.get("mechanism_activation") or {},
+        "ja_accepted": winner.get("ja_accepted"),
+        "semantic_eligible": winner.get("semantic_eligible"),
+    }
 
 
 def competitive_direction_plans(direction_plan: dict[str, Any], *, limit: int) -> list[dict[str, Any]]:
@@ -750,11 +918,10 @@ def competitive_direction_plans(direction_plan: dict[str, Any], *, limit: int) -
             if variant.get(name):
                 plan[name] = variant[name]
         parent_stage = str(plan.get("experiment_stage") or "probe").strip()
-        experiment_stage = (
-            "research_tournament"
-            if parent_stage == "research_tournament"
-            else str(variant.get("experiment_stage") or parent_stage).strip()
-        )
+        # Candidate variants cannot escalate a probe/scale round into a
+        # cross-family tournament. That transition belongs to Main's
+        # round-level research state and, when enabled, applies to every lane.
+        experiment_stage = "research_tournament" if parent_stage == "research_tournament" else parent_stage
         plan["experiment_stage"] = experiment_stage
         if experiment_stage == "research_tournament":
             for name in ("method_family", "method_families", "method_package_id", "knowledge_query"):
@@ -782,8 +949,9 @@ def evaluate_mechanism_activation(
     """Evaluate telemetry assertions proving that the proposed mechanism ran.
 
     Activation is deliberately separate from solution quality. A failed required
-    assertion makes the experiment inconclusive and ineligible for promotion; a
-    plan without assertions retains backward-compatible behavior.
+    assertion makes the mechanism claim inconclusive but does not block promotion.
+    A plan without assertions is unverifiable and reports an unknown result,
+    rather than falsely passing or being conflated with a declared failure.
     """
 
     checks = [
@@ -794,13 +962,18 @@ def evaluate_mechanism_activation(
     if not checks:
         return {
             "status": "not_declared",
-            "passed": True,
+            "passed": None,
             "declared_check_count": 0,
             "required_check_count": 0,
+            "required_failure_count": 0,
             "checks": [],
         }
 
-    payload = summary_payload(summary)
+    evidence_payloads = [
+        item
+        for item in summary.activation_evidence or []
+        if isinstance(item, dict)
+    ] or [summary_payload(summary)]
     evaluated: list[dict[str, Any]] = []
     required_failures = 0
     for index, check in enumerate(checks):
@@ -808,12 +981,41 @@ def evaluate_mechanism_activation(
         operator = str(check.get("operator") or "exists").strip().lower()
         expected = check.get("expected", check.get("value"))
         required = check.get("required") is not False
-        found, observed = _resolve_activation_path(payload, path)
-        passed = _activation_predicate(
-            found=found,
-            observed=observed,
-            operator=operator,
-            expected=expected,
+        aggregation = str(check.get("aggregation") or "any").strip().lower()
+        if aggregation not in {"any", "all", "min_passes"}:
+            aggregation = "any"
+        min_passes = max(1, int(check.get("min_passes") or 1))
+        observations: list[dict[str, Any]] = []
+        for evidence_index, payload in enumerate(evidence_payloads):
+            found, observed, resolved_path = _resolve_activation_path_with_canonical(payload, path)
+            observation_passed = _activation_predicate(
+                found=found,
+                observed=observed,
+                operator=operator,
+                expected=expected,
+            )
+            observations.append(
+                {
+                    "experiment_id": payload.get("experiment_id") or summary.best_experiment_id,
+                    "instance_id": payload.get("instance_id"),
+                    "seed": payload.get("seed"),
+                    "evidence_index": evidence_index,
+                    "found": found,
+                    "observed": observed,
+                    "resolved_path": resolved_path,
+                    "passed": observation_passed,
+                }
+            )
+        pass_count = sum(1 for item in observations if item["passed"])
+        if aggregation == "all":
+            passed = bool(observations) and pass_count == len(observations)
+        elif aggregation == "min_passes":
+            passed = pass_count >= min_passes
+        else:
+            passed = pass_count > 0
+        representative = next(
+            (item for item in observations if item["passed"]),
+            observations[0],
         )
         if required and not passed:
             required_failures += 1
@@ -821,12 +1023,19 @@ def evaluate_mechanism_activation(
             {
                 "id": str(check.get("id") or f"activation_{index + 1}")[:80],
                 "path": path,
+                "resolved_path": resolved_path,
                 "operator": operator,
                 "expected": expected,
                 "required": required,
-                "found": found,
-                "observed": observed,
+                "aggregation": aggregation,
+                "min_passes": min_passes,
+                "evaluated_run_count": len(observations),
+                "passed_run_count": pass_count,
+                "found": any(item["found"] for item in observations),
+                "observed": representative["observed"],
+                "resolved_path": representative["resolved_path"],
                 "passed": passed,
+                "observations": observations[:16],
                 "description": str(check.get("description") or "")[:500],
             }
         )
@@ -842,6 +1051,28 @@ def evaluate_mechanism_activation(
 
 
 def _resolve_activation_path(payload: Any, path: str) -> tuple[bool, Any]:
+    found, observed, _resolved_path = _resolve_activation_path_with_canonical(payload, path)
+    return found, observed
+
+
+def _resolve_activation_path_with_canonical(
+    payload: Any,
+    path: str,
+) -> tuple[bool, Any, str | None]:
+    candidates = [path]
+    if path.startswith("diagnostics."):
+        candidates.append(f"best_metrics.solver_evidence.{path}")
+    elif path != "diagnostics":
+        candidates.append(f"best_metrics.solver_evidence.diagnostics.{path}")
+
+    for candidate in _dedupe(candidates):
+        found, observed = _resolve_dotted_path(payload, candidate)
+        if found:
+            return True, observed, candidate
+    return False, None, None
+
+
+def _resolve_dotted_path(payload: Any, path: str) -> tuple[bool, Any]:
     current = payload
     for segment in (item for item in path.split(".") if item):
         if isinstance(current, dict) and segment in current:
@@ -915,19 +1146,37 @@ def run_worker_cycle_with_in_round_repairs(
     assignment_issuer: DirectionPlanningAgent | None = None,
     worker_input_root: Path | None = None,
     user_intervention: dict[str, Any] | None = None,
+    initial_session_id: str | None = None,
     cancellation: CancellationToken | None = None,
 ) -> tuple[Any, Path, list[dict[str, Any]]]:
-    """在同一方向内修补候选，修补耗尽后才把该方向记为失败。
+    """Run one checkpoint batch of same-direction Trials and return its best result.
 
-    触发修补的不只是语法/合法性错误；合法但不优于 incumbent 的候选也可
-    在剩余预算内继续细化。后续 attempt 从上一 attempt 的 worktree 出发，
-    因而修的是同一实现方向，而不是重新生成无关 solver。
+    Session-capable Workers keep one model session across checkpoint batches
+    until the user accepts a direction pivot. Harness feedback is attached to
+    every new assignment, and later degraded trials do not replace the best
+    Core-valid, semantic-valid, activated parent.
     """
 
     max_repair_attempts = max(0, int(repair_attempts))
     attempts: list[dict[str, Any]] = []
     last_cycle: Any | None = None
     last_context_packet_path = output_dir / "context_packet.json"
+    best_cycle: Any | None = None
+    best_context_packet_path: Path | None = None
+    best_assignment_path: Path | None = None
+    best_attempt: dict[str, Any] | None = None
+    best_key: tuple[float, ...] | None = None
+    termination_reason = "checkpoint_interval_reached"
+    worker_session_id = str(initial_session_id or "").strip() or None
+    try:
+        session_reuse_enabled = bool(worker.capabilities().supports_session_reuse)
+    except Exception:  # noqa: BLE001 - optional capability must fail closed.
+        session_reuse_enabled = False
+    local_trial_count = (
+        max(1, max_repair_attempts)
+        if session_reuse_enabled
+        else max_repair_attempts + 1
+    )
     direction_project_root = project_root
     parent_assignment_path: Path | None = None
     planner = assignment_issuer or EvidenceDrivenMainAgent()
@@ -945,7 +1194,7 @@ def run_worker_cycle_with_in_round_repairs(
             output_dir=output_dir / "main_agent_fallback",
         )
     )
-    for attempt_index in range(max_repair_attempts + 1):
+    for attempt_index in range(local_trial_count):
         if cancellation is not None:
             cancellation.raise_if_cancelled()
         attempt_dir = output_dir if attempt_index == 0 else output_dir / f"repair_{attempt_index:03d}"
@@ -953,8 +1202,10 @@ def run_worker_cycle_with_in_round_repairs(
         repair_feedback = (
             current_round_repair_feedback(
                 attempt_index=attempt_index,
-                max_repair_attempts=max_repair_attempts,
+                max_repair_attempts=max(0, local_trial_count - 1),
                 previous_attempts=attempts,
+                repair_anchor=best_attempt,
+                local_trial_refinement=session_reuse_enabled,
             )
             if attempt_index > 0
             else None
@@ -992,6 +1243,7 @@ def run_worker_cycle_with_in_round_repairs(
                 parent_assignment_path=parent_assignment_path,
             ),
         )
+        requested_session_id = worker_session_id if session_reuse_enabled else None
         last_cycle = run_worker_cycle(
             contract=contract,
             project_root=direction_project_root,
@@ -1004,8 +1256,19 @@ def run_worker_cycle_with_in_round_repairs(
             apply_worker_changes=apply_worker_changes,
             worker_assignment_path=assignment_issue.artifact_path,
             worker_input_root=worker_input_root,
+            session_id=requested_session_id,
+            local_trial_index=attempt_index,
+            local_trial_count=local_trial_count,
             cancellation=cancellation,
         )
+        artifacts = last_cycle.worker_result.artifacts or {}
+        session_telemetry = worker_session_telemetry(
+            artifacts,
+            requested_session_id=requested_session_id,
+        )
+        observed_session_id = str(session_telemetry.get("observed_session_id") or "").strip()
+        if session_reuse_enabled and observed_session_id:
+            worker_session_id = observed_session_id
         semantic_review = run_algorithm_semantic_review(
             reviewer=semantic_reviewer,
             cycle=last_cycle,
@@ -1026,20 +1289,159 @@ def run_worker_cycle_with_in_round_repairs(
         )
         attempt_payload["worker_assignment_path"] = str(assignment_issue.artifact_path)
         attempt_payload["assignment_id"] = assignment_issue.assignment.assignment_id
+        attempt_payload["local_trial_index"] = attempt_index + 1
+        attempt_payload["local_trial_count"] = local_trial_count
+        attempt_payload["session_id"] = worker_session_id
+        attempt_payload.update(session_telemetry)
+        attempt_payload["parent_attempt_index"] = (
+            best_attempt.get("attempt_index") if isinstance(best_attempt, dict) else None
+        )
+        mechanism_activation = evaluate_mechanism_activation(effective_direction_plan, last_cycle.summary)
+        attempt_payload["mechanism_activation"] = mechanism_activation
+        attempt_payload["activation_required"] = activation_contract_required(effective_direction_plan)
         attempts.append(attempt_payload)
-        parent_assignment_path = assignment_issue.artifact_path
-        # 严格提升且各门禁通过时立即结束；不可修复的 provider 故障也不盲重试。
-        if attempt_index >= max_repair_attempts or not should_attempt_in_round_repair(
+
+        candidate_key = summary_objective_key(last_cycle.summary, contract.objectives)
+        candidate_eligible = local_trial_candidate_eligible(
+            last_cycle,
+            candidate_key=candidate_key,
+            semantic_review=semantic_review,
+            mechanism_activation=mechanism_activation,
+            activation_required=attempt_payload["activation_required"],
+        )
+        improved_parent = candidate_eligible and (best_key is None or candidate_key > best_key)
+        if improved_parent:
+            best_cycle = last_cycle
+            best_context_packet_path = last_context_packet_path
+            best_assignment_path = assignment_issue.artifact_path
+            best_attempt = attempt_payload
+            best_key = candidate_key
+
+        if attempt_index >= local_trial_count - 1:
+            termination_reason = "checkpoint_interval_reached"
+            break
+        if is_nonrepairable_worker_failure(last_cycle):
+            termination_reason = "nonrepairable_worker_failure"
+            break
+        if not session_reuse_enabled and not should_attempt_in_round_repair(
             last_cycle,
             incumbent_key=incumbent_key,
             semantic_review=semantic_review,
         ):
+            termination_reason = "repair_not_required"
             break
-        direction_project_root = Path(last_cycle.worktree_path)
+
+        if best_cycle is not None:
+            direction_project_root = Path(best_cycle.worktree_path)
+            parent_assignment_path = best_assignment_path
+        else:
+            direction_project_root = Path(last_cycle.worktree_path)
+            parent_assignment_path = assignment_issue.artifact_path
 
     if last_cycle is None:
         raise RuntimeError("worker cycle did not produce an attempt")
-    return last_cycle, last_context_packet_path, attempts
+    selected_cycle = best_cycle or last_cycle
+    selected_context_packet_path = best_context_packet_path or last_context_packet_path
+    selected_attempt = best_attempt or attempts[-1]
+    for item in attempts:
+        item["disposition"] = "selected" if item is selected_attempt else "rejected"
+        item["termination_reason"] = termination_reason if item is attempts[-1] else None
+    output_dir.mkdir(parents=True, exist_ok=True)
+    ledger_path = output_dir / "local_trial_ledger.json"
+    ledger_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "direction_id": effective_direction_plan.get("direction_id"),
+                "session_reuse_enabled": session_reuse_enabled,
+                "session_id": worker_session_id,
+                "checkpoint_interval": local_trial_count,
+                "direction_change_requires_user_confirmation": True,
+                "selected_attempt_index": selected_attempt.get("attempt_index"),
+                "termination_reason": termination_reason,
+                "attempts": attempts,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    attempts[-1]["local_trial_ledger_path"] = str(ledger_path.resolve())
+    return selected_cycle, selected_context_packet_path, attempts
+
+
+def worker_session_telemetry(
+    artifacts: dict[str, Any],
+    *,
+    requested_session_id: str | None,
+) -> dict[str, Any]:
+    """Distinguish requested continuity from a session proven in the event stream."""
+
+    requested = str(requested_session_id or "").strip() or None
+    observed = str(
+        artifacts.get("observed_session_id") or artifacts.get("session_id") or ""
+    ).strip() or None
+    has_runtime_telemetry = any(
+        key in artifacts
+        for key in (
+            "requested_session_id",
+            "command_session_id",
+            "observed_session_id",
+            "resume_strategy",
+            "event_stream_bytes",
+        )
+    )
+    commanded = str(artifacts.get("command_session_id") or "").strip() or None
+    if not has_runtime_telemetry and requested:
+        # Compatibility for non-OpenCode Workers that expose only session_id.
+        commanded = requested
+    event_stream_bytes: int | None = None
+    if "event_stream_bytes" in artifacts:
+        try:
+            event_stream_bytes = max(0, int(artifacts["event_stream_bytes"]))
+        except (TypeError, ValueError):
+            event_stream_bytes = 0
+    reused = bool(
+        requested
+        and commanded == requested
+        and observed == requested
+        and (event_stream_bytes is None or event_stream_bytes > 0)
+    )
+    return {
+        "session_resume_requested": bool(requested),
+        "session_resume_commanded": bool(commanded and commanded == requested),
+        "session_resume_observed": bool(observed and observed == requested),
+        "session_reused": reused,
+        "requested_session_id": requested,
+        "command_session_id": commanded,
+        "observed_session_id": observed,
+        "session_event_stream_bytes": event_stream_bytes,
+        "session_resume_strategy": str(artifacts.get("resume_strategy") or "").strip() or None,
+    }
+
+
+def local_trial_candidate_eligible(
+    cycle: Any,
+    *,
+    candidate_key: tuple[float, ...],
+    semantic_review: dict[str, Any] | None,
+    mechanism_activation: dict[str, Any],
+    activation_required: bool,
+) -> bool:
+    """Return whether a Local Trial may become the next objective parent."""
+
+    summary = getattr(cycle, "summary", None)
+    if summary is None or summary.total <= 0 or summary.valid != summary.total or summary.failed:
+        return False
+    if not candidate_key or _all_negative_infinity(candidate_key):
+        return False
+    if semantic_review_blocks_promotion(semantic_review):
+        return False
+    # Keep the arguments in this compatibility surface because callers still
+    # persist activation diagnostics, but they no longer gate parent selection.
+    del mechanism_activation, activation_required
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -1073,7 +1475,7 @@ def run_algorithm_semantic_review(
     incumbent_key: tuple[float, ...] | None = None,
     candidate_key: tuple[float, ...] | None = None,
 ) -> dict[str, Any]:
-    """只对 JA 接受、Core 合法且可能晋升的候选执行昂贵语义审查。
+    """只对 Core 合法且可能晋升的候选执行昂贵语义审查。
 
     非法或不优于 incumbent 的候选无需证明方法完整性，因为它本来就没有
     promotion 资格；这样既节省模型调用，也避免语义结果掩盖 Core 事实。
@@ -1088,17 +1490,7 @@ def run_algorithm_semantic_review(
             "findings": [],
             "reviewer": "none",
         }
-    judgment = getattr(cycle, "agentic_judgment", None)
     summary = getattr(cycle, "summary", None)
-    if judgment is None or not bool(getattr(judgment, "accepted", False)):
-        return {
-            "schema_version": 1,
-            "status": "skipped",
-            "accepted": True,
-            "summary": "Semantic review waits for JA-accepted source.",
-            "findings": [],
-            "reviewer": type(reviewer).__name__,
-        }
     if summary is None or summary.total <= 0 or summary.valid != summary.total:
         return {
             "schema_version": 1,
@@ -1217,14 +1609,6 @@ def should_attempt_in_round_repair(
     ):
         return True
 
-    judgment = getattr(cycle, "agentic_judgment", None)
-    judgment_checks = getattr(judgment, "checks", {}) if judgment is not None else {}
-    soft_accepted = bool(
-        isinstance(judgment_checks, dict)
-        and judgment_checks.get("soft_accepted_by_diagnostic_smoke")
-    )
-    if judgment is not None and not bool(getattr(judgment, "accepted", False)) and not soft_accepted:
-        return True
     summary = getattr(cycle, "summary", None)
     if summary is None:
         return False
@@ -1232,7 +1616,7 @@ def should_attempt_in_round_repair(
     valid = int(getattr(summary, "valid", 0) or 0)
     failed = int(getattr(summary, "failed", 0) or 0)
     if total == 0:
-        return False
+        return True
     if failed > 0 or valid < total:
         return True
     candidate_key = _summary_objective_key_from_cycle(cycle)
@@ -1263,11 +1647,28 @@ def is_nonrepairable_worker_failure(cycle: Any) -> bool:
     if worker_result is None:
         return False
     status = str(getattr(worker_result, "status", "") or "")
-    if status not in {"unavailable", "timeout", "failed_runtime", "authorization_required", "skipped"}:
+    if status not in {
+        "unavailable",
+        "timeout",
+        "failed_runtime",
+        "authorization_required",
+        "invalid_assignment",
+        "skipped",
+    }:
         return False
     if getattr(worker_result, "changed_files", None):
         return False
     artifacts = getattr(worker_result, "artifacts", None) or {}
+    if status == "timeout":
+        session_id = str(
+            artifacts.get("observed_session_id") or artifacts.get("session_id") or ""
+        ).strip()
+        try:
+            event_stream_bytes = int(artifacts.get("event_stream_bytes") or 0)
+        except (TypeError, ValueError):
+            event_stream_bytes = 0
+        if session_id and event_stream_bytes > 0:
+            return False
     return not bool(artifacts.get("proposal"))
 
 
@@ -1277,6 +1678,7 @@ def current_round_repair_feedback(
     max_repair_attempts: int,
     previous_attempts: list[dict[str, Any]],
     repair_anchor: dict[str, Any] | None = None,
+    local_trial_refinement: bool = False,
 ) -> dict[str, Any]:
     recent = previous_attempts[-3:]
     legal_no_improvement = any(
@@ -1289,8 +1691,14 @@ def current_round_repair_feedback(
         for attempt in recent
         if isinstance(attempt, dict)
     )
-    status = "refinement_required" if legal_no_improvement or anchor_quality_regression else "repair_required"
     repair_targets = collect_current_round_repair_targets(previous_attempts)
+    status = (
+        "repair_required"
+        if repair_targets
+        else "refinement_required"
+        if local_trial_refinement or legal_no_improvement or anchor_quality_regression
+        else "repair_required"
+    )
     anchor_summary = (
         repair_anchor.get("summary")
         if isinstance(repair_anchor, dict) and isinstance(repair_anchor.get("summary"), dict)
@@ -1336,6 +1744,7 @@ def current_round_repair_feedback(
         )
     return {
         "status": status,
+        "allow_objective_refinement": bool(local_trial_refinement),
         "attempt_index": attempt_index,
         "max_repair_attempts": max_repair_attempts,
         "previous_attempts": [
@@ -1583,9 +1992,6 @@ def attempt_failure_signatures(
     signatures: list[str] = []
     if is_nonrepairable_worker_failure(cycle):
         signatures.append("worker_infrastructure_failure")
-    judgment = getattr(cycle, "agentic_judgment", None)
-    if judgment is not None and not bool(getattr(judgment, "accepted", False)):
-        signatures.extend(str(item) for item in (getattr(judgment, "issues", []) or []) if item)
     summary = getattr(cycle, "summary", None)
     if summary is not None:
         total = int(getattr(summary, "total", 0) or 0)
@@ -1626,12 +2032,19 @@ def attempt_failure_signatures(
 def in_round_repair_summary(attempts: list[dict[str, Any]]) -> dict[str, Any]:
     repair_attempt_count = max(0, len(attempts) - 1)
     final_attempt = attempts[-1] if attempts else {}
-    final_judgment = final_attempt.get("agentic_judgment") if isinstance(final_attempt, dict) else {}
-    final_semantic_review = final_attempt.get("semantic_review") if isinstance(final_attempt, dict) else {}
-    final_summary = final_attempt.get("summary") if isinstance(final_attempt, dict) else {}
-    final_accepted = bool(isinstance(final_judgment, dict) and final_judgment.get("accepted"))
+    selected_attempt = next(
+        (
+            item
+            for item in attempts
+            if isinstance(item, dict) and item.get("disposition") == "selected"
+        ),
+        final_attempt,
+    )
+    final_semantic_review = selected_attempt.get("semantic_review") if isinstance(selected_attempt, dict) else {}
+    final_summary = selected_attempt.get("summary") if isinstance(selected_attempt, dict) else {}
     final_total = int((final_summary or {}).get("total", 0) or 0) if isinstance(final_summary, dict) else 0
     final_valid = int((final_summary or {}).get("valid", 0) or 0) if isinstance(final_summary, dict) else 0
+    final_accepted = final_total > 0 and final_valid == final_total
     return {
         "attempt_count": len(attempts),
         "repair_attempt_count": repair_attempt_count,
@@ -1641,9 +2054,20 @@ def in_round_repair_summary(attempts: list[dict[str, Any]]) -> dict[str, Any]:
             and not semantic_review_blocks_promotion(
                 final_semantic_review if isinstance(final_semantic_review, dict) else {}
             )
-            and (final_total == 0 or final_valid == final_total)
+            and final_valid == final_total
         ),
         "final_attempt_index": final_attempt.get("attempt_index"),
+        "selected_attempt_index": selected_attempt.get("attempt_index"),
+        "final_attempt_superseded": selected_attempt is not final_attempt,
+        "selection_reason": (
+            "best_valid_activated_objective"
+            if selected_attempt is not final_attempt
+            else "final_trial_selected"
+        ),
+        "session_reuse_enabled": any(bool(item.get("session_id")) for item in attempts),
+        "reused_trial_count": sum(1 for item in attempts if item.get("session_reused")),
+        "termination_reason": final_attempt.get("termination_reason"),
+        "ledger_path": final_attempt.get("local_trial_ledger_path"),
         "attempts": attempts,
     }
 
@@ -1652,7 +2076,42 @@ def normalize_baseline_source(value: str) -> str:
     normalized = str(value or "current_project").strip().lower().replace("-", "_")
     if normalized in {"agent", "agent_generated", "agent_written", "generated"}:
         return "agent_generated"
+    if normalized in {"provided", "provided_project", "starter_project", "uploaded_project"}:
+        return "provided_project"
     return "current_project"
+
+
+def continuing_direction_worker_session(
+    previous_round: LoopRoundRecord | None,
+    proposed_direction: dict[str, Any],
+) -> str | None:
+    """Carry the winning Worker session until an explicit direction pivot."""
+
+    if previous_round is None or not previous_round.worker_session_id:
+        return None
+    previous_plan = previous_round.direction_plan or {}
+    previous_family = primary_method_family(previous_plan)
+    proposed_family = primary_method_family(proposed_direction)
+    if not previous_family or previous_family != proposed_family:
+        return None
+    stage = str(proposed_direction.get("experiment_stage") or "").strip().lower().replace("-", "_")
+    if stage in {"pivot", "research_tournament"}:
+        return None
+    return previous_round.worker_session_id
+
+
+def primary_method_family(plan: dict[str, Any]) -> str:
+    direct = str(plan.get("method_family") or "").strip().lower()
+    if direct:
+        return direct
+    for item in plan.get("method_families") or []:
+        if isinstance(item, dict):
+            family = str(item.get("id") or "").strip().lower()
+        else:
+            family = str(item or "").strip().lower()
+        if family:
+            return family
+    return ""
 
 
 def agent_generated_baseline_is_accepted(
@@ -1663,11 +2122,6 @@ def agent_generated_baseline_is_accepted(
 ) -> bool:
     if not isinstance(baseline_generation, dict) or baseline_generation.get("source") != "agent_generated":
         return False
-    judgment = (
-        baseline_generation.get("agentic_judgment")
-        if isinstance(baseline_generation.get("agentic_judgment"), dict)
-        else {}
-    )
     semantic_review = (
         baseline_generation.get("semantic_review")
         if isinstance(baseline_generation.get("semantic_review"), dict)
@@ -1675,7 +2129,6 @@ def agent_generated_baseline_is_accepted(
     )
     return (
         baseline_generation.get("status") == "ok"
-        and bool(judgment.get("accepted"))
         and not semantic_review_blocks_baseline_acceptance(semantic_review)
         and baseline_summary.total > 0
         and baseline_summary.valid == baseline_summary.total
@@ -1698,13 +2151,6 @@ def agent_generated_baseline_failure_reason(
     generation_status = str(baseline_generation.get("status") or "")
     if generation_status and generation_status != "ok":
         return generation_status
-    judgment = (
-        baseline_generation.get("agentic_judgment")
-        if isinstance(baseline_generation.get("agentic_judgment"), dict)
-        else {}
-    )
-    if not bool(judgment.get("accepted")):
-        return "judgment_rejected"
     semantic_review = (
         baseline_generation.get("semantic_review")
         if isinstance(baseline_generation.get("semantic_review"), dict)
@@ -1722,12 +2168,9 @@ def agent_generated_baseline_failure_reason(
 
 
 def agent_generated_baseline_cycle_is_core_accepted(cycle: Any) -> bool:
-    judgment = getattr(cycle, "agentic_judgment", None)
     summary = getattr(cycle, "summary", None)
     return (
-        judgment is not None
-        and bool(getattr(judgment, "accepted", False))
-        and summary is not None
+        summary is not None
         and int(getattr(summary, "total", 0) or 0) > 0
         and int(getattr(summary, "valid", 0) or 0) == int(getattr(summary, "total", 0) or 0)
     )
@@ -1824,12 +2267,10 @@ def agent_generated_baseline_cycle_rank(
     objectives: list[ObjectiveSpec],
     semantic_review: dict[str, Any] | None = None,
 ) -> tuple[float, ...]:
-    judgment = getattr(cycle, "agentic_judgment", None)
     summary = getattr(cycle, "summary", None)
     worker_result = getattr(cycle, "worker_result", None)
     changed_files = list(getattr(worker_result, "changed_files", []) or [])
     has_changed_files = bool(changed_files)
-    agentic_accepted = bool(judgment is not None and getattr(judgment, "accepted", False))
     core_total = int(getattr(summary, "total", 0) or 0) if summary is not None else 0
     core_valid = int(getattr(summary, "valid", 0) or 0) if summary is not None else 0
     diagnostic = getattr(cycle, "diagnostic_smoke_summary", None)
@@ -1839,13 +2280,9 @@ def agent_generated_baseline_cycle_rank(
 
     scored_summary = summary if core_total > 0 and core_valid == core_total else diagnostic
     objective_key = summary_objective_key(scored_summary, objectives) if scored_summary is not None else ()
-    if agentic_accepted and core_total > 0 and core_valid == core_total:
+    if core_total > 0 and core_valid == core_total:
         semantic_rank = 900 + 25 * semantic_review_baseline_rank(semantic_review)
         return (semantic_rank, *objective_key, attempt_index)
-    if agentic_accepted and has_changed_files:
-        return (400, *objective_key, attempt_index)
-    if core_total > 0 and core_valid == core_total and has_changed_files:
-        return (350, *objective_key, attempt_index)
     if diagnostic_total > 0 and diagnostic_valid == diagnostic_total and has_changed_files:
         return (300, *objective_key, attempt_index)
     if has_changed_files:
@@ -1867,7 +2304,7 @@ def agent_generated_baseline_selection_reason(
             return "core_evaluator_valid_with_incomplete_semantic_coverage"
         if semantic_review_blocks_baseline_acceptance(semantic_review):
             return "core_evaluator_valid_but_algorithm_semantic_repair_required"
-        return "agentic_judgment_accepted_and_core_evaluator_valid"
+        return "core_evaluator_valid"
     worker_result = getattr(cycle, "worker_result", None)
     diagnostic = getattr(cycle, "diagnostic_smoke_summary", None)
     if (
@@ -1919,8 +2356,15 @@ def run_agent_generated_baseline(
         output_dir=baseline_dir,
     )
     max_repair_attempts = max(0, int(repair_attempts))
+    local_trial_count = max_repair_attempts + 1
+    worker_session_id: str | None = None
+    try:
+        session_reuse_enabled = bool(worker.capabilities().supports_session_reuse)
+    except Exception:  # noqa: BLE001 - optional capability must fail closed.
+        session_reuse_enabled = False
     baseline_context_path = baseline_dir / "context_packet.json"
     attempts: list[dict[str, Any]] = []
+    baseline_stage = 1
     try:
         cycle: Any | None = None
         cycle_attempts: list[tuple[int, Any, Path, dict[str, Any]]] = []
@@ -1928,7 +2372,7 @@ def run_agent_generated_baseline(
         repair_anchor_attempt_index: int | None = None
         parent_assignment_path: Path | None = None
         planner = assignment_issuer or EvidenceDrivenMainAgent()
-        for attempt_index in range(max_repair_attempts + 1):
+        for attempt_index in range(local_trial_count):
             if cancellation is not None:
                 cancellation.raise_if_cancelled()
             attempt_dir = baseline_dir if attempt_index == 0 else baseline_dir / f"repair_{attempt_index:03d}"
@@ -1946,10 +2390,19 @@ def run_agent_generated_baseline(
                     max_repair_attempts=max_repair_attempts,
                     previous_attempts=attempts,
                     repair_anchor=repair_anchor_attempt,
+                    local_trial_refinement=bool(
+                        isinstance(repair_anchor_attempt, dict)
+                        and int((repair_anchor_attempt.get("summary") or {}).get("total", 0) or 0) > 0
+                        and int((repair_anchor_attempt.get("summary") or {}).get("valid", 0) or 0)
+                        == int((repair_anchor_attempt.get("summary") or {}).get("total", 0) or 0)
+                    ),
                 )
                 if attempt_index > 0
                 else None
             )
+            if repair_feedback is not None:
+                repair_feedback["baseline_trial"] = baseline_stage
+                repair_feedback["resume_incomplete_baseline"] = baseline_stage == 1
             baseline_context_path = write_baseline_generation_context_packet(
                 base_context_packet_path=context_packet_path,
                 output_path=attempt_dir / "context_packet.json",
@@ -1972,6 +2425,7 @@ def run_agent_generated_baseline(
                     parent_assignment_path=parent_assignment_path,
                 ),
             )
+            requested_session_id = worker_session_id if session_reuse_enabled else None
             cycle = run_worker_cycle(
                 contract=contract,
                 project_root=repair_project_root,
@@ -1984,8 +2438,20 @@ def run_agent_generated_baseline(
                 apply_worker_changes=True,
                 worker_assignment_path=assignment_issue.artifact_path,
                 worker_input_root=project_root,
+                session_id=requested_session_id,
+                local_trial_index=attempt_index,
+                local_trial_count=local_trial_count,
                 cancellation=cancellation,
             )
+            session_telemetry = worker_session_telemetry(
+                cycle.worker_result.artifacts or {},
+                requested_session_id=requested_session_id,
+            )
+            observed_session_id = str(
+                session_telemetry.get("observed_session_id") or ""
+            ).strip()
+            if session_reuse_enabled and observed_session_id:
+                worker_session_id = observed_session_id
             # baseline 尚无正式 incumbent，因此单独保存迄今最强的 Core 合法
             # attempt。后续修补若退化，会回到该锚点继续，而不是越修越差。
             prior_core_anchor = select_best_core_valid_baseline_cycle(
@@ -2033,6 +2499,11 @@ def run_agent_generated_baseline(
             attempt_payload["worker_assignment_path"] = str(assignment_issue.artifact_path)
             attempt_payload["assignment_id"] = assignment_issue.assignment.assignment_id
             attempt_payload["repair_base_attempt_index"] = repair_anchor_attempt_index
+            attempt_payload["local_trial_index"] = attempt_index + 1
+            attempt_payload["local_trial_count"] = local_trial_count
+            attempt_payload["baseline_trial"] = baseline_stage
+            attempt_payload["session_id"] = worker_session_id
+            attempt_payload.update(session_telemetry)
             attempts.append(attempt_payload)
             parent_assignment_path = assignment_issue.artifact_path
             cycle_attempts.append((attempt_index, cycle, baseline_context_path, semantic_review))
@@ -2056,11 +2527,24 @@ def run_agent_generated_baseline(
                     "candidate_key": list(candidate_key),
                     "repair_required": True,
                 }
-            if semantic_passed:
+            completed_baseline_stage = baseline_stage
+            if agent_generated_baseline_cycle_is_core_accepted(cycle):
+                baseline_stage = min(3, baseline_stage + 1)
+            staged_baseline_trial_remaining = (
+                attempt_index < max_repair_attempts
+                and completed_baseline_stage < 3
+                and agent_generated_baseline_cycle_is_core_accepted(cycle)
+                and not is_nonrepairable_worker_failure(cycle)
+            )
+            if semantic_passed and not staged_baseline_trial_remaining:
                 break
-            should_repair = anchor_quality_regressed or should_attempt_in_round_repair(
-                cycle,
-                semantic_review=semantic_review,
+            should_repair = (
+                staged_baseline_trial_remaining
+                or anchor_quality_regressed
+                or should_attempt_in_round_repair(
+                    cycle,
+                    semantic_review=semantic_review,
+                )
             )
             if attempt_index >= max_repair_attempts or not should_repair:
                 break
@@ -2568,6 +3052,120 @@ def summary_payload(summary: RunSummary) -> dict[str, Any]:
     }
 
 
+def candidate_incumbent_from_baseline(
+    *,
+    objective_key: tuple[float, ...],
+    worktree: Path,
+    summary: RunSummary,
+) -> CandidateIncumbent | None:
+    if _all_negative_infinity(objective_key):
+        return None
+    return CandidateIncumbent(
+        objective_key=objective_key,
+        worktree=worktree.resolve(),
+        candidate_id="baseline",
+        round_index=-1,
+        summary=summary_payload(summary),
+        activation_status=None,
+    )
+
+
+def update_candidate_incumbent(
+    current: CandidateIncumbent | None,
+    candidate: Any,
+    *,
+    round_index: int,
+) -> CandidateIncumbent | None:
+    if not isinstance(candidate, dict):
+        return current
+    key_values = candidate.get("objective_key") or []
+    worktree_value = str(candidate.get("worktree") or "").strip()
+    if not key_values or not worktree_value:
+        return current
+    objective_key = tuple(float(value) for value in key_values)
+    if _all_negative_infinity(objective_key):
+        return current
+    worktree = Path(worktree_value).resolve()
+    if not worktree.exists() or (current is not None and objective_key <= current.objective_key):
+        return current
+    activation = candidate.get("mechanism_activation") or {}
+    return CandidateIncumbent(
+        objective_key=objective_key,
+        worktree=worktree,
+        candidate_id=str(candidate.get("candidate_id") or "unknown"),
+        round_index=round_index,
+        summary=dict(candidate.get("summary") or {}),
+        activation_status=str(activation.get("status") or "") or None,
+    )
+
+
+def candidate_incumbent_payload(value: CandidateIncumbent | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    return {
+        "objective_key": list(value.objective_key),
+        "worktree": str(value.worktree),
+        "candidate_id": value.candidate_id,
+        "round_index": value.round_index,
+        "summary": bounded_candidate_incumbent_summary(value.summary),
+        "activation_status": value.activation_status,
+    }
+
+
+def bounded_candidate_incumbent_summary(value: Any) -> dict[str, Any]:
+    """Project only bounded decision evidence for secondary incumbent tiers."""
+
+    summary = value if isinstance(value, dict) else {}
+    projected = {
+        "total": summary.get("total"),
+        "valid": summary.get("valid"),
+        "failed": summary.get("failed"),
+        "best_experiment_id": summary.get("best_experiment_id"),
+        "best_metrics": summary.get("best_metrics") or {},
+        "best_candidate_id": summary.get("best_candidate_id"),
+        "best_candidate_metrics": summary.get("best_candidate_metrics"),
+        "validation_summary": summary.get("validation_summary") or {},
+    }
+    return compact_json(projected, max_chars=12_000).payload
+
+
+def activation_contract_required(direction_plan: Any) -> bool:
+    if not isinstance(direction_plan, dict):
+        return False
+    try:
+        return int(direction_plan.get("activation_contract_version") or 0) >= 1
+    except (TypeError, ValueError):
+        return False
+
+
+def candidate_incumbent_from_payload(value: Any) -> CandidateIncumbent | None:
+    if not isinstance(value, dict):
+        return None
+    worktree_value = str(value.get("worktree") or "").strip()
+    key_values = value.get("objective_key") or []
+    if not worktree_value or not key_values:
+        return None
+    worktree = Path(worktree_value).resolve()
+    if not worktree.exists():
+        return None
+    try:
+        objective_key = tuple(float(item) for item in key_values)
+        round_index = int(value.get("round_index", -1))
+        summary = dict(value.get("summary") or {})
+    except (TypeError, ValueError):
+        return None
+    if not objective_key or any(math.isnan(item) for item in objective_key):
+        return None
+    return CandidateIncumbent(
+        objective_key=objective_key,
+        worktree=worktree,
+        candidate_id=str(value.get("candidate_id") or "unknown"),
+        round_index=round_index,
+        summary=summary,
+        activation_status=str(value.get("activation_status") or "") or None,
+    )
+
+
 # ---------------------------------------------------------------------------
 # 轮间记忆：把完整历史压缩成下一轮真正需要的保护项、失败项和经验层级。
 # ---------------------------------------------------------------------------
@@ -2581,6 +3179,8 @@ def loop_feedback_payload(
     incumbent_key_before: tuple[float, ...],
     incumbent_worktree: Path,
     previous_rounds: list[LoopRoundRecord],
+    best_legal_incumbent: CandidateIncumbent | None = None,
+    best_activated_incumbent: CandidateIncumbent | None = None,
     baseline_generation: dict[str, Any] | None = None,
     current_round_repair: dict[str, Any] | None = None,
     current_direction_plan: dict[str, Any] | None = None,
@@ -2648,6 +3248,18 @@ def loop_feedback_payload(
         "baseline_key": list(baseline_key),
         "incumbent_key_before": list(incumbent_key_before),
         "incumbent_worktree": str(incumbent_worktree),
+        "incumbent_tiers": {
+            "promoted": {
+                "objective_key": list(incumbent_key_before),
+                "worktree": str(incumbent_worktree),
+            },
+            "best_legal": candidate_incumbent_payload(best_legal_incumbent),
+            "best_activated": candidate_incumbent_payload(best_activated_incumbent),
+            "rule": (
+                "Only promoted is the editing base. Best-legal and best-activated are retained "
+                "as evidence/recovery anchors and never bypass promotion gates."
+            ),
+        },
         "baseline_summary": summary_payload(baseline_summary),
         "incumbent_summary": incumbent_summary,
         "agent_generated_baseline_memory": baseline_memory,
@@ -2689,6 +3301,266 @@ def loop_feedback_payload(
     return payload
 
 
+DIRECTION_PATCH_ACTIONS = {"accept", "continue", "revise", "pivot", "research_tournament"}
+DIRECTION_PATCH_FIELDS = {
+    "title",
+    "strategy_type",
+    "hypothesis",
+    "worker_objective",
+    "diagnosis",
+    "experiment_stage",
+    "method_family",
+    "method_families",
+    "knowledge_query",
+    "observed_shortcomings",
+    "reasoning_trace",
+    "incumbent_assessment",
+    "evidence_summary",
+    "direction_judgment",
+    "alternatives_considered",
+    "selection_rationale",
+    "preserve",
+    "change_scope",
+    "next_mutation",
+    "implementation_order",
+    "deliverables",
+    "avoid",
+    "knowledge_paths",
+    "method_package_id",
+    "acceptance_checks",
+    "activation_checks",
+    "stop_conditions",
+    "completion_rule",
+    "candidate_variants",
+}
+DIRECTION_FAMILY_FIELDS = {
+    "method_family",
+    "method_families",
+    "knowledge_query",
+    "method_package_id",
+}
+DIRECTION_NON_CLEARABLE_FIELDS = {
+    "method_family",
+    "method_families",
+    "knowledge_query",
+    "candidate_variants",
+    "activation_checks",
+}
+DIRECTION_PIVOT_FIELDS = {
+    "title",
+    "strategy_type",
+    "hypothesis",
+    "worker_objective",
+    "diagnosis",
+    "experiment_stage",
+    "method_family",
+    "method_families",
+    "knowledge_query",
+    "method_package_id",
+    "change_scope",
+    "next_mutation",
+    "candidate_variants",
+    "activation_checks",
+}
+
+
+def normalize_user_intervention(value: Any, *, round_index: int) -> dict[str, Any]:
+    """Turn UI text or an API patch into one versioned between-round contract."""
+
+    raw = value if isinstance(value, dict) else {}
+    patch_raw = raw.get("direction_patch") if isinstance(raw.get("direction_patch"), dict) else raw
+    direction = str(raw.get("direction") if raw else value or "").strip()[:4_000]
+    action = str(patch_raw.get("action") or "revise").strip().lower().replace("-", "_")
+    if action not in DIRECTION_PATCH_ACTIONS:
+        action = "revise"
+    set_payload = {
+        str(key): item
+        for key, item in (patch_raw.get("set") or {}).items()
+        if str(key) in DIRECTION_PATCH_FIELDS
+    } if isinstance(patch_raw.get("set"), dict) else {}
+    clear_fields = [
+        str(item)
+        for item in patch_raw.get("clear_fields") or patch_raw.get("clear") or []
+        if str(item) in DIRECTION_PATCH_FIELDS
+    ]
+    return {
+        "schema_version": 1,
+        "direction": direction,
+        "applies_to_round": round_index,
+        "source": str(raw.get("source") or "user_between_rounds")[:80],
+        "direction_patch": {
+            "schema_version": 1,
+            "action": action,
+            "instructions": str(patch_raw.get("instructions") or direction)[:4_000],
+            "set": set_payload,
+            "set_fields": [
+                str(item)
+                for item in patch_raw.get("set_fields") or []
+                if str(item) in DIRECTION_PATCH_FIELDS
+            ],
+            "clear_fields": clear_fields,
+            "preserve_unspecified": True,
+        },
+    }
+
+
+def apply_user_direction_revision(
+    original: dict[str, Any],
+    revised: dict[str, Any],
+    *,
+    user_intervention: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Apply a planner revision as a validated field patch over the original plan."""
+
+    requested = dict(user_intervention.get("direction_patch") or {})
+    declared = (
+        dict(revised.get("user_revision_patch"))
+        if isinstance(revised.get("user_revision_patch"), dict)
+        else {}
+    )
+    fallback_revision = str(revised.get("planner") or "") == "evidence_fallback"
+    action = str(declared.get("action") or requested.get("action") or "revise").strip().lower()
+    if action not in DIRECTION_PATCH_ACTIONS:
+        action = "revise"
+    explicit_set = dict(requested.get("set") or {})
+    if isinstance(declared.get("set"), dict):
+        explicit_set.update(declared["set"])
+    set_fields = [
+        str(item)
+        for item in declared.get("set_fields") or requested.get("set_fields") or []
+        if str(item) in DIRECTION_PATCH_FIELDS
+    ]
+    clear_fields = [
+        str(item)
+        for item in [
+            *(requested.get("clear_fields") or []),
+            *(declared.get("clear_fields") or []),
+        ]
+        if str(item) in DIRECTION_PATCH_FIELDS
+    ]
+
+    patch_values: dict[str, Any] = {
+        key: value for key, value in explicit_set.items() if key in DIRECTION_PATCH_FIELDS
+    }
+    source = "planner_fallback_explicit_only" if fallback_revision else "declared_patch"
+    if set_fields and not fallback_revision:
+        for field in set_fields:
+            if field in revised:
+                patch_values[field] = revised[field]
+    elif not patch_values and not fallback_revision:
+        # Compatibility for non-OpenCode planners: compile their revised full
+        # plan into an explicit diff, while refusing empty/default erasure.
+        source = "legacy_planner_diff"
+        for field in DIRECTION_PATCH_FIELDS:
+            value = revised.get(field)
+            if value != original.get(field) and _meaningful_patch_value(value):
+                patch_values[field] = value
+
+    if action in {"pivot", "research_tournament"} and not fallback_revision:
+        # A pivot is a typed state transition. Its family, experiment, and
+        # candidate contract must move together or old-family candidates would
+        # survive under a newly selected method label.
+        for field in DIRECTION_PIVOT_FIELDS:
+            if field in revised and (
+                _meaningful_patch_value(revised[field])
+                or field in {"method_package_id", "candidate_variants", "activation_checks"}
+            ):
+                patch_values[field] = revised[field]
+
+    rejected: list[dict[str, str]] = []
+    if action not in {"pivot", "research_tournament"}:
+        for field in sorted(DIRECTION_FAMILY_FIELDS.intersection(patch_values)):
+            if patch_values[field] != original.get(field):
+                patch_values.pop(field, None)
+                rejected.append(
+                    {
+                        "field": field,
+                        "reason": "method-family changes require pivot or research_tournament",
+                    }
+                )
+
+    result = dict(original)
+    changed_fields: list[str] = []
+    for field, value in patch_values.items():
+        pivot_reset = action in {"pivot", "research_tournament"} and field in {
+            "method_package_id",
+            "candidate_variants",
+            "activation_checks",
+        }
+        if field not in DIRECTION_PATCH_FIELDS or not (_meaningful_patch_value(value) or pivot_reset):
+            continue
+        if result.get(field) != value:
+            result[field] = value
+            changed_fields.append(field)
+    cleared_fields: list[str] = []
+    for field in clear_fields:
+        if field in DIRECTION_NON_CLEARABLE_FIELDS:
+            rejected.append({"field": field, "reason": "field cannot be cleared by a revision"})
+            continue
+        if field in result and result.get(field) not in (None, "", [], {}):
+            result[field] = [] if isinstance(result[field], list) else {} if isinstance(result[field], dict) else ""
+            cleared_fields.append(field)
+
+    result["direction_id"] = original.get("direction_id") or revised.get("direction_id")
+    result["user_revision_patch"] = {
+        "schema_version": 1,
+        "action": action,
+        "set_fields": sorted(changed_fields),
+        "clear_fields": sorted(cleared_fields),
+        "preserve_unspecified": True,
+    }
+    preserved_fields = sorted(
+        field
+        for field in DIRECTION_PATCH_FIELDS
+        if field in original and field not in changed_fields and field not in cleared_fields
+    )
+    audit = {
+        "schema_version": 1,
+        "status": (
+            "preserved_original_due_planner_fallback"
+            if fallback_revision and not changed_fields and not cleared_fields
+            else "applied"
+        ),
+        "action": action,
+        "source": source,
+        "instructions": str(requested.get("instructions") or "")[:4_000],
+        "changed_fields": sorted(changed_fields),
+        "set": {field: result.get(field) for field in sorted(changed_fields)},
+        "cleared_fields": sorted(cleared_fields),
+        "preserved_fields": preserved_fields,
+        "rejected_operations": rejected,
+        "base_direction_id": original.get("direction_id"),
+        "result_direction_id": result.get("direction_id"),
+    }
+    return result, audit
+
+
+def direction_revision_base(
+    *,
+    proposed_direction_plan: dict[str, Any],
+    previous_direction_plan: dict[str, Any],
+    user_intervention: dict[str, Any],
+) -> dict[str, Any]:
+    """Use the active plan as base when a proposed family switch is rejected."""
+
+    source = str(user_intervention.get("source") or "").strip().lower()
+    if source not in {
+        "user_rejected_direction_change",
+        "direction_change_timeout_default_continue",
+    }:
+        return dict(proposed_direction_plan)
+    base = dict(previous_direction_plan)
+    if proposed_direction_plan.get("direction_id"):
+        base["direction_id"] = proposed_direction_plan["direction_id"]
+    if previous_direction_plan.get("direction_id"):
+        base["parent_direction_id"] = previous_direction_plan["direction_id"]
+    return base
+
+
+def _meaningful_patch_value(value: Any) -> bool:
+    return value is not None and value != "" and value != [] and value != {}
+
+
 def apply_user_intervention_to_feedback(
     feedback: dict[str, Any],
     *,
@@ -2699,6 +3571,7 @@ def apply_user_intervention_to_feedback(
     updated = dict(feedback)
     intervention = dict(user_intervention)
     direction = str(intervention.get("direction") or "").strip()[:4_000]
+    direction_patch = dict(intervention.get("direction_patch") or {})
     updated["user_intervention"] = intervention
     guidance = dict(updated.get("next_round_guidance") or {})
     must_do = [str(item) for item in guidance.get("must_do") or [] if str(item).strip()]
@@ -2707,9 +3580,16 @@ def apply_user_intervention_to_feedback(
     updated["next_round_guidance"] = guidance
     instructions = [str(item) for item in updated.get("instructions") or []]
     updated["instructions"] = [
-        "The user explicitly intervened between rounds. Treat user_intervention.direction as the controlling next-round intent; reconcile it with hard evaluator and legality constraints before issuing the Worker assignment.",
+        "The user explicitly intervened between rounds. Return a typed direction_patch with action, set_fields, and clear_fields. Preserve every original plan field not named by the patch, and reconcile the requested intent with hard evaluator and legality constraints.",
         *instructions,
     ]
+    updated["direction_patch_contract"] = {
+        "schema_version": 1,
+        "allowed_actions": sorted(DIRECTION_PATCH_ACTIONS),
+        "allowed_fields": sorted(DIRECTION_PATCH_FIELDS),
+        "preserve_unspecified": True,
+        "requested_action": direction_patch.get("action") or "revise",
+    }
     return updated
 
 
@@ -2740,7 +3620,17 @@ def plan_direction_with_fallback(
             "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
             encoding="utf-8",
         )
-        return EvidenceDrivenMainAgent().plan_direction(request)
+        fallback_plan = EvidenceDrivenMainAgent().plan_direction(request)
+        fallback_plan = {
+            key: value for key, value in fallback_plan.items() if key != "artifact_path"
+        }
+        fallback_plan["planner_fallback"] = {
+            "source": type(planner).__name__,
+            "fallback": "EvidenceDrivenMainAgent",
+            "reason": str(exc)[:1_000],
+            "exception_path": str(planner_error_path.resolve()),
+        }
+        return write_direction_plan(output_dir, fallback_plan)
 
 
 def reflect_on_completed_round(
@@ -2814,7 +3704,6 @@ def agent_generated_baseline_memory_payload(
     total = int(summary.get("total", 0) or 0)
     accepted_as_incumbent = (
         baseline_generation.get("status") == "ok"
-        and bool(agentic_judgment.get("accepted"))
         and not semantic_review_blocks_baseline_acceptance(semantic_review)
         and total > 0
         and valid == total
@@ -3019,6 +3908,7 @@ def round_record_payload(item: LoopRoundRecord) -> dict[str, Any]:
         "semantic_review": item.semantic_review or {},
         "mechanism_activation": item.mechanism_activation or {},
         "round_reflection": item.round_reflection or {},
+        "worker_session_id": item.worker_session_id,
         "failure_signatures": round_failure_signatures(item),
     }
 
@@ -3063,6 +3953,19 @@ def load_worker_loop_result(path: Path) -> WorkerLoopResult:
         ),
         status=str(payload.get("status") or "ok"),
         stop_reason=str(payload.get("stop_reason") or "") or None,
+        best_legal_incumbent=(
+            candidate_incumbent_from_payload(payload.get("best_legal_incumbent"))
+            or CandidateIncumbent(
+                objective_key=_float_tuple(payload.get("final_key")),
+                worktree=final_worktree,
+                candidate_id="legacy_promoted_incumbent",
+                round_index=-1,
+                summary={},
+            )
+        ),
+        best_activated_incumbent=candidate_incumbent_from_payload(
+            payload.get("best_activated_incumbent")
+        ),
     )
 
 
@@ -3108,6 +4011,7 @@ def loop_round_record_from_payload(payload: dict[str, Any]) -> LoopRoundRecord:
         semantic_review=dict(payload.get("semantic_review") or {}),
         mechanism_activation=dict(payload.get("mechanism_activation") or {}),
         round_reflection=dict(payload.get("round_reflection") or {}),
+        worker_session_id=str(payload.get("worker_session_id") or "") or None,
     )
 
 
@@ -3214,10 +4118,21 @@ def compact_round_direction_plan(value: dict[str, Any] | None) -> dict[str, Any]
     competition = plan.get("competition_result") if isinstance(plan.get("competition_result"), dict) else {}
     return {
         "direction_id": plan.get("direction_id"),
+        "parent_direction_id": plan.get("parent_direction_id"),
         "title": _bounded_text(plan.get("title"), limit=200),
         "strategy_type": plan.get("strategy_type"),
+        "planner": plan.get("planner"),
+        "activation_contract_version": plan.get("activation_contract_version"),
+        "fallback_transition": plan.get("fallback_transition") or {},
+        "planner_fallback": plan.get("planner_fallback") or {},
+        "planning_contract_status": plan.get("planning_contract_status") or {},
         "experiment_stage": plan.get("experiment_stage"),
         "method_family": plan.get("method_family"),
+        "method_families": [
+            dict(item)
+            for item in plan.get("method_families") or []
+            if isinstance(item, dict)
+        ][:4],
         "method_package_id": plan.get("method_package_id"),
         "knowledge_query": _bounded_list(plan.get("knowledge_query"), limit=8),
         "hypothesis": _bounded_text(plan.get("hypothesis"), limit=500),
@@ -3246,6 +4161,40 @@ def compact_round_direction_plan(value: dict[str, Any] | None) -> dict[str, Any]
             for item in plan.get("activation_checks") or []
             if isinstance(item, dict)
         ][:8],
+        "candidate_variants": [
+            {
+                key: item.get(key)
+                for key in (
+                    "candidate_id",
+                    "title",
+                    "hypothesis",
+                    "strategy_type",
+                    "method_family",
+                    "method_families",
+                    "knowledge_query",
+                    "experiment_stage",
+                    "change_scope",
+                    "next_mutation",
+                    "activation_checks",
+                )
+                if key in item
+            }
+            for item in plan.get("candidate_variants") or []
+            if isinstance(item, dict)
+        ][:4],
+        "direction_selection": {
+            key: (plan.get("direction_selection") or {}).get(key)
+            for key in (
+                "method_family",
+                "method_families",
+                "primary_search_pressure",
+                "knowledge_query",
+                "selection_rationale",
+                "selection_source",
+            )
+            if isinstance(plan.get("direction_selection"), dict)
+            and key in plan["direction_selection"]
+        },
         "mechanism_activation": plan.get("mechanism_activation") or {},
         "preserve": _bounded_list(plan.get("preserve"), limit=6),
         "avoid": _bounded_list(plan.get("avoid"), limit=6),
@@ -3260,7 +4209,15 @@ def compact_round_direction_plan(value: dict[str, Any] | None) -> dict[str, Any]
             "eligible_candidate_count": competition.get("eligible_candidate_count"),
             "selected_candidate_id": competition.get("selected_candidate_id"),
             "selected_objective_key": competition.get("selected_objective_key") or [],
+            "measured_candidate_id": competition.get("measured_candidate_id"),
+            "measured_objective_key": competition.get("measured_objective_key") or [],
             "selected_for_promotion": competition.get("selected_for_promotion"),
+            "best_legal_candidate": compact_observed_candidate(
+                competition.get("best_legal_candidate")
+            ),
+            "best_activated_candidate": compact_observed_candidate(
+                competition.get("best_activated_candidate")
+            ),
             "candidates": [
                 {
                     "candidate_id": candidate.get("candidate_id"),
@@ -3271,7 +4228,11 @@ def compact_round_direction_plan(value: dict[str, Any] | None) -> dict[str, Any]
                     "core_eligible": candidate.get("core_eligible"),
                     "semantic_eligible": candidate.get("semantic_eligible"),
                     "activation_eligible": candidate.get("activation_eligible"),
+                    "activation_required": candidate.get("activation_required"),
                     "mechanism_activation": candidate.get("mechanism_activation") or {},
+                    "semantic_review": compact_algorithm_semantic_review(
+                        candidate.get("semantic_review")
+                    ),
                     "worker_model": candidate.get("worker_model"),
                     "worker_status": candidate.get("worker_status"),
                     "summary": compact_candidate_evaluator_evidence(candidate.get("summary")),
@@ -3287,6 +4248,27 @@ def compact_round_direction_plan(value: dict[str, Any] | None) -> dict[str, Any]
         }
         if competition
         else {},
+    }
+
+
+def compact_observed_candidate(value: Any) -> dict[str, Any] | None:
+    candidate = value if isinstance(value, dict) else {}
+    if not candidate:
+        return None
+    activation = (
+        candidate.get("mechanism_activation")
+        if isinstance(candidate.get("mechanism_activation"), dict)
+        else {}
+    )
+    return {
+        "candidate_id": candidate.get("candidate_id"),
+        "objective_key": list(candidate.get("objective_key") or [])[:4],
+        "worktree": candidate.get("worktree"),
+        "activation_status": activation.get("status"),
+        "activation_passed": activation.get("passed"),
+        "ja_accepted": candidate.get("ja_accepted"),
+        "semantic_eligible": candidate.get("semantic_eligible"),
+        "summary": compact_candidate_evaluator_evidence(candidate.get("summary")),
     }
 
 
@@ -3831,6 +4813,8 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult, problem_fam
         "baseline_key": list(result.baseline_key),
         "final_key": list(result.final_key),
         "final_worktree": str(result.final_worktree),
+        "best_legal_incumbent": candidate_incumbent_payload(result.best_legal_incumbent),
+        "best_activated_incumbent": candidate_incumbent_payload(result.best_activated_incumbent),
         "baseline_source": result.baseline_source,
         "baseline_generation": result.baseline_generation,
         "baseline_summary": summary_payload(result.baseline_summary),
@@ -3871,6 +4855,8 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult, problem_fam
         f"- Baseline key: `{json.dumps(result.baseline_key, ensure_ascii=False)}`",
         f"- Final key: `{json.dumps(result.final_key, ensure_ascii=False)}`",
         f"- Final worktree: `{result.final_worktree}`",
+        f"- Best legal incumbent: `{json.dumps(candidate_incumbent_payload(result.best_legal_incumbent), ensure_ascii=False)}`",
+        f"- Best activated incumbent: `{json.dumps(candidate_incumbent_payload(result.best_activated_incumbent), ensure_ascii=False)}`",
         f"- Direction count: `{direction_graph.get('direction_count', 0)}`",
         f"- Attempt count: `{direction_graph.get('attempt_count', 0)}`",
         f"- Candidate lessons: `{len((experience_memory.get('memory_tiers') or {}).get('candidate_lessons') or [])}`",

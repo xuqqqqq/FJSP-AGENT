@@ -1,0 +1,4 @@
+interface:
+  display_name: "高柔性 FJSP assignment-first"
+  short_description: "实现高柔性 FJSP 分配优先搜索"
+  default_prompt: "使用 $high-flexibility-fjsp-playbook 为当前高柔性标准 FJSP 实现 assignment-first 改进。"

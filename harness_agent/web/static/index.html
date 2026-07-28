@@ -20,6 +20,10 @@
         </div>
 
         <button class="primary side-action" type="button" id="load-demo">新建 / 载入示例</button>
+        <button class="side-import-action" type="button" data-view-target="import-project">
+          <strong>导入项目 ZIP</strong>
+          <span>从已有 solver 开始</span>
+        </button>
 
         <label class="search-box" aria-label="搜索项目、任务与资源">
           <span>搜索</span>
@@ -75,6 +79,10 @@
                     <h2>和主 Agent 审阅目标、运行状态与下一步</h2>
                   </div>
                   <button class="ghost" type="button" id="reset-chat">重置对话</button>
+                </div>
+                <div id="agent-status-bar" class="agent-status-bar hidden" aria-live="polite">
+                  <div id="agent-status-summary" class="agent-status-summary"></div>
+                  <div id="agent-status-track" class="agent-status-track"></div>
                 </div>
                 <div id="chat-thread" class="chat-thread" aria-live="polite"></div>
                 <div id="chat-actions" class="chat-actions"></div>
@@ -409,6 +417,43 @@
               </section>
             </section>
 
+            <section id="view-import-project" class="workspace-view">
+              <section class="page-section project-import">
+                <div class="section-head">
+                  <div>
+                    <span class="section-kicker">已有代码</span>
+                    <h2>导入已有项目</h2>
+                  </div>
+                </div>
+
+                <label class="field project-file-field">
+                  <span>项目 ZIP</span>
+                  <input type="file" id="starter-project-file" accept=".zip,application/zip" />
+                  <output id="starter-project-status" aria-live="polite">未选择</output>
+                </label>
+
+                <div class="config-grid project-import-grid">
+                  <label class="field compact">
+                    <span>Solver 入口</span>
+                    <input id="starter-solver-entrypoint" value="solver.py" />
+                  </label>
+                  <label class="field compact">
+                    <span>主要可编辑文件</span>
+                    <input id="starter-target-file" value="solver.py" />
+                  </label>
+                  <label class="field compact wide-field">
+                    <span>Solver 命令模板</span>
+                    <input id="starter-solver-command" value="python solver.py --input {instance} --output {solution} --seed {seed} --time-limit-sec {solver_time_limit_seconds}" />
+                  </label>
+                </div>
+
+                <div class="project-import-actions">
+                  <button class="ghost" type="button" id="clear-starter-project" disabled>清除项目</button>
+                  <button class="primary" type="button" id="continue-starter-project" disabled>继续配置任务</button>
+                </div>
+              </section>
+            </section>
+
             <section id="view-setup" class="workspace-view">
               <form id="job-form" class="page-section task-form">
                 <div class="section-head">
@@ -422,6 +467,14 @@
                   <span>任务名称</span>
                   <input id="title" name="title" value="Brandimarte Mk01 标准 FJSP 闭环演示" />
                 </label>
+
+                <div id="starter-project-summary" class="starter-project-summary hidden">
+                  <div>
+                    <span>现有项目 baseline</span>
+                    <strong id="starter-project-setup-status">未选择</strong>
+                  </div>
+                  <button class="ghost" type="button" data-view-target="import-project">修改</button>
+                </div>
 
                 <div class="doc-grid">
                   <label class="field">
@@ -517,7 +570,7 @@
                       <input id="worker-max-steps" type="number" min="1" max="20" value="4" />
                     </label>
                     <label class="field compact">
-                      <span>同轮修补次数</span>
+                      <span>Local Trial 检查批次大小</span>
                       <input id="in-round-repair-attempts" type="number" min="0" max="8" value="3" />
                     </label>
                     <label class="field compact">
@@ -526,7 +579,7 @@
                     </label>
                     <label class="field compact checkbox-field wide-field">
                       <input id="pause-between-rounds" type="checkbox" checked />
-                      <span>每轮完成后暂停，允许用户在主对话框指定下一轮方向</span>
+                      <span>Main 建议换方向时等待 20 秒；仅用户同意才换向，超时保持当前方向</span>
                     </label>
                   </div>
                 </details>

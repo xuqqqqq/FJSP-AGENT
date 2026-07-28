@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
 from dataclasses import fields
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,6 +17,8 @@ from harness_agent.orchestration.loop import (
 from harness_agent.orchestration.standard import (
     StandardWorkerLoopRequest,
     build_standard_worker_contract_payload,
+    prepare_provided_project_source,
+    provided_project_read_paths,
     run_standard_worker_loop,
     standard_solver_command,
     standard_worker_manifest,
@@ -70,6 +73,65 @@ class StandardWorkerLoopTests(unittest.TestCase):
         self.assertIn("--input {instance}", command)
         self.assertIn("--output {solution}", command)
         self.assertIn("--seed {seed}", command)
+
+    def test_provided_project_contract_uses_existing_cli_and_primary_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project / "solver.py").write_text("print('entry')\n", encoding="utf-8")
+            package = project / "fjsp"
+            package.mkdir()
+            (package / "solver.py").write_text("def solve(): return 1\n", encoding="utf-8")
+            request = self.make_request(
+                provided_project_root=project,
+                provided_solver_command="python solver.py {instance} --output {solution} --seed {seed}",
+                provided_target_file="fjsp/solver.py",
+                provided_project_read_paths=["solver.py"],
+            )
+
+            payload = build_standard_worker_contract_payload(request)
+
+        self.assertEqual("provided_project", payload["review"]["baseline_source"])
+        self.assertEqual("fjsp/solver.py", payload["review"]["worker_target_file"])
+        self.assertEqual(["solver.py"], payload["review"]["provided_project_read_paths"])
+        self.assertEqual(["."], payload["paths"]["allowed_paths"])
+        self.assertEqual(
+            "python solver.py {instance} --output {solution} --seed {seed}",
+            payload["commands"]["solver"],
+        )
+        self.assertEqual("python -m py_compile fjsp/solver.py", payload["commands"]["quick_test"])
+
+    def test_provided_project_source_quarantines_local_scores_and_overlays_fixed_core(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            uploaded = root / "uploaded"
+            uploaded.mkdir()
+            (uploaded / "solver.py").write_text("print('entry')\n", encoding="utf-8")
+            (uploaded / "evaluate.py").write_text("raise RuntimeError('untrusted')\n", encoding="utf-8")
+            for name in ("trusted", "instances", "solutions"):
+                directory = uploaded / name
+                directory.mkdir()
+                (directory / "history.json").write_text("{}\n", encoding="utf-8")
+
+            composed = prepare_provided_project_source(
+                uploaded_root=uploaded,
+                trusted_project_root=ROOT,
+                output_path=root / "composed",
+            )
+
+            self.assertTrue((composed / "solver.py").is_file())
+            self.assertFalse((composed / "evaluate.py").exists())
+            self.assertFalse((composed / "trusted").exists())
+            self.assertFalse((composed / "instances").exists())
+            self.assertFalse((composed / "solutions").exists())
+            fixed_evaluator = composed / "examples" / "standard_fjsp_evaluator.py"
+            self.assertEqual(
+                (ROOT / "examples" / "standard_fjsp_evaluator.py").read_text(encoding="utf-8"),
+                fixed_evaluator.read_text(encoding="utf-8"),
+            )
+            self.assertNotIn(
+                "examples/standard_fjsp_evaluator.py",
+                provided_project_read_paths(composed, target_file="solver.py"),
+            )
 
     def test_standard_worker_cli_exposes_only_platform_controls(self) -> None:
         args = build_parser().parse_args(

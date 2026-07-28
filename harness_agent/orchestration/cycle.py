@@ -15,7 +15,6 @@ from typing import Any
 from harness_agent.agents.judgment import (
     AgenticJudgment,
     ErrorAnalysis,
-    analyze_rejected_judgment,
     analyze_run_summary,
     judge_worker_result,
     write_judgment_artifacts,
@@ -136,6 +135,9 @@ def run_worker_cycle(
     apply_worker_changes: bool,
     worker_assignment_path: Path | None = None,
     worker_input_root: Path | None = None,
+    session_id: str | None = None,
+    local_trial_index: int = 0,
+    local_trial_count: int = 1,
     cancellation: CancellationToken | None = None,
 ) -> WorkerCycleResult:
     """在隔离候选树中执行一次“写代码、审查、评测”周期。
@@ -174,6 +176,9 @@ def run_worker_cycle(
         output_dir=str(worker_output_dir),
         apply_changes=apply_worker_changes,
         worker_assignment_path=str(worker_assignment_path) if worker_assignment_path else None,
+        session_id=session_id,
+        local_trial_index=max(0, int(local_trial_index)),
+        local_trial_count=max(1, int(local_trial_count)),
     )
     # 2. Coding Worker 只接触候选 worktree；其 changed_files 自报值稍后会
     # 与真实文件快照合并，防止漏报。
@@ -195,8 +200,8 @@ def run_worker_cycle(
         delta=delta,
         output_dir=output_dir,
     )
-    # 3. JA 先拦截确定性的执行安全问题；通过后必须用固定 evaluator
-    # 复验 Coding Agent 实际产出的解。源码形态和算法语义不参与门禁。
+    # 3. JA 只保留审计诊断。固定 evaluator 是候选合法性与结果的裁判，
+    # 因此无论 JA 是否接受，都执行同一条 smoke/Core 路径。
     agentic_judgment = judge_worker_result(
         worker_result=worker_result,
         worktree_path=worktree_path,
@@ -204,56 +209,42 @@ def run_worker_cycle(
         output_dir=output_dir,
         apply_worker_changes=apply_worker_changes,
     )
-    agentic_error_analysis: ErrorAnalysis | None = None
+    checks = dict(agentic_judgment.checks or {})
+    checks["advisory_only"] = True
+    agentic_judgment = replace(agentic_judgment, checks=checks)
     diagnostic_smoke_summary: RunSummary | None = None
-    if not agentic_judgment.accepted:
-        summary = RunSummary(
-            total=0,
-            valid=0,
-            failed=0,
-            best_experiment_id=None,
-            best_metrics={},
-            best_candidate_id=None,
-            best_candidate_metrics=None,
-            candidate_summaries=[],
-            pareto_frontier=[],
-            validation_summary={"agentic_judgment": agentic_judgment.to_payload()},
-        )
-        agentic_error_analysis = analyze_rejected_judgment(judgment=agentic_judgment, output_dir=output_dir)
-        smoke_summary = None
-        full_evaluation_started = False
-    else:
-        # 4. 这个单 seed 运行就是 JA 的结果复验。只有真实输出通过固定
-        # parser/validator 后，候选才具备进入正式 Core 评测的资格。
-        smoke_summary = run_smoke_gate(
+    smoke_summary = run_smoke_gate(
+        contract=contract,
+        worktree_path=worktree_path,
+        output_dir=smoke_output_dir,
+        cancellation=cancellation,
+    )
+    smoke_passed = smoke_summary.total > 0 and smoke_summary.valid == smoke_summary.total
+    agentic_judgment = judgment_with_result_revalidation(
+        judgment=agentic_judgment,
+        smoke_summary=smoke_summary,
+    )
+    checks = dict(agentic_judgment.checks or {})
+    checks["advisory_only"] = True
+    agentic_judgment = replace(agentic_judgment, checks=checks)
+    write_judgment_artifacts(output_dir=output_dir, judgment=agentic_judgment)
+    full_evaluation_started = False
+    if smoke_passed and full_evaluation_required(contract):
+        runner = GraphHarnessRunner(
             contract=contract,
-            worktree_path=worktree_path,
-            output_dir=smoke_output_dir,
+            project_root=worktree_path,
+            output_dir=harness_output_dir,
             cancellation=cancellation,
         )
-        smoke_passed = smoke_summary.total > 0 and smoke_summary.valid == smoke_summary.total
-        agentic_judgment = judgment_with_result_revalidation(
-            judgment=agentic_judgment,
-            smoke_summary=smoke_summary,
-        )
-        write_judgment_artifacts(output_dir=output_dir, judgment=agentic_judgment)
-        full_evaluation_started = False
-        if smoke_passed and full_evaluation_required(contract):
-            runner = GraphHarnessRunner(
-                contract=contract,
-                project_root=worktree_path,
-                output_dir=harness_output_dir,
-                cancellation=cancellation,
-            )
-            try:
-                summary = runner.run()
-            finally:
-                runner.close()
-            full_evaluation_started = True
-        else:
-            summary = smoke_summary
-            harness_output_dir = smoke_output_dir
-        agentic_error_analysis = analyze_run_summary(summary=summary, output_dir=output_dir)
+        try:
+            summary = runner.run()
+        finally:
+            runner.close()
+        full_evaluation_started = True
+    else:
+        summary = smoke_summary
+        harness_output_dir = smoke_output_dir
+    agentic_error_analysis = analyze_run_summary(summary=summary, output_dir=output_dir)
     write_cycle_report(
         output_dir=output_dir,
         worker_result=worker_result,
@@ -293,7 +284,7 @@ def judgment_with_result_revalidation(
     judgment: AgenticJudgment,
     smoke_summary: RunSummary,
 ) -> AgenticJudgment:
-    """Bind JA acceptance to observable candidate output, not source semantics."""
+    """Attach Core smoke evidence without changing the advisory JA verdict."""
 
     passed = smoke_summary.total > 0 and smoke_summary.valid == smoke_summary.total
     validation = smoke_summary.validation_summary or {}
@@ -311,26 +302,7 @@ def judgment_with_result_revalidation(
         "top_errors": top_errors[:8],
         "best_metrics": smoke_summary.best_candidate_metrics or smoke_summary.best_metrics,
     }
-    if passed:
-        return replace(
-            judgment,
-            accepted=True,
-            right=True,
-            stage="candidate_result_revalidation",
-            issues=[],
-            suggestions=["Candidate output was reproduced and accepted by the fixed parser/validator smoke."],
-            checks=checks,
-        )
-    suggestions = [f"Repair the concrete validator failure: {error}" for error in top_errors[:4]]
-    return replace(
-        judgment,
-        accepted=False,
-        right=False,
-        stage="candidate_result_revalidation",
-        issues=["candidate_result_revalidation_failed"],
-        suggestions=suggestions or ["Repair the candidate runtime/output failure reported by the fixed smoke."],
-        checks=checks,
-    )
+    return replace(judgment, checks=checks)
 
 
 def smoke_gate_contract(contract: TaskContract) -> TaskContract:
@@ -914,7 +886,7 @@ def write_cycle_report(
         f"- Delta artifact: `{delta_path}`",
         f"- Patch artifact: `{patch_path}`",
         "",
-        "## Agentic Judgment",
+        "## Agentic Judgment (Advisory Only)",
         "",
         f"- Accepted: `{agentic_judgment.accepted}`",
         f"- Issues: `{json.dumps(agentic_judgment.issues, ensure_ascii=False)}`",

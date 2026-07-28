@@ -11,16 +11,21 @@ Web 层只负责输入落盘、后台任务生命周期、状态轮询和产物�
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
+import io
 import json
 import math
 import os
 import re
+import stat
 import threading
 import time
 import traceback
 import uuid
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -43,7 +48,11 @@ from harness_agent.workers.opencode_worker import (
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "web_runs"
-MAX_REQUEST_BYTES = 8 * 1024 * 1024
+MAX_REQUEST_BYTES = 24 * 1024 * 1024
+MAX_STARTER_ARCHIVE_BYTES = 16 * 1024 * 1024
+MAX_STARTER_EXPANDED_BYTES = 64 * 1024 * 1024
+MAX_STARTER_FILE_BYTES = 16 * 1024 * 1024
+MAX_STARTER_ARCHIVE_ENTRIES = 2_000
 MAX_ARTIFACT_CHARS = 240_000
 MAX_RESOURCE_CHARS = 240_000
 RESOURCE_TEXT_SUFFIXES = frozenset({".md", ".json", ".py", ".yaml", ".yml", ".csv", ".txt"})
@@ -59,6 +68,12 @@ KNOWLEDGE_DESTINATIONS = {
     "imported-note": Path("imported") / "user_notes",
 }
 DEFAULT_STANDARD_SEEDS_TEXT = "0,1,2,3,4,5,6,7,8,9"
+DEFAULT_DIRECTION_CHANGE_CONFIRMATION_SECONDS = 20.0
+DIRECTION_CHANGE_REJECTION_INSTRUCTION = (
+    "Reject the proposed method-family switch. Continue the previously active method family and preserve its "
+    "verified mechanisms. Plan one materially different bounded mutation inside that direction from the latest "
+    "Core, activation, legality, and rollback evidence."
+)
 DEFAULT_STANDARD_FJSP_DP18A_INSTANCE = PROJECT_ROOT / "examples" / "fjsp.dauzere.18a.m10j20c10.txt"
 DEFAULT_STANDARD_FJSP_DP18A_BOUNDS_CSV = (
     '"Instance","Family","Lower bound (LB)","Best-known upper bound (UB/BKS)","Note","Source URL"\n'
@@ -87,6 +102,162 @@ def sanitize_filename(name: str | None, default: str) -> str:
     candidate = re.sub(r"[^A-Za-z0-9._\-\u4e00-\u9fff]+", "_", candidate)
     candidate = candidate.strip("._")
     return candidate or default
+
+
+def normalize_starter_project_path(value: Any, *, field: str, default: str) -> str:
+    """Return one bounded POSIX-relative path inside an uploaded project."""
+
+    text = str(value or default).strip().replace("\\", "/")
+    path = PurePosixPath(text)
+    if (
+        not text
+        or text.startswith("/")
+        or re.match(r"^[A-Za-z]:", text)
+        or any(part in {"", ".", ".."} for part in path.parts)
+        or ":" in text
+    ):
+        raise ValueError(f"{field} must be a relative project path")
+    normalized = path.as_posix()
+    if len(normalized) > 240:
+        raise ValueError(f"{field} is too long")
+    return normalized
+
+
+def validate_starter_solver_command(value: Any, *, entrypoint: str) -> str:
+    command = str(value or "").strip() or (
+        f"python {entrypoint} --input {{instance}} --output {{solution}} --seed {{seed}} "
+        "--time-limit-sec {solver_time_limit_seconds}"
+    )
+    if len(command) > 2_000:
+        raise ValueError("starter solver command is too long")
+    missing = [name for name in ("instance", "solution", "seed") if f"{{{name}}}" not in command]
+    if missing:
+        raise ValueError("starter solver command is missing placeholders: " + ", ".join(missing))
+    try:
+        command.format(
+            instance="INSTANCE",
+            solution="SOLUTION",
+            seed=0,
+            solver_time_limit_seconds=1,
+            timeout_seconds=1,
+            workdir="WORKDIR",
+            instance_id="INSTANCE_ID",
+            task_id="TASK",
+            round=0,
+            round_id="round_000",
+        )
+    except (KeyError, ValueError) as exc:
+        raise ValueError(f"starter solver command has an invalid placeholder: {exc}") from exc
+    return command
+
+
+def extract_starter_project(archive: dict[str, Any], *, destination: Path) -> dict[str, Any]:
+    """Decode and safely extract one browser-uploaded ZIP into a private input snapshot."""
+
+    encoded = str(archive.get("base64") or "").strip()
+    if not encoded:
+        raise ValueError("starter project ZIP is empty")
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("starter project is not valid base64") from exc
+    if len(raw) > MAX_STARTER_ARCHIVE_BYTES:
+        raise ValueError(f"starter project ZIP exceeds {MAX_STARTER_ARCHIVE_BYTES} bytes")
+
+    try:
+        archive_file = zipfile.ZipFile(io.BytesIO(raw))
+    except zipfile.BadZipFile as exc:
+        raise ValueError("starter project is not a valid ZIP archive") from exc
+
+    with archive_file:
+        infos = [item for item in archive_file.infolist() if not _ignored_zip_metadata(item.filename)]
+        if not infos:
+            raise ValueError("starter project ZIP contains no project files")
+        if len(infos) > MAX_STARTER_ARCHIVE_ENTRIES:
+            raise ValueError(f"starter project ZIP has more than {MAX_STARTER_ARCHIVE_ENTRIES} entries")
+
+        normalized: list[tuple[zipfile.ZipInfo, tuple[str, ...]]] = []
+        expanded_bytes = 0
+        for info in infos:
+            parts = _safe_zip_member_parts(info)
+            mode = (info.external_attr >> 16) & 0xFFFF
+            file_type = stat.S_IFMT(mode)
+            if file_type == stat.S_IFLNK:
+                raise ValueError(f"starter project ZIP contains a symlink: {info.filename}")
+            if file_type not in {0, stat.S_IFREG, stat.S_IFDIR}:
+                raise ValueError(f"starter project ZIP contains a special file: {info.filename}")
+            if info.file_size > MAX_STARTER_FILE_BYTES:
+                raise ValueError(f"starter project file is too large: {info.filename}")
+            expanded_bytes += info.file_size
+            if expanded_bytes > MAX_STARTER_EXPANDED_BYTES:
+                raise ValueError(f"starter project expands beyond {MAX_STARTER_EXPANDED_BYTES} bytes")
+            normalized.append((info, parts))
+
+        file_parts = [parts for info, parts in normalized if not info.is_dir()]
+        common_root = (
+            file_parts[0][0]
+            if file_parts
+            and all(len(parts) > 1 and parts[0].casefold() == file_parts[0][0].casefold() for parts in file_parts)
+            else None
+        )
+        destination.mkdir(parents=True, exist_ok=False)
+        seen: set[str] = set()
+        file_count = 0
+        for info, original_parts in normalized:
+            parts = original_parts[1:] if common_root and original_parts[0].casefold() == common_root.casefold() else original_parts
+            if not parts:
+                continue
+            collision_key = "/".join(parts).casefold()
+            if collision_key in seen:
+                raise ValueError(f"starter project ZIP contains duplicate paths: {'/'.join(parts)}")
+            seen.add(collision_key)
+            target = destination.joinpath(*parts)
+            if info.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with archive_file.open(info, "r") as source, target.open("xb") as output:
+                remaining = info.file_size
+                while remaining:
+                    chunk = source.read(min(1024 * 1024, remaining))
+                    if not chunk:
+                        raise ValueError(f"starter project ZIP ended early: {info.filename}")
+                    output.write(chunk)
+                    remaining -= len(chunk)
+                if source.read(1):
+                    raise ValueError(f"starter project ZIP size mismatch: {info.filename}")
+            file_count += 1
+
+    return {
+        "name": sanitize_filename(archive.get("name"), "starter_project.zip"),
+        "archive_bytes": len(raw),
+        "expanded_bytes": expanded_bytes,
+        "file_count": file_count,
+        "stripped_root": common_root,
+        "project_root": str(destination.resolve()),
+    }
+
+
+def _ignored_zip_metadata(name: str) -> bool:
+    normalized = str(name or "").replace("\\", "/").lstrip("/")
+    return normalized.startswith("__MACOSX/") or normalized.endswith("/.DS_Store") or normalized == ".DS_Store"
+
+
+def _safe_zip_member_parts(info: zipfile.ZipInfo) -> tuple[str, ...]:
+    name = str(info.filename or "")
+    normalized = name.replace("\\", "/")
+    if (
+        not normalized
+        or "\x00" in normalized
+        or normalized.startswith("/")
+        or re.match(r"^[A-Za-z]:", normalized)
+        or ":" in normalized
+    ):
+        raise ValueError(f"starter project ZIP has an unsafe path: {name!r}")
+    parts = PurePosixPath(normalized.rstrip("/")).parts
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise ValueError(f"starter project ZIP has an unsafe path: {name!r}")
+    return tuple(parts)
 
 
 def resource_catalog() -> dict[str, Any]:
@@ -577,6 +748,271 @@ def append_event(job: dict[str, Any], message: str, *, level: str = "info") -> N
     )
 
 
+def _trace_timestamp(record: dict[str, Any]) -> float:
+    value = record.get("timestamp")
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _agent_status(value: Any, *, default: str = "queued") -> str:
+    normalized = str(value or "").strip().lower()
+    aliases = {
+        "pending": "queued",
+        "unknown": default,
+        "in_progress": "running",
+        "success": "completed",
+        "complete": "completed",
+        "done": "completed",
+        "error": "failed",
+        "cancelled": "stopped",
+        "canceled": "stopped",
+        "interrupted": "stopped",
+        "stopping": "stopped",
+    }
+    normalized = aliases.get(normalized, normalized)
+    return normalized if normalized in {"queued", "running", "waiting", "completed", "failed", "stopped"} else default
+
+
+def _tool_trace_fields(record: dict[str, Any]) -> tuple[str, str, str, str]:
+    """Read structured tool fields, with a fallback for persisted legacy traces."""
+
+    tool = str(record.get("tool") or "").strip()
+    subagent = str(record.get("subagent") or "").strip()
+    status = str(record.get("status") or "").strip()
+    title = str(record.get("title") or "").strip()
+    parts = [part.strip() for part in str(record.get("text") or "").split(" / ")]
+    if not tool and parts:
+        tool = parts[0]
+    if tool == "task":
+        if not subagent and len(parts) > 1:
+            subagent = parts[1]
+        if not status and len(parts) > 2:
+            status = parts[2]
+        if not title and len(parts) > 3:
+            title = " / ".join(parts[3:])
+    else:
+        if not status and len(parts) > 1:
+            status = parts[1]
+        if not title and len(parts) > 2:
+            title = " / ".join(parts[2:])
+    return tool, subagent, status, title
+
+
+def _agent_detail(record: dict[str, Any] | None, fallback: str) -> str:
+    if not record:
+        return fallback
+    text = str(record.get("text") or "").strip()
+    if not text:
+        return fallback
+    return text if len(text) <= 180 else f"{text[:177]}..."
+
+
+def agent_status_snapshot(job: dict[str, Any]) -> dict[str, Any]:
+    """Aggregate public traces into a truthful, refresh-safe Agent status bar."""
+
+    config = job.get("config") if isinstance(job.get("config"), dict) else {}
+    job_status = str(job.get("status") or "queued")
+    main_trace = [item for item in job.get("main_agent_trace") or [] if isinstance(item, dict)]
+    coding_trace = [item for item in job.get("coding_agent_trace") or [] if isinstance(item, dict)]
+    latest_main = max(main_trace, key=_trace_timestamp, default=None)
+    latest_coding = max(coding_trace, key=_trace_timestamp, default=None)
+
+    terminal_main_status = {
+        "completed": "completed",
+        "failed": "failed",
+        "stopped": "stopped",
+        "interrupted": "stopped",
+    }.get(job_status)
+    if terminal_main_status:
+        main_status = terminal_main_status
+    elif job_status == "waiting_for_user":
+        main_status = "waiting"
+    elif job_status == "stopping":
+        main_status = "stopped"
+    elif job_status == "queued":
+        main_status = "queued"
+    elif latest_coding and _trace_timestamp(latest_coding) > _trace_timestamp(latest_main or {}):
+        main_status = "waiting"
+    else:
+        main_status = "running"
+
+    main_detail = _agent_detail(latest_main, "等待任务启动")
+    if main_status == "waiting" and latest_coding and _trace_timestamp(latest_coding) > _trace_timestamp(latest_main or {}):
+        main_detail = "等待 Coding Agent 返回"
+    elif job_status == "waiting_for_user":
+        main_detail = "等待用户指定下一轮方向"
+    agents: list[dict[str, Any]] = [
+        {
+            "key": "main",
+            "role": "main",
+            "name": "Main Agent",
+            "status": main_status,
+            "stage": str((latest_main or {}).get("stage") or (latest_main or {}).get("attempt") or job_status),
+            "detail": main_detail,
+            "model": str(config.get("main_agent_model") or config.get("opencode_model") or ""),
+            "variant": str(config.get("main_agent_variant") or ""),
+            "updated_at": (latest_main or {}).get("timestamp") or job.get("updated_at"),
+        }
+    ]
+    worker_summary = (
+        job.get("summary", {}).get("worker_summary", {})
+        if isinstance(job.get("summary"), dict)
+        else {}
+    )
+    if terminal_main_status and isinstance(worker_summary, dict):
+        completed_rounds = coerce_int(worker_summary.get("completed_round_count"), 0, minimum=0)
+        if completed_rounds:
+            agents[0]["stage"] = f"{completed_rounds} 轮完成"
+
+    task_records: list[tuple[dict[str, Any], str, str, str]] = []
+    for record in main_trace:
+        tool, subagent, status, title = _tool_trace_fields(record)
+        if tool == "task" and subagent:
+            task_records.append((record, subagent, status, title))
+    current_main_attempt = str((latest_main or {}).get("attempt") or "")
+    visible_task_records = [item for item in task_records if str(item[0].get("attempt") or "") == current_main_attempt]
+    if not visible_task_records and task_records:
+        latest_task_attempt = str(max(task_records, key=lambda item: _trace_timestamp(item[0]))[0].get("attempt") or "")
+        visible_task_records = [item for item in task_records if str(item[0].get("attempt") or "") == latest_task_attempt]
+    task_groups: dict[str, list[tuple[dict[str, Any], str, str, str]]] = {}
+    for item in visible_task_records:
+        record, subagent, _status, title = item
+        key = f"{record.get('attempt') or 'current'}:{subagent}:{title or 'task'}"
+        task_groups.setdefault(key, []).append(item)
+    for key, records in task_groups.items():
+        record, subagent, raw_status, title = max(records, key=lambda item: _trace_timestamp(item[0]))
+        status = _agent_status(raw_status, default="running")
+        if job_status in {"failed", "stopped", "interrupted"} and status in {"queued", "running", "waiting"}:
+            status = "stopped" if job_status in {"stopped", "interrupted"} else "failed"
+        elif job_status == "completed" and status in {"queued", "running", "waiting"}:
+            status = "failed"
+        agents.append(
+            {
+                "key": f"subagent:{key}",
+                "role": "subagent",
+                "name": f"Main Subagent · {subagent}",
+                "status": status,
+                "stage": str(record.get("attempt") or "当前轮"),
+                "detail": title or _agent_detail(record, "执行 Main 委派任务"),
+                "model": str(config.get("main_agent_model") or config.get("opencode_model") or ""),
+                "variant": str(config.get("main_agent_variant") or ""),
+                "updated_at": record.get("timestamp") or job.get("updated_at"),
+            }
+        )
+
+    coding_groups: dict[str, list[dict[str, Any]]] = {}
+    for record in coding_trace:
+        key = str(record.get("agent_key") or record.get("display_name") or record.get("attempt") or "worker")
+        coding_groups.setdefault(key, []).append(record)
+    if coding_groups:
+        latest_group = max(coding_groups.values(), key=lambda records: max(_trace_timestamp(item) for item in records))
+        current_round = str(max(latest_group, key=_trace_timestamp).get("round") or "")
+        if current_round:
+            coding_groups = {
+                key: records
+                for key, records in coding_groups.items()
+                if str(max(records, key=_trace_timestamp).get("round") or "") == current_round
+            }
+    for key, records in sorted(coding_groups.items(), key=lambda item: max(_trace_timestamp(record) for record in item[1])):
+        latest = max(records, key=_trace_timestamp)
+        has_final = any(record.get("kind") == "final" for record in records)
+        tool_statuses = [_tool_trace_fields(record)[2] for record in records if record.get("kind") == "tool"]
+        latest_tool_status = next((value for value in reversed(tool_statuses) if value), "")
+        if has_final:
+            status = "completed"
+        elif _agent_status(latest_tool_status, default="running") in {"failed", "stopped"}:
+            status = _agent_status(latest_tool_status, default="failed")
+        elif job_status in {"completed", "failed"}:
+            status = "failed"
+        elif job_status in {"stopped", "interrupted", "stopping"}:
+            status = "stopped"
+        elif job_status == "queued":
+            status = "queued"
+        else:
+            status = "running"
+        latest_non_usage = max(
+            (record for record in records if record.get("kind") != "usage"),
+            key=_trace_timestamp,
+            default=latest,
+        )
+        agents.append(
+            {
+                "key": f"coding:{key}",
+                "role": "coding",
+                "name": f"Coding Agent · {latest.get('display_name') or latest.get('candidate_id') or 'worker'}",
+                "status": status,
+                "stage": str(latest.get("round") or latest.get("attempt") or "当前轮"),
+                "detail": _agent_detail(latest_non_usage, "等待 Coding Agent 输出"),
+                "model": str(latest.get("model") or config.get("coding_worker_model") or config.get("opencode_model") or ""),
+                "variant": str(latest.get("variant") or config.get("coding_worker_variant") or ""),
+                "updated_at": latest.get("timestamp") or job.get("updated_at"),
+            }
+        )
+
+    reported_worker_attempts = (
+        coerce_int(worker_summary.get("attempt_count"), 0, minimum=0)
+        if isinstance(worker_summary, dict)
+        else 0
+    )
+    observed_candidate_workers = len(
+        {
+            str(record.get("agent_key") or record.get("display_name") or record.get("attempt") or "worker")
+            for record in coding_trace
+            if str(record.get("round") or "") != "baseline"
+        }
+    )
+    untraced_worker_attempts = max(0, reported_worker_attempts - observed_candidate_workers)
+    if untraced_worker_attempts:
+        worker_status_counts = worker_summary.get("worker_status_counts") if isinstance(worker_summary, dict) else {}
+        worker_status_counts = worker_status_counts if isinstance(worker_status_counts, dict) else {}
+        failed_count = sum(
+            coerce_int(count, 0, minimum=0)
+            for status, count in worker_status_counts.items()
+            if "failed" in str(status).lower() or "error" in str(status).lower()
+        )
+        aggregate_status = "failed" if failed_count else ("running" if job_status == "running" else "completed")
+        status_text = "，".join(f"{key}={value}" for key, value in worker_status_counts.items()) or "未产生公开 trace"
+        agents.append(
+            {
+                "key": "coding:untraced-attempts",
+                "role": "coding",
+                "name": "Coding Agent · 无公开 trace 的候选",
+                "status": aggregate_status,
+                "stage": f"{untraced_worker_attempts} 次候选尝试",
+                "detail": status_text,
+                "model": str(config.get("coding_worker_model") or config.get("opencode_model") or ""),
+                "variant": str(config.get("coding_worker_variant") or ""),
+                "updated_at": job.get("updated_at"),
+            }
+        )
+
+    status_counts = {status: 0 for status in ("queued", "running", "waiting", "completed", "failed", "stopped")}
+    for agent in agents:
+        status_counts[agent["status"]] += 1
+    all_task_keys = {
+        f"{record.get('attempt') or 'current'}:{subagent}:{title or 'task'}"
+        for record, subagent, _status, title in task_records
+    }
+    all_coding_keys = {
+        str(record.get("agent_key") or record.get("display_name") or record.get("attempt") or "worker")
+        for record in coding_trace
+    }
+    return {
+        "summary": {
+            **status_counts,
+            "configured_subagents": coerce_int(config.get("main_max_subagents"), 0, minimum=0),
+            "configured_workers": coerce_int(config.get("max_competing_workers"), 0, minimum=0),
+            "started_subagents": len(all_task_keys),
+            "started_workers": len(all_coding_keys),
+            "reported_worker_attempts": reported_worker_attempts,
+            "untraced_worker_attempts": untraced_worker_attempts,
+        },
+        "agents": agents,
+    }
+
+
 def public_job(job: dict[str, Any]) -> dict[str, Any]:
     """过滤内部字段，并限制事件数量，形成浏览器可轮询的任务快照。"""
 
@@ -591,6 +1027,7 @@ def public_job(job: dict[str, Any]) -> dict[str, Any]:
         "events": job.get("events", [])[-80:],
         "main_agent_trace": job.get("main_agent_trace", []),
         "coding_agent_trace": job.get("coding_agent_trace", []),
+        "agent_status": agent_status_snapshot(job),
         "pending_intervention": job.get("pending_intervention"),
         "intervention_history": job.get("intervention_history", []),
         "continuation": job.get("continuation"),
@@ -944,6 +1381,7 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
     io_doc = payload.get("io") or {}
     instance = payload.get("instance") or {}
     best_known = payload.get("best_known_csv") or {}
+    starter_archive = payload.get("starter_project") or {}
 
     req_path = docs_dir / sanitize_filename(requirement.get("name"), "requirement.md")
     io_path = docs_dir / sanitize_filename(io_doc.get("name"), "io_spec.md")
@@ -959,6 +1397,33 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         best_known_path.write_text(best_known_text + "\n", encoding="utf-8")
     else:
         best_known_path = None
+
+    starter_project: dict[str, Any] | None = None
+    starter_project_root: Path | None = None
+    starter_entrypoint: str | None = None
+    starter_target_file: str | None = None
+    starter_solver_command: str | None = None
+    if str(starter_archive.get("base64") or "").strip():
+        starter_project_root = input_dir / "starter_project"
+        starter_project = extract_starter_project(starter_archive, destination=starter_project_root)
+        starter_entrypoint = normalize_starter_project_path(
+            payload.get("starter_solver_entrypoint"),
+            field="starter_solver_entrypoint",
+            default="solver.py",
+        )
+        starter_target_file = normalize_starter_project_path(
+            payload.get("starter_target_file"),
+            field="starter_target_file",
+            default=starter_entrypoint,
+        )
+        if not (starter_project_root / starter_entrypoint).is_file():
+            raise ValueError(f"starter solver entrypoint does not exist: {starter_entrypoint}")
+        if not (starter_project_root / starter_target_file).is_file():
+            raise ValueError(f"starter target file does not exist: {starter_target_file}")
+        starter_solver_command = validate_starter_solver_command(
+            payload.get("starter_solver_command"),
+            entrypoint=starter_entrypoint,
+        )
 
     # Web 层只接受资源预算，不接受具体算法参数。任何求解方法都必须由
     # Main Agent 从需求/IO/知识库中选择，并由 Coding Agent 实际写出。
@@ -1014,6 +1479,11 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         ),
         "promotion_repeats": coerce_int(payload.get("promotion_repeats"), 1, minimum=1, maximum=5),
         "instance_profile": instance_profile,
+        "baseline_mode": "provided_project" if starter_project else "agent_generated",
+        "starter_solver_entrypoint": starter_entrypoint,
+        "starter_target_file": starter_target_file,
+        "starter_solver_command": starter_solver_command,
+        "starter_project": starter_project,
     }
 
     job = {
@@ -1029,6 +1499,7 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
             "io": str(io_path.resolve()),
             "instance": str(instance_path.resolve()),
             "best_known_csv": str(best_known_path.resolve()) if best_known_path else None,
+            "starter_project": str(starter_project_root.resolve()) if starter_project_root else None,
         },
         "events": [],
         "main_agent_trace": [],
@@ -1038,11 +1509,23 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         "summary": {},
         "artifacts": {},
     }
-    append_event(job, "任务材料已保存，等待进入 Agent 自写 solver 闭环。")
+    append_event(
+        job,
+        (
+            "任务材料与现有项目 ZIP 已保存，将先由固定 Core 原样评测 baseline。"
+            if starter_project
+            else "任务材料已保存，等待进入 Agent 自写 solver 闭环。"
+        ),
+    )
     append_instance_profile_events(job)
     append_event(
         job,
-        "平台不调用内置求解算法：Main Agent 规划方向，OpenCode Coding Agent 写代码，固定 Core 决定晋升或回滚。",
+        (
+            "平台不信任 ZIP 内 evaluator、历史实例或解答：只使用当前任务实例和固定 Core；"
+            "Main Agent 规划方向，OpenCode Coding Agent 增量修改指定主文件。"
+            if starter_project
+            else "平台不调用内置求解算法：Main Agent 规划方向，OpenCode Coding Agent 写代码，固定 Core 决定晋升或回滚。"
+        ),
     )
     write_job_status(job)
     with _LOCK:
@@ -1397,7 +1880,8 @@ def run_job(job_id: str) -> None:
         append_event(
             job,
             (
-                f"启动 Agent 自写 solver 闭环：本次 rounds={run_iterations}，"
+                f"启动 {'现有项目增量演进' if config.get('baseline_mode') == 'provided_project' else 'Agent 自写 solver'}闭环："
+                f"本次 rounds={run_iterations}，"
                 f"seeds={config['seeds']}，Core 并行数={config['max_workers']}。"
             ),
         )
@@ -1408,6 +1892,7 @@ def run_job(job_id: str) -> None:
             executable=config["opencode_executable"],
             model=config["coding_worker_model"] or None,
             variant=config["coding_worker_variant"] or None,
+            timeout_seconds=config["worker_max_runtime_seconds"],
             cancellation=cancellation,
         )
         if not coding_worker.capabilities().supports_code_generation:
@@ -1471,12 +1956,33 @@ def run_job(job_id: str) -> None:
                     apply_worker_changes=True,
                     promotion_repeats=config["promotion_repeats"],
                     agent_generated_solver_path=config["agent_generated_solver_path"],
-                    experiment_id="web_agent_generated_loop",
+                    provided_project_root=(
+                        Path(input_paths["starter_project"])
+                        if input_paths.get("starter_project")
+                        else None
+                    ),
+                    provided_solver_command=config.get("starter_solver_command"),
+                    provided_target_file=config.get("starter_target_file"),
+                    experiment_id=(
+                        "web_provided_project_loop"
+                        if config.get("baseline_mode") == "provided_project"
+                        else "web_agent_generated_loop"
+                    ),
                     hypothesis=(
-                        "Read the requirement, IO documents, instance diagnostics, domain-pack metadata, and "
-                        "retrieved knowledge first. Create a runnable solver from those materials; never rely "
-                        "on a repository-embedded solver. State the scheduling idea before editing, preserve "
-                        "the fixed parser/evaluator contract, and accept claims only after Core measurement."
+                        (
+                            "Read the provided project incumbent and its supporting source before editing. "
+                            "Preserve its runnable CLI and working mechanisms, change only the assigned primary "
+                            "target file, and treat archive-local evaluators, instances, solutions, and scores as "
+                            "untrusted. State the scheduling idea before editing and accept claims only after "
+                            "the fixed Core measures the current task instance."
+                        )
+                        if config.get("baseline_mode") == "provided_project"
+                        else (
+                            "Read the requirement, IO documents, instance diagnostics, domain-pack metadata, and "
+                            "retrieved knowledge first. Create a runnable solver from those materials; never rely "
+                            "on a repository-embedded solver. State the scheduling idea before editing, preserve "
+                            "the fixed parser/evaluator contract, and accept claims only after Core measurement."
+                        )
                     ),
                 )
             )
@@ -1560,16 +2066,27 @@ def run_job(job_id: str) -> None:
 
 
 class WebRoundInterventionGate:
-    """Block the loop between rounds until the browser submits a decision."""
+    """Require explicit opt-in before Main changes the active method family."""
 
-    def __init__(self, job: dict[str, Any], cancellation: CancellationToken | None = None) -> None:
+    def __init__(
+        self,
+        job: dict[str, Any],
+        cancellation: CancellationToken | None = None,
+        *,
+        timeout_seconds: float = DEFAULT_DIRECTION_CHANGE_CONFIRMATION_SECONDS,
+    ) -> None:
         self.job = job
         self.cancellation = cancellation
+        self.timeout_seconds = max(0.01, float(timeout_seconds))
         self._condition = threading.Condition()
         self._submitted = False
-        self._direction: str | None = None
+        self._direction: Any = None
+        self._resolution = ""
+        self._deadline_monotonic: float | None = None
 
-    def __call__(self, next_round_index: int, previous_round: Any, proposed_direction: dict[str, Any]) -> str | None:
+    def __call__(self, next_round_index: int, previous_round: Any, proposed_direction: dict[str, Any]) -> Any:
+        if not direction_change_proposed(previous_round, proposed_direction):
+            return None
         self.publish(
             next_round_index=next_round_index,
             previous_round=previous_round,
@@ -1581,17 +2098,24 @@ class WebRoundInterventionGate:
             pending["status"] = "resolved"
             pending["submitted_direction"] = direction
             pending["resolved_at"] = utc_timestamp()
+            pending["resolution"] = self._resolution
             self.job.setdefault("intervention_history", []).append(pending)
             self.job["pending_intervention"] = None
             self.job["status"] = "running"
-            append_event(
-                self.job,
-                (
-                    f"用户已指定第 {next_round_index + 1} 轮方向：{direction}"
-                    if direction
-                    else f"用户采用 Main Agent 建议，继续第 {next_round_index + 1} 轮。"
-                ),
-            )
+            if self._resolution == "timeout_continue":
+                event_message = (
+                    f"换向建议等待 {self.timeout_seconds:g} 秒未获用户同意；"
+                    f"第 {next_round_index + 1} 轮默认保持当前方向。"
+                )
+            elif self._resolution == "user_continue":
+                event_message = f"用户不同意换向；第 {next_round_index + 1} 轮保持当前方向。"
+            elif direction:
+                event_message = (
+                    f"用户已指定第 {next_round_index + 1} 轮方向：{intervention_display_text(direction)}"
+                )
+            else:
+                event_message = f"用户同意 Main Agent 换向建议，继续第 {next_round_index + 1} 轮。"
+            append_event(self.job, event_message)
             write_job_status(self.job)
         return direction
 
@@ -1599,6 +2123,8 @@ class WebRoundInterventionGate:
         with self._condition:
             self._submitted = False
             self._direction = None
+            self._resolution = ""
+            self._deadline_monotonic = time.monotonic() + self.timeout_seconds
         analysis = {
             key: proposed_direction.get(key)
             for key in (
@@ -1617,6 +2143,8 @@ class WebRoundInterventionGate:
                 "acceptance_checks",
             )
         }
+        previous_plan = getattr(previous_round, "direction_plan", None)
+        previous_plan = previous_plan if isinstance(previous_plan, dict) else {}
         pending = {
             "status": "waiting",
             "completed_round_index": int(getattr(previous_round, "round_index", next_round_index - 1)),
@@ -1626,36 +2154,128 @@ class WebRoundInterventionGate:
             "next_round_index": next_round_index,
             "main_analysis": analysis,
             "requested_at": utc_timestamp(),
+            "recommendation_kind": "direction_change",
+            "timeout_seconds": self.timeout_seconds,
+            "default_action": "continue_current_direction",
+            "current_method_family": str(previous_plan.get("method_family") or ""),
+            "proposed_method_family": str(proposed_direction.get("method_family") or ""),
         }
         with _LOCK:
             self.job["status"] = "waiting_for_user"
             self.job["pending_intervention"] = pending
             append_event(
                 self.job,
-                f"第 {pending['completed_round_index'] + 1} 轮已完成；Main Agent 已给出下一轮分析，等待用户确认或指定方向。",
+                (
+                    f"第 {pending['completed_round_index'] + 1} 轮已完成；Main Agent 建议换方向。"
+                    f"等待用户同意，{self.timeout_seconds:g} 秒无响应将保持当前方向。"
+                ),
                 level="warning",
             )
             write_job_status(self.job)
 
-    def submit(self, direction: str | None) -> None:
+    def submit(
+        self,
+        direction: str | None,
+        *,
+        action: str = "revise",
+        resolution: str = "user_submission",
+    ) -> None:
         with self._condition:
-            self._direction = str(direction or "").strip()[:4_000] or None
+            if self._submitted:
+                raise ValueError("direction-change decision is already resolved")
+            normalized_direction = str(direction or "").strip()[:4_000]
+            normalized_action = str(action or "revise").strip().lower().replace("-", "_")
+            if normalized_direction and normalized_action in {"pivot", "research_tournament"}:
+                self._direction = {
+                    "direction": normalized_direction,
+                    "direction_patch": {
+                        "action": normalized_action,
+                        "instructions": normalized_direction,
+                        "preserve_unspecified": True,
+                    },
+                }
+            elif normalized_direction:
+                self._direction = {
+                    "source": "user_rejected_direction_change",
+                    "direction": normalized_direction,
+                    "direction_patch": {
+                        "action": "revise",
+                        "instructions": normalized_direction,
+                        "preserve_unspecified": True,
+                    },
+                }
+            else:
+                self._direction = None
+            self._resolution = resolution
             self._submitted = True
             self._condition.notify_all()
+
+    def continue_current_direction(self, *, resolution: str = "user_continue") -> None:
+        with self._condition:
+            if self._submitted:
+                raise ValueError("direction-change decision is already resolved")
+            self._set_continue_current_direction(resolution=resolution)
+            self._condition.notify_all()
+
+    def _set_continue_current_direction(self, *, resolution: str) -> None:
+        self._direction = {
+            "source": (
+                "direction_change_timeout_default_continue"
+                if resolution == "timeout_continue"
+                else "user_rejected_direction_change"
+            ),
+            "direction": DIRECTION_CHANGE_REJECTION_INSTRUCTION,
+            "direction_patch": {
+                "action": "revise",
+                "instructions": DIRECTION_CHANGE_REJECTION_INSTRUCTION,
+                "preserve_unspecified": True,
+            },
+        }
+        self._resolution = resolution
+        self._submitted = True
 
     def cancel(self) -> None:
         with self._condition:
             self._condition.notify_all()
 
-    def wait_for_submission(self) -> str | None:
+    def wait_for_submission(self) -> Any:
         with self._condition:
             while not self._submitted:
                 if self.cancellation is not None:
                     self.cancellation.raise_if_cancelled()
-                self._condition.wait()
+                remaining = (self._deadline_monotonic or time.monotonic()) - time.monotonic()
+                if remaining <= 0:
+                    self._set_continue_current_direction(resolution="timeout_continue")
+                    break
+                self._condition.wait(timeout=min(0.5, remaining))
             if self.cancellation is not None:
                 self.cancellation.raise_if_cancelled()
             return self._direction
+
+
+def direction_change_proposed(previous_round: Any, proposed_direction: dict[str, Any]) -> bool:
+    stage = str(proposed_direction.get("experiment_stage") or "").strip().lower().replace("-", "_")
+    if stage in {"pivot", "research_tournament"}:
+        return True
+    selection = (
+        proposed_direction.get("direction_selection")
+        if isinstance(proposed_direction.get("direction_selection"), dict)
+        else {}
+    )
+    selection_reason = str(selection.get("selection_reason") or "").strip().lower()
+    if "pivot" in selection_reason or "research_tournament" in selection_reason:
+        return True
+    previous_plan = getattr(previous_round, "direction_plan", None)
+    previous_plan = previous_plan if isinstance(previous_plan, dict) else {}
+    previous_family = str(previous_plan.get("method_family") or "").strip().lower()
+    proposed_family = str(proposed_direction.get("method_family") or "").strip().lower()
+    return bool(previous_family and proposed_family and previous_family != proposed_family)
+
+
+def intervention_display_text(value: Any) -> str:
+    if isinstance(value, dict):
+        return str(value.get("direction") or value.get("direction_patch") or "")[:4_000]
+    return str(value or "")[:4_000]
 
 
 def submit_round_intervention(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1667,11 +2287,30 @@ def submit_round_intervention(job_id: str, payload: dict[str, Any]) -> dict[str,
     if gate is None or job.get("status") != "waiting_for_user":
         raise ValueError("job is not waiting for a between-round intervention")
     use_main = coerce_bool(payload.get("use_main_recommendation"), False)
+    continue_current = coerce_bool(payload.get("continue_current_direction"), False)
     direction = None if use_main else str(payload.get("direction") or "").strip()
-    if not use_main and not direction:
+    action = str(payload.get("action") or "revise").strip().lower().replace("-", "_")
+    if action not in {"revise", "pivot", "research_tournament"}:
+        raise ValueError("action must be revise, pivot, or research_tournament")
+    if use_main and continue_current:
+        raise ValueError("choose either the Main recommendation or the current direction")
+    if not use_main and not continue_current and not direction:
         raise ValueError("direction is required unless use_main_recommendation=true")
-    gate.submit(direction)
-    return {"accepted": True, "use_main_recommendation": use_main, "direction": direction or None}
+    if continue_current:
+        gate.continue_current_direction()
+    else:
+        gate.submit(
+            direction,
+            action=action,
+            resolution="user_accept_main" if use_main else "user_submission",
+        )
+    return {
+        "accepted": True,
+        "use_main_recommendation": use_main,
+        "continue_current_direction": continue_current,
+        "direction": direction or None,
+        "action": "accept" if use_main else "continue" if continue_current else action,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -2534,11 +3173,13 @@ def scan_code_attempt_progress(job: dict[str, Any], seen: set[str], attempt_dir:
                 else {}
             )
             if accepted:
-                message = f"{label} 候选预检与快速结果复验通过，进入正式 Core evaluator。"
-                level = "info"
+                message = f"{label} JA 诊断无异常；该诊断不参与候选淘汰，结果仍由 Core evaluator 决定。"
             else:
-                message = f"{label} 候选预检或结果复验未通过，等待同轮修补：{summarize_list(issues)}"
-                level = "error"
+                message = (
+                    f"{label} JA 记录了诊断项（仅供审计，不阻止 Core）："
+                    f"{summarize_list(issues)}"
+                )
+            level = "info"
             record_progress_event(job, seen, f"{label}:agentic-judgment", message, level=level)
             if accepted and soft_acceptance:
                 original_issues = soft_acceptance.get("original_issues") or []
@@ -2618,14 +3259,14 @@ def scan_code_attempt_progress(job: dict[str, Any], seen: set[str], attempt_dir:
 def worker_attempt_dirs(round_dir: Path) -> list[tuple[Path, str]]:
     attempts: list[tuple[Path, str]] = [(round_dir, round_dir.name)]
     for repair_dir in sorted(path for path in round_dir.glob("repair_*") if path.is_dir()):
-        suffix = repair_dir.name.replace("repair_", "修补 ")
+        suffix = repair_dir.name.replace("repair_", "Local Trial ")
         attempts.append((repair_dir, f"{round_dir.name} {suffix}"))
     candidates_dir = round_dir / "candidates"
     for candidate_dir in sorted(path for path in candidates_dir.glob("*") if path.is_dir()):
         candidate_label = f"{round_dir.name} 候选 {candidate_dir.name}"
         attempts.append((candidate_dir, candidate_label))
         for repair_dir in sorted(path for path in candidate_dir.glob("repair_*") if path.is_dir()):
-            suffix = repair_dir.name.replace("repair_", "修补 ")
+            suffix = repair_dir.name.replace("repair_", "Local Trial ")
             attempts.append((repair_dir, f"{candidate_label} {suffix}"))
     return attempts
 
@@ -2698,57 +3339,61 @@ def scan_opencode_main_trace(
     completion state, final answers, and usage counters.
     """
 
-    main_dir = attempt_dir / "main_agent"
     records: list[dict[str, Any]] = []
-    has_native_commentary = any(
-        item.get("attempt") == label and item.get("kind") == "commentary"
-        for item in job.get("main_agent_trace") or []
-        if isinstance(item, dict)
-    )
-    for path in sorted(main_dir.glob("opencode_main_events*.jsonl")):
-        try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            continue
-        for index, line in enumerate(lines):
-            key = f"{label}:main-trace:{path.name}:{index}"
-            if key in seen:
-                continue
+    for directory_name, trace_label in (
+        ("main_agent", label),
+        ("main_agent_user_revision", f"{label} · 用户修订"),
+    ):
+        main_dir = attempt_dir / directory_name
+        has_native_commentary = any(
+            item.get("attempt") == trace_label and item.get("kind") == "commentary"
+            for item in job.get("main_agent_trace") or []
+            if isinstance(item, dict)
+        )
+        for path in sorted(main_dir.glob("opencode_main_events*.jsonl")):
             try:
-                payload = json.loads(line)
-            except json.JSONDecodeError:
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except OSError:
                 continue
-            record = opencode_main_trace_record(payload, label=label, record_id=key)
-            if record is None:
+            for index, line in enumerate(lines):
+                key = f"{label}:{directory_name}:main-trace:{path.name}:{index}"
+                if key in seen:
+                    continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                record = opencode_main_trace_record(payload, label=trace_label, record_id=key)
+                if record is None:
+                    seen.add(key)
+                    continue
                 seen.add(key)
-                continue
-            seen.add(key)
-            records.append(record)
-            if record.get("kind") == "commentary":
-                has_native_commentary = True
-    public_trace_path = main_dir / "main_reasoning_trace.json"
-    # The structured trace is generated from the final plan. It is useful when a
-    # provider emits no commentary, but must not masquerade as live thinking.
-    if public_trace_path.exists() and not has_native_commentary:
-        public_trace = read_json_file(public_trace_path)
-        timestamp_base = int(public_trace_path.stat().st_mtime * 1000)
-        for index, entry in enumerate(public_trace.get("entries") or []):
-            if not isinstance(entry, dict):
-                continue
-            key = f"{label}:main-public-reasoning:{index}"
-            if key in seen:
-                continue
-            seen.add(key)
-            records.append(
-                {
-                    "id": key,
-                    "attempt": label,
-                    "timestamp": timestamp_base + index,
-                    "kind": "analysis",
-                    "stage": str(entry.get("stage") or "分析"),
-                    "text": format_public_reasoning_entry(entry),
-                }
-            )
+                records.append(record)
+                if record.get("kind") == "commentary":
+                    has_native_commentary = True
+        public_trace_path = main_dir / "main_reasoning_trace.json"
+        # The structured trace is generated from the final plan. It is useful when a
+        # provider emits no commentary, but must not masquerade as live thinking.
+        if public_trace_path.exists() and not has_native_commentary:
+            public_trace = read_json_file(public_trace_path)
+            timestamp_base = int(public_trace_path.stat().st_mtime * 1000)
+            for index, entry in enumerate(public_trace.get("entries") or []):
+                if not isinstance(entry, dict):
+                    continue
+                key = f"{label}:{directory_name}:main-public-reasoning:{index}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                records.append(
+                    {
+                        "id": key,
+                        "attempt": trace_label,
+                        "timestamp": timestamp_base + index,
+                        "kind": "analysis",
+                        "stage": str(entry.get("stage") or "分析"),
+                        "text": format_public_reasoning_entry(entry),
+                    }
+                )
     if not records:
         return
     with _LOCK:
@@ -2891,7 +3536,14 @@ def opencode_worker_trace_record(
         detail = f"{tool} / {status}"
         if title and title.lower() != tool.lower():
             detail += f" / {title[:300]}"
-        return {**base, "kind": "tool", "tool": tool, "text": detail}
+        return {
+            **base,
+            "kind": "tool",
+            "tool": tool,
+            "status": status,
+            "title": title[:300],
+            "text": detail,
+        }
     if event_type == "step_finish":
         tokens = part.get("tokens") if isinstance(part.get("tokens"), dict) else {}
         if not tokens:
@@ -2960,7 +3612,15 @@ def opencode_main_trace_record(
         detail += f" / {status}"
         if title and title.lower() != tool.lower():
             detail += f" / {title[:300]}"
-        return {**base, "kind": "tool", "tool": tool, "text": detail}
+        return {
+            **base,
+            "kind": "tool",
+            "tool": tool,
+            "subagent": subagent,
+            "status": status,
+            "title": title[:300],
+            "text": detail,
+        }
     if event_type == "step_finish":
         tokens = part.get("tokens") if isinstance(part.get("tokens"), dict) else {}
         if not tokens:
@@ -3061,7 +3721,23 @@ def summarize_code_evolution_progress(worker_root: Path) -> dict[str, Any]:
     if not round_dirs and not diagnostic_summaries:
         return {}
     evaluated_rounds: list[dict[str, Any]] = []
+    historical_summaries: list[dict[str, Any]] = []
+    baseline_cycle = read_json_file(worker_root / "agent_generated_baseline" / "cycle_result.json")
+    baseline_summary = (
+        baseline_cycle.get("harness") if isinstance(baseline_cycle.get("harness"), dict) else {}
+    )
+    if baseline_summary:
+        historical_summaries.append(baseline_summary)
     for round_dir in round_dirs:
+        for attempt_dir, _label in worker_attempt_dirs(round_dir):
+            attempt_cycle = read_json_file(attempt_dir / "cycle_result.json")
+            attempt_summary = (
+                attempt_cycle.get("harness")
+                if isinstance(attempt_cycle.get("harness"), dict)
+                else {}
+            )
+            if attempt_summary:
+                historical_summaries.append(attempt_summary)
         final_dir = final_worker_attempt_dir(round_dir)
         cycle_result = read_json_file(final_dir / "cycle_result.json")
         summary = cycle_result.get("harness") if isinstance(cycle_result.get("harness"), dict) else {}
@@ -3069,7 +3745,7 @@ def summarize_code_evolution_progress(worker_root: Path) -> dict[str, Any]:
             evaluated_rounds.append(summary)
     latest_summary = evaluated_rounds[-1] if evaluated_rounds else {}
     latest_metrics = summary_metrics(latest_summary)
-    best_summary = best_progress_summary(evaluated_rounds)
+    best_summary = best_progress_summary(historical_summaries)
     best_metrics = summary_metrics(best_summary)
     return {
         "round_count": len(round_dirs),
@@ -3106,12 +3782,11 @@ def summarize_progress_repair_dirs(round_dirs: list[Path]) -> dict[str, Any]:
         cycle_result = read_json_file(final_dir / "cycle_result.json")
         judgment = cycle_result.get("agentic_judgment") if isinstance(cycle_result.get("agentic_judgment"), dict) else {}
         summary = cycle_result.get("harness") if isinstance(cycle_result.get("harness"), dict) else {}
-        accepted = bool(judgment.get("accepted"))
         total = int(summary.get("total", 0) or 0)
         valid = int(summary.get("valid", 0) or 0)
-        if accepted and (total == 0 or valid == total):
+        if total > 0 and valid == total:
             recovered_round_count += 1
-        elif total == 0 and not accepted:
+        elif total == 0 or valid != total:
             final_rejected_after_repair += 1
     return {
         "repair_round_count": repair_round_count,

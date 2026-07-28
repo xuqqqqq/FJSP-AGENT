@@ -22,6 +22,12 @@ from harness_agent.worker import WorkerAssignment
 WORKER_ASSIGNMENT_SOFT_CHARS = 12_000
 WORKER_ASSIGNMENT_MAX_CHARS = 24_000
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+HIGH_FLEX_BASELINE_REDUNDANT_CARDS = {
+    "constructive_multistart_blueprint.md",
+    "optimization_playbook.md",
+    "idle_critical_beam_implementation_template.md",
+    "core_pseudocode.md",
+}
 
 
 def build_worker_assignment(
@@ -43,8 +49,40 @@ def build_worker_assignment(
     """
 
     direction_id = str(direction_plan.get("direction_id") or f"d{round_index:03d}").strip()
-    mode = "repair" if attempt_index > 0 else "baseline" if round_index < 0 else "improvement"
+    latest_feedback = _assignment_feedback(loop_feedback, attempt_index=attempt_index)
+    baseline_trial = attempt_index + 1 if round_index < 0 else None
+    if baseline_trial is not None:
+        try:
+            requested_baseline_trial = int(latest_feedback.get("baseline_trial") or baseline_trial)
+        except (TypeError, ValueError):
+            requested_baseline_trial = baseline_trial
+        baseline_trial = max(1, min(3, requested_baseline_trial))
+    is_objective_refinement = (
+        attempt_index > 0
+        and str(latest_feedback.get("status") or "") == "refinement_required"
+        and latest_feedback.get("allow_objective_refinement") is True
+    )
+    mode = (
+        "baseline"
+        if baseline_trial == 1
+        else "improvement"
+        if is_objective_refinement
+        else "repair"
+        if attempt_index > 0
+        else "baseline"
+        if round_index < 0
+        else "improvement"
+    )
     assignment_id = f"{_safe_identifier(direction_id)}-a{attempt_index:02d}"
+    high_flex_baseline = bool(
+        baseline_trial
+        and "high_flexibility"
+        in {
+            str(item).strip().lower()
+            for item in direction_plan.get("knowledge_query") or []
+            if str(item).strip()
+        }
+    )
     target_file = _solver_target(context)
     active_package = _selected_method_package(context, direction_plan)
     implementation_bundle = (
@@ -64,7 +102,6 @@ def build_worker_assignment(
     quality_contract = build_agent_generated_solver_quality_contract(context)
     evaluator_protocol = context.get("evaluator_protocol") if isinstance(context.get("evaluator_protocol"), dict) else {}
     edit_policy = context.get("edit_policy") if isinstance(context.get("edit_policy"), dict) else {}
-    latest_feedback = _assignment_feedback(loop_feedback, attempt_index=attempt_index)
     incumbent_assessment = (
         direction_plan.get("incumbent_assessment")
         if isinstance(direction_plan.get("incumbent_assessment"), dict)
@@ -107,9 +144,19 @@ def build_worker_assignment(
             "repair assignment requires concrete compile/runtime/validator failures; semantic-review-only "
             "feedback cannot trigger a Coding Agent repair"
         )
-    refinement_deliverables: list[dict[str, str]] = []
+    refinement_deliverables = (
+        _objective_refinement_deliverables(latest_feedback)
+        if is_objective_refinement
+        else []
+    )
+    staged_baseline_deliverables = _agent_generated_baseline_deliverables(
+        baseline_trial=baseline_trial,
+        high_flexibility=high_flex_baseline,
+    )
     if repair_deliverables:
         implementation_order = [item["id"] for item in repair_deliverables]
+    elif staged_baseline_deliverables:
+        implementation_order = [item["id"] for item in staged_baseline_deliverables]
     elif remaining_components:
         implementation_order = [
             component_id for component_id in implementation_order if component_id in remaining_components
@@ -117,7 +164,7 @@ def build_worker_assignment(
     elif refinement_deliverables:
         implementation_order = [item["id"] for item in refinement_deliverables]
 
-    deliverables = repair_deliverables or refinement_deliverables or _assignment_deliverables(
+    deliverables = repair_deliverables or staged_baseline_deliverables or refinement_deliverables or _assignment_deliverables(
         direction_plan=direction_plan,
         component_rows=component_rows,
         implementation_order=implementation_order,
@@ -131,13 +178,21 @@ def build_worker_assignment(
         include_implementation_asset=(mode == "baseline" or bool(remaining_components)),
         active_package=active_package,
         direction_plan=direction_plan,
+        baseline_trial=baseline_trial,
+        high_flexibility=high_flex_baseline,
     )
-    implementation_skills = _assignment_implementation_skills(context, direction_plan=direction_plan)
+    implementation_skills = _assignment_implementation_skills(
+        context,
+        direction_plan=direction_plan,
+        baseline_trial=baseline_trial,
+    )
     if repair_deliverables:
         completion_rule = (
             "Eliminate every listed repair deliverable, compile the target, and pass JA plus the bounded smoke "
             "without rewriting unrelated working behavior."
         )
+    elif staged_baseline_deliverables:
+        completion_rule = _agent_generated_baseline_completion_rule(baseline_trial or 1)
     elif refinement_deliverables:
         completion_rule = (
             "Make one bounded same-direction objective refinement, compile, pass JA and the bounded smoke, "
@@ -160,6 +215,8 @@ def build_worker_assignment(
             "Repair only the blocking items in latest_feedback.repair_targets while preserving all unrelated "
             "working behavior in the current target file."
         )
+    elif staged_baseline_deliverables:
+        objective = _agent_generated_baseline_objective(baseline_trial or 1)
     elif refinement_deliverables:
         objective = (
             "Refine only the current direction with one bounded objective-improvement edit. Preserve the legal "
@@ -175,7 +232,7 @@ def build_worker_assignment(
             "package_id": str(active_package.get("package_id") or direction_plan.get("method_package_id") or ""),
             "implementation_asset": (
                 active_package.get("implementation_asset")
-                if mode == "baseline" or remaining_components
+                if (mode == "baseline" and baseline_trial != 1) or remaining_components
                 else None
             ),
             "contract_paths": _unique_strings(
@@ -231,6 +288,7 @@ def build_worker_assignment(
             "parent_assignment_id": parent_assignment_id,
             "attempt_index": attempt_index,
             "round_index": round_index,
+            "baseline_trial": baseline_trial,
         },
         runtime_contract={
             "problem_family": (context.get("task") or {}).get("problem_family"),
@@ -244,7 +302,11 @@ def build_worker_assignment(
             "forbidden_paths": edit_policy.get("forbidden_paths") or [],
             "experiment_contract": {
                 "stage": direction_plan.get("experiment_stage") or "probe",
-                "activation_checks": _compact_activation_checks(direction_plan.get("activation_checks")),
+                "activation_checks": (
+                    []
+                    if baseline_trial is not None and baseline_trial < 3
+                    else _compact_activation_checks(direction_plan.get("activation_checks"))
+                ),
                 "falsification_metrics": _bounded_strings(
                     next_mutation.get("falsification_metrics"),
                     limit=8,
@@ -252,7 +314,7 @@ def build_worker_assignment(
                 ),
                 "activation_path_root": "best_metrics.solver_evidence.diagnostics",
                 "rule": (
-                    "The candidate is inconclusive unless required activation_checks are observable in solution diagnostics."
+                    "Activation diagnostics are advisory evidence only; Core legality and objective evaluation remain authoritative."
                 ),
             },
             **(
@@ -270,7 +332,7 @@ def build_worker_assignment(
                         "limits": "64 runs, 256 layers, 128 distribution items; no raw schedules/states/traces.",
                     }
                 }
-                if attempt_index == 0
+                if (baseline_trial is None and attempt_index == 0) or (baseline_trial is not None and baseline_trial >= 3)
                 else {}
             ),
         },
@@ -303,6 +365,9 @@ def write_worker_assignment(path: Path, assignment: WorkerAssignment) -> Path:
 
 def _solver_target(context: dict[str, Any]) -> str:
     protocol = context.get("evaluator_protocol") if isinstance(context.get("evaluator_protocol"), dict) else {}
+    explicit_target = _safe_read_path(protocol.get("worker_target_file"))
+    if explicit_target:
+        return explicit_target
     template = str(protocol.get("solver_command_template") or "")
     try:
         tokens = shlex.split(template, posix=False)
@@ -331,6 +396,7 @@ def _assignment_implementation_skills(
     context: dict[str, Any],
     *,
     direction_plan: dict[str, Any],
+    baseline_trial: int | None = None,
 ) -> list[dict[str, Any]]:
     task = context.get("task") if isinstance(context.get("task"), dict) else {}
     catalog = context.get("method_package_catalog") if isinstance(context.get("method_package_catalog"), dict) else {}
@@ -362,6 +428,10 @@ def _assignment_implementation_skills(
         skill_id = str(item.get("skill_id") or "").strip().lower()
         if not skill_id or any(row["skill_id"] == skill_id for row in result):
             continue
+        if baseline_trial == 1 and skill_id != "fjsp-solver-foundation-worker":
+            continue
+        if baseline_trial == 2 and skill_id == "fjsp-experiment-design-worker":
+            continue
         result.append(
             {
                 "skill_id": skill_id,
@@ -382,6 +452,8 @@ def _assignment_read_set(
     include_implementation_asset: bool,
     active_package: dict[str, Any],
     direction_plan: dict[str, Any],
+    baseline_trial: int | None = None,
+    high_flexibility: bool = False,
 ) -> list[dict[str, Any]]:
     # ``target_file`` is always an explicitly authorized worker input.  During
     # baseline generation it may not exist yet, so the worker may create it;
@@ -393,6 +465,21 @@ def _assignment_read_set(
             "required": mode != "baseline",
         }
     ]
+    evaluator_protocol = (
+        context.get("evaluator_protocol")
+        if isinstance(context.get("evaluator_protocol"), dict)
+        else {}
+    )
+    for path in _unique_strings(evaluator_protocol.get("provided_project_read_paths") or [])[:200]:
+        safe_path = _safe_read_path(path)
+        if safe_path and safe_path != target_file:
+            rows.append(
+                {
+                    "path": safe_path,
+                    "role": "provided_project_source",
+                    "required": True,
+                }
+            )
     active_direction_knowledge = (
         context.get("active_direction_knowledge")
         if isinstance(context.get("active_direction_knowledge"), dict)
@@ -420,7 +507,7 @@ def _assignment_read_set(
                 active_features=[str(item) for item in package_catalog.get("active_features") or []],
             ).cards
         ]
-    if include_implementation_asset:
+    if include_implementation_asset and baseline_trial != 1:
         implementation_asset = _safe_read_path(active_package.get("implementation_asset"))
         if implementation_asset:
             rows.append({"path": implementation_asset, "role": "implementation", "required": True})
@@ -432,7 +519,9 @@ def _assignment_read_set(
         safe_path = _safe_read_path(path)
         if safe_path:
             rows.append({"path": safe_path, "role": "contract", "required": True})
-    if mode == "baseline":
+    if baseline_trial == 1:
+        supporting_paths = []
+    elif mode == "baseline":
         supporting_paths = [
             *direction_paths,
             *(active_package.get("assets") or []),
@@ -450,6 +539,11 @@ def _assignment_read_set(
         safe_path = _safe_read_path(path)
         if (
             not safe_path
+            or (
+                high_flexibility
+                and baseline_trial is not None
+                and Path(safe_path).name in HIGH_FLEX_BASELINE_REDUNDANT_CARDS
+            )
             or (not include_implementation_asset and safe_path == implementation_asset)
             or any(item["path"] == safe_path for item in rows)
         ):
@@ -464,6 +558,12 @@ def _assignment_read_set(
     )
     rows.extend(_staged_instance_read_set(context))
     rows.extend(_staged_document_read_set(context))
+    if high_flexibility and baseline_trial is not None:
+        rows = [
+            item
+            for item in rows
+            if Path(str(item.get("path") or "")).name not in HIGH_FLEX_BASELINE_REDUNDANT_CARDS
+        ]
     return rows
 
 
@@ -527,6 +627,89 @@ def _safe_read_path(value: Any) -> str:
     if ".." in path.parts:
         return ""
     return path.as_posix()
+
+
+def _agent_generated_baseline_deliverables(
+    *,
+    baseline_trial: int | None,
+    high_flexibility: bool,
+) -> list[dict[str, str]]:
+    if baseline_trial == 1:
+        return [
+            {
+                "id": "parser_and_model",
+                "behavior": "Parse the assigned instance format into jobs, ordered operations, eligible machines, and durations.",
+                "evidence_required": "The target parses the staged sample without importing harness or evaluator code.",
+            },
+            {
+                "id": "simple_legal_constructor",
+                "behavior": "Build one complete deterministic legal schedule with a simple eligible-machine rule and precedence-safe decoding.",
+                "evidence_required": "Every operation is scheduled once with eligible duration, precedence, and machine non-overlap.",
+            },
+            {
+                "id": "cli_and_output",
+                "behavior": "Implement the required CLI flags and emit the exact standalone solution JSON contract.",
+                "evidence_required": "The fixed command writes a Core-readable complete solution.",
+            },
+            {
+                "id": "deterministic_fallback",
+                "behavior": "Always retain and emit the complete simple schedule when optional work reaches the deadline or fails.",
+                "evidence_required": "A bounded run cannot exit without the best complete legal incumbent already constructed.",
+            },
+        ]
+    if baseline_trial == 2 and high_flexibility:
+        return [
+            {
+                "id": "earliest_gap",
+                "behavior": "Upgrade decoding to earliest feasible machine-gap insertion; do not append blindly at the machine tail.",
+                "evidence_required": "The reachable decoder tests internal gaps before tail placement.",
+            },
+            {
+                "id": "operation_pressure",
+                "behavior": "Use operation pressure exactly as (eligible_machine_count - 1) * duration_span.",
+                "evidence_required": "The reachable priority computation uses the exact formula on each unscheduled operation.",
+            },
+            {
+                "id": "exact_assignment_regret",
+                "behavior": "After start-first scoring, use assignment_regret = current assignment cost - theoretical fastest processing time.",
+                "evidence_required": "Regret is not the difference between the best and second-best complete score tuples.",
+            },
+            {
+                "id": "low_pressure_order",
+                "behavior": "Keep remaining-chain or equivalent sequence pressure for low-pressure operations.",
+                "evidence_required": "Low-flexibility operations retain an explicit order-pressure term instead of being flattened by assignment scoring.",
+            },
+        ]
+    if baseline_trial is not None and baseline_trial >= 3 and high_flexibility:
+        return [
+            {
+                "id": "activation_telemetry",
+                "behavior": "Add bounded diagnostics for pressure, exact regret, gap insertion, and fallback use without changing Core ranking.",
+                "evidence_required": "Diagnostics prove reachable mechanism counts and remain optional, bounded output metadata.",
+            },
+            {
+                "id": "mechanism_refinement",
+                "behavior": "Refine only measured edge cases, tie breaks, deadline handling, and incumbent preservation around the Trial 2 mechanisms.",
+                "evidence_required": "The legal Trial 2 solver remains the fallback and every refinement is reachable under the shared deadline.",
+            },
+        ]
+    return []
+
+
+def _agent_generated_baseline_objective(baseline_trial: int) -> str:
+    if baseline_trial <= 1:
+        return "Create the smallest complete standalone legal solver: parser, simple construction, CLI/output, and deterministic fallback only."
+    if baseline_trial == 2:
+        return "Preserve the legal Trial 1 solver and add earliest-gap decoding, exact operation pressure, exact assignment regret, and low-pressure order priority."
+    return "Preserve the best legal Trial 2 solver and add bounded activation telemetry plus measured, local mechanism refinements."
+
+
+def _agent_generated_baseline_completion_rule(baseline_trial: int) -> str:
+    if baseline_trial <= 1:
+        return "Stop once the minimal solver compiles and Core can validate one complete legal fallback; do not add Beam, multi-start, telemetry, or local search."
+    if baseline_trial == 2:
+        return "Keep Trial 1 as fallback, compile, and expose the four exact high-flexibility construction mechanisms through reachable code."
+    return "Keep the best legal parent as fallback, compile, and add only bounded telemetry and evidence-driven refinements before Core evaluation."
 
 
 def _assignment_deliverables(
@@ -799,7 +982,16 @@ def compact_current_round_repair(value: dict[str, Any]) -> dict[str, Any]:
 
     result = {
         key: value.get(key)
-        for key in ("status", "attempt_index", "max_repair_attempts", "must_do", "avoid")
+        for key in (
+            "status",
+            "allow_objective_refinement",
+            "attempt_index",
+            "max_repair_attempts",
+            "baseline_trial",
+            "resume_incomplete_baseline",
+            "must_do",
+            "avoid",
+        )
         if value.get(key) not in (None, "", [], {})
     }
     targets = dict(value.get("repair_targets") or {}) if isinstance(value.get("repair_targets"), dict) else {}

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import base64
+import io
 import json
 import os
+import stat
 import tempfile
 import threading
 import time
 import unittest
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -14,6 +18,7 @@ from harness_agent.web.server import (
     _JOB_CANCELLATIONS,
     _JOBS,
     _ROUND_GATES,
+    agent_status_snapshot,
     browser_safe_json,
     create_project_resource,
     create_job,
@@ -105,6 +110,110 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual("algoforge-web", payload["service"])
         self.assertTrue(payload["opencode_available"])
         self.assertFalse(payload["provider_configured"])
+
+    def test_create_job_extracts_provided_project_and_keeps_archive_out_of_status(self) -> None:
+        archive = self.zip_payload(
+            {
+                "fjsp-project/solver.py": "print('entry')\n",
+                "fjsp-project/fjsp/solver.py": "def improve():\n    return 1\n",
+                "fjsp-project/evaluate.py": "raise RuntimeError('untrusted')\n",
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            job = create_job(
+                self.job_payload(
+                    starter_project=archive,
+                    starter_solver_entrypoint="solver.py",
+                    starter_solver_command=(
+                        "python solver.py {instance} --output {solution} --seed {seed}"
+                    ),
+                    starter_target_file="fjsp/solver.py",
+                ),
+                output_root=Path(tmp),
+            )
+            project_root = Path(job["inputs"]["starter_project"])
+
+            self.assertTrue((project_root / "solver.py").is_file())
+            self.assertTrue((project_root / "fjsp" / "solver.py").is_file())
+            self.assertFalse((project_root / "fjsp-project").exists())
+            self.assertEqual("provided_project", job["config"]["baseline_mode"])
+            self.assertEqual("fjsp/solver.py", job["config"]["starter_target_file"])
+            self.assertEqual("fjsp-project", job["config"]["starter_project"]["stripped_root"])
+            self.assertNotIn(archive["base64"], json.dumps(job))
+
+    def test_create_job_rejects_zip_path_traversal_and_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "unsafe path"):
+                create_job(
+                    self.job_payload(
+                        starter_project=self.zip_payload({"../outside.py": "bad"}),
+                    ),
+                    output_root=Path(tmp),
+                )
+
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w") as archive:
+            info = zipfile.ZipInfo("project/link.py")
+            info.create_system = 3
+            info.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(info, "solver.py")
+            archive.writestr("project/solver.py", "print('ok')")
+        symlink_payload = {
+            "name": "symlink.zip",
+            "base64": base64.b64encode(stream.getvalue()).decode("ascii"),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "symlink"):
+                create_job(
+                    self.job_payload(starter_project=symlink_payload),
+                    output_root=Path(tmp),
+                )
+
+    def test_create_job_rejects_excessive_zip_entries_and_expanded_size(self) -> None:
+        archive = self.zip_payload({"project/solver.py": "print('ok')", "project/model.py": "x = 1"})
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "harness_agent.web.server.MAX_STARTER_ARCHIVE_ENTRIES", 1
+        ):
+            with self.assertRaisesRegex(ValueError, "more than 1 entries"):
+                create_job(
+                    self.job_payload(starter_project=archive),
+                    output_root=Path(tmp),
+                )
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "harness_agent.web.server.MAX_STARTER_EXPANDED_BYTES", 4
+        ):
+            with self.assertRaisesRegex(ValueError, "expands beyond 4 bytes"):
+                create_job(
+                    self.job_payload(
+                        starter_project=self.zip_payload({"project/solver.py": "12345"}),
+                    ),
+                    output_root=Path(tmp),
+                )
+
+    def test_frontend_exposes_provided_project_contract(self) -> None:
+        index = (ROOT / "harness_agent" / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        app = (ROOT / "harness_agent" / "web" / "static" / "app.js").read_text(encoding="utf-8")
+
+        import_start = index.index('id="view-import-project"')
+        setup_start = index.index('id="view-setup"')
+        import_view = index[import_start:setup_start]
+
+        for element_id in (
+            "starter-project-file",
+            "starter-solver-entrypoint",
+            "starter-solver-command",
+            "starter-target-file",
+        ):
+            self.assertIn(f'id="{element_id}"', index)
+            self.assertIn(f'id="{element_id}"', import_view)
+        self.assertIn('data-view-target="import-project"', index[:import_start])
+        self.assertNotIn('id="starter-project-panel"', index)
+        self.assertIn('id="starter-project-summary"', index[setup_start:])
+        self.assertIn("file.arrayBuffer()", app)
+        self.assertIn("payload.starter_project = state.starterProject", app)
+        self.assertIn('"import-project": "导入已有项目"', app)
+        self.assertIn('setActiveView("setup")', app)
 
     def test_stop_job_cancels_active_task_and_preserves_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -583,6 +692,35 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(["analysis"], [item["kind"] for item in job["main_agent_trace"]])
         self.assertIn("结构化记录兜底", job["main_agent_trace"][0]["text"])
 
+    def test_main_agent_trace_includes_between_round_user_revision(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            attempt_dir = Path(tmp) / "round_001"
+            revision_dir = attempt_dir / "main_agent_user_revision"
+            revision_dir.mkdir(parents=True)
+            (revision_dir / "opencode_main_events.jsonl").write_text(
+                json.dumps(
+                    {
+                        "type": "text",
+                        "timestamp": 2000,
+                        "part": {
+                            "text": "正在根据用户介入重签任务书。",
+                            "metadata": {"openai": {"phase": "commentary"}},
+                        },
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            job = {"status": "running", "main_agent_trace": []}
+
+            with patch("harness_agent.web.server.write_job_status"):
+                scan_opencode_main_trace(job, set(), attempt_dir, "round_001")
+
+        self.assertEqual(1, len(job["main_agent_trace"]))
+        self.assertEqual("round_001 · 用户修订", job["main_agent_trace"][0]["attempt"])
+        self.assertIn("重签任务书", job["main_agent_trace"][0]["text"])
+
     def test_frontend_renders_main_agent_trace_in_chat(self) -> None:
         app = (ROOT / "harness_agent" / "web" / "static" / "app.js").read_text(encoding="utf-8")
 
@@ -661,6 +799,128 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("appendCodingAgentTraceItem", app)
         self.assertIn("state.codingTimelineHeaders", app)
         self.assertIn("Coding Agent ·", app)
+
+    def test_agent_status_snapshot_separates_started_agents_from_configured_capacity(self) -> None:
+        job = {
+            "status": "running",
+            "updated_at": "2026-07-25T00:00:00Z",
+            "config": {
+                "main_agent_model": "openai/gpt-5.4",
+                "main_agent_variant": "high",
+                "coding_worker_model": "openai/gpt-5.4",
+                "coding_worker_variant": "high",
+                "main_max_subagents": 2,
+                "max_competing_workers": 4,
+            },
+            "main_agent_trace": [
+                {
+                    "id": "main-1",
+                    "attempt": "round_000",
+                    "timestamp": 100,
+                    "kind": "commentary",
+                    "text": "正在确定本轮最小变异。",
+                },
+                {
+                    "id": "task-1",
+                    "attempt": "round_000",
+                    "timestamp": 110,
+                    "kind": "tool",
+                    "tool": "task",
+                    "text": "task / plan-critic / completed / 评审变异方向",
+                },
+            ],
+            "coding_agent_trace": [
+                {
+                    "id": "c1-1",
+                    "agent_key": "round_000:c01:primary",
+                    "display_name": "c01",
+                    "round": "round_000",
+                    "timestamp": 120,
+                    "kind": "commentary",
+                    "text": "正在实现候选一。",
+                    "model": "openai/gpt-5.4",
+                    "variant": "high",
+                },
+                {
+                    "id": "c1-2",
+                    "agent_key": "round_000:c01:primary",
+                    "display_name": "c01",
+                    "round": "round_000",
+                    "timestamp": 130,
+                    "kind": "final",
+                    "text": "候选一完成。",
+                    "model": "openai/gpt-5.4",
+                    "variant": "high",
+                },
+                {
+                    "id": "c2-1",
+                    "agent_key": "round_000:c02:primary",
+                    "display_name": "c02",
+                    "round": "round_000",
+                    "timestamp": 140,
+                    "kind": "tool",
+                    "tool": "apply_patch",
+                    "status": "running",
+                    "title": "更新 solver.py",
+                    "text": "apply_patch / running / 更新 solver.py",
+                    "model": "openai/gpt-5.4",
+                    "variant": "high",
+                },
+            ],
+        }
+
+        snapshot = agent_status_snapshot(job)
+
+        self.assertEqual(2, snapshot["summary"]["configured_subagents"])
+        self.assertEqual(4, snapshot["summary"]["configured_workers"])
+        self.assertEqual(1, snapshot["summary"]["started_subagents"])
+        self.assertEqual(2, snapshot["summary"]["started_workers"])
+        self.assertEqual(
+            {"Main Agent": "waiting", "Main Subagent · plan-critic": "completed", "Coding Agent · c01": "completed", "Coding Agent · c02": "running"},
+            {agent["name"]: agent["status"] for agent in snapshot["agents"]},
+        )
+
+    def test_frontend_renders_structured_agent_status_bar(self) -> None:
+        html = (ROOT / "harness_agent" / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        app = (ROOT / "harness_agent" / "web" / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="agent-status-bar"', html)
+        self.assertIn('id="agent-status-summary"', html)
+        self.assertIn('id="agent-status-track"', html)
+        self.assertIn("function renderAgentStatusBar(job)", app)
+        self.assertIn("function agentQuietSeconds(agent, status)", app)
+        self.assertIn("function agentStatusDetail(job, agent)", app)
+        self.assertIn("可能停滞", app)
+        self.assertIn("job.agent_status", app)
+        self.assertIn("renderAgentStatusBar(job);", app)
+
+    def test_agent_status_snapshot_exposes_worker_attempts_without_public_trace(self) -> None:
+        snapshot = agent_status_snapshot(
+            {
+                "status": "completed",
+                "updated_at": "2026-07-25T00:00:00Z",
+                "config": {
+                    "coding_worker_model": "openai/gpt-5.4",
+                    "coding_worker_variant": "high",
+                    "max_competing_workers": 2,
+                },
+                "summary": {
+                    "worker_summary": {
+                        "completed_round_count": 3,
+                        "attempt_count": 3,
+                        "worker_status_counts": {"failed_runtime": 3},
+                    }
+                },
+                "main_agent_trace": [],
+                "coding_agent_trace": [],
+            }
+        )
+
+        self.assertEqual(3, snapshot["summary"]["reported_worker_attempts"])
+        self.assertEqual(3, snapshot["summary"]["untraced_worker_attempts"])
+        self.assertEqual("3 轮完成", snapshot["agents"][0]["stage"])
+        self.assertEqual("failed", snapshot["agents"][1]["status"])
+        self.assertIn("failed_runtime=3", snapshot["agents"][1]["detail"])
 
     def test_frontend_resets_conversation_when_job_changes(self) -> None:
         app = (ROOT / "harness_agent" / "web" / "static" / "app.js").read_text(encoding="utf-8")
@@ -746,7 +1006,87 @@ class WebAppTests(unittest.TestCase):
             "结构观察",
             job["pending_intervention"]["main_analysis"]["reasoning_trace"][0]["stage"],
         )
-        self.assertEqual("Try critical reassignment with more insertion positions.", result)
+        self.assertEqual("user_rejected_direction_change", result["source"])
+        self.assertEqual(
+            "Try critical reassignment with more insertion positions.",
+            result["direction"],
+        )
+
+    def test_web_round_gate_returns_typed_pivot_for_method_reselection(self) -> None:
+        job = {"id": "pivot-job", "status": "running", "events": [], "intervention_history": []}
+        gate = WebRoundInterventionGate(job)
+
+        gate.submit("Switch to a coupled critical-block neighborhood.", action="pivot")
+        result = gate.wait_for_submission()
+
+        self.assertEqual("pivot", result["direction_patch"]["action"])
+        self.assertEqual(
+            "Switch to a coupled critical-block neighborhood.",
+            result["direction_patch"]["instructions"],
+        )
+
+    def test_web_round_gate_defaults_to_current_direction_after_timeout(self) -> None:
+        job = {"id": "timeout-job", "status": "running", "events": [], "intervention_history": []}
+        gate = WebRoundInterventionGate(job, timeout_seconds=0.02)
+        previous_round = SimpleNamespace(
+            round_index=0,
+            decision="rolled_back",
+            candidate_key=(-2300.0,),
+            incumbent_key_after=(-2200.0,),
+            direction_plan={"method_family": "constructive_search"},
+        )
+
+        with patch("harness_agent.web.server.write_job_status"):
+            result = gate(
+                next_round_index=1,
+                previous_round=previous_round,
+                proposed_direction={
+                    "experiment_stage": "pivot",
+                    "method_family": "coupled_local_search",
+                    "title": "Switch search family",
+                },
+            )
+
+        self.assertEqual("revise", result["direction_patch"]["action"])
+        self.assertEqual("direction_change_timeout_default_continue", result["source"])
+        self.assertIn("Continue the previously active method family", result["direction_patch"]["instructions"])
+        self.assertEqual("running", job["status"])
+        self.assertIsNone(job["pending_intervention"])
+        self.assertEqual("timeout_continue", job["intervention_history"][0]["resolution"])
+
+    def test_web_round_gate_does_not_pause_same_direction_refinement(self) -> None:
+        job = {"id": "continue-job", "status": "running", "events": [], "intervention_history": []}
+        gate = WebRoundInterventionGate(job, timeout_seconds=0.02)
+        previous_round = SimpleNamespace(
+            round_index=0,
+            direction_plan={"method_family": "constructive_search"},
+        )
+
+        result = gate(
+            next_round_index=1,
+            previous_round=previous_round,
+            proposed_direction={
+                "experiment_stage": "probe",
+                "method_family": "constructive_search",
+            },
+        )
+
+        self.assertIsNone(result)
+        self.assertEqual("running", job["status"])
+        self.assertNotIn("pending_intervention", job)
+
+    def test_frontend_exposes_continue_vs_method_family_pivot_actions(self) -> None:
+        app = (ROOT / "harness_agent" / "web" / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("细化当前方向", app)
+        self.assertIn("继续当前方向", app)
+        self.assertIn(
+            "20 秒",
+            (ROOT / "harness_agent" / "web" / "static" / "index.html").read_text(encoding="utf-8"),
+        )
+        self.assertIn("切换方法族", app)
+        self.assertIn('state.interventionAction = "pivot"', app)
+        self.assertIn("action: state.interventionAction", app)
 
     def test_round_intervention_submission_resumes_blocked_loop(self) -> None:
         job = {
@@ -772,6 +1112,7 @@ class WebAppTests(unittest.TestCase):
                 previous_round=previous_round,
                 proposed_direction={
                     "title": "Widen reassignment",
+                    "experiment_stage": "pivot",
                     "observed_shortcomings": ["Only one insertion position was tested."],
                     "evidence_summary": ["The legal candidate was rolled back."],
                     "direction_judgment": "Preserve decoding and widen the move set.",
@@ -795,9 +1136,10 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual("running", job["status"])
         self.assertIsNone(job["pending_intervention"])
         self.assertEqual(1, len(job["intervention_history"]))
+        self.assertEqual("user_rejected_direction_change", result["direction"]["source"])
         self.assertEqual(
             "Try critical reassignment with more insertion positions.",
-            result["direction"],
+            result["direction"]["direction"],
         )
 
     def test_create_job_ignores_legacy_algorithm_parameters(self) -> None:
@@ -872,6 +1214,10 @@ class WebAppTests(unittest.TestCase):
         self.assertIsNone(request.semantic_reviewer)
         self.assertEqual("deepseek/deepseek-v4-pro", worker_factory.call_args.kwargs["model"])
         self.assertEqual("low", worker_factory.call_args.kwargs["variant"])
+        self.assertEqual(
+            job["config"]["worker_max_runtime_seconds"],
+            worker_factory.call_args.kwargs["timeout_seconds"],
+        )
         self.assertEqual("openai/gpt-5.4", main_factory.call_args.kwargs["model"])
         self.assertEqual("high", main_factory.call_args.kwargs["variant"])
         self.assertEqual(4, main_factory.call_args.kwargs["max_subagents"])
@@ -1148,6 +1494,36 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(1, progress["completed_round_count"])
         self.assertEqual(95, progress["best_makespan_so_far"])
 
+    def test_progress_summary_keeps_best_legal_result_after_failed_trials(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            baseline_dir = root / "agent_generated_baseline"
+            primary_dir = root / "round_000"
+            failed_repair_dir = primary_dir / "repair_001"
+            failed_round_dir = root / "round_001"
+            for path in (baseline_dir, primary_dir, failed_repair_dir, failed_round_dir):
+                path.mkdir(parents=True, exist_ok=True)
+            valid = {"total": 1, "valid": 1, "failed": 0, "best_metrics": {"makespan": 2228}}
+            failed = {"total": 0, "valid": 0, "failed": 0, "best_metrics": {}}
+            (baseline_dir / "cycle_result.json").write_text(
+                json.dumps({"harness": valid}), encoding="utf-8"
+            )
+            (primary_dir / "cycle_result.json").write_text(
+                json.dumps({"harness": valid}), encoding="utf-8"
+            )
+            (failed_repair_dir / "cycle_result.json").write_text(
+                json.dumps({"harness": failed}), encoding="utf-8"
+            )
+            (failed_round_dir / "cycle_result.json").write_text(
+                json.dumps({"harness": failed}), encoding="utf-8"
+            )
+
+            progress = summarize_code_evolution_progress(root)
+
+        self.assertEqual(2, progress["completed_round_count"])
+        self.assertEqual(2228, progress["best_makespan_so_far"])
+        self.assertIsNone(progress["latest_makespan"])
+
     def test_progress_summary_exposes_baseline_diagnostic_before_any_round(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1269,7 +1645,7 @@ class WebAppTests(unittest.TestCase):
             scan_code_attempt_progress(job, seen, attempt_dir, "baseline")
 
         messages = [event["message"] for event in job["events"]]
-        self.assertTrue(any("候选预检或结果复验未通过" in message for message in messages))
+        self.assertTrue(any("JA 记录了诊断项（仅供审计，不阻止 Core）" in message for message in messages))
         self.assertTrue(any("历史软门禁被降级并放行正式评估" in message for message in messages))
         self.assertTrue(any("diagnostic_makespan=2352" in message for message in messages))
 
@@ -1331,6 +1707,17 @@ class WebAppTests(unittest.TestCase):
         }
         payload.update(overrides)
         return payload
+
+    @staticmethod
+    def zip_payload(files: dict[str, str]) -> dict[str, str]:
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for name, content in files.items():
+                archive.writestr(name, content)
+        return {
+            "name": "starter.zip",
+            "base64": base64.b64encode(stream.getvalue()).decode("ascii"),
+        }
 
 
 if __name__ == "__main__":

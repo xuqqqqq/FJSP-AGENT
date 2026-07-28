@@ -1,6 +1,6 @@
 # 现有 Skill 与知识库分类清单
 
-盘点日期：2026-07-24。清单覆盖项目级 `.codex/skills`、OpenCode 内部 `.opencode/skills`、`knowledge/` 和标准 FJSP Domain Pack。
+盘点日期：2026-07-25。清单覆盖项目级 `.codex/skills`、OpenCode 内部 `.opencode/skills`、`knowledge/` 和标准 FJSP Domain Pack。
 
 ## 1. 项目 Skill
 
@@ -26,6 +26,7 @@
 | --- | --- | --- |
 | `fjsp-constructive-search-worker` | `constructive_search` | 多规则、空闲间隙、有限前瞻、Beam、多起点和结构去重 |
 | `fjsp-coupled-local-search-worker` | `coupled_local_search` | assignment/sequence 耦合邻域、VND/ILS/Tabu 和独立 incumbent |
+| `high-flexibility-fjsp-playbook` | `constructive_search` + `coupled_local_search` | 高柔性标准 FJSP 的 earliest-gap、assignment regret、换机信赖域和保序重解码 |
 | `fjsp-exact-hybrid-worker` | `exact_hybrid` | CP-SAT、局部精确修复、trust region 和预算组合 |
 | `fjsp-population-memetic-worker` | `population_memetic` | 双层编码、交叉变异、多样性和有界局部改进 |
 | `fjsp-sdst-adapter-worker` | 横切适配 | SDST 状态、setup-aware 解码和 move 评价 |
@@ -37,7 +38,7 @@
 | `algoforge-assignment` | 读取受控 WorkerAssignment 并执行限定代码任务 |
 | `experiment-design` | 通用 pilot、消融、证据与交接流程 |
 
-项目级 Skill 共 **11** 个，OpenCode 内部 Skill 共 **2** 个。
+项目级 Skill 共 **12** 个，OpenCode 内部 Skill 共 **2** 个。
 
 ## 2. 知识库
 
@@ -71,7 +72,7 @@
 ### 2.4 标准 FJSP 实现知识
 
 - `references/standard_fjsp/constructive_multistart_blueprint.md`
-- `references/standard_fjsp/high_flexibility_idle_critical_beam_blueprint.md`
+- `references/standard_fjsp/high_flexibility_assignment_first_playbook.md`
 - `references/standard_fjsp/cp_sat_hybrid_blueprint.md`
 - `references/standard_fjsp/operation_machine_reassignment.md`
 - `references/standard_fjsp/critical_path_machine_block_neighborhood.md`
@@ -120,7 +121,7 @@
 `domain_packs/standard_fjsp/domain_pack.json` 当前声明：
 
 - 4 个可组合方法族：构造搜索、耦合局部搜索、精确混合、种群/模因。
-- 7 个可自动授权的 Worker Skill：2 个 always-include 基础 Skill、4 个方法族 Skill、1 个 SDST 横切 Skill。
+- 8 个可自动授权的 Worker Skill：2 个 always-include 基础 Skill、4 个方法族 Skill、1 个按高柔性标签激活的组合 Skill、1 个 SDST 横切 Skill。
 - 2 个完整 Method Package。
 - 一阶段方法选择卡、二阶段标签词表和标签到知识卡的映射。
 

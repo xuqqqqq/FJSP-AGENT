@@ -47,6 +47,33 @@ class EvaluatorRunnerTests(unittest.TestCase):
         self.assertEqual(2211, evidence["reported_makespan"])
         self.assertEqual(300, evidence["diagnostics"]["search_counters"]["expanded_states"])
 
+    def test_oversized_diagnostics_keep_scalar_activation_telemetry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            solution = Path(tmp) / "solution.json"
+            solution.write_text(
+                json.dumps(
+                    {
+                        "source": "rule-table",
+                        "diagnostics": {
+                            "telemetry": {
+                                "rule_table_status": "ok",
+                                "rule_table_decisions": 387,
+                                "fingerprints": ["f" * 2_000 for _ in range(200)],
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            evidence = load_solver_evidence(solution)
+
+        self.assertTrue(evidence["diagnostics_truncated"])
+        telemetry = evidence["diagnostics"]["telemetry"]
+        self.assertEqual("ok", telemetry["rule_table_status"])
+        self.assertEqual(387, telemetry["rule_table_decisions"])
+        self.assertLessEqual(len(json.dumps(evidence, ensure_ascii=False)), 32_000)
+
     def test_successful_shell_command_reaps_descendants(self) -> None:
         process = MagicMock()
         process.communicate.return_value = ("ok", "")

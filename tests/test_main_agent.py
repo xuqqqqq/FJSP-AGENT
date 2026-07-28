@@ -13,6 +13,7 @@ from harness_agent.agents.main import (
     compact_main_agent_dynamic_context,
     enforce_improvement_direction_contract,
     fallback_improvement_order,
+    fallback_research_context,
     normalize_activation_checks,
     normalize_direction_plan,
 )
@@ -175,6 +176,40 @@ class MainAgentTests(unittest.TestCase):
         self.assertEqual("", plan["method_package_id"])
         self.assertEqual([], plan["knowledge_paths"])
         self.assertIn("initialization", plan["knowledge_query"])
+
+    def test_evidence_main_agent_prefers_high_flex_query_for_high_flex_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "context.json",
+                )
+            )
+            payload = json.loads(context_path.read_text(encoding="utf-8"))
+            payload["instance_diagnostics"]["summary"].update(
+                {
+                    "avg_candidate_count": 5.015504,
+                    "avg_flexible_operation_ratio": 0.992248,
+                    "avg_duration_spread_ratio": 0.137452,
+                    "max_machine_eligibility_cv": 0.054545,
+                    "max_fractional_min_load_cv": 0.07614,
+                }
+            )
+            context_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+            plan = EvidenceDrivenMainAgent().plan_direction(
+                DirectionPlanRequest(
+                    round_index=-1,
+                    context_packet_path=context_path,
+                    loop_feedback={"round_type": "agent_generated_baseline"},
+                    output_dir=tmp_path / "main_agent",
+                )
+            )
+
+        self.assertEqual("constructive_search", plan["method_family"])
+        self.assertIn("high_flexibility", plan["knowledge_query"])
+        self.assertIn("assignment_regret", plan["knowledge_query"])
 
     def test_selected_method_package_binds_full_implementation_bundle(self) -> None:
         plan = bind_direction_plan_to_method_catalog(
@@ -408,6 +443,106 @@ class MainAgentTests(unittest.TestCase):
         self.assertEqual(["Refine one incumbent neighborhood operator."], plan["change_scope"])
         self.assertTrue(any("Preserve the promoted incumbent" in item for item in plan["preserve"]))
         self.assertTrue(any("strictly better" in item for item in plan["acceptance_checks"]))
+
+    def test_post_baseline_probe_inherits_active_family_for_every_main_backend(self) -> None:
+        plan = enforce_improvement_direction_contract(
+            normalize_direction_plan(
+                {
+                    "direction_id": "d002",
+                    "method_family": "coupled_local_search",
+                    "method_families": [{"id": "coupled_local_search", "role": "primary"}],
+                    "knowledge_query": ["critical_path"],
+                    "experiment_stage": "pivot",
+                },
+                round_index=2,
+            ),
+            round_index=2,
+            loop_feedback={
+                "incumbent_key_before": [-2200.0],
+                "previous_rounds": [
+                    {
+                        "round_index": 1,
+                        "decision": "promoted",
+                        "direction_plan": {
+                            "direction_id": "d001",
+                            "method_family": "constructive_search",
+                            "method_families": [{"id": "constructive_search", "role": "primary"}],
+                            "knowledge_query": ["beam_search"],
+                        },
+                        "round_reflection": {
+                            "hypothesis_outcome": "supported",
+                            "next_action": {"action": "scale"},
+                        },
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual("constructive_search", plan["method_family"])
+        self.assertEqual(["beam_search"], plan["knowledge_query"])
+        self.assertEqual("scale", plan["experiment_stage"])
+        self.assertEqual("inherit", plan["research_transition"]["method_family_policy"])
+
+    def test_fallback_research_context_defers_pivot_and_preserves_experiment_contract(self) -> None:
+        context = {
+            "method_family_catalog": {
+                "families": [
+                    {"family_id": "constructive_search", "query_tags": ["beam_search"]},
+                    {"family_id": "coupled_local_search", "query_tags": ["critical_path"]},
+                ]
+            }
+        }
+        selected = fallback_research_context(
+            context,
+            {
+                "previous_rounds": [
+                    {
+                        "decision": "rolled_back",
+                        "direction_plan": {
+                            "direction_id": "d001",
+                            "method_family": "constructive_search",
+                            "method_families": [{"id": "constructive_search", "role": "primary"}],
+                            "knowledge_query": ["beam_search"],
+                            "activation_checks": [
+                                {
+                                    "id": "expanded",
+                                    "path": "diagnostics.telemetry.expanded",
+                                    "operator": "gt",
+                                    "expected": 0,
+                                }
+                            ],
+                            "candidate_variants": [
+                                {
+                                    "candidate_id": "wide",
+                                    "hypothesis": "Widen the beam.",
+                                    "next_mutation": {"change": "Increase beam diversity."},
+                                    "activation_checks": [
+                                        {
+                                            "id": "expanded",
+                                            "path": "diagnostics.telemetry.expanded",
+                                            "operator": "gt",
+                                            "expected": 0,
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        "round_reflection": {
+                            "hypothesis_outcome": "refuted",
+                            "next_action": {"action": "pivot"},
+                        },
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual("constructive_search", selected["method_family"])
+        self.assertEqual(["beam_search"], selected["knowledge_query"])
+        self.assertEqual("probe", selected["experiment_stage"])
+        self.assertTrue(selected["transition_deferred"])
+        self.assertEqual("pivot", selected["deferred_action"])
+        self.assertEqual("expanded", selected["activation_checks"][0]["id"])
+        self.assertEqual("wide", selected["candidate_variants"][0]["candidate_id"])
 
 
 if __name__ == "__main__":

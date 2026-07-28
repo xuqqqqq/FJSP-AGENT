@@ -232,6 +232,9 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
             "solver_command_template": contract.commands.solver,
             "evaluator_command_template": contract.commands.evaluator,
             "quick_test_command": contract.commands.quick_test,
+            "baseline_source": contract.review.get("baseline_source"),
+            "worker_target_file": contract.review.get("worker_target_file"),
+            "provided_project_read_paths": contract.review.get("provided_project_read_paths") or [],
             "solution_contract": domain_context_provider.solution_contract(),
             "solution_format": domain_context_provider.solution_contract().get("format"),
             "resources": {key: str(value) for key, value in contract.resources.items()},
@@ -354,8 +357,8 @@ def write_refreshed_context_packet(
         )
         if incumbent_capability_audit:
             refreshed["incumbent_capability_audit"] = incumbent_capability_audit
-    compacted_feedback = compact_json(loop_feedback, max_chars=ROUND_FEEDBACK_MAX_CHARS)
-    refreshed["loop_feedback"] = compacted_feedback.payload
+    projected_feedback, feedback_compaction = _project_loop_feedback(loop_feedback)
+    refreshed["loop_feedback"] = projected_feedback
     activate_method_package_context(
         refreshed,
         direction_plan=(
@@ -402,31 +405,752 @@ def write_refreshed_context_packet(
         "mode": "bounded_round_context",
         "max_context_chars": ROUND_CONTEXT_MAX_CHARS,
         "max_feedback_chars": ROUND_FEEDBACK_MAX_CHARS,
-        "feedback_original_chars": compacted_feedback.original_chars,
-        "feedback_stored_chars": len(compacted_feedback.text),
-        "feedback_compacted": compacted_feedback.compacted,
-        "feedback_profile": compacted_feedback.profile,
-        "history_policy": "keep_recent_items_and_artifact_references",
+        "feedback_original_chars": feedback_compaction["original_chars"],
+        "feedback_stored_chars": feedback_compaction["stored_chars"],
+        "feedback_compacted": feedback_compaction["compacted"],
+        "feedback_profile": feedback_compaction["profile"],
+        "feedback_schema_version": feedback_compaction["schema_version"],
+        "history_policy": "schema_projection_keep_recent_evidence_and_artifact_references",
     }
 
-    bounded_packet = compact_json(refreshed, max_chars=ROUND_CONTEXT_MAX_CHARS - 256)
-    refreshed = bounded_packet.payload
+    refreshed, packet_compaction = _fit_refreshed_packet(
+        refreshed,
+        max_chars=ROUND_CONTEXT_MAX_CHARS - 256,
+    )
     compaction = refreshed.get("context_compaction")
     if isinstance(compaction, dict):
-        compaction["packet_original_chars_before_final_bound"] = bounded_packet.original_chars
-        compaction["packet_profile"] = bounded_packet.profile
-        compaction["packet_compacted"] = bounded_packet.compacted
+        compaction["packet_original_chars_before_final_bound"] = packet_compaction["original_chars"]
+        compaction["packet_profile"] = packet_compaction["profile"]
+        compaction["packet_compacted"] = packet_compaction["compacted"]
     refreshed["packet_hash"] = _hash_text(json.dumps(refreshed, ensure_ascii=False, sort_keys=True))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_text = json.dumps(refreshed, ensure_ascii=False, indent=2) + "\n"
     if len(output_text) > ROUND_CONTEXT_MAX_CHARS:
-        final_packet = compact_json(refreshed, max_chars=ROUND_CONTEXT_MAX_CHARS - 256)
-        refreshed = final_packet.payload
+        refreshed.pop("packet_hash", None)
+        refreshed, _ = _fit_refreshed_packet(
+            refreshed,
+            max_chars=ROUND_CONTEXT_MAX_CHARS - 1024,
+        )
         refreshed["packet_hash"] = _hash_text(json.dumps(refreshed, ensure_ascii=False, sort_keys=True))
         output_text = json.dumps(refreshed, ensure_ascii=False, indent=2) + "\n"
     output_path.write_text(output_text, encoding="utf-8")
     return output_path
+
+
+def _project_loop_feedback(loop_feedback: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    original_text = json.dumps(loop_feedback, ensure_ascii=False, indent=2)
+    previous_rounds = [item for item in loop_feedback.get("previous_rounds") or [] if isinstance(item, dict)]
+    current_direction_plan = (
+        loop_feedback.get("current_direction_plan")
+        if isinstance(loop_feedback.get("current_direction_plan"), dict)
+        else {}
+    )
+    projection = {
+        "schema_version": 1,
+        "projection_kind": "bounded_loop_feedback",
+        "purpose": _short_text(loop_feedback.get("purpose"), 800),
+        "round_semantics": _compact_json_value(loop_feedback.get("round_semantics"), max_chars=1_200),
+        "competition": _project_competition(loop_feedback.get("competition")),
+        "round_index": loop_feedback.get("round_index"),
+        "current_direction": _compact_json_value(loop_feedback.get("current_direction"), max_chars=1_200),
+        "current_direction_plan": _project_direction_plan(current_direction_plan),
+        "objective_key_order": _project_objective_key_order(loop_feedback.get("objective_key_order")),
+        "baseline_key": loop_feedback.get("baseline_key") or [],
+        "incumbent_key_before": loop_feedback.get("incumbent_key_before") or [],
+        "incumbent_worktree": _short_text(loop_feedback.get("incumbent_worktree"), 400),
+        "baseline_summary": _project_run_summary(loop_feedback.get("baseline_summary")),
+        "incumbent_summary": _project_run_summary(loop_feedback.get("incumbent_summary")),
+        "agent_generated_baseline_memory": _project_agent_generated_baseline_memory(
+            loop_feedback.get("agent_generated_baseline_memory")
+        ),
+        "previous_rounds": [_project_previous_round(item) for item in previous_rounds[-6:]],
+        "round_history_summary": _project_round_history_summary(previous_rounds),
+        "direction_graph": _project_direction_graph(loop_feedback.get("direction_graph")),
+        "experience_memory": _project_experience_memory(loop_feedback.get("experience_memory")),
+        "skill_usage_summary": _compact_json_value(loop_feedback.get("skill_usage_summary"), max_chars=1_000),
+        "protected_promoted_facts": _project_protected_facts(
+            loop_feedback.get("protected_promoted_facts")
+        ),
+        "failure_memory": _project_failure_memory(loop_feedback.get("failure_memory")),
+        "next_round_guidance": _project_next_round_guidance(loop_feedback.get("next_round_guidance")),
+        "user_intervention": _compact_json_value(loop_feedback.get("user_intervention"), max_chars=1_800),
+        "direction_patch_contract": _compact_json_value(
+            loop_feedback.get("direction_patch_contract"),
+            max_chars=2_400,
+        ),
+        "instructions": _bounded_strings(loop_feedback.get("instructions"), limit=12, chars=400),
+        "current_round_repair": _project_current_round_repair(loop_feedback.get("current_round_repair")),
+        "artifact_refs": _project_feedback_artifact_refs(loop_feedback, previous_rounds),
+        "hypothesis_graph_path": _short_text(loop_feedback.get("hypothesis_graph_path"), 400),
+        "experience_memory_path": _short_text(loop_feedback.get("experience_memory_path"), 400),
+        "loop_result_path": _short_text(loop_feedback.get("loop_result_path"), 400),
+    }
+    stored_text = json.dumps(projection, ensure_ascii=False, indent=2)
+    return projection, {
+        "schema_version": 1,
+        "original_chars": len(original_text),
+        "stored_chars": len(stored_text),
+        "compacted": projection != loop_feedback,
+        "profile": "schema_projection",
+    }
+
+
+def _fit_refreshed_packet(payload: dict[str, Any], *, max_chars: int) -> tuple[dict[str, Any], dict[str, Any]]:
+    original_text = json.dumps(payload, ensure_ascii=False, indent=2)
+    if len(original_text) <= max_chars:
+        return payload, {
+            "original_chars": len(original_text),
+            "compacted": False,
+            "profile": "none",
+        }
+    loop_feedback = payload.get("loop_feedback")
+    other_payload = dict(payload)
+    other_payload.pop("loop_feedback", None)
+    target_other_chars = max(
+        4_000,
+        max_chars - len(json.dumps({"loop_feedback": loop_feedback}, ensure_ascii=False, indent=2)) - 1_024,
+    )
+    fitted = compact_json(other_payload, max_chars=target_other_chars)
+    merged = dict(fitted.payload)
+    merged["loop_feedback"] = loop_feedback
+    merged_text = json.dumps(merged, ensure_ascii=False, indent=2)
+    attempts = 0
+    while len(merged_text) > max_chars and attempts < 8:
+        overflow = len(merged_text) - max_chars
+        target_other_chars = max(1_200, target_other_chars - overflow - 512)
+        fitted = compact_json(other_payload, max_chars=target_other_chars)
+        merged = dict(fitted.payload)
+        merged["loop_feedback"] = loop_feedback
+        merged_text = json.dumps(merged, ensure_ascii=False, indent=2)
+        attempts += 1
+    return merged, {
+        "original_chars": len(original_text),
+        "compacted": fitted.compacted,
+        "profile": f"{fitted.profile}_preserve_loop_feedback",
+    }
+
+
+def _project_competition(value: Any) -> dict[str, Any]:
+    competition = value if isinstance(value, dict) else {}
+    return {
+        "max_competing_workers": competition.get("max_competing_workers"),
+        "isolation_rule": _short_text(competition.get("isolation_rule"), 400),
+        "selection_rule": _short_text(competition.get("selection_rule"), 400),
+    }
+
+
+def _project_direction_plan(value: Any) -> dict[str, Any]:
+    plan = value if isinstance(value, dict) else {}
+    assessment = plan.get("incumbent_assessment") if isinstance(plan.get("incumbent_assessment"), dict) else {}
+    mutation = plan.get("next_mutation") if isinstance(plan.get("next_mutation"), dict) else {}
+    competition = plan.get("competition_result") if isinstance(plan.get("competition_result"), dict) else {}
+    return {
+        "direction_id": plan.get("direction_id"),
+        "parent_direction_id": plan.get("parent_direction_id"),
+        "title": _short_text(plan.get("title"), 200),
+        "strategy_type": plan.get("strategy_type"),
+        "experiment_stage": plan.get("experiment_stage"),
+        "method_family": plan.get("method_family"),
+        "method_families": _project_method_families(plan.get("method_families")),
+        "method_package_id": plan.get("method_package_id"),
+        "knowledge_query": _bounded_strings(plan.get("knowledge_query"), limit=8, chars=160),
+        "hypothesis": _short_text(plan.get("hypothesis"), 800),
+        "worker_objective": _short_text(plan.get("worker_objective"), 500),
+        "diagnosis": _short_text(plan.get("diagnosis"), 500),
+        "observed_shortcomings": _bounded_strings(plan.get("observed_shortcomings"), limit=6, chars=300),
+        "incumbent_assessment": {
+            key: _bounded_strings(assessment.get(key), limit=6, chars=240)
+            for key in (
+                "verified_capabilities",
+                "implementation_limits",
+                "bottleneck_hypotheses",
+                "evidence_refs",
+                "unknowns",
+            )
+        },
+        "next_mutation": {
+            "target_symbols": _bounded_strings(mutation.get("target_symbols"), limit=8, chars=180),
+            "change": _short_text(mutation.get("change"), 500),
+            "expected_effect": _short_text(mutation.get("expected_effect"), 400),
+            "falsification_metrics": _bounded_strings(mutation.get("falsification_metrics"), limit=6, chars=160),
+        },
+        "change_scope": _bounded_strings(plan.get("change_scope"), limit=6, chars=300),
+        "activation_checks": _project_activation_checks(plan.get("activation_checks")),
+        "candidate_variants": [
+            {
+                "candidate_id": item.get("candidate_id"),
+                "title": _short_text(item.get("title"), 180),
+                "hypothesis": _short_text(item.get("hypothesis"), 400),
+                "method_family": item.get("method_family"),
+                "method_families": _project_method_families(item.get("method_families")),
+                "knowledge_query": _bounded_strings(item.get("knowledge_query"), limit=8, chars=160),
+                "change_scope": _bounded_strings(item.get("change_scope"), limit=4, chars=240),
+                "activation_checks": _project_activation_checks(item.get("activation_checks")),
+            }
+            for item in plan.get("candidate_variants") or []
+            if isinstance(item, dict)
+        ][:4],
+        "direction_selection": _compact_json_value(plan.get("direction_selection"), max_chars=1_200),
+        "mechanism_activation": _compact_json_value(plan.get("mechanism_activation"), max_chars=1_000),
+        "preserve": _bounded_strings(plan.get("preserve"), limit=6, chars=260),
+        "avoid": _bounded_strings(plan.get("avoid"), limit=6, chars=260),
+        "implementation_order": _bounded_strings(plan.get("implementation_order"), limit=10, chars=160),
+        "acceptance_checks": _bounded_strings(plan.get("acceptance_checks"), limit=8, chars=220),
+        "completion_rule": _short_text(plan.get("completion_rule"), 500),
+        "selection_rationale": _short_text(plan.get("selection_rationale"), 500),
+        "competition_result": _project_direction_competition(competition),
+    }
+
+
+def _project_method_families(value: Any) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for item in value if isinstance(value, list) else []:
+        if not isinstance(item, dict):
+            continue
+        result.append(
+            {
+                "id": item.get("id"),
+                "role": item.get("role"),
+                "reason": _short_text(item.get("reason"), 220),
+            }
+        )
+        if len(result) >= 4:
+            break
+    return result
+
+
+def _project_direction_competition(value: Any) -> dict[str, Any]:
+    competition = value if isinstance(value, dict) else {}
+    candidates = []
+    for item in competition.get("candidates") or []:
+        if not isinstance(item, dict):
+            continue
+        candidates.append(
+            {
+                "candidate_id": item.get("candidate_id"),
+                "status": item.get("status"),
+                "eligible": item.get("eligible"),
+                "objective_key": item.get("objective_key") or [],
+                "worker_model": item.get("worker_model"),
+                "worker_status": item.get("worker_status"),
+                "mechanism_activation": _compact_json_value(item.get("mechanism_activation"), max_chars=800),
+                "summary": _project_run_summary(item.get("summary")),
+                "patch_path": _short_text(item.get("patch_path"), 400),
+            }
+        )
+        if len(candidates) >= 4:
+            break
+    return {
+        "status": competition.get("status"),
+        "candidate_count": competition.get("candidate_count"),
+        "eligible_candidate_count": competition.get("eligible_candidate_count"),
+        "selected_candidate_id": competition.get("selected_candidate_id"),
+        "selected_objective_key": competition.get("selected_objective_key") or [],
+        "selected_for_promotion": competition.get("selected_for_promotion"),
+        "candidates": candidates,
+    }
+
+
+def _project_objective_key_order(value: Any) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for item in value if isinstance(value, list) else []:
+        if not isinstance(item, dict):
+            continue
+        result.append(
+            {
+                "name": item.get("name"),
+                "direction": item.get("direction"),
+                "priority": item.get("priority"),
+                "threshold": item.get("threshold"),
+            }
+        )
+        if len(result) >= 8:
+            break
+    return result
+
+
+def _project_run_summary(value: Any) -> dict[str, Any]:
+    summary = value if isinstance(value, dict) else {}
+    best_metrics = summary.get("best_metrics") if isinstance(summary.get("best_metrics"), dict) else {}
+    return {
+        key: summary.get(key)
+        for key in (
+            "total",
+            "valid",
+            "failed",
+            "best_experiment_id",
+            "best_candidate_id",
+        )
+        if key in summary
+    } | {
+        "best_metrics": _compact_json_value(best_metrics, max_chars=1_600),
+        "validation_summary": _compact_json_value(summary.get("validation_summary"), max_chars=1_200),
+    }
+
+
+def _project_agent_generated_baseline_memory(value: Any) -> dict[str, Any]:
+    memory = value if isinstance(value, dict) else {}
+    return {
+        "status": memory.get("status"),
+        "accepted_as_incumbent": memory.get("accepted_as_incumbent"),
+        "baseline_key": memory.get("baseline_key") or [],
+        "worker_status": memory.get("worker_status"),
+        "worker_changed_files": _bounded_strings(memory.get("worker_changed_files"), limit=8, chars=180),
+        "repair_attempt_count": memory.get("repair_attempt_count"),
+        "repair_recovered": memory.get("repair_recovered"),
+        "agentic_accepted": memory.get("agentic_accepted"),
+        "agentic_issues": _bounded_strings(memory.get("agentic_issues"), limit=8, chars=240),
+        "proposal_summary": _short_text(memory.get("proposal_summary"), 500),
+        "strategy_intent": _short_text(memory.get("strategy_intent"), 800),
+        "rule_operator_hypotheses": _project_rule_operator_hypotheses(memory.get("rule_operator_hypotheses")),
+        "semantic_review": _compact_json_value(memory.get("semantic_review"), max_chars=1_000),
+        "semantic_review_degraded": memory.get("semantic_review_degraded"),
+        "semantic_review_degraded_reason": _short_text(
+            memory.get("semantic_review_degraded_reason"),
+            400,
+        ),
+        "evidence_level": memory.get("evidence_level"),
+        "best_core_valid_anchor": _compact_json_value(memory.get("best_core_valid_anchor"), max_chars=1_200),
+        "round_payload": _project_previous_round(memory.get("round_payload") or {}),
+        "protection_rule": _short_text(memory.get("protection_rule"), 800),
+    }
+
+
+def _project_previous_round(value: dict[str, Any]) -> dict[str, Any]:
+    direction = value.get("direction_plan") if isinstance(value.get("direction_plan"), dict) else {}
+    diagnostics = value.get("proposal_diagnostics") if isinstance(value.get("proposal_diagnostics"), dict) else {}
+    semantic = value.get("semantic_review") if isinstance(value.get("semantic_review"), dict) else {}
+    smoke = value.get("smoke_gate") if isinstance(value.get("smoke_gate"), dict) else {}
+    promotion = value.get("promotion_check") if isinstance(value.get("promotion_check"), dict) else {}
+    return {
+        "round_index": value.get("round_index"),
+        "decision": value.get("decision"),
+        "candidate_key": value.get("candidate_key") or [],
+        "incumbent_key_after": value.get("incumbent_key_after") or [],
+        "direction_id": direction.get("direction_id"),
+        "parent_direction_id": direction.get("parent_direction_id"),
+        "title": _short_text(direction.get("title"), 200),
+        "strategy_type": direction.get("strategy_type"),
+        "experiment_stage": direction.get("experiment_stage"),
+        "method_family": direction.get("method_family"),
+        "method_families": _project_method_families(direction.get("method_families")),
+        "method_package_id": direction.get("method_package_id"),
+        "knowledge_query": _bounded_strings(direction.get("knowledge_query"), limit=8, chars=160),
+        "hypothesis": _short_text(direction.get("hypothesis"), 500),
+        "implementation_order": _bounded_strings(direction.get("implementation_order"), limit=8, chars=160),
+        "activation_checks": _project_activation_checks(direction.get("activation_checks")),
+        "mechanism_activation": _compact_json_value(
+            value.get("mechanism_activation") or direction.get("mechanism_activation"),
+            max_chars=1_000,
+        ),
+        "competition_result": _project_direction_competition(direction.get("competition_result")),
+        "failure_signatures": _bounded_strings(value.get("failure_signatures"), limit=8, chars=220),
+        "worker_status": value.get("worker_status"),
+        "candidate_summary": _project_run_summary(value.get("candidate_summary")),
+        "proposal_diagnostics": _project_proposal_diagnostics(diagnostics),
+        "semantic_review": _compact_json_value(semantic, max_chars=1_600),
+        "smoke_gate": _compact_json_value(smoke, max_chars=900),
+        "promotion_check": {
+            "promoted": promotion.get("promoted"),
+            "eligible": promotion.get("eligible"),
+            "reason": _short_text(promotion.get("reason"), 500),
+            "selected_candidate_id": promotion.get("selected_candidate_id"),
+        },
+        "round_reflection": _project_round_reflection(value.get("round_reflection")),
+        "artifact_refs": _project_round_artifact_refs(value),
+    }
+
+
+def _project_round_reflection(value: Any) -> dict[str, Any]:
+    reflection = value if isinstance(value, dict) else {}
+    next_action = reflection.get("next_action") if isinstance(reflection.get("next_action"), dict) else {}
+    return {
+        "hypothesis_outcome": reflection.get("hypothesis_outcome"),
+        "summary": _short_text(reflection.get("summary"), 600),
+        "next_action": {
+            "action": next_action.get("action"),
+            "rationale": _short_text(next_action.get("rationale"), 500),
+            "required_activation_checks": _project_activation_checks(
+                next_action.get("required_activation_checks")
+            ),
+        },
+    }
+
+
+def _project_proposal_diagnostics(value: Any) -> dict[str, Any]:
+    diagnostics = value if isinstance(value, dict) else {}
+    hypotheses = []
+    for item in diagnostics.get("rule_operator_hypotheses") or []:
+        if not isinstance(item, dict):
+            continue
+        hypotheses.append(
+            {
+                "name": _short_text(item.get("name"), 160),
+                "type": item.get("type"),
+                "target_files": _bounded_strings(item.get("target_files"), limit=8, chars=180),
+                "novelty": _short_text(item.get("novelty"), 300),
+                "expected_effect": _short_text(item.get("expected_effect"), 300),
+            }
+        )
+        if len(hypotheses) >= 4:
+            break
+    rejected_edits = []
+    for item in diagnostics.get("rejected_edits") or []:
+        if not isinstance(item, dict):
+            continue
+        rejected_edits.append(
+            {
+                key: _short_text(item.get(key), 300)
+                for key in ("path", "old", "new", "reason")
+                if item.get(key) not in (None, "")
+            }
+        )
+        if len(rejected_edits) >= 6:
+            break
+    return {
+        "status": diagnostics.get("status"),
+        "summary": _short_text(diagnostics.get("summary"), 700),
+        "strategy_intent": _short_text(diagnostics.get("strategy_intent"), 700),
+        "rule_operator_hypotheses": hypotheses,
+        "proposal_audit": _compact_json_value(diagnostics.get("proposal_audit"), max_chars=4_000),
+        "context_usage": _compact_json_value(diagnostics.get("context_usage"), max_chars=1_200),
+        "rejected_edits": rejected_edits,
+    }
+
+
+def _project_round_history_summary(previous_rounds: list[dict[str, Any]]) -> dict[str, Any]:
+    decision_counts: dict[str, int] = {}
+    strategy_counts: dict[str, int] = {}
+    for item in previous_rounds:
+        decision = str(item.get("decision") or "unknown")
+        decision_counts[decision] = decision_counts.get(decision, 0) + 1
+        direction = item.get("direction_plan") if isinstance(item.get("direction_plan"), dict) else {}
+        strategy = str(direction.get("strategy_type") or "unknown")
+        strategy_counts[strategy] = strategy_counts.get(strategy, 0) + 1
+    recent_source = previous_rounds[-6:]
+    return {
+        "source_round_count": len(previous_rounds),
+        "included_recent_round_count": len(recent_source),
+        "omitted_round_count": max(0, len(previous_rounds) - len(recent_source)),
+        "decision_counts": decision_counts,
+        "strategy_type_counts": strategy_counts,
+    }
+
+
+def _project_direction_graph(value: Any) -> dict[str, Any]:
+    graph = value if isinstance(value, dict) else {}
+    directions = graph.get("recent_directions") if isinstance(graph.get("recent_directions"), list) else graph.get("directions")
+    compact_directions = []
+    for item in directions if isinstance(directions, list) else []:
+        if not isinstance(item, dict):
+            continue
+        compact_directions.append(
+            {
+                "direction_id": item.get("direction_id"),
+                "parent_id": item.get("parent_id"),
+                "round_index": item.get("round_index"),
+                "title": _short_text(item.get("title"), 160),
+                "status": item.get("status"),
+                "decision": item.get("decision"),
+                "strategy_type": item.get("strategy_type"),
+                "target_files": _bounded_strings(item.get("target_files"), limit=8, chars=180),
+                "score_relation": item.get("score_relation"),
+                "attempt_count": item.get("attempt_count"),
+            }
+        )
+    return {
+        "schema_version": graph.get("schema_version"),
+        "round_semantics": graph.get("round_semantics"),
+        "direction_count": graph.get("direction_count"),
+        "attempt_count": graph.get("attempt_count"),
+        "status_counts": graph.get("status_counts") or {},
+        "decision_counts": graph.get("decision_counts") or {},
+        "promoted_direction_ids": _bounded_strings(graph.get("promoted_direction_ids"), limit=8, chars=120),
+        "active_parent_id": graph.get("active_parent_id"),
+        "directions": compact_directions[-6:],
+        "guidance": _bounded_strings(graph.get("guidance"), limit=6, chars=300),
+    }
+
+
+def _project_experience_memory(value: Any) -> dict[str, Any]:
+    memory = value if isinstance(value, dict) else {}
+    tiers = memory.get("memory_tiers") if isinstance(memory.get("memory_tiers"), dict) else {}
+    return {
+        "schema_version": memory.get("schema_version"),
+        "write_policy": memory.get("write_policy") or {},
+        "memory_tiers": {
+            "candidate_lessons": _project_lessons(tiers.get("candidate_lessons"), limit=6),
+            "validated_lessons": _project_lessons(tiers.get("validated_lessons"), limit=6),
+            "candidate_lesson_count": len([item for item in tiers.get("candidate_lessons") or [] if isinstance(item, dict)]),
+            "validated_lesson_count": len([item for item in tiers.get("validated_lessons") or [] if isinstance(item, dict)]),
+        },
+        "agent_generated_quality_memory": _compact_json_value(
+            memory.get("agent_generated_quality_memory"),
+            max_chars=1_400,
+        ),
+        "algorithm_semantic_memory": _compact_json_value(
+            memory.get("algorithm_semantic_memory"),
+            max_chars=1_600,
+        ),
+        "skill_usage_summary": _compact_json_value(memory.get("skill_usage_summary"), max_chars=1_000),
+        "self_evolution_metrics": _compact_json_value(memory.get("self_evolution_metrics"), max_chars=1_000),
+        "next_context_guidance": _bounded_strings(memory.get("next_context_guidance"), limit=6, chars=300),
+    }
+
+
+def _project_lessons(value: Any, *, limit: int) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    rows = value if isinstance(value, list) else []
+    for item in rows[-limit:]:
+        if not isinstance(item, dict):
+            continue
+        evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+        result.append(
+            {
+                "lesson_id": item.get("lesson_id"),
+                "lesson_type": item.get("lesson_type"),
+                "strategy": _short_text(item.get("strategy"), 180),
+                "strategy_type": item.get("strategy_type"),
+                "outcome": item.get("outcome"),
+                "applicability": _bounded_strings(item.get("applicability"), limit=4, chars=220),
+                "contraindications": _bounded_strings(item.get("contraindications"), limit=4, chars=220),
+                "confidence": item.get("confidence"),
+                "evidence": {
+                    "direction_id": evidence.get("direction_id"),
+                    "round_index": evidence.get("round_index"),
+                    "decision": evidence.get("decision"),
+                    "status": evidence.get("status"),
+                    "score_relation": evidence.get("score_relation"),
+                },
+            }
+        )
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _project_protected_facts(value: Any) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    rows = value if isinstance(value, list) else []
+    for item in rows[-8:]:
+        if not isinstance(item, dict):
+            continue
+        result.append(
+            {
+                "direction_id": item.get("direction_id"),
+                "round_index": item.get("round_index"),
+                "name": _short_text(item.get("name"), 180),
+                "type": item.get("type"),
+                "target_files": _bounded_strings(item.get("target_files"), limit=8, chars=180),
+                "novelty": _short_text(item.get("novelty"), 300),
+                "expected_effect": _short_text(item.get("expected_effect"), 300),
+                "fact_type": item.get("fact_type"),
+                "title": _short_text(item.get("title"), 180),
+                "summary": _short_text(item.get("summary"), 400),
+                "preserve_rule": _short_text(item.get("preserve_rule"), 400),
+                "evidence_refs": _bounded_strings(item.get("evidence_refs"), limit=6, chars=220),
+            }
+        )
+        if len(result) >= 8:
+            break
+    return result
+
+
+def _project_failure_memory(value: Any) -> dict[str, Any]:
+    memory = value if isinstance(value, dict) else {}
+    recent_failures = []
+    failures = [item for item in memory.get("recent_failures") or [] if isinstance(item, dict)]
+    for item in failures[-6:]:
+        recent_failures.append(
+            {
+                "round_index": item.get("round_index"),
+                "direction_id": item.get("direction_id"),
+                "failure_signatures": _bounded_strings(item.get("failure_signatures"), limit=8, chars=220),
+                "decision": item.get("decision"),
+                "summary": _short_text(item.get("summary"), 500),
+            }
+        )
+        if len(recent_failures) >= 6:
+            break
+    return {
+        "status": memory.get("status"),
+        "review_required": memory.get("review_required"),
+        "must_avoid": _bounded_strings(memory.get("must_avoid"), limit=8, chars=240),
+        "recent_failures": recent_failures,
+    }
+
+
+def _project_next_round_guidance(value: Any) -> dict[str, Any]:
+    guidance = value if isinstance(value, dict) else {}
+    return {
+        "must_do": _bounded_strings(guidance.get("must_do"), limit=8, chars=260),
+        "preserve": _bounded_strings(guidance.get("preserve"), limit=8, chars=260),
+        "avoid": _bounded_strings(guidance.get("avoid"), limit=8, chars=260),
+        "promote_only_if": _bounded_strings(guidance.get("promote_only_if"), limit=6, chars=260),
+    }
+
+
+def _project_current_round_repair(value: Any) -> dict[str, Any]:
+    repair = value if isinstance(value, dict) else {}
+    if not repair:
+        return {}
+    attempts = []
+    for item in repair.get("previous_attempts") or []:
+        if not isinstance(item, dict):
+            continue
+        diagnostics = item.get("proposal_diagnostics") if isinstance(item.get("proposal_diagnostics"), dict) else {}
+        audit = diagnostics.get("proposal_audit") if isinstance(diagnostics.get("proposal_audit"), dict) else {}
+        attempts.append(
+            {
+                "attempt_index": item.get("attempt_index"),
+                "worker_status": item.get("worker_status"),
+                "changed_files": _bounded_strings(item.get("changed_files"), limit=8, chars=180),
+                "failure_signatures": _bounded_strings(item.get("failure_signatures"), limit=10, chars=220),
+                "proposal_summary": _short_text(diagnostics.get("summary"), 500),
+                "proposal_strategy": _short_text(diagnostics.get("strategy_intent"), 500),
+                "proposal_diagnostics": _project_proposal_diagnostics(diagnostics),
+                "accepted_change_paths": _bounded_strings(audit.get("accepted_change_paths"), limit=8, chars=180),
+                "rejected_change_count": audit.get("rejected_change_count"),
+                "warnings": _bounded_strings(audit.get("warnings"), limit=8, chars=240),
+                "semantic_review": _compact_json_value(item.get("semantic_review"), max_chars=1_000),
+            }
+        )
+        if len(attempts) >= 3:
+            break
+    return {
+        key: repair.get(key)
+        for key in (
+            "status",
+            "allow_objective_refinement",
+            "attempt_index",
+            "max_repair_attempts",
+            "must_do",
+            "avoid",
+        )
+        if repair.get(key) not in (None, "", [], {})
+    } | {
+        "repair_targets": _compact_json_value(repair.get("repair_targets"), max_chars=4_000),
+        "previous_attempts": attempts,
+    }
+
+
+def _project_feedback_artifact_refs(loop_feedback: dict[str, Any], previous_rounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for kind, key in (
+        ("hypothesis_graph", "hypothesis_graph_path"),
+        ("experience_memory", "experience_memory_path"),
+        ("loop_result", "loop_result_path"),
+    ):
+        path = _short_text(loop_feedback.get(key), 400)
+        if path:
+            refs.append({"kind": kind, "path": path})
+    for item in previous_rounds[-6:]:
+        refs.extend(_project_round_artifact_refs(item))
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in refs:
+        marker = (str(item.get("kind") or ""), str(item.get("path") or ""))
+        if marker in seen or not marker[1]:
+            continue
+        seen.add(marker)
+        deduped.append(item)
+        if len(deduped) >= 16:
+            break
+    return deduped
+
+
+def _project_round_artifact_refs(value: dict[str, Any]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for kind, key in (
+        ("round_dir", "cycle_dir"),
+        ("patch", "patch_path"),
+        ("delta", "delta_path"),
+        ("context_packet", "context_packet_path"),
+    ):
+        path = _short_text(value.get(key), 400)
+        if path:
+            refs.append({"kind": kind, "path": path})
+    return refs
+
+
+def _project_activation_checks(value: Any) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    for item in value if isinstance(value, list) else []:
+        if not isinstance(item, dict):
+            continue
+        checks.append(
+            {
+                "id": item.get("id"),
+                "path": _short_text(item.get("path"), 180),
+                "operator": item.get("operator"),
+                "expected": _compact_scalar(item.get("expected")),
+                "required": item.get("required"),
+                "description": _short_text(item.get("description"), 300),
+            }
+        )
+        if len(checks) >= 8:
+            break
+    return checks
+
+
+def _project_rule_operator_hypotheses(value: Any) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for item in value if isinstance(value, list) else []:
+        if not isinstance(item, dict):
+            continue
+        result.append(
+            {
+                "name": _short_text(item.get("name"), 160),
+                "type": item.get("type"),
+                "novelty": _short_text(item.get("novelty"), 220),
+                "expected_effect": _short_text(item.get("expected_effect"), 260),
+                "ablation_plan": _short_text(item.get("ablation_plan"), 260),
+            }
+        )
+        if len(result) >= 4:
+            break
+    return result
+
+
+def _compact_json_value(value: Any, *, max_chars: int) -> Any:
+    if value in (None, "", [], {}):
+        return {} if isinstance(value, dict) else [] if isinstance(value, list) else value
+    return compact_json(value, max_chars=max_chars).payload
+
+
+def _compact_scalar(value: Any) -> Any:
+    if isinstance(value, str):
+        return _short_text(value, 180)
+    if isinstance(value, list):
+        return [_compact_scalar(item) for item in value[:8]]
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        for index, (key, item) in enumerate(value.items()):
+            if index >= 8:
+                break
+            result[str(key)[:80]] = _compact_scalar(item)
+        return result
+    return value
+
+
+def _bounded_strings(value: Any, *, limit: int, chars: int) -> list[str]:
+    result: list[str] = []
+    for item in value if isinstance(value, list) else []:
+        text = _short_text(item, chars)
+        if not text or text in result:
+            continue
+        result.append(text)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _short_text(value: Any, limit: int) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return text if len(text) <= limit else text[: max(0, limit - 1)].rstrip() + "…"
 
 
 def activate_method_package_context(

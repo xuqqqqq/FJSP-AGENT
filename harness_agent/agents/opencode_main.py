@@ -8,20 +8,23 @@ import shutil
 import shlex
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
-from harness_agent.agents.incumbent_audit import compact_incumbent_capability_audit
 from harness_agent.agents.main import (
     DirectionPlanRequest,
     EvidenceDrivenMainAgent,
     RoundReflectionRequest,
     WorkerAssignmentIssue,
     WorkerAssignmentRequest,
+    activation_check_schema_errors,
     bind_direction_plan_to_method_catalog,
     deterministic_round_reflection,
     enforce_improvement_direction_contract,
+    high_flexibility_query_tags,
     merge_public_reasoning_traces,
+    normalize_activation_checks,
     normalize_direction_plan,
     normalize_incumbent_assessment,
     normalize_public_reasoning_trace,
@@ -29,11 +32,11 @@ from harness_agent.agents.main import (
     write_direction_plan,
     write_round_reflection,
 )
-from harness_agent.agents.quality_contract import build_agent_generated_solver_quality_contract
-from harness_agent.context.compaction import compact_json, compact_source_records
+from harness_agent.context.compaction import compact_json
 from harness_agent.context.knowledge import method_package_catalog
 from harness_agent.context.loader import load_context_dict
 from harness_agent.context.packet import activate_direction_knowledge_context
+from harness_agent.context import planning_packet as planning_packets
 from harness_agent.core.cancellation import CancellationToken
 from harness_agent.core.runner import (
     CREATE_NEW_PROCESS_GROUP,
@@ -42,14 +45,20 @@ from harness_agent.core.runner import (
 )
 from harness_agent.workers.opencode_worker import (
     DEFAULT_OPENCODE_MODEL,
+    OPENCODE_COMPACTION_CONFIG,
     json_dumps,
     opencode_subprocess_environment,
+    summarize_opencode_compaction_events,
 )
 
 
 OPENCODE_MAIN_AGENT = "algoforge-main"
-PLANNING_PACKET_MAX_CHARS = 48_000
+PLANNING_PACKET_MAX_CHARS = planning_packets.PLANNING_PACKET_MAX_CHARS
 MAIN_FORMAT_RETRY_TIMEOUT_SECONDS = 90
+DEFAULT_MAIN_STALL_TIMEOUT_SECONDS = 15 * 60
+MAIN_STALL_POLL_SECONDS = 1.0
+DEFAULT_MAIN_AGENT_STEPS = 36
+MAX_MAIN_AGENT_STEPS = 48
 
 
 class OpenCodeMainAgent:
@@ -63,6 +72,7 @@ class OpenCodeMainAgent:
         variant: str | None = None,
         project_root: Path | None = None,
         timeout_seconds: int | None = None,
+        stall_timeout_seconds: int | None = None,
         max_subagents: int | None = None,
         cancellation: CancellationToken | None = None,
     ) -> None:
@@ -84,12 +94,22 @@ class OpenCodeMainAgent:
             env_var="OPENCODE_MAIN_TIMEOUT_SECONDS",
             minimum=15,
         )
+        configured_stall_timeout = stall_timeout_seconds
+        if configured_stall_timeout is None:
+            configured_stall_timeout = int(
+                os.environ.get("OPENCODE_MAIN_STALL_TIMEOUT_SECONDS", DEFAULT_MAIN_STALL_TIMEOUT_SECONDS)
+            )
+        self.stall_timeout_seconds = (
+            max(60, int(configured_stall_timeout)) if int(configured_stall_timeout) > 0 else None
+        )
         configured_subagents = (
             max_subagents
             if max_subagents is not None
             else int(os.environ.get("OPENCODE_MAIN_MAX_SUBAGENTS", "4"))
         )
         self.max_subagents = max(0, min(4, int(configured_subagents)))
+        configured_steps = int(os.environ.get("OPENCODE_MAIN_MAX_STEPS", DEFAULT_MAIN_AGENT_STEPS))
+        self.max_steps = max(12, min(MAX_MAIN_AGENT_STEPS, configured_steps))
         self.cancellation = cancellation
         self.fallback = EvidenceDrivenMainAgent()
 
@@ -108,7 +128,12 @@ class OpenCodeMainAgent:
             round_index=request.round_index,
         )
         packet_path = request.output_dir / "planning_packet.json"
-        packet_path.write_text(json_dumps(planning_packet), encoding="utf-8")
+        planning_attachments = _write_packet_bundle(
+            output_dir=request.output_dir,
+            filename="planning_packet.json",
+            packet=planning_packet,
+        )
+        planning_index_path = (request.output_dir / "planning_packet.index.json").resolve()
         audit_path: Path | None = None
         if planning_packet.get("incumbent_capability_audit"):
             audit_path = request.output_dir / "incumbent_capability_audit.json"
@@ -117,12 +142,26 @@ class OpenCodeMainAgent:
                 encoding="utf-8",
             )
 
-        selection_run = self._run_once(
-            output_dir=request.output_dir,
-            attachments=[packet_path, *incumbent_source_attachments],
-            prompt=(
+        research_state = (
+            planning_packet.get("research_state")
+            if isinstance(planning_packet.get("research_state"), dict)
+            else {}
+        )
+        selection = inherited_direction_selection(
+            planning_packet=planning_packet,
+            round_index=request.round_index,
+        )
+        usage_payload = summarize_opencode_events("")
+        usage_payload["attempts"] = 0
+        if selection is None:
+            selection_run = self._run_once(
+                output_dir=request.output_dir,
+                attachments=[*planning_attachments, *incumbent_source_attachments],
+                prompt=(
                 "这是方向选择阶段。先加载并遵循 experiment-design Skill，用可证伪实验而不是只看最终分数来"
-                "组织方向判断。阅读附件 PlanningPacket，只根据任务合同、实例画像、incumbent 证据和"
+                f"组织方向判断。先阅读当前任务索引 `{planning_index_path}`，index 中的 section 路径均相对其所在目录；"
+                "再按需读取对应 section 文件；"
+                "不要只依赖整包 JSON 的单次通读。阅读附件 PlanningPacket，只根据任务合同、实例画像、incumbent 证据和"
                 "incumbent_capability_audit、strategy_selection_cards 选择一个主要搜索压力与方法族。"
                 "分析过程中必须在 commentary 中分步输出中文思考：先说正在检查的证据，再说明由证据形成的"
                 "假设和备选方向比较，最后说明选择及下一项验证；这些消息必须在最终决定之前真实发出，不能"
@@ -139,25 +178,28 @@ class OpenCodeMainAgent:
                 "complementary；只有证据支持组合时才多选。knowledge_query 只能使用所选方法族覆盖且存在于 "
                 "knowledge_query_catalog 中的标签。reasoning_trace 要记录证据、"
                 "推断、决定和下一项验证，不得编造未执行的命令。所有面向用户的文字使用简体中文。"
-            ),
-            suffix="",
-            allowed_specialist=(
-                ["requirements-method-analyst"]
-                if request.round_index < 0
-                else ["evidence-analyst", "requirements-method-analyst"]
-            )[: self.max_subagents],
-        )
-        selection_raw = extract_direction_selection(selection_run["stdout"])
-        usage_payload = summarize_opencode_events(selection_run["stdout"])
-        usage_payload["attempts"] = 1
-        selection = normalize_direction_selection(
-            selection_raw,
-            planning_packet=planning_packet,
-            round_index=request.round_index,
-        )
-        if selection is None:
-            self._write_usage(request.output_dir, usage_payload)
-            return self._fallback(request, reason="OpenCode Main Agent did not return a valid direction selection")
+                ),
+                suffix="",
+                allowed_specialist=(
+                    ["requirements-method-analyst"]
+                    if request.round_index < 0
+                    else ["evidence-analyst", "requirements-method-analyst"]
+                )[: self.max_subagents],
+            )
+            selection_raw = extract_direction_selection(selection_run["stdout"])
+            usage_payload = summarize_opencode_events(selection_run["stdout"])
+            usage_payload["attempts"] = 1
+            selection = normalize_direction_selection(
+                selection_raw,
+                planning_packet=planning_packet,
+                round_index=request.round_index,
+            )
+            if selection is None:
+                self._write_usage(request.output_dir, usage_payload)
+                return self._fallback(request, reason="OpenCode Main Agent did not return a valid direction selection")
+        else:
+            selection["selection_source"] = "research_state_inheritance"
+            selection["selection_reason"] = research_state.get("selection_reason")
         selection_path = request.output_dir / "direction_selection.json"
         selection_path.write_text(json_dumps(selection), encoding="utf-8")
 
@@ -184,7 +226,21 @@ class OpenCodeMainAgent:
             direction_selection=selection,
         )
         implementation_packet_path = request.output_dir / "implementation_planning_packet.json"
-        implementation_packet_path.write_text(json_dumps(implementation_packet), encoding="utf-8")
+        implementation_attachments = _write_packet_bundle(
+            output_dir=request.output_dir,
+            filename="implementation_planning_packet.json",
+            packet=implementation_packet,
+        )
+        implementation_index_path = (
+            request.output_dir / "implementation_planning_packet.index.json"
+        ).resolve()
+        activation_schema_json = json_dumps(
+            (
+                (implementation_packet.get("planner_output_contract") or {}).get("activation_check_schema")
+                if isinstance(implementation_packet.get("planner_output_contract"), dict)
+                else {}
+            )
+        )
 
         active_cards = (
             (implementation_packet.get("active_direction_knowledge") or {}).get("cards") or []
@@ -204,33 +260,44 @@ class OpenCodeMainAgent:
             return self._fallback(
                 request,
                 reason="Direction selection did not retrieve implementation knowledge",
+                selection=selection,
             )
 
         implementation_run = self._run_once(
             output_dir=request.output_dir,
-            attachments=[implementation_packet_path, *incumbent_source_attachments],
+            attachments=[*implementation_attachments, *incumbent_source_attachments],
             prompt=(
                 "这是实现规划阶段。方向已经确定。先加载并遵循 experiment-design Skill，把方向编译成最小、"
-                "可证伪且能改变下一步决策的候选实验。阅读附件中的 direction_selection、"
+                f"可证伪且能改变下一步决策的候选实验。先阅读当前任务索引 `{implementation_index_path}`，"
+                "index 中的 section 路径均相对其所在目录；"
+                "再按需读取对应 section 文件；不要只依赖整包 JSON 的单次通读。阅读附件中的 direction_selection、"
                 "active_direction_knowledge 和 eligible_method_packages，选择零个或一个真正匹配的方法包，"
                 "知识卡、参考源码、推荐构建顺序和小步实现建议都是 advisory，不得把它们解释成禁止选择完整方法。"
                 "证据与预算支持时可以选择完整方法包，也可以裁剪或组合参考机制；选择完整包要求独立适配且满足"
                 "完整行为语义，不要求也不鼓励机械照抄参考源码。"
                 "分析过程中必须在 commentary 中分步输出中文思考：指出 incumbent 的具体不足和证据，比较"
                 "实现方案与保留项，再给出有界变异和证伪计划；不要等到最终 JSON 才一次性复述。"
-                "然后输出完整 direction_plan 与 worker_assignment。必须基于 incumbent_capability_audit 指定"
+                "然后输出完整 direction_plan 与 worker_assignment。若附件包含 user_intervention，还必须输出"
+                " direction_patch，声明 action、set_fields 与 clear_fields；未列入 set_fields 的原计划字段必须继承。"
+                "必须基于 incumbent_capability_audit 指定"
                 "现有目标符号、实现限制、下一次有界变异和证伪指标，不得重复实现审计已确认存在的机制。"
                 "必须检查 incumbent 源码、获胜 source、规则级 diagnostics 和上轮 patch；证据缺失时应把"
                 "补采 telemetry 作为候选变体，而不是用静态猜测替代运行事实。"
-                "若 runtime_limits.max_competing_workers 大于 1，必须输出 candidate_variants，数量不超过该上限；"
+                "严格按 planner_output_contract.competition_policy 输出 candidate_variants：达到"
+                " minimum_candidate_variants 且不超过 maximum_candidate_variants；runtime_limits 中的 max 只表示"
+                "容量上限，不得把它报告成实际启动数。"
                 "各变体必须采用可区分、可证伪的实现机制，并显式保留 incumbent fallback；只有在"
                 " experiment_stage=research_tournament 时才允许跨方法族比较，其余阶段必须保持当前主方向。"
                 "主 direction_plan 和每个 candidate_variants 都必须声明 activation_checks，用"
                 " telemetry/diagnostics 证明机制已经执行，而不是把质量结果本身当作执行证明。"
+                f"activation_checks 与 next_action.required_activation_checks 必须严格满足这个 machine-checkable schema：{activation_schema_json}。"
+                "其中 exists/truthy 可以省略 expected；eq/ne/gt/gte/lt/lte/contains 必须提供 expected；"
+                "aggregation=min_passes 时必须提供正整数 min_passes。"
                 "交付物必须覆盖所选知识要求的耦合组件，"
                 "并输出至少三步 reasoning_trace；最终回答只能包含 JSON，不得直接写代码。"
                 "所有 JSON 字段名必须严格使用附件 schema 的英文 key，不得翻译字段名；中文只用于字段值。"
-                "candidate_variants 必须放在 direction_plan 内，顶层只能包含 direction_plan 和 worker_assignment。"
+                "candidate_variants 必须放在 direction_plan 内；顶层只能包含 direction_plan、worker_assignment，"
+                "以及用户修订时的 direction_patch。"
                 "所有自然语言值使用简体中文。"
             ),
             suffix="_implementation",
@@ -241,8 +308,13 @@ class OpenCodeMainAgent:
             usage_payload,
             summarize_opencode_events(implementation_run["stdout"]),
         )
-        usage_payload["attempts"] = 2
-        if raw is None and not implementation_run["timed_out"] and has_model_text(implementation_run["stdout"]):
+        usage_payload["attempts"] = int(usage_payload.get("attempts") or 0) + 1
+        if (
+            raw is None
+            and not implementation_run["timed_out"]
+            and not implementation_run.get("stalled")
+            and has_model_text(implementation_run["stdout"])
+        ):
             invalid_path = request.output_dir / "main_agent_invalid_response.txt"
             invalid_path.write_text(
                 bounded_invalid_response(implementation_run["stdout"]),
@@ -250,10 +322,11 @@ class OpenCodeMainAgent:
             )
             retry = self._run_once(
                 output_dir=request.output_dir,
-                attachments=[implementation_packet_path, invalid_path, *incumbent_source_attachments],
+                attachments=[*implementation_attachments, invalid_path, *incumbent_source_attachments],
                 prompt=(
                     "把上一份实现规划修复为唯一一个合法 JSON 对象，顶层只能包含 direction_plan 和 "
                     "worker_assignment；保持已选方向和 knowledge_query 不变，并补齐 activation_checks。"
+                    f"activation_checks 必须继续满足这个 schema：{activation_schema_json}。"
                 ),
                 suffix="_implementation_retry",
                 timeout_seconds=bounded_timeout_seconds(
@@ -267,7 +340,7 @@ class OpenCodeMainAgent:
                 usage_payload,
                 summarize_opencode_events(retry["stdout"]),
             )
-            usage_payload["attempts"] = 3
+            usage_payload["attempts"] = int(usage_payload.get("attempts") or 0) + 1
         contract_errors = incumbent_planning_contract_errors(
             raw,
             planning_packet=implementation_packet,
@@ -290,9 +363,12 @@ class OpenCodeMainAgent:
                     "下一次变异和证伪指标。不得改变已选方法族与 knowledge_query。至少保留三步公开研究日志 "
                     "并为主 direction_plan 及每个 candidate_variants 补齐 activation_checks，且这些检查只用于"
                     "证明机制执行，不得拿质量结果充当 activation_checks。"
+                    f"合法 schema 如下：{activation_schema_json}。exists/truthy 可以省略 expected；"
+                    "比较类算子必须提供 expected；aggregation=min_passes 时必须提供正整数 min_passes。"
                     "reasoning_trace，每步使用 stage、summary、evidence、inference、decision、next_check。"
                     "所有 JSON 字段名必须使用英文 schema key，中文只能出现在字段值中；candidate_variants 放在 "
-                    "direction_plan 内。顶层只能包含 direction_plan 和 worker_assignment。返回唯一合法 JSON。"
+                    "direction_plan 内。顶层只能包含 direction_plan、worker_assignment，以及用户修订时的"
+                    " direction_patch。返回唯一合法 JSON。"
                 ),
                 suffix="_incumbent_contract_retry",
                 timeout_seconds=bounded_timeout_seconds(
@@ -306,7 +382,7 @@ class OpenCodeMainAgent:
                 usage_payload,
                 summarize_opencode_events(retry["stdout"]),
             )
-            usage_payload["attempts"] = 3
+            usage_payload["attempts"] = int(usage_payload.get("attempts") or 0) + 1
             contract_errors = incumbent_planning_contract_errors(
                 raw,
                 planning_packet=implementation_packet,
@@ -320,7 +396,11 @@ class OpenCodeMainAgent:
             raw = None
         self._write_usage(request.output_dir, usage_payload)
         if raw is None:
-            return self._fallback(request, reason="OpenCode Main Agent did not return valid implementation planning JSON")
+            return self._fallback(
+                request,
+                reason="OpenCode Main Agent did not return valid implementation planning JSON",
+                selection=selection,
+            )
 
         (request.output_dir / "planned_direction_raw.json").write_text(
             json_dumps(raw),
@@ -334,7 +414,17 @@ class OpenCodeMainAgent:
         plan["method_family"] = selection["method_family"]
         plan["method_families"] = selection["method_families"]
         plan["knowledge_query"] = selection["knowledge_query"]
+        state_stage = str(research_state.get("experiment_stage") or "").strip()
+        if request.round_index >= 0 and state_stage in {
+            "probe",
+            "scale",
+            "pivot",
+            "research_tournament",
+        }:
+            plan["experiment_stage"] = state_stage
         plan["direction_selection"] = selection
+        if isinstance(raw.get("direction_patch"), dict):
+            plan["user_revision_patch"] = dict(raw["direction_patch"])
         plan["reasoning_trace"] = merge_public_reasoning_traces(
             selection.get("reasoning_trace"),
             plan.get("reasoning_trace"),
@@ -352,6 +442,7 @@ class OpenCodeMainAgent:
             "incumbent_capability_audit_path": str(audit_path.resolve()) if audit_path else None,
             "called_subagents": usage_payload.get("called_subagents") or [],
             "event_count": usage_payload.get("event_count", 0),
+            "compaction": usage_payload.get("compaction") or {},
         }
         return write_direction_plan(request.output_dir, plan)
 
@@ -520,6 +611,23 @@ class OpenCodeMainAgent:
         stdout_thread.start()
         stderr_thread.start()
         timed_out = False
+        stall_state = {"stalled": False}
+        stall_stop = threading.Event()
+        stall_thread: threading.Thread | None = None
+        if self.stall_timeout_seconds is not None:
+            stall_thread = threading.Thread(
+                target=monitor_process_stall,
+                args=(
+                    process,
+                    stdout_chunks,
+                    stderr_chunks,
+                    self.stall_timeout_seconds,
+                    stall_stop,
+                    stall_state,
+                ),
+                daemon=True,
+            )
+            stall_thread.start()
         timeout = timeout_seconds if timeout_seconds is not None else self.timeout_seconds
         try:
             if timeout is None:
@@ -534,6 +642,9 @@ class OpenCodeMainAgent:
             except subprocess.TimeoutExpired:
                 process.kill()
         finally:
+            stall_stop.set()
+            if stall_thread is not None:
+                stall_thread.join(timeout=2)
             if self.cancellation is not None:
                 self.cancellation.unregister_terminator(registration)
         if not timed_out:
@@ -547,16 +658,21 @@ class OpenCodeMainAgent:
                 pass
         stdout = "".join(stdout_chunks)
         stderr = "".join(stderr_chunks)
+        stalled = bool(stall_state.get("stalled"))
         if self.cancellation is not None:
             self.cancellation.raise_if_cancelled()
         if timed_out and not stderr and timeout is not None:
             stderr = f"OpenCode Main exceeded {timeout} seconds."
+            stderr_path.write_text(stderr, encoding="utf-8")
+        elif stalled and not stderr and self.stall_timeout_seconds is not None:
+            stderr = f"OpenCode Main produced no output for {self.stall_timeout_seconds} seconds."
             stderr_path.write_text(stderr, encoding="utf-8")
         return {
             "stdout": stdout,
             "stderr": stderr,
             "returncode": str(process.returncode),
             "timed_out": timed_out,
+            "stalled": stalled,
         }
 
     def _runtime_config(
@@ -577,7 +693,7 @@ class OpenCodeMainAgent:
             task_permissions[specialist] = "allow"
         agent_configs: dict[str, Any] = {
             OPENCODE_MAIN_AGENT: {
-                "steps": 12,
+                "steps": self.max_steps,
                 "permission": {
                     "*": "deny",
                     "read": main_read_permissions,
@@ -634,6 +750,7 @@ class OpenCodeMainAgent:
         return {
             "$schema": "https://opencode.ai/config.json",
             "snapshot": False,
+            "compaction": dict(OPENCODE_COMPACTION_CONFIG),
             "agent": agent_configs,
         }
 
@@ -674,13 +791,39 @@ class OpenCodeMainAgent:
                 permissions[pattern] = "allow"
         return permissions
 
-    def _fallback(self, request: DirectionPlanRequest, *, reason: str) -> dict[str, Any]:
+    def _fallback(
+        self,
+        request: DirectionPlanRequest,
+        *,
+        reason: str,
+        selection: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         request.output_dir.mkdir(parents=True, exist_ok=True)
-        (request.output_dir / "opencode_main_fallback.json").write_text(
+        fallback_path = request.output_dir / "opencode_main_fallback.json"
+        fallback_path.write_text(
             json_dumps({"reason": reason}),
             encoding="utf-8",
         )
-        return self.fallback.plan_direction(request)
+        plan = self.fallback.plan_direction(request)
+        plan = {key: value for key, value in plan.items() if key != "artifact_path"}
+        if selection:
+            for key in (
+                "direction_id",
+                "method_family",
+                "method_families",
+                "primary_search_pressure",
+                "knowledge_query",
+            ):
+                if selection.get(key) not in (None, "", []):
+                    plan[key] = selection[key]
+            plan["selection_preserved_after_planning_fallback"] = True
+        plan["planner_fallback"] = {
+            "source": type(self).__name__,
+            "fallback": type(self.fallback).__name__,
+            "reason": reason[:1_000],
+            "fallback_path": str(fallback_path.resolve()),
+        }
+        return write_direction_plan(request.output_dir, plan)
 
 
 def stream_process_pipe(stream: Any, path: Path, chunks: list[str]) -> None:
@@ -694,6 +837,33 @@ def stream_process_pipe(stream: Any, path: Path, chunks: list[str]) -> None:
             chunks.append(chunk)
             handle.write(chunk)
             handle.flush()
+
+
+def monitor_process_stall(
+    process: subprocess.Popen[str],
+    stdout_chunks: list[str],
+    stderr_chunks: list[str],
+    stall_timeout_seconds: int,
+    stop_event: threading.Event,
+    state: dict[str, bool],
+) -> None:
+    """Terminate only a silent OpenCode call; active research has no total deadline."""
+
+    observed_size = (len(stdout_chunks), len(stderr_chunks))
+    last_activity = time.monotonic()
+    while not stop_event.wait(MAIN_STALL_POLL_SECONDS):
+        if process.poll() is not None:
+            return
+        current_size = (len(stdout_chunks), len(stderr_chunks))
+        if current_size != observed_size:
+            observed_size = current_size
+            last_activity = time.monotonic()
+            continue
+        if time.monotonic() - last_activity < stall_timeout_seconds:
+            continue
+        state["stalled"] = True
+        kill_process_tree(process)
+        return
 
 
 def build_round_reflection_evidence(request: RoundReflectionRequest) -> dict[str, Any]:
@@ -735,9 +905,22 @@ def build_round_reflection_evidence(request: RoundReflectionRequest) -> dict[str
             "incumbent_key_after": list(request.incumbent_key_after),
             "promoted": bool((request.promotion_check or {}).get("promoted")),
             "selected_candidate_id": competition.get("selected_candidate_id"),
+            "measured_candidate_id": competition.get("measured_candidate_id"),
+            "best_legal_candidate": planning_packets.project_observed_candidate(
+                competition.get("best_legal_candidate")
+            ),
+            "best_activated_candidate": planning_packets.project_observed_candidate(
+                competition.get("best_activated_candidate")
+            ),
         },
         "reflection_contract": {
-            "allowed_hypothesis_outcomes": ["supported", "refuted", "inconclusive"],
+            "allowed_hypothesis_outcomes": [
+                "supported",
+                "refuted",
+                "mixed",
+                "inconclusive",
+                "inconclusive_not_exercised",
+            ],
             "allowed_next_actions": ["probe", "scale", "pivot", "research_tournament"],
             "activation_checks_rule": "Use activation checks to prove execution, not result quality.",
             "research_tournament_scope": "May cross method families when local continuation is no longer evidence-backed.",
@@ -746,392 +929,11 @@ def build_round_reflection_evidence(request: RoundReflectionRequest) -> dict[str
     compacted = compact_json(payload, max_chars=PLANNING_PACKET_MAX_CHARS)
     return json.loads(compacted.text)
 
-
-def compact_round_competition_result(
-    value: Any,
-    *,
-    direction: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    direction = direction if isinstance(direction, dict) else {}
-    competition = value if isinstance(value, dict) else {}
-    if not competition and isinstance(direction.get("competition_result"), dict):
-        competition = direction["competition_result"]
-    if not competition:
-        return {}
-    candidates = [
-        compact_round_candidate_evidence(item, direction=direction)
-        for item in competition.get("candidates") or []
-        if isinstance(item, dict)
-    ]
-    return {
-        "status": competition.get("status"),
-        "candidate_count": int(competition.get("candidate_count", len(candidates)) or 0),
-        "eligible_candidate_count": int(competition.get("eligible_candidate_count", 0) or 0),
-        "selected_candidate_id": competition.get("selected_candidate_id"),
-        "selected_objective_key": competition.get("selected_objective_key") or [],
-        "selected_for_promotion": competition.get("selected_for_promotion"),
-        "selection_rule": str(competition.get("selection_rule") or "")[:500],
-        "candidates": candidates,
-    }
-
-
-def compact_round_candidate_evidence(
-    candidate: dict[str, Any],
-    *,
-    direction: dict[str, Any],
-) -> dict[str, Any]:
-    summary = candidate.get("summary") if isinstance(candidate.get("summary"), dict) else {}
-    diagnostics_payload = {
-        "eligible": candidate.get("eligible"),
-        "core_eligible": candidate.get("core_eligible"),
-        "semantic_eligible": candidate.get("semantic_eligible"),
-        "activation_eligible": candidate.get("activation_eligible"),
-        "worker_status": candidate.get("worker_status"),
-        "ja_stage": candidate.get("ja_stage"),
-        "ja_issues": candidate.get("ja_issues") or [],
-        "semantic_review": candidate.get("semantic_review") or {},
-        "validation_summary": summary.get("validation_summary") or {},
-        "candidate_summaries": summary.get("candidate_summaries") or [],
-    }
-    return {
-        "candidate_id": candidate.get("candidate_id"),
-        "status": candidate.get("status"),
-        "model": candidate_model_hint(candidate, direction=direction),
-        "objective": candidate.get("objective_key") or [],
-        "mechanism_activation": compact_json(
-            candidate.get("mechanism_activation") or {},
-            max_chars=3_000,
-        ).payload,
-        "summary": compact_json(summary, max_chars=3_500).payload,
-        "diagnostics": compact_json(diagnostics_payload, max_chars=3_500).payload,
-        "patch_path": candidate.get("patch_path"),
-    }
-
-
-def candidate_model_hint(candidate: dict[str, Any], *, direction: dict[str, Any]) -> str:
-    for key in ("model", "worker_model", "candidate_model"):
-        value = str(candidate.get(key) or "").strip()
-        if value:
-            return value[:200]
-    candidate_id = str(candidate.get("candidate_id") or "").strip()
-    selected_variant = (
-        direction.get("selected_candidate_variant")
-        if isinstance(direction.get("selected_candidate_variant"), dict)
-        else {}
-    )
-    if candidate_id and candidate_id == str(selected_variant.get("candidate_id") or "").strip():
-        for key in ("title", "hypothesis", "method_family", "strategy_type", "experiment_stage"):
-            value = str(selected_variant.get(key) or "").strip()
-            if value:
-                return value[:200]
-    for item in direction.get("candidate_variants") or []:
-        if not isinstance(item, dict):
-            continue
-        if candidate_id and candidate_id != str(item.get("candidate_id") or "").strip():
-            continue
-        for key in ("title", "hypothesis", "method_family", "strategy_type", "experiment_stage"):
-            value = str(item.get(key) or "").strip()
-            if value:
-                return value[:200]
-    for key in ("title", "hypothesis", "method_family", "strategy_type", "experiment_stage"):
-        value = str(direction.get(key) or "").strip()
-        if value:
-            return value[:200]
-    return ""
-
-
-def build_planning_packet(
-    *,
-    context: dict[str, Any],
-    loop_feedback: dict[str, Any],
-    round_index: int,
-) -> dict[str, Any]:
-    """Build the bounded Main view; promoted source is attached separately read-only."""
-
-    task = context.get("task") if isinstance(context.get("task"), dict) else {}
-    catalog = (
-        context.get("method_package_catalog")
-        if isinstance(context.get("method_package_catalog"), dict)
-        else {}
-    )
-    previous_rounds = []
-    for item in (loop_feedback.get("previous_rounds") or [])[-6:]:
-        if not isinstance(item, dict):
-            continue
-        direction = item.get("direction_plan") if isinstance(item.get("direction_plan"), dict) else {}
-        previous_rounds.append(
-            {
-                "round_index": item.get("round_index"),
-                "decision": item.get("decision"),
-                "candidate_key": item.get("candidate_key"),
-                "incumbent_key_after": item.get("incumbent_key_after"),
-                "direction_id": direction.get("direction_id"),
-                "title": direction.get("title"),
-                "strategy_type": direction.get("strategy_type"),
-                "hypothesis": str(direction.get("hypothesis") or "")[:600],
-                "implementation_order": [
-                    str(value)[:160]
-                    for value in (direction.get("implementation_order") or [])[:8]
-                    if str(value).strip()
-                ],
-                "failure_signatures": (item.get("failure_signatures") or [])[:8],
-                "candidate_summary": compact_json(
-                    item.get("candidate_summary") or {},
-                    max_chars=8_000,
-                ).payload,
-                "competition_result": compact_round_competition_result(
-                    item.get("competition_result"),
-                    direction=direction,
-                ),
-                "promotion_check": compact_json(
-                    item.get("promotion_check") or {},
-                    max_chars=3_000,
-                ).payload,
-                "round_reflection": compact_json(
-                    item.get("round_reflection") or {},
-                    max_chars=6_000,
-                ).payload,
-                "patch_path": item.get("patch_path"),
-                "patch_excerpt": bounded_artifact_text(item.get("patch_path"), max_chars=12_000),
-            }
-        )
-    experience = (
-        loop_feedback.get("experience_memory")
-        if isinstance(loop_feedback.get("experience_memory"), dict)
-        else {}
-    )
-    tiers = experience.get("memory_tiers") if isinstance(experience.get("memory_tiers"), dict) else {}
-    incumbent = (
-        context.get("incumbent_code_context")
-        if isinstance(context.get("incumbent_code_context"), dict)
-        else {}
-    )
-    incumbent_audit = (
-        context.get("incumbent_capability_audit")
-        if isinstance(context.get("incumbent_capability_audit"), dict)
-        else {}
-    )
-    payload = {
-        "schema_version": 1,
-        "planning_stage": "direction_selection",
-        "phase": "baseline" if round_index < 0 else "improvement",
-        "direction_id": f"d{round_index:03d}",
-        "task_digest": {
-            "task_id": task.get("task_id") or context.get("task_id"),
-            "problem_family": task.get("problem_family") or context.get("problem_family"),
-            "description": task.get("description"),
-            "objectives": context.get("objectives") or [],
-            "hypothesis": context.get("hypothesis") or "",
-        },
-        "io_digest": {
-            "evaluator_protocol": context.get("evaluator_protocol") or {},
-            "edit_policy": context.get("edit_policy") or {},
-            "quality_contract": build_agent_generated_solver_quality_contract(context),
-        },
-        "instance_diagnostics": context.get("instance_diagnostics") or {},
-        "strategy_selection_cards": compact_source_records(
-            context.get("strategy_selection_cards"),
-            max_items=4,
-            max_snippet_chars=6_000,
-        ),
-        "knowledge_query_catalog": context.get("knowledge_query_catalog") or {"tags": []},
-        "method_family_catalog": context.get("method_family_catalog") or {"families": []},
-        "method_package_catalog": {
-            "active_features": catalog.get("active_features") or [],
-            "available_after_direction_selection": True,
-            "packages": [],
-        },
-        "incumbent_evidence": {
-            "objective_key": loop_feedback.get("incumbent_key_before"),
-            "source": incumbent.get("source"),
-            "evaluation": compact_json(
-                loop_feedback.get("incumbent_summary") or {},
-                max_chars=10_000,
-            ).payload,
-            "files": [
-                {
-                    "relative_path": item.get("relative_path"),
-                    "path": item.get("path"),
-                    "sha256": item.get("sha256"),
-                    "chars": item.get("chars"),
-                    "truncated": item.get("truncated"),
-                }
-                for item in incumbent.get("files") or []
-                if isinstance(item, dict)
-            ][:6],
-        },
-        # AST 报告用于快速定位符号；完整 incumbent 源码另以只读附件提供，
-        # Main 必须把两者与运行证据、上轮 patch 一起审查。
-        "incumbent_capability_audit": (
-            compact_json(
-                compact_incumbent_capability_audit(incumbent_audit),
-                max_chars=18_000,
-            ).payload
-            if incumbent_audit
-            else {}
-        ),
-        "recent_round_evidence": previous_rounds,
-        "latest_attempt_evidence": loop_feedback.get("current_round_repair") or {},
-        "next_round_guidance": loop_feedback.get("next_round_guidance") or {},
-        "user_intervention": loop_feedback.get("user_intervention") or {},
-        # 第一阶段可使用历史成败，但不能从旧包 ID、资产路径或实现合同反推具体方法包。
-        "validated_memory": compact_direction_selection_memory(
-            (tiers.get("validated_lessons") or [])[-6:]
-        ),
-        "runtime_limits": {
-            "one_direction": True,
-            "backend_algorithm_agnostic": True,
-            "worker_full_context_visible": False,
-            "main_reads_full_incumbent_source": True,
-            "main_receives_structured_incumbent_audit": bool(incumbent_audit),
-            "max_competing_workers": max(
-                1,
-                min(
-                    4,
-                    int((loop_feedback.get("competition") or {}).get("max_competing_workers") or 1),
-                ),
-            ),
-        },
-        "planner_output_contract": {
-            "candidate_variants_must_declare_activation_checks": True,
-            "activation_checks_purpose": "prove mechanism execution rather than result quality",
-            "experiment_stage_options": [
-                "baseline",
-                "probe",
-                "scale",
-                "pivot",
-                "research_tournament",
-            ],
-            "research_tournament_scope": "may compare across method families when round evidence invalidates the current family-level assumption",
-        },
-    }
-    compacted = compact_json(payload, max_chars=PLANNING_PACKET_MAX_CHARS)
-    return json.loads(compacted.text)
-
-
-def compact_direction_selection_memory(values: Any) -> list[dict[str, Any]]:
-    """Keep evaluator-backed lessons while hiding concrete implementation packages."""
-
-    result: list[dict[str, Any]] = []
-    for item in values if isinstance(values, list) else []:
-        if not isinstance(item, dict):
-            continue
-        evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
-        result.append(
-            {
-                "lesson_type": item.get("lesson_type"),
-                "problem_family": item.get("problem_family"),
-                "strategy": str(item.get("strategy") or "")[:160],
-                "strategy_type": item.get("strategy_type"),
-                "outcome": item.get("outcome"),
-                "applicability": _bounded_string_list(item.get("applicability"), limit=4, chars=300),
-                "contraindications": _bounded_string_list(
-                    item.get("contraindications"),
-                    limit=4,
-                    chars=300,
-                ),
-                "evidence": {
-                    "direction_id": evidence.get("direction_id"),
-                    "round_index": evidence.get("round_index"),
-                    "decision": evidence.get("decision"),
-                    "status": evidence.get("status"),
-                    "score_relation": evidence.get("score_relation"),
-                },
-                "confidence": item.get("confidence"),
-            }
-        )
-    return result
-
-
-def build_implementation_planning_packet(
-    *,
-    context: dict[str, Any],
-    loop_feedback: dict[str, Any],
-    round_index: int,
-    direction_selection: dict[str, Any],
-) -> dict[str, Any]:
-    """Build the second Main view after direction-scoped retrieval has completed."""
-
-    packet = build_planning_packet(
-        context=context,
-        loop_feedback=loop_feedback,
-        round_index=round_index,
-    )
-    packet["planning_stage"] = "implementation_planning"
-    packet["direction_selection"] = direction_selection
-    packet.pop("strategy_selection_cards", None)
-    packet.pop("knowledge_query_catalog", None)
-    packet.pop("method_family_catalog", None)
-    active = (
-        context.get("active_direction_knowledge")
-        if isinstance(context.get("active_direction_knowledge"), dict)
-        else {}
-    )
-    packet["active_direction_knowledge"] = {
-        "method_family": active.get("method_family"),
-        "method_families": active.get("method_families") or [],
-        "query": active.get("query") or [],
-        "paths": active.get("paths") or [],
-        "cards": compact_source_records(
-            active.get("asset_records"),
-            max_items=6,
-            max_snippet_chars=5_000,
-        ),
-        "audit": active.get("audit") or {},
-    }
-    catalog = (
-        context.get("method_package_catalog")
-        if isinstance(context.get("method_package_catalog"), dict)
-        else {}
-    )
-    packet["eligible_method_packages"] = compact_method_package_candidates(catalog)
-    packet["method_package_catalog"] = {
-        "active_features": catalog.get("active_features") or [],
-        "knowledge_query_tags": catalog.get("knowledge_query_tags") or [],
-        "eligible_package_ids": [
-            item.get("package_id")
-            for item in catalog.get("packages") or []
-            if isinstance(item, dict) and item.get("package_id")
-        ],
-    }
-    compacted = compact_json(packet, max_chars=PLANNING_PACKET_MAX_CHARS)
-    return json.loads(compacted.text)
-
-
-def compact_method_package_candidates(catalog: dict[str, Any]) -> list[dict[str, Any]]:
-    """Expose package contracts and explanatory assets without full reference source."""
-
-    result: list[dict[str, Any]] = []
-    for item in catalog.get("packages") or []:
-        if not isinstance(item, dict):
-            continue
-        implementation_asset = str(item.get("implementation_asset") or "")
-        asset_records: list[dict[str, Any]] = []
-        for raw_path in item.get("assets") or []:
-            path = Path(str(raw_path))
-            if not path.is_file() or str(path) == implementation_asset:
-                continue
-            try:
-                snippet = path.read_text(encoding="utf-8")[:5_000]
-            except OSError:
-                continue
-            asset_records.append({"path": str(path), "snippet": snippet})
-            if len(asset_records) >= 3:
-                break
-        contract = item.get("implementation_contract") if isinstance(item.get("implementation_contract"), dict) else {}
-        bounded_contract = compact_json(contract, max_chars=12_000).payload if contract else {}
-        result.append(
-            {
-                "package_id": item.get("package_id"),
-                "title": item.get("title"),
-                "description": item.get("description"),
-                "activation_tags": item.get("activation_tags") or [],
-                "strategy_types": item.get("strategy_types") or [],
-                "implementation_contract": bounded_contract,
-                "planning_assets": asset_records,
-            }
-        )
-    return result[:3]
+# Keep these public names stable while the packet compiler lives in the context
+# layer. Existing integrations and tests import them from this adapter.
+build_planning_packet = planning_packets.build_planning_packet
+build_implementation_planning_packet = planning_packets.build_implementation_planning_packet
+compact_round_competition_result = planning_packets.compact_round_competition_result
 
 
 def has_model_text(events_text: str) -> bool:
@@ -1267,8 +1069,46 @@ def resolve_optional_timeout_seconds(
 
 def bounded_timeout_seconds(timeout_seconds: int | None, upper_bound: int) -> int | None:
     if timeout_seconds is None:
-        return None
+        return upper_bound
     return min(timeout_seconds, upper_bound)
+
+
+def inherited_direction_selection(
+    *,
+    planning_packet: dict[str, Any],
+    round_index: int,
+) -> dict[str, Any] | None:
+    """Reuse the active family for probe/scale transitions without another tournament."""
+
+    state = (
+        planning_packet.get("research_state")
+        if isinstance(planning_packet.get("research_state"), dict)
+        else {}
+    )
+    if round_index < 0 or state.get("selection_required") is not False:
+        return None
+    raw = {
+        "planning_stage": "direction_selection",
+        "direction_id": f"d{round_index:03d}",
+        "method_family": state.get("active_method_family"),
+        "method_families": state.get("active_method_families") or [],
+        "primary_search_pressure": state.get("active_primary_search_pressure") or "",
+        "diagnosis": state.get("next_action_rationale") or state.get("active_hypothesis") or "",
+        "measured_evidence": [
+            f"last_decision={state.get('last_decision')}",
+            f"last_hypothesis_outcome={state.get('last_hypothesis_outcome')}",
+            f"next_action={state.get('next_action')}",
+        ],
+        "selection_rationale": (
+            "研究状态机要求 probe/scale 继承当前方法族；本轮只重新规划该方向内的下一次可证伪变异。"
+        ),
+        "knowledge_query": state.get("active_knowledge_query") or [],
+    }
+    return normalize_direction_selection(
+        raw,
+        planning_packet=planning_packet,
+        round_index=round_index,
+    )
 
 
 def normalize_direction_selection(
@@ -1358,6 +1198,45 @@ def normalize_direction_selection(
             query.append(tag)
     max_query = max(1, int(query_catalog.get("default_limit") or 6))
     query = query[:max_query]
+    normalization_repairs: list[dict[str, str]] = []
+    if method_families:
+        preferred_query = high_flexibility_query_tags(
+            planning_packet.get("instance_diagnostics"),
+            compatible_tags=[tag for tag in family_query_tags if tag in allowed],
+            limit=max_query,
+        )
+        merged_query = list(dict.fromkeys([*preferred_query, *query]))[:max_query]
+        if preferred_query and merged_query != query:
+            query = merged_query
+            normalization_repairs.append(
+                {
+                    "path": "/knowledge_query",
+                    "reason": "the parsed instance profile indicates a high-flexibility route",
+                    "repair": "prioritized canonical high-flexibility query tags",
+                }
+            )
+        for row in method_families:
+            if query:
+                break
+            family = allowed_families.get(row["id"]) or {}
+            fallback_tag = next(
+                (
+                    str(item).strip().lower()
+                    for item in family.get("query_tags") or []
+                    if str(item).strip().lower() in allowed
+                ),
+                "",
+            )
+            if fallback_tag:
+                query = [fallback_tag]
+                normalization_repairs.append(
+                    {
+                        "path": "/knowledge_query",
+                        "reason": "no selected query tag was compatible with the preserved method families",
+                        "repair": f"selected canonical family tag {fallback_tag}",
+                    }
+                )
+                break
     if not method_families or not query:
         return None
     method_family = method_families[0]["id"]
@@ -1382,6 +1261,7 @@ def normalize_direction_selection(
         "selection_rationale": str(raw.get("selection_rationale") or "")[:1600],
         "knowledge_query": query,
         "method_package_id": "",
+        "normalization_repairs": normalization_repairs,
     }
 
 
@@ -1441,6 +1321,96 @@ def incumbent_planning_contract_errors(
             errors.append(f"direction_plan.reasoning_trace[{index}].inference is empty")
         if not row.get("decision") and not row.get("next_check"):
             errors.append(f"direction_plan.reasoning_trace[{index}] lacks decision and next_check")
+    if round_index >= 0:
+        if not normalize_activation_checks(direction.get("activation_checks")):
+            errors.append("direction_plan.activation_checks is empty or not machine-checkable")
+        else:
+            errors.extend(
+                activation_check_schema_errors(
+                    direction.get("activation_checks"),
+                    field_name="direction_plan.activation_checks",
+                )
+            )
+        output_contract = (
+            planning_packet.get("planner_output_contract")
+            if isinstance(planning_packet.get("planner_output_contract"), dict)
+            else {}
+        )
+        competition_policy = (
+            output_contract.get("competition_policy")
+            if isinstance(output_contract.get("competition_policy"), dict)
+            else {}
+        )
+        try:
+            minimum_candidates = int(competition_policy.get("minimum_candidate_variants") or 0)
+            maximum_candidates = int(competition_policy.get("maximum_candidate_variants") or 4)
+        except (TypeError, ValueError):
+            minimum_candidates, maximum_candidates = 0, 4
+        minimum_candidates = max(0, min(4, minimum_candidates))
+        maximum_candidates = max(1, min(4, maximum_candidates))
+        raw_variants = [
+            item for item in direction.get("candidate_variants") or [] if isinstance(item, dict)
+        ]
+        if len(raw_variants) > maximum_candidates:
+            errors.append(
+                "direction_plan.candidate_variants exceeds "
+                "planner_output_contract.competition_policy.maximum_candidate_variants"
+            )
+        variants = raw_variants[:maximum_candidates]
+        if len(variants) < minimum_candidates:
+            errors.append(
+                "direction_plan.candidate_variants contains fewer experiments than "
+                "planner_output_contract.competition_policy.minimum_candidate_variants"
+            )
+        signatures: set[str] = set()
+        for index, variant in enumerate(variants):
+            if not str(variant.get("hypothesis") or "").strip():
+                errors.append(f"direction_plan.candidate_variants[{index}].hypothesis is empty")
+            if not str(variant.get("strategy_type") or "").strip():
+                errors.append(f"direction_plan.candidate_variants[{index}].strategy_type is empty")
+            if not normalize_activation_checks(variant.get("activation_checks")):
+                errors.append(
+                    f"direction_plan.candidate_variants[{index}].activation_checks is empty or not machine-checkable"
+                )
+            else:
+                errors.extend(
+                    activation_check_schema_errors(
+                        variant.get("activation_checks"),
+                        field_name=f"direction_plan.candidate_variants[{index}].activation_checks",
+                    )
+                )
+            mutation = variant.get("next_mutation") if isinstance(variant.get("next_mutation"), dict) else {}
+            target_symbols = sorted(
+                str(item).strip().lower()
+                for item in mutation.get("target_symbols") or []
+                if str(item).strip()
+            )
+            change = str(mutation.get("change") or "").strip().lower()
+            if not target_symbols:
+                errors.append(
+                    f"direction_plan.candidate_variants[{index}].next_mutation.target_symbols is empty"
+                )
+            if not change:
+                errors.append(
+                    f"direction_plan.candidate_variants[{index}].next_mutation.change is empty"
+                )
+            signature = json.dumps(
+                {
+                    "method_family": str(variant.get("method_family") or direction.get("method_family") or "")
+                    .strip()
+                    .lower(),
+                    "strategy_type": str(variant.get("strategy_type") or "").strip().lower(),
+                    "target_symbols": target_symbols,
+                    "change": change,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            if signature in signatures:
+                errors.append(
+                    f"direction_plan.candidate_variants[{index}] duplicates an earlier mechanism"
+                )
+            signatures.add(signature)
     return errors
 
 
@@ -1483,7 +1453,12 @@ def summarize_opencode_events(events_text: str) -> dict[str, Any]:
     for event in events:
         rendered = json.dumps(event, ensure_ascii=False)
         if "task" in rendered.lower():
-            for name in ("requirements-method-analyst", "evidence-analyst", "plan-critic"):
+            for name in (
+                "requirements-method-analyst",
+                "evidence-analyst",
+                "plan-critic",
+                "candidate-strategy-analyst",
+            ):
                 if name in rendered and name not in called_subagents:
                     called_subagents.append(name)
         _sum_numeric_usage(event, usage)
@@ -1491,6 +1466,7 @@ def summarize_opencode_events(events_text: str) -> dict[str, Any]:
         "event_count": len(events),
         "called_subagents": called_subagents,
         "usage": usage,
+        "compaction": summarize_opencode_compaction_events(events_text),
     }
 
 
@@ -1499,11 +1475,64 @@ def merge_event_summaries(first: dict[str, Any], second: dict[str, Any]) -> dict
     for key, value in (second.get("usage") or {}).items():
         usage[key] = usage.get(key, 0) + value
     return {
+        "attempts": int(first.get("attempts") or 0) + int(second.get("attempts") or 0),
         "event_count": int(first.get("event_count") or 0) + int(second.get("event_count") or 0),
         "called_subagents": list(
             dict.fromkeys([*(first.get("called_subagents") or []), *(second.get("called_subagents") or [])])
         ),
         "usage": usage,
+        "compaction": merge_compaction_summaries(
+            first.get("compaction"),
+            second.get("compaction"),
+        ),
+    }
+
+
+def _write_packet_bundle(
+    *,
+    output_dir: Path,
+    filename: str,
+    packet: dict[str, Any],
+) -> list[Path]:
+    """Persist the bounded root packet plus a pageable section/index bundle."""
+
+    stem = Path(filename).stem
+    bundle_paths: list[Path] = []
+    for relative_path, text in planning_packets.planning_packet_bundle_files(packet, stem=stem).items():
+        path = output_dir / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        bundle_paths.append(path)
+    return bundle_paths
+
+
+def merge_compaction_summaries(first: Any, second: Any) -> dict[str, Any]:
+    first = first if isinstance(first, dict) else {}
+    second = second if isinstance(second, dict) else {}
+    first_counts = first.get("status_counts") if isinstance(first.get("status_counts"), dict) else {}
+    second_counts = second.get("status_counts") if isinstance(second.get("status_counts"), dict) else {}
+    status_counts = {
+        status: int(first_counts.get(status) or first.get(status) or 0)
+        + int(second_counts.get(status) or second.get(status) or 0)
+        for status in ("started", "completed", "failed")
+    }
+    events = [
+        item
+        for item in [*(first.get("events") or []), *(second.get("events") or [])]
+        if isinstance(item, dict)
+    ]
+    return {
+        "schema_version": 1,
+        "source": "opencode_jsonl_top_level_events",
+        "event_count": int(first.get("event_count") or 0) + int(second.get("event_count") or 0),
+        **status_counts,
+        "unknown_status_count": int(first.get("unknown_status_count") or 0)
+        + int(second.get("unknown_status_count") or 0),
+        "status_counts": status_counts,
+        "events": events[:32],
+        "events_truncated": bool(first.get("events_truncated"))
+        or bool(second.get("events_truncated"))
+        or len(events) > 32,
     }
 
 
@@ -1544,24 +1573,6 @@ def _text_values(value: Any) -> list[str]:
         for item in value:
             result.extend(_text_values(item))
     return result
-
-
-def bounded_artifact_text(path_value: Any, *, max_chars: int) -> str:
-    """Read a bounded internal artifact excerpt for next-round causal review."""
-
-    path_text = str(path_value or "").strip()
-    if not path_text:
-        return ""
-    path = Path(path_text)
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return ""
-    if len(text) <= max_chars:
-        return text
-    head_chars = max_chars * 2 // 3
-    tail_chars = max_chars - head_chars
-    return f"{text[:head_chars]}\n...<artifact excerpt truncated>...\n{text[-tail_chars:]}"
 
 
 def incumbent_source_files(context: dict[str, Any], *, max_files: int = 2) -> list[Path]:

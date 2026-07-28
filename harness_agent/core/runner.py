@@ -22,6 +22,7 @@ SUBPROCESS_ERROR_EXCERPT_MAX_CHARS = 900
 SOLVER_DIAGNOSTICS_MAX_CHARS = 32_000
 SOLVER_DIAGNOSTICS_MAX_DEPTH = 6
 SOLVER_DIAGNOSTICS_MAX_ITEMS = 200
+ACTIVATION_DIAGNOSTICS_MAX_CHARS = 8_000
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,7 @@ class RunSummary:
     candidate_summaries: list[dict[str, object]] | None = None
     pareto_frontier: list[dict[str, object]] | None = None
     validation_summary: dict[str, object] | None = None
+    activation_evidence: list[dict[str, object]] | None = None
 
 
 class HarnessRunner:
@@ -257,6 +259,7 @@ class HarnessRunner:
             candidate_summaries=candidate_summaries,
             pareto_frontier=pareto,
             validation_summary=validation_summary(records),
+            activation_evidence=activation_evidence_records(valid_records),
         )
 
     def _candidate_summaries(self, records: list[ExperimentRecord]) -> list[dict[str, object]]:
@@ -389,13 +392,132 @@ def load_solver_evidence(solution_path: Path) -> dict[str, object]:
         evidence["reported_operation_count"] = len(schedule)
     diagnostics = bounded_solver_diagnostics(raw.get("diagnostics"))
     if diagnostics not in ({}, [], None, ""):
-        evidence["diagnostics"] = diagnostics
+        fitted, truncated = fit_solver_diagnostics(
+            diagnostics,
+            max_chars=SOLVER_DIAGNOSTICS_MAX_CHARS - 1_000,
+        )
+        evidence["diagnostics"] = fitted
+        if truncated:
+            evidence["diagnostics_truncated"] = True
     encoded = json.dumps(evidence, ensure_ascii=False, separators=(",", ":"))
     if len(encoded) <= SOLVER_DIAGNOSTICS_MAX_CHARS:
         return evidence
-    evidence.pop("diagnostics", None)
+    fitted, _truncated = fit_solver_diagnostics(
+        diagnostics,
+        max_chars=SOLVER_DIAGNOSTICS_MAX_CHARS // 2,
+    )
+    evidence["diagnostics"] = fitted
     evidence["diagnostics_truncated"] = True
     return evidence
+
+
+def activation_evidence_records(records: list[ExperimentRecord]) -> list[dict[str, object]]:
+    """Retain bounded per-run diagnostics so activation is not tied to the best seed."""
+
+    result: list[dict[str, object]] = []
+    for record in sorted(records, key=lambda item: (item.seed, item.instance_id, item.experiment_id)):
+        solver_evidence = record.metrics.get("solver_evidence")
+        if not isinstance(solver_evidence, dict):
+            continue
+        diagnostics = solver_evidence.get("diagnostics")
+        fitted, truncated = fit_solver_diagnostics(
+            diagnostics,
+            max_chars=ACTIVATION_DIAGNOSTICS_MAX_CHARS,
+        )
+        bounded_evidence = {
+            key: solver_evidence.get(key)
+            for key in (
+                "selected_source",
+                "reported_makespan",
+                "reported_operation_count",
+            )
+            if key in solver_evidence
+        }
+        if fitted not in ({}, [], None, ""):
+            bounded_evidence["diagnostics"] = fitted
+        if truncated or solver_evidence.get("diagnostics_truncated"):
+            bounded_evidence["diagnostics_truncated"] = True
+        result.append(
+            {
+                "experiment_id": record.experiment_id,
+                "instance_id": record.instance_id,
+                "seed": record.seed,
+                "best_metrics": {"solver_evidence": bounded_evidence},
+            }
+        )
+    return result
+
+
+def fit_solver_diagnostics(value: object, *, max_chars: int) -> tuple[object, bool]:
+    """Keep scalar telemetry paths within a hard budget, preferring counters over blobs."""
+
+    leaves: list[tuple[tuple[str, ...], object]] = []
+    _collect_diagnostic_leaves(value, (), leaves)
+    leaves.sort(key=_diagnostic_leaf_priority)
+    result: dict[str, object] = {}
+    omitted = 0
+    for path, item in leaves:
+        candidate = json.loads(json.dumps(result, ensure_ascii=False))
+        _set_diagnostic_path(candidate, path, item)
+        if len(json.dumps(candidate, ensure_ascii=False, separators=(",", ":"))) > max_chars:
+            omitted += 1
+            continue
+        result = candidate
+    if omitted:
+        result["_truncated"] = True
+        result["_omitted_leaf_count"] = omitted
+    return result, bool(omitted or result != value)
+
+
+def _collect_diagnostic_leaves(
+    value: object,
+    path: tuple[str, ...],
+    result: list[tuple[tuple[str, ...], object]],
+) -> None:
+    if value is None or isinstance(value, (bool, int, float)):
+        result.append((path, value))
+        return
+    if isinstance(value, str):
+        result.append((path, value[:256]))
+        return
+    if isinstance(value, list):
+        if len(value) <= 16 and all(item is None or isinstance(item, (bool, int, float, str)) for item in value):
+            result.append((path, [item[:256] if isinstance(item, str) else item for item in value]))
+            return
+        result.append(((*path, "_item_count"), len(value)))
+        for index, item in enumerate(value[:8]):
+            _collect_diagnostic_leaves(item, (*path, str(index)), result)
+        return
+    if isinstance(value, dict):
+        for index, (key, item) in enumerate(value.items()):
+            if index >= SOLVER_DIAGNOSTICS_MAX_ITEMS:
+                result.append(((*path, "_omitted_item_count"), len(value) - index))
+                break
+            _collect_diagnostic_leaves(item, (*path, str(key)[:160]), result)
+        return
+    result.append((path, str(value)[:256]))
+
+
+def _diagnostic_leaf_priority(item: tuple[tuple[str, ...], object]) -> tuple[int, int, str]:
+    path, value = item
+    joined = ".".join(path)
+    preferred = 0 if "telemetry" in path else 1 if any(key in path for key in ("search_counters", "timings_ms")) else 2
+    value_rank = 0 if value is None or isinstance(value, (bool, int, float)) else 1
+    return preferred, value_rank, joined
+
+
+def _set_diagnostic_path(target: dict[str, object], path: tuple[str, ...], value: object) -> None:
+    if not path:
+        target["value"] = value
+        return
+    current = target
+    for segment in path[:-1]:
+        child = current.get(segment)
+        if not isinstance(child, dict):
+            child = {}
+            current[segment] = child
+        current = child
+    current[path[-1]] = value
 
 
 def bounded_solver_diagnostics(value: object, *, depth: int = 0) -> object:

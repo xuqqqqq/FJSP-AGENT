@@ -85,7 +85,9 @@
         "initialization",
         "multi_start",
         "load_balance",
-        "decoder"
+        "decoder",
+        "high_flexibility",
+        "assignment_regret"
       ],
       "required_features": [],
       "excluded_features": [],
@@ -105,7 +107,11 @@
         "local_search",
         "tabu_search",
         "ils",
-        "adaptive_weight"
+        "adaptive_weight",
+        "high_flexibility",
+        "assignment_regret",
+        "assignment_trust_region",
+        "order_preserving_redecode"
       ],
       "required_features": [],
       "excluded_features": [],
@@ -222,6 +228,29 @@
       "excluded_features": [],
       "default_priority": 290,
       "always_include": false
+    },
+    {
+      "skill_id": "high-flexibility-fjsp-playbook",
+      "title": "高柔性 FJSP assignment-first 收敛打法",
+      "description": "面向高柔性标准 FJSP 的 earliest-gap、assignment regret、小半径换机信赖域和保序重解码实现指导。",
+      "source_path": ".codex/skills/high-flexibility-fjsp-playbook",
+      "method_families": [
+        "constructive_search",
+        "coupled_local_search"
+      ],
+      "activation_tags": [
+        "high_flexibility",
+        "assignment_regret",
+        "assignment_trust_region",
+        "order_preserving_redecode"
+      ],
+      "required_features": [],
+      "excluded_features": [
+        "sequence_dependent_setup"
+      ],
+      "default_priority": 320,
+      "always_include": false,
+      "require_activation_tag_match": true
     },
     {
       "skill_id": "fjsp-exact-hybrid-worker",
@@ -419,7 +448,11 @@
         "diversity": "结构去重、距离和停滞重启。",
         "hybrid": "构造、局部搜索、群体或精确方法的职责清晰组合。",
         "sdst": "序列相关换型时间变体的状态和评价。",
-        "setup_time": "setup-aware 解码与 move delta。"
+        "setup_time": "setup-aware 解码与 move delta。",
+        "high_flexibility": "高机器选择度与非平凡加工时间跨度使 assignment 决策主导剩余瓶颈。",
+        "assignment_regret": "按工序比较候选分配代价与理论最快加工时间，细化 assignment-first 构造。",
+        "assignment_trust_region": "仅在关键或近关键工序池中做小半径换机并严格验收。",
+        "order_preserving_redecode": "局部换机后保留 incumbent 的机器顺序秩进行修复式重解码。"
       },
       "exclude_path_markers": [
         "fjsp-awls-sdst-adapter",
@@ -450,22 +483,35 @@
       ],
       "construction": [
         "knowledge/references/standard_fjsp/constructive_multistart_blueprint.md",
-        "knowledge/references/standard_fjsp/high_flexibility_idle_critical_beam_blueprint.md",
         "knowledge/references/general_fjsp/optimization_playbook.md",
         "knowledge/references/standard_fjsp/standard_fjsp_agent_generated_reference_skeleton.md"
       ],
       "constructive_search": [
-        "knowledge/references/standard_fjsp/high_flexibility_idle_critical_beam_blueprint.md",
+        "knowledge/references/standard_fjsp/idle_critical_beam_implementation_template.md",
         "knowledge/references/standard_fjsp/constructive_multistart_blueprint.md"
       ],
       "beam_search": [
-        "knowledge/references/standard_fjsp/high_flexibility_idle_critical_beam_blueprint.md"
+        "knowledge/references/standard_fjsp/idle_critical_beam_implementation_template.md"
       ],
       "idle_gap": [
-        "knowledge/references/standard_fjsp/high_flexibility_idle_critical_beam_blueprint.md"
+        "knowledge/references/standard_fjsp/high_flexibility_assignment_first_playbook.md"
       ],
       "critical_dispatch": [
-        "knowledge/references/standard_fjsp/high_flexibility_idle_critical_beam_blueprint.md"
+        "knowledge/references/standard_fjsp/idle_critical_beam_implementation_template.md"
+      ],
+      "high_flexibility": [
+        "knowledge/references/standard_fjsp/high_flexibility_assignment_first_playbook.md"
+      ],
+      "assignment_regret": [
+        "knowledge/references/standard_fjsp/high_flexibility_assignment_first_playbook.md"
+      ],
+      "assignment_trust_region": [
+        "knowledge/references/standard_fjsp/high_flexibility_assignment_first_playbook.md",
+        "knowledge/references/standard_fjsp/operation_machine_reassignment.md"
+      ],
+      "order_preserving_redecode": [
+        "knowledge/references/standard_fjsp/high_flexibility_assignment_first_playbook.md",
+        "knowledge/references/standard_fjsp/operation_machine_reassignment.md"
       ],
       "decoder": [
         "knowledge/references/standard_fjsp/constructive_multistart_blueprint.md",
@@ -534,7 +580,6 @@
       ],
       "initialization": [
         "knowledge/references/standard_fjsp/constructive_multistart_blueprint.md",
-        "knowledge/references/standard_fjsp/high_flexibility_idle_critical_beam_blueprint.md",
         "knowledge/references/general_fjsp/optimization_playbook.md"
       ],
       "industrial-variants": [

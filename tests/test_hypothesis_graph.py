@@ -5,10 +5,16 @@ import unittest
 
 from harness_agent.agents.hypothesis import (
     HypothesisRecord,
+    algorithm_semantic_direction_recovered,
     build_experience_memory,
+    direction_has_verified_blocking_semantic_finding,
+    direction_recovered,
+    direction_validated_lesson_eligible,
+    make_direction_id,
     render_hypothesis_graph_markdown,
     summarize_direction_graph,
     summarize_hypothesis_graph,
+    validated_lesson_confidence,
 )
 
 
@@ -220,20 +226,218 @@ class HypothesisGraphTests(unittest.TestCase):
         self.assertIn("reverse_move_memory", semantic_memory["recurring_categories"][0]["text"])
         self.assertGreaterEqual(memory["skill_usage_summary"]["promoted_usage_count"], 1)
 
-    def test_validated_lessons_allow_unavailable_semantic_review_but_block_failed_activation(self) -> None:
+    def test_direction_graph_prefers_explicit_parent_direction_id_over_predecessor(self) -> None:
         rounds = [
-            {
-                "round_index": 0,
-                "decision": "promoted",
-                "candidate_key": [-88.0],
-                "incumbent_key_after": [-88.0],
-                "worker_status": "applied",
-                "worker_changed_files": ["examples/solver.py"],
-                "context_packet_path": "round_000/context_packet.json",
-                "cycle_dir": "round_000",
-                "patch_path": "round_000/worker_changes.patch",
-                "delta_path": "round_000/worker_worktree_delta.json",
-                "mechanism_activation": {
+            _direction_round(0, decision="promoted"),
+            _direction_round(1, decision="rolled_back"),
+            _direction_round(2, decision="rolled_back"),
+            _direction_round(3, decision="promoted"),
+        ]
+        direction_ids = [
+            make_direction_id(round_record["round_index"], round_record["proposal_diagnostics"])
+            for round_record in rounds
+        ]
+        rounds[1]["direction_plan"]["parent_direction_id"] = direction_ids[0]
+        rounds[2]["direction_plan"]["parent_direction_id"] = direction_ids[1]
+        rounds[3]["direction_plan"]["parent_direction_id"] = direction_ids[1]
+
+        partial_graph = summarize_direction_graph(rounds[:3])
+        full_graph = summarize_direction_graph(rounds)
+
+        self.assertEqual(
+            [None, direction_ids[0], direction_ids[1]],
+            [item["parent_id"] for item in partial_graph["directions"]],
+        )
+        self.assertEqual(direction_ids[0], partial_graph["active_parent_id"])
+        self.assertEqual(direction_ids[1], full_graph["directions"][3]["parent_id"])
+        self.assertEqual(direction_ids[3], full_graph["active_parent_id"])
+
+    def test_direction_graph_falls_back_to_immediate_predecessor_after_promotion(self) -> None:
+        rounds = [
+            _direction_round(0, decision="promoted"),
+            _direction_round(1, decision="rolled_back"),
+            _direction_round(2, decision="rolled_back"),
+            _direction_round(3, decision="promoted"),
+        ]
+
+        partial_graph = summarize_direction_graph(rounds[:3])
+        full_graph = summarize_direction_graph(rounds)
+        direction_ids = [item["direction_id"] for item in full_graph["directions"]]
+
+        self.assertEqual(
+            [None, direction_ids[0], direction_ids[1]],
+            [item["parent_id"] for item in partial_graph["directions"]],
+        )
+        self.assertEqual(direction_ids[0], partial_graph["active_parent_id"])
+        self.assertEqual(
+            [None, direction_ids[0], direction_ids[1], direction_ids[2]],
+            [item["parent_id"] for item in full_graph["directions"]],
+        )
+        self.assertEqual(direction_ids[3], full_graph["active_parent_id"])
+
+    def test_direction_graph_resolves_main_plan_parent_ids_to_graph_node_ids(self) -> None:
+        rounds = [
+            _direction_round(0, decision="promoted"),
+            _direction_round(1, decision="rolled_back"),
+            _direction_round(2, decision="rolled_back"),
+        ]
+        for index, round_record in enumerate(rounds):
+            round_record["direction_plan"]["direction_id"] = f"d{index:03d}"
+            if index:
+                round_record["direction_plan"]["parent_direction_id"] = f"d{index - 1:03d}"
+
+        graph = summarize_direction_graph(rounds)
+        graph_ids = [item["direction_id"] for item in graph["directions"]]
+
+        self.assertEqual([None, graph_ids[0], graph_ids[1]], [item["parent_id"] for item in graph["directions"]])
+        self.assertNotEqual("d000", graph_ids[0])
+
+    def test_blocking_semantic_finding_stays_blocked_after_unavailable_review(self) -> None:
+        direction = summarize_direction_graph(
+            [
+                _semantic_round(
+                    round_index=0,
+                    mechanism_activation={
+                        "status": "passed",
+                        "passed": True,
+                        "declared_check_count": 1,
+                        "required_check_count": 1,
+                        "required_failure_count": 0,
+                        "checks": [{"id": "telemetry", "path": "solution.json#/diagnostics/telemetry"}],
+                    },
+                    attempts=[
+                        {
+                            "attempt_index": 0,
+                            "worker_status": "applied",
+                            "changed_files": ["examples/solver.py"],
+                            "candidate_key": [-90.0],
+                            "failure_signatures": ["proposal_apply_rejections"],
+                            "semantic_review": {
+                                "status": "repair_required",
+                                "accepted": False,
+                                "findings": [{"blocking": True, "category": "verified_contract_violation"}],
+                            },
+                        },
+                        {
+                            "attempt_index": 1,
+                            "worker_status": "applied",
+                            "changed_files": ["examples/solver.py"],
+                            "candidate_key": [-89.0],
+                            "failure_signatures": ["legal_but_not_strictly_better"],
+                            "semantic_review": {
+                                "status": "unavailable",
+                                "accepted": False,
+                                "findings": [],
+                            },
+                        },
+                    ],
+                )
+            ]
+        )["directions"][0]
+
+        self.assertTrue(direction_has_verified_blocking_semantic_finding(direction))
+        self.assertFalse(algorithm_semantic_direction_recovered(direction))
+        self.assertFalse(direction_validated_lesson_eligible(direction))
+
+    def test_blocking_semantic_finding_stays_blocked_after_non_repair_pass_review(self) -> None:
+        direction = summarize_direction_graph(
+            [
+                _semantic_round(
+                    round_index=0,
+                    mechanism_activation={
+                        "status": "passed",
+                        "passed": True,
+                        "declared_check_count": 1,
+                        "required_check_count": 1,
+                        "required_failure_count": 0,
+                        "checks": [{"id": "telemetry", "path": "solution.json#/diagnostics/telemetry"}],
+                    },
+                    attempts=[
+                        {
+                            "attempt_index": 0,
+                            "worker_status": "applied",
+                            "changed_files": ["examples/solver.py"],
+                            "candidate_key": [-90.0],
+                            "failure_signatures": ["proposal_apply_rejections"],
+                            "semantic_review": {
+                                "status": "repair_required",
+                                "accepted": False,
+                                "findings": [{"blocking": True, "category": "verified_contract_violation"}],
+                            },
+                        },
+                        {
+                            "attempt_index": 1,
+                            "worker_status": "applied",
+                            "changed_files": ["examples/solver.py"],
+                            "candidate_key": [-89.0],
+                            "failure_signatures": ["legal_but_not_strictly_better"],
+                            "semantic_review": {
+                                "status": "pass",
+                                "accepted": True,
+                                "findings": [],
+                            },
+                        },
+                    ],
+                )
+            ]
+        )["directions"][0]
+
+        self.assertTrue(direction_has_verified_blocking_semantic_finding(direction))
+        self.assertFalse(algorithm_semantic_direction_recovered(direction))
+        self.assertFalse(direction_validated_lesson_eligible(direction))
+
+    def test_blocking_semantic_finding_clears_after_explicit_repair_pass(self) -> None:
+        direction = summarize_direction_graph(
+            [
+                _semantic_round(
+                    round_index=0,
+                    mechanism_activation={
+                        "status": "passed",
+                        "passed": True,
+                        "declared_check_count": 1,
+                        "required_check_count": 1,
+                        "required_failure_count": 0,
+                        "checks": [{"id": "telemetry", "path": "solution.json#/diagnostics/telemetry"}],
+                    },
+                    attempts=[
+                        {
+                            "attempt_index": 0,
+                            "worker_status": "applied",
+                            "changed_files": ["examples/solver.py"],
+                            "candidate_key": [-90.0],
+                            "failure_signatures": ["proposal_apply_rejections"],
+                            "semantic_review": {
+                                "status": "repair_required",
+                                "accepted": False,
+                                "findings": [{"blocking": True, "category": "verified_contract_violation"}],
+                            },
+                        },
+                        {
+                            "attempt_index": 1,
+                            "worker_status": "applied",
+                            "changed_files": ["examples/solver.py"],
+                            "candidate_key": [-89.0],
+                            "failure_signatures": [],
+                            "semantic_review": {
+                                "status": "warning",
+                                "accepted": True,
+                                "findings": [],
+                            },
+                        },
+                    ],
+                )
+            ]
+        )["directions"][0]
+
+        self.assertFalse(direction_has_verified_blocking_semantic_finding(direction))
+        self.assertTrue(algorithm_semantic_direction_recovered(direction))
+        self.assertTrue(direction_validated_lesson_eligible(direction))
+
+    def test_not_declared_activation_does_not_enter_validated_memory(self) -> None:
+        rounds = [
+            _semantic_round(
+                round_index=0,
+                mechanism_activation={
                     "status": "not_declared",
                     "passed": True,
                     "declared_check_count": 0,
@@ -241,77 +445,30 @@ class HypothesisGraphTests(unittest.TestCase):
                     "required_failure_count": 0,
                     "checks": [],
                 },
-                "round_reflection": {
-                    "hypothesis_outcome": "mixed",
-                    "summary": "The change improved the incumbent but did not isolate every causal factor.",
-                    "candidate_findings": [],
-                    "next_action": {"action": "probe", "rationale": "Add a sharper ablation next round."},
-                },
-                "proposal_diagnostics": {
-                    "summary": "Probe mixed critical-block insertion.",
-                    "rule_operator_hypotheses": [{"name": "critical_block_probe", "type": "local_search_operator"}],
-                },
-                "semantic_review": {
-                    "status": "unavailable",
-                    "accepted": False,
-                    "findings": [],
-                },
-            },
-            {
-                "round_index": 1,
-                "decision": "promoted",
-                "candidate_key": [-87.0],
-                "incumbent_key_after": [-87.0],
-                "worker_status": "applied",
-                "worker_changed_files": ["examples/solver.py"],
-                "context_packet_path": "round_001/context_packet.json",
-                "cycle_dir": "round_001",
-                "patch_path": "round_001/worker_changes.patch",
-                "delta_path": "round_001/worker_worktree_delta.json",
-                "mechanism_activation": {
-                    "status": "failed",
-                    "passed": False,
-                    "declared_check_count": 1,
-                    "required_check_count": 1,
-                    "required_failure_count": 1,
-                    "checks": [{"id": "missing_counter", "path": "stats.counter", "required": True, "passed": False}],
-                },
-                "round_reflection": {
-                    "hypothesis_outcome": "inconclusive_not_exercised",
-                    "summary": "The mechanism was not actually exercised.",
-                    "candidate_findings": [],
-                    "next_action": {"action": "probe", "rationale": "Instrument the missing path first."},
-                },
-                "proposal_diagnostics": {
-                    "summary": "Probe activation failure handling.",
-                    "rule_operator_hypotheses": [{"name": "inactive_probe", "type": "local_search_operator"}],
-                },
-                "semantic_review": {
-                    "status": "warning",
-                    "accepted": True,
-                    "findings": [],
-                },
-            },
+                attempts=[
+                    {
+                        "attempt_index": 0,
+                        "worker_status": "applied",
+                        "changed_files": ["examples/solver.py"],
+                        "candidate_key": [-88.0],
+                        "failure_signatures": [],
+                        "semantic_review": {
+                            "status": "pass",
+                            "accepted": True,
+                            "findings": [],
+                        },
+                    }
+                ],
+            )
         ]
-        unavailable_with_blocker = json.loads(json.dumps(rounds[0]))
-        unavailable_with_blocker["round_index"] = 2
-        unavailable_with_blocker["proposal_diagnostics"]["rule_operator_hypotheses"][0]["name"] = (
-            "unavailable_but_blocked"
-        )
-        unavailable_with_blocker["semantic_review"] = {
-            "status": "unavailable",
-            "accepted": False,
-            "findings": [{"blocking": True, "category": "verified_contract_violation"}],
-        }
-        rounds.append(unavailable_with_blocker)
 
         memory = build_experience_memory(rounds, problem_family="FJSP")
         validated = memory["memory_tiers"]["validated_lessons"]
+        direction = summarize_direction_graph(rounds)["directions"][0]
 
-        self.assertEqual(1, len(validated))
-        self.assertEqual("critical_block_probe", validated[0]["strategy"])
-        self.assertEqual("inconclusive", validated[0]["hypothesis_outcome"])
-        self.assertEqual("core_and_activation_validated", validated[0]["confidence"])
+        self.assertEqual([], validated)
+        self.assertFalse(direction_validated_lesson_eligible(direction))
+        self.assertEqual("candidate", validated_lesson_confidence(direction))
 
 
 def _record(
@@ -339,6 +496,98 @@ def _record(
         candidate_id=f"candidate_{hypothesis_id}",
         candidate_results=[],
     )
+
+
+def _semantic_round(
+    *,
+    round_index: int,
+    mechanism_activation: dict[str, object],
+    attempts: list[dict[str, object]],
+    hypothesis_name: str = "critical_block_probe",
+) -> dict[str, object]:
+    return {
+        "round_index": round_index,
+        "decision": "promoted",
+        "candidate_key": [-90.0],
+        "incumbent_key_after": [-90.0],
+        "worker_status": "applied",
+        "worker_changed_files": ["examples/solver.py"],
+        "context_packet_path": f"round_{round_index:03d}/context_packet.json",
+        "cycle_dir": f"round_{round_index:03d}",
+        "patch_path": f"round_{round_index:03d}/worker_changes.patch",
+        "delta_path": f"round_{round_index:03d}/worker_worktree_delta.json",
+        "mechanism_activation": mechanism_activation,
+        "round_reflection": {
+            "hypothesis_outcome": "mixed",
+            "summary": "Semantic recovery regression test.",
+            "candidate_findings": [],
+            "next_action": {"action": "probe", "rationale": "Keep the same direction under review."},
+        },
+        "proposal_diagnostics": {
+            "summary": "Semantic blocker regression test.",
+            "strategy_intent": "Keep the current direction visible to the learning loop.",
+            "rule_operator_hypotheses": [
+                {
+                    "name": hypothesis_name,
+                    "type": "local_search_operator",
+                    "target_files": ["examples/solver.py"],
+                    "evidence_used": ["loop_feedback"],
+                }
+            ],
+            "in_round_repair": {"attempts": attempts},
+        },
+    }
+
+
+def _direction_round(
+    round_index: int,
+    *,
+    decision: str,
+) -> dict[str, object]:
+    return {
+        "round_index": round_index,
+        "decision": decision,
+        "candidate_key": [-90.0 + float(round_index)],
+        "incumbent_key_after": [-90.0],
+        "worker_status": "applied",
+        "worker_changed_files": [f"examples/solver_{round_index}.py"],
+        "context_packet_path": f"round_{round_index:03d}/context_packet.json",
+        "cycle_dir": f"round_{round_index:03d}",
+        "patch_path": f"round_{round_index:03d}/worker_changes.patch",
+        "delta_path": f"round_{round_index:03d}/worker_worktree_delta.json",
+        "mechanism_activation": {
+            "status": "passed",
+            "passed": True,
+            "declared_check_count": 1,
+            "required_check_count": 1,
+            "required_failure_count": 0,
+            "checks": [{"id": f"telemetry_{round_index}", "path": "solution.json#/diagnostics/telemetry"}],
+        },
+        "round_reflection": {
+            "hypothesis_outcome": "mixed" if decision != "promoted" else "supported",
+            "summary": f"Direction lineage regression round {round_index}.",
+            "candidate_findings": [],
+            "next_action": {"action": "probe", "rationale": "Track experiment lineage independently from incumbent ancestry."},
+        },
+        "direction_plan": {
+            "title": f"direction_{round_index}",
+            "strategy_type": "local_search_operator",
+        },
+        "proposal_diagnostics": {
+            "summary": f"Direction lineage regression round {round_index}.",
+            "strategy_intent": "Exercise direction lineage without mutating incumbent ancestry semantics.",
+            "rule_operator_hypotheses": [
+                {
+                    "name": f"direction_{round_index}",
+                    "type": "local_search_operator",
+                    "target_files": [f"examples/solver_{round_index}.py"],
+                    "evidence_used": ["loop_feedback"],
+                }
+            ],
+        },
+        "promotion_check": {"promoted": decision == "promoted"},
+        "smoke_gate": {"passed": True},
+    }
 
 
 if __name__ == "__main__":

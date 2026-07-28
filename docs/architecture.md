@@ -99,17 +99,23 @@ Main 在每个 OpenCode 调用中先通过原生 commentary 事件实时输出�
 模型。当同一 attempt 已有原生 commentary 时，Web 不再展示该事后结构化摘要，避免把最终
 JSON 的复述冒充实时思考；只有完全没有原生过程消息时，才明确标成“思考摘要（兜底）”。
 
-一个用户可见轮次代表一个实验方向。同方向内部可以包含多次 Coding Agent 尝试：
+一个用户可见轮次代表同一实验方向的一次检查批次。同一方向可以跨越任意多个轮次，
+每个检查批次内部可以包含多次 Coding Agent Local Trial：
 
 1. 首次候选；
 2. 确定性预检或 Core validator/evaluator 反馈；
-3. Main Agent 根据真实 attempt 证据签发同方向 assignment revision；
+3. Harness 保留最佳合法父候选，Main 根据真实 Trial 证据签发同方向 assignment revision；
 4. Core 重新审查；
 5. promotion 或 rollback。
 
-只有方向变化才进入下一轮。合法但未严格提升说明当前 attempt 已完成但没有收益，直接
-rollback 并进入下一轮方向判断，不再把“效果不好”伪装成代码修补。只有编译、越权修改或
-Core validator 给出具体可复现错误时，才允许消耗同轮修补次数；基础设施故障不消耗算法修补次数。
+批次完成即进入下一轮，但不会因此换方向。支持 session 续跑的 Worker 在同一方向内复用一个 OpenCode
+session：编译、越权修改或 Core validator 的确定错误生成受限 `repair`；Core 合法但未提升
+则生成仅允许一个有界规则/算子变异的 `improvement` refinement。每次 Trial 都收到前序
+Core/activation/semantic 反馈，并从当前最佳合法、已激活父候选继续；后续退化不会覆盖该父候选。
+配置的 Trial 数只是一次 Core/Main 检查批次的大小，不是方向寿命，也不授权自动换向。批次结束后
+Harness 选择账本中的最佳候选并执行正式 promotion/rollback；下一轮若仍为同一方法方向，则沿用
+获胜 Worker session 继续。Main 可以基于无提升证据建议换向，但只有用户明确同意才清空该 session；
+20 秒无响应默认拒绝换向。不同并行候选仍使用不同 session，未获胜 session 不会传播到下一批次。
 
 Coding Worker 不读取完整 Context Packet、方法目录、经验记忆或全部旧 attempt。Main 只从
 Domain Pack 的规范目录选择一个主方法族和最多两个兼容补充方法族；Harness 再把它们解析为

@@ -50,6 +50,9 @@ Worker 提供实现代码。Main Agent 应先解释“当前实例的主要搜�
 
 - 选择 `construction`、`initialization`、`decoder`。
 - 若实例具有真实机器选择，再加入 `load_balance`。
+- 若静态画像已经确认高柔性且加工时间跨度非零，不要只发普通多规则构造；选择
+  `constructive_search`，并请求 `high_flexibility`、`idle_gap`、`assignment_regret`、
+  `decoder`，使初始 solver 直接建立 earliest-gap 与 assignment-first 基线。
 - 只有当构造、解码和输出合同闭合后，才进入局部搜索或群体方法。
 
 ### B. 排序压力主导
@@ -69,22 +72,27 @@ Worker 提供实现代码。Main Agent 应先解释“当前实例的主要搜�
   `assignment_aware_local_search`。
 - 仍需配套机器序列插入和完整解码，不能只改机器编号。
 
-#### 高柔性路由修正：先判断“搜索覆盖率”，不要直接等同于换机局部搜索
+#### 高柔性路由修正：默认走 assignment-first playbook，不要直接跳到 Beam
 
-当 `flexible_operation_ratio` 和 `avg_candidate_count` 都高、候选资格/理论负载又没有集中到
-少数机器时，assignment 邻域会非常大。若还没有可信的关键路径/关键块证据，或者现有实现
-只做一次、最多扫描几十个换机 move，则这种浅层局部搜索通常只能覆盖极小部分空间，单个
-move 的评分也容易受后续排序影响。
+当 `flexible_operation_ratio` 和 `avg_candidate_count` 都高，且候选加工时间跨度非零时，默认
+按下面的阶段推进，不把“高柔性”直接翻译成 Beam、随机 portfolio 或浅层换机扫描：
 
-此时优先比较构造式状态空间搜索：`constructive_search`、`beam_search`、`idle_gap`、
-`critical_dispatch`，并可同时保留 `construction`/`initialization` 规则组合。它通过 ready-list
-选择、空闲间隙插入、剩余工作关键压力、状态下界和结构去重，在构造过程中联合决定机器与
-顺序。局部搜索可在强构造解之后作为辅助精修。
+1. 用 `earliest-gap` 替换 tail-append / machine-ready 解码。
+2. 对每道工序计算
+   `pressure = (candidate_count - 1) * (max_duration - min_duration)`。
+3. 高 pressure 工序在 `start-first` 后按
+   `assignment_regret = assignment_cost - theoretical_fastest_duration` 选择；低 pressure 工序
+   保留剩余链等顺序压力。
+4. 已有强构造 incumbent 后，转到 `coupled_local_search`，只在关键/近关键池中做小半径
+   `assignment_trust_region`，换机后用 `order_preserving_redecode` 保留 incumbent 机器顺序秩。
 
-不要写成“高柔性不适合局部搜索”的绝对规则。若 incumbent 已证明瓶颈集中于少数关键工序
-或关键块，或者候选实现是完整迭代式 VND/Tabu 而非浅扫描，仍可选择
-`assignment_aware_local_search`。详细实现边界见
-`high_flexibility_idle_critical_beam_blueprint.md`。
+第一阶段构造请求 `high_flexibility`、`idle_gap`、`assignment_regret`、`decoder`；第二阶段局部
+修复请求 `high_flexibility`、`assignment_trust_region`、`order_preserving_redecode`、
+`critical_path`。不要用最佳/次佳完整 score 元组差冒充 assignment regret。
+
+只有在上述构造机制已经通过 activation、仍有明确的构造覆盖缺口，并且候选会实际保留多个
+不同部分排程时，才显式请求 `beam_search`。旧 idle-critical Beam 是独立备选方法，不是
+高柔性默认路由。详细实现边界见 `high_flexibility_assignment_first_playbook.md`。
 
 ### D. 分配与排序强耦合
 
@@ -141,8 +149,8 @@ evaluator 是否表达这些约束，再选择搜索方法。标准 FJSP 方法�
 - 单个实例的静态画像足以提出方向，不足以证明该方向有效。
 - incumbent 结构和历史 promotion/rollback 证据高于静态画像。
 - 相同方法族连续合法但未提升时，应换主要假设，而不是只改参数。
-- 高柔性只能证明 assignment 空间大，不能单独证明浅局部搜索或 Beam 必然有效；应比较
-  实际覆盖状态数、结构差异、合法 makespan 和耗时。
+- 高柔性只能证明 assignment 空间大；必须分别验证 earliest-gap、精确 regret 和 trust-region
+  的 activation，不能用 Beam 状态数、随机入口数或完整 score 元组差代替。
 - 文件名、已知答案、历史最佳调度和挑选的 seed 不得参与路由。
 
 ## 6. 参考来源

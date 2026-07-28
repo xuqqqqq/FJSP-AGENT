@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from harness_agent.context.compaction import ROUND_CONTEXT_MAX_CHARS
 from harness_agent.context.contract import DraftContractRequest, build_draft_contract
 from harness_agent.context.packet import ContextPacketRequest, write_context_packet, write_refreshed_context_packet
 from harness_agent.context.intake import ProjectIntakeRequest, write_project_intake
@@ -166,6 +167,69 @@ class ContextPacketTests(unittest.TestCase):
             self.assertEqual("bounded_round_context", packet["context_compaction"]["mode"])
             self.assertLess(len(packet["loop_feedback"]["previous_rounds"]), len(large_rounds))
             self.assertNotIn("active_method_package", packet)
+
+    def test_refreshed_context_packet_projects_loop_feedback_without_root_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            base_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "base_context.json",
+                    hypothesis="Bound projected loop feedback.",
+                )
+            )
+            output = write_refreshed_context_packet(
+                base_context_packet_path=base_path,
+                output_path=tmp_path / "round_context.json",
+                loop_feedback=self._long_history_feedback(round_count=120),
+            )
+
+            raw = output.read_text(encoding="utf-8")
+            packet = json.loads(raw)
+            feedback = packet["loop_feedback"]
+
+            self.assertLessEqual(len(raw), ROUND_CONTEXT_MAX_CHARS)
+            self.assertEqual("bounded_loop_feedback", feedback["projection_kind"])
+            self.assertNotIn("_compacted", json.dumps(feedback, ensure_ascii=False))
+            self.assertEqual("Critical path retry", feedback["current_direction_plan"]["title"])
+            self.assertEqual(6, len(feedback["previous_rounds"]))
+            self.assertEqual(120, feedback["round_history_summary"]["source_round_count"])
+            self.assertEqual(114, feedback["round_history_summary"]["omitted_round_count"])
+            self.assertEqual("provisional_review_required", feedback["failure_memory"]["status"])
+            self.assertEqual(8, len(feedback["protected_promoted_facts"]))
+            self.assertEqual(6, len(feedback["direction_graph"]["directions"]))
+            self.assertEqual(120, feedback["experience_memory"]["memory_tiers"]["validated_lesson_count"])
+            self.assertEqual(6, len(feedback["experience_memory"]["memory_tiers"]["validated_lessons"]))
+            artifact_kinds = {item["kind"] for item in feedback["artifact_refs"]}
+            self.assertIn("hypothesis_graph", artifact_kinds)
+            self.assertIn("experience_memory", artifact_kinds)
+            self.assertIn("loop_result", artifact_kinds)
+            self.assertEqual("schema_projection", packet["context_compaction"]["feedback_profile"])
+
+    def test_refreshed_context_packet_keeps_size_near_fixed_under_long_history_growth(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            base_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "base_context.json",
+                    hypothesis="Keep long histories bounded.",
+                )
+            )
+            shorter = write_refreshed_context_packet(
+                base_context_packet_path=base_path,
+                output_path=tmp_path / "round_context_040.json",
+                loop_feedback=self._long_history_feedback(round_count=40),
+            ).read_text(encoding="utf-8")
+            longer = write_refreshed_context_packet(
+                base_context_packet_path=base_path,
+                output_path=tmp_path / "round_context_160.json",
+                loop_feedback=self._long_history_feedback(round_count=160),
+            ).read_text(encoding="utf-8")
+
+            self.assertLessEqual(len(shorter), ROUND_CONTEXT_MAX_CHARS)
+            self.assertLessEqual(len(longer), ROUND_CONTEXT_MAX_CHARS)
+            self.assertLess(abs(len(longer) - len(shorter)), 12_000)
 
     def test_refreshed_context_adds_structured_incumbent_capability_audit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -680,6 +744,308 @@ class ContextPacketTests(unittest.TestCase):
             self.assertIn("约束清单", prioritized_headings)
             self.assertIn("输入输出结构", prioritized_headings)
             self.assertTrue(prioritized[0]["priority_reason"].startswith("roles=objectives"))
+
+    @staticmethod
+    def _long_history_feedback(*, round_count: int) -> dict[str, object]:
+        previous_rounds = []
+        validated_lessons = []
+        directions = []
+        promoted_count = 0
+        for index in range(round_count):
+            decision = "promoted" if index % 5 == 0 else "rolled_back"
+            if decision == "promoted":
+                promoted_count += 1
+            previous_rounds.append(
+                {
+                    "round_index": index,
+                    "decision": decision,
+                    "candidate_key": [-3600.0 + index],
+                    "incumbent_key_after": [-3599.0 + index],
+                    "worker_status": "completed",
+                    "failure_signatures": [f"failure_{index}", "decoder_guard_missing"],
+                    "direction_plan": {
+                        "direction_id": f"d{index:03d}",
+                        "title": f"Direction {index}",
+                        "strategy_type": "local_search_operator",
+                        "method_family": "coupled_local_search",
+                        "method_package_id": "standard_fjsp_awls_hgtsa",
+                        "implementation_order": [
+                            "critical_graph",
+                            "n8_move",
+                            f"operator_{index}",
+                        ],
+                    },
+                    "candidate_summary": {
+                        "total": 6,
+                        "valid": 4,
+                        "failed": 2,
+                        "best_experiment_id": f"exp_{index}",
+                        "best_metrics": {
+                            "makespan": 1000 - index,
+                            "solver_evidence": {
+                                "diagnostics": {
+                                    "instance_name": f"ta{index:03d}",
+                                    "decode_attempts": 3,
+                                    "beam_state_expansions": 30 + index,
+                                }
+                            },
+                        },
+                        "validation_summary": {
+                            "top_errors": ["decoder mismatch", "schedule overlap"],
+                        },
+                    },
+                    "proposal_diagnostics": {
+                        "summary": "failed direction " + ("x" * 1500),
+                        "strategy_intent": "Tighten critical-path move gating " + ("y" * 900),
+                        "proposal_audit": {
+                            "warnings": ["kept stale helper", "skipped validator sync"],
+                            "accepted_change_paths": [f"solver_{index}.py"],
+                        },
+                    },
+                    "semantic_review": {
+                        "status": "repair_required",
+                        "accepted": False,
+                        "summary": "Need decoder legality checks.",
+                        "findings": [
+                            {
+                                "blocking": True,
+                                "category": "decoder",
+                                "summary": "Missing legality guard",
+                                "repair": "Add guard before move application",
+                            }
+                        ],
+                    },
+                    "smoke_gate": {
+                        "passed": index % 4 == 0,
+                        "full_evaluation_started": index % 4 == 0,
+                        "summary": {
+                            "validation_summary": {"top_errors": ["invalid candidate"]},
+                        },
+                    },
+                    "promotion_check": {
+                        "promoted": decision == "promoted",
+                        "eligible": decision == "promoted",
+                        "reason": "Only stable directions promote.",
+                        "selected_candidate_id": f"candidate_{index}",
+                    },
+                    "cycle_dir": f"C:/runs/round_{index:03d}",
+                    "patch_path": f"C:/runs/round_{index:03d}/candidate.patch",
+                    "context_packet_path": f"C:/runs/round_{index:03d}/context_packet.json",
+                }
+            )
+            validated_lessons.append(
+                {
+                    "lesson_id": f"lesson_{index}",
+                    "lesson_type": "mechanism",
+                    "strategy": f"Strategy lesson {index}",
+                    "strategy_type": "local_search_operator",
+                    "outcome": "validated" if decision == "promoted" else "provisional",
+                    "applicability": ["high-flexibility", "critical path"],
+                    "contraindications": ["decoder instability"],
+                    "confidence": "medium",
+                    "evidence": {
+                        "direction_id": f"d{index:03d}",
+                        "round_index": index,
+                        "decision": decision,
+                        "status": "evaluated",
+                        "score_relation": "improved" if decision == "promoted" else "worse",
+                    },
+                }
+            )
+            directions.append(
+                {
+                    "direction_id": f"d{index:03d}",
+                    "parent_id": f"d{max(0, index - 1):03d}",
+                    "round_index": index,
+                    "title": f"Direction {index}",
+                    "status": "evaluated",
+                    "decision": decision,
+                    "strategy_type": "local_search_operator",
+                    "target_files": [f"solver_{index}.py", "validator.py"],
+                    "score_relation": "improved" if decision == "promoted" else "worse",
+                    "attempt_count": 2,
+                }
+            )
+        return {
+            "purpose": "Evaluator-backed loop feedback for a long-history packet regression.",
+            "round_semantics": {
+                "user_visible_round": "improvement_direction",
+                "core_atomic_unit": "worker_attempt",
+            },
+            "competition": {
+                "max_competing_workers": 3,
+                "isolation_rule": "Use isolated worktrees.",
+                "selection_rule": "Promote only the best eligible candidate.",
+            },
+            "round_index": round_count,
+            "current_direction": {
+                "direction_id": f"d{round_count:03d}",
+                "status": "planned",
+            },
+            "current_direction_plan": {
+                "direction_id": f"d{round_count:03d}",
+                "title": "Critical path retry",
+                "strategy_type": "local_search_operator",
+                "method_family": "coupled_local_search",
+                "method_package_id": "standard_fjsp_awls_hgtsa",
+                "knowledge_query": ["critical_path", "local_search"],
+                "change_scope": ["Tighten N8 acceptance rule.", "Preserve decoder legality guard."],
+                "preserve": ["Keep promoted decoder legality checks."],
+                "avoid": ["Do not remove incumbent feasibility guards."],
+                "implementation_order": ["critical_graph", "n8_move", "acceptance_rule"],
+                "activation_checks": [
+                    {
+                        "id": "critical_graph_enabled",
+                        "path": "solver.py",
+                        "operator": "contains",
+                        "expected": "critical_graph",
+                        "required": True,
+                        "description": "Critical graph path remains wired.",
+                    }
+                ],
+            },
+            "objective_key_order": [
+                {"name": "makespan", "direction": "minimize", "priority": 0, "threshold": None}
+            ],
+            "baseline_key": [-3700.0],
+            "incumbent_key_before": [-3600.0],
+            "incumbent_worktree": "C:/runs/incumbent",
+            "baseline_summary": {
+                "total": 6,
+                "valid": 4,
+                "failed": 2,
+                "best_experiment_id": "baseline_exp",
+                "best_metrics": {"makespan": 1088},
+                "validation_summary": {"top_errors": ["legacy decoder drift"]},
+            },
+            "incumbent_summary": {
+                "total": 6,
+                "valid": 5,
+                "failed": 1,
+                "best_experiment_id": "incumbent_exp",
+                "best_metrics": {"makespan": 1012},
+                "validation_summary": {"top_errors": ["operator regression"]},
+            },
+            "agent_generated_baseline_memory": {
+                "accepted_as_incumbent": True,
+                "baseline_key": [-3700.0],
+                "proposal_summary": "Recovered a legal incumbent baseline.",
+                "strategy_intent": "Use recovered baseline as incumbent anchor.",
+                "best_core_valid_anchor": {
+                    "objective_key": [-2688.0],
+                    "semantic_status": "repair_required",
+                },
+                "protection_rule": "Preserve baseline legality scaffolding.",
+            },
+            "previous_rounds": previous_rounds,
+            "direction_graph": {
+                "schema_version": 1,
+                "round_semantics": "direction",
+                "direction_count": round_count,
+                "attempt_count": round_count * 2,
+                "status_counts": {"evaluated": round_count},
+                "decision_counts": {"promoted": promoted_count, "rolled_back": round_count - promoted_count},
+                "promoted_direction_ids": [f"d{index:03d}" for index in range(0, round_count, 5)],
+                "directions": directions,
+                "guidance": ["Preserve validated decoder guards.", "Change only one operator at a time."],
+            },
+            "experience_memory": {
+                "schema_version": 1,
+                "write_policy": {"validated_only": False},
+                "memory_tiers": {
+                    "candidate_lessons": validated_lessons[:12],
+                    "validated_lessons": validated_lessons,
+                },
+                "agent_generated_quality_memory": {
+                    "attempt_count": round_count,
+                    "rejected_attempt_count": round_count - promoted_count,
+                    "recurring_quality_risks": ["helper drift", "validator mismatch"],
+                },
+                "algorithm_semantic_memory": {
+                    "attempt_count": round_count,
+                    "repair_required_attempt_count": round_count - promoted_count,
+                    "recurring_categories": ["decoder", "feasibility"],
+                    "knowledge_paths": ["knowledge/standard_fjsp_critical_path.md"],
+                },
+                "skill_usage_summary": {"fjsp-coupled-local-search-worker": round_count},
+                "self_evolution_metrics": {"validated_ratio": 0.2},
+                "next_context_guidance": ["Keep decoder and operator mutations coupled to evidence."],
+            },
+            "skill_usage_summary": {"fjsp-coupled-local-search-worker": round_count},
+            "protected_promoted_facts": [
+                {
+                    "direction_id": f"d{index:03d}",
+                    "round_index": index,
+                    "fact_type": "preserve_mechanism",
+                    "title": f"Protected fact {index}",
+                    "summary": "Keep the legality guard and decoder normalization path.",
+                    "preserve_rule": "Preserve incumbent legality scaffolding.",
+                    "evidence_refs": [f"C:/runs/round_{index:03d}/context_packet.json"],
+                }
+                for index in range(12)
+            ],
+            "failure_memory": {
+                "status": "provisional_review_required",
+                "review_required": True,
+                "must_avoid": [],
+                "recent_failures": [
+                    {
+                        "round_index": index,
+                        "direction_id": f"d{index:03d}",
+                        "failure_signatures": [f"failure_{index}", "decoder_guard_missing"],
+                        "decision": "rolled_back",
+                        "summary": "Evaluator rejected the move without legality recovery.",
+                    }
+                    for index in range(10)
+                ],
+            },
+            "next_round_guidance": {
+                "must_do": ["Repair legality guard first."],
+                "preserve": ["Keep promoted incumbent structure."],
+                "avoid": ["Do not replay the same rolled-back patch."],
+            },
+            "instructions": [
+                "Use only evaluator metrics as promotion evidence.",
+                "Repair current_round_repair.previous_attempts before switching direction.",
+            ],
+            "current_round_repair": {
+                "status": "pending",
+                "attempt_index": 2,
+                "max_repair_attempts": 4,
+                "repair_targets": {
+                    "algorithm_semantic_review": {
+                        "status": "repair_required",
+                        "blocking_findings": [
+                            {
+                                "finding_id": "decoder_guard",
+                                "category": "decoder",
+                                "repair": "Add feasibility guard before committing a swap.",
+                            }
+                        ],
+                    }
+                },
+                "previous_attempts": [
+                    {
+                        "attempt_index": 0,
+                        "worker_status": "completed",
+                        "changed_files": ["solver.py"],
+                        "failure_signatures": ["decoder_guard_missing"],
+                        "proposal_diagnostics": {
+                            "summary": "Added a move without a legality gate.",
+                            "strategy_intent": "Patch acceptance rule only.",
+                            "proposal_audit": {
+                                "accepted_change_paths": ["solver.py"],
+                                "warnings": ["validator not updated"],
+                            },
+                        },
+                        "semantic_review": {"status": "repair_required"},
+                    }
+                ],
+            },
+            "hypothesis_graph_path": "C:/runs/graphs/hypothesis_graph.json",
+            "experience_memory_path": "C:/runs/memory/experience_memory.json",
+            "loop_result_path": "C:/runs/results/loop_result.json",
+        }
 
 
 if __name__ == "__main__":

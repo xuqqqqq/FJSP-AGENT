@@ -159,6 +159,7 @@ class DomainWorkerImplementationSkill:
     excluded_features: list[str] = field(default_factory=list)
     default_priority: int = 0
     always_include: bool = False
+    require_activation_tag_match: bool = False
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -172,6 +173,7 @@ class DomainWorkerImplementationSkill:
             "excluded_features": list(self.excluded_features),
             "default_priority": self.default_priority,
             "always_include": self.always_include,
+            "require_activation_tag_match": self.require_activation_tag_match,
         }
 
 
@@ -281,7 +283,7 @@ def load_domain_pack(path: Path, *, project_root: Path = PROJECT_ROOT) -> Domain
         for tag, paths in tagged_cards_payload.items()
         if isinstance(paths, list)
     }
-    return DomainPack(
+    pack = DomainPack(
         family_id=family_id,
         aliases=aliases,
         capability=capability,
@@ -345,6 +347,43 @@ def load_domain_pack(path: Path, *, project_root: Path = PROJECT_ROOT) -> Domain
         ],
         source_path=path,
     )
+    _validate_domain_pack_taxonomy(pack)
+    return pack
+
+
+def _validate_domain_pack_taxonomy(pack: DomainPack) -> None:
+    """Fail fast when public query tags and Worker Skill routing disagree."""
+
+    families = {family.family_id: family for family in pack.method_families}
+    public_tags = set(pack.knowledge_query_tag_descriptions)
+    for family in pack.method_families:
+        unknown = set(family.query_tags) - public_tags
+        if unknown:
+            raise ValueError(
+                f"Domain Pack {pack.family_id} family {family.family_id} uses undescribed query tags: "
+                + ", ".join(sorted(unknown))
+            )
+    for skill in pack.worker_implementation_skills:
+        missing_families = set(skill.method_families) - set(families)
+        if missing_families:
+            raise ValueError(
+                f"Domain Pack {pack.family_id} skill {skill.skill_id} references unknown method families: "
+                + ", ".join(sorted(missing_families))
+            )
+        if not skill.require_activation_tag_match:
+            continue
+        queryable_tags = {
+            tag
+            for family_id in skill.method_families
+            for tag in families[family_id].query_tags
+        }
+        unreachable = set(skill.activation_tags).intersection(public_tags) - queryable_tags
+        if unreachable:
+            raise ValueError(
+                f"Domain Pack {pack.family_id} skill {skill.skill_id} exposes activation tags that no compatible "
+                "family can query: "
+                + ", ".join(sorted(unreachable))
+            )
 
 
 def load_domain_packs(
@@ -446,6 +485,7 @@ def _load_worker_implementation_skill(
         excluded_features=_normalized_terms(value.get("excluded_features")),
         default_priority=int(value.get("default_priority") or 0),
         always_include=bool(value.get("always_include", False)),
+        require_activation_tag_match=bool(value.get("require_activation_tag_match", False)),
     )
 
 

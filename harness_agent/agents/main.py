@@ -10,6 +10,7 @@ from typing import Any, Protocol
 
 from harness_agent.context.compaction import compact_json, compact_source_records, stable_worker_context_json
 from harness_agent.context.loader import load_context_dict
+from harness_agent.context.planning_packet import project_research_state
 from harness_agent.context.worker import build_worker_assignment, write_worker_assignment
 from harness_agent.deepseek_client import DeepSeekClient, is_deepseek_configured
 from harness_agent.worker import WorkerAssignment
@@ -95,6 +96,14 @@ class EvidenceDrivenMainAgent:
             loop_feedback=request.loop_feedback,
             round_index=request.round_index,
         )
+        inherited = fallback_research_context(context, request.loop_feedback)
+        selected_method_families = inherited.get("method_families") or [{"id": "constructive_search", "role": "primary"}]
+        selected_method_family = inherited.get("method_family") or "constructive_search"
+        default_query = default_direction_knowledge_query(
+            instance_diagnostics=context.get("instance_diagnostics"),
+            method_families=selected_method_families,
+            fallback=["initialization", "decoder"],
+        )
         plan = bind_direction_plan_to_method_catalog(normalize_direction_plan(
             {
                 "direction_id": f"d{request.round_index:03d}",
@@ -157,15 +166,19 @@ class EvidenceDrivenMainAgent:
                 "implementation_order": [] if baseline_generation else fallback_order,
                 "avoid": avoid,
                 "knowledge_paths": [],
-                "knowledge_query": ["initialization", "decoder"],
-                "method_family": "constructive_search",
-                "method_families": [{"id": "constructive_search", "role": "primary"}],
+                "experiment_stage": inherited.get("experiment_stage") or "probe",
+                "knowledge_query": inherited.get("knowledge_query") or default_query,
+                "method_family": selected_method_family,
+                "method_families": selected_method_families,
                 "method_package_id": "",
                 "acceptance_checks": [
                     "候选通过确定性预检和固定 evaluator。",
                     "候选在活动任务契约下保持完整合法输出。",
                     "候选只有严格优于 incumbent 才能 promotion。",
                 ],
+                "activation_checks": inherited.get("activation_checks") or [],
+                "activation_contract_version": 1 if inherited.get("activation_checks") else 0,
+                "candidate_variants": inherited.get("candidate_variants") or [],
                 "stop_conditions": [
                     "该方向的具体修补预算耗尽后停止。",
                     "修补过程中不得切换到无关方法。",
@@ -184,6 +197,20 @@ class EvidenceDrivenMainAgent:
             round_index=request.round_index,
             loop_feedback=request.loop_feedback,
         )
+        plan["planning_contract_status"] = fallback_planning_contract_status(
+            plan,
+            loop_feedback=request.loop_feedback,
+            round_index=request.round_index,
+        )
+        if inherited.get("transition_deferred"):
+            plan["fallback_transition"] = {
+                "status": "deferred",
+                "requested_action": inherited.get("deferred_action"),
+                "reason": (
+                    "The deterministic fallback cannot safely select a new method family and regenerate its "
+                    "experiment contract; the last complete contract is preserved for an instrumented probe."
+                ),
+            }
         return write_direction_plan(request.output_dir, plan)
 
     def issue_worker_assignment(self, request: WorkerAssignmentRequest) -> WorkerAssignmentIssue:
@@ -194,6 +221,92 @@ class EvidenceDrivenMainAgent:
 
     def reflect_on_round(self, request: RoundReflectionRequest) -> dict[str, Any]:
         return write_round_reflection(request.output_dir, deterministic_round_reflection(request))
+
+
+def fallback_research_context(
+    context: dict[str, Any],
+    loop_feedback: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply the same research transition when provider failure forces planning."""
+
+    rounds = [item for item in loop_feedback.get("previous_rounds") or [] if isinstance(item, dict)]
+    if not rounds:
+        return {}
+    state = project_research_state(
+        rounds,
+        next_round_guidance=loop_feedback.get("next_round_guidance"),
+        user_intervention=loop_feedback.get("user_intervention"),
+    )
+    latest_plan = (
+        rounds[-1].get("direction_plan")
+        if isinstance(rounds[-1].get("direction_plan"), dict)
+        else {}
+    )
+    reflection = (
+        rounds[-1].get("round_reflection")
+        if isinstance(rounds[-1].get("round_reflection"), dict)
+        else {}
+    )
+    next_action = reflection.get("next_action") if isinstance(reflection.get("next_action"), dict) else {}
+    activation_checks = (
+        latest_plan.get("activation_checks")
+        or next_action.get("required_activation_checks")
+        or []
+    )
+    transition_deferred = state.get("method_family_policy") == "reselect"
+    return {
+        "method_family": latest_plan.get("method_family") or state.get("active_method_family"),
+        "method_families": latest_plan.get("method_families") or state.get("active_method_families") or [],
+        "knowledge_query": latest_plan.get("knowledge_query") or state.get("active_knowledge_query") or [],
+        "experiment_stage": "probe" if transition_deferred else state.get("experiment_stage") or "probe",
+        "activation_checks": activation_checks,
+        "candidate_variants": latest_plan.get("candidate_variants") or [],
+        "transition_deferred": transition_deferred,
+        "deferred_action": state.get("next_action") if transition_deferred else None,
+    }
+
+
+def fallback_planning_contract_status(
+    plan: dict[str, Any],
+    *,
+    loop_feedback: dict[str, Any],
+    round_index: int,
+) -> dict[str, Any]:
+    """Expose fallback contract loss without inventing unsupported experiments."""
+
+    competition = (
+        loop_feedback.get("competition")
+        if isinstance(loop_feedback.get("competition"), dict)
+        else {}
+    )
+    max_workers = max(
+        1,
+        min(4, _positive_int(competition.get("max_competing_workers"), default=1)),
+    )
+    minimum_variants = 2 if round_index >= 0 and max_workers > 1 else 0
+    variants = [item for item in plan.get("candidate_variants") or [] if isinstance(item, dict)]
+    issues: list[str] = []
+    if round_index >= 0 and not normalize_activation_checks(plan.get("activation_checks")):
+        issues.append("main_activation_checks_missing")
+    if len(variants) < minimum_variants:
+        issues.append("minimum_candidate_variants_not_met")
+    if any(not normalize_activation_checks(item.get("activation_checks")) for item in variants):
+        issues.append("candidate_activation_checks_missing")
+    return {
+        "schema_version": 1,
+        "status": "degraded" if issues else "satisfied",
+        "source": "deterministic_fallback",
+        "maximum_candidate_variants": max_workers,
+        "minimum_candidate_variants": minimum_variants,
+        "actual_candidate_variants": len(variants),
+        "issues": issues,
+        "activation_mode": (
+            "legacy_compatibility"
+            if round_index >= 0 and "main_activation_checks_missing" in issues
+            else "declared_contract"
+        ),
+        "promotion_policy": "legacy_evaluator_and_semantic_gates" if issues else "normal",
+    }
 
 
 class DeepSeekMainAgent:
@@ -340,6 +453,11 @@ def normalize_direction_plan(value: Any, *, round_index: int) -> dict[str, Any]:
         "method_package_id": str(raw.get("method_package_id") or "")[:120],
         "acceptance_checks": _strings(raw.get("acceptance_checks"), limit=10),
         "activation_checks": normalize_activation_checks(raw.get("activation_checks")),
+        "activation_contract_version": _positive_int(
+            raw.get("activation_contract_version"),
+            default=1,
+            allow_zero=True,
+        ),
         "stop_conditions": _strings(raw.get("stop_conditions"), limit=8),
         "completion_rule": str(raw.get("completion_rule") or "")[:1200],
         "candidate_variants": normalize_candidate_variants(raw.get("candidate_variants")),
@@ -495,6 +613,14 @@ def normalize_experiment_stage(value: Any, *, round_index: int) -> str:
     return "baseline" if round_index < 0 else "probe"
 
 
+def _positive_int(value: Any, *, default: int, allow_zero: bool = False) -> int:
+    try:
+        parsed = int(value if value is not None else default)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(0 if allow_zero else 1, parsed)
+
+
 def normalize_activation_checks(value: Any, *, limit: int = 8) -> list[dict[str, Any]]:
     """Normalize machine-checkable proof that a proposed mechanism actually ran."""
 
@@ -515,10 +641,114 @@ def normalize_activation_checks(value: Any, *, limit: int = 8) -> list[dict[str,
                 "operator": operator,
                 "expected": item.get("expected", item.get("value")),
                 "required": item.get("required") is not False,
+                "aggregation": (
+                    str(item.get("aggregation") or "any").strip().lower()
+                    if str(item.get("aggregation") or "any").strip().lower() in {"any", "all", "min_passes"}
+                    else "any"
+                ),
+                "min_passes": _positive_int(item.get("min_passes"), default=1),
                 "description": str(item.get("description") or "")[:500],
             }
         )
         if len(result) >= max(1, min(12, limit)):
+            break
+    return result
+
+
+def activation_check_schema_errors(
+    value: Any,
+    *,
+    field_name: str = "activation_checks",
+) -> list[str]:
+    """Validate the declared machine-checkable activation schema."""
+
+    rows = value if isinstance(value, list) else []
+    errors: list[str] = []
+    allowed_operators = {"exists", "truthy", "eq", "ne", "gt", "gte", "lt", "lte", "contains"}
+    expected_required = {"eq", "ne", "gt", "gte", "lt", "lte", "contains"}
+    allowed_aggregations = {"any", "all", "min_passes"}
+    for index, item in enumerate(rows):
+        prefix = f"{field_name}[{index}]"
+        if not isinstance(item, dict):
+            errors.append(f"{prefix} must be an object")
+            continue
+        path = str(item.get("path") or item.get("telemetry_path") or "").strip()
+        if not path:
+            errors.append(f"{prefix}.path is empty")
+        operator = str(item.get("operator") or "exists").strip().lower()
+        if operator not in allowed_operators:
+            errors.append(f"{prefix}.operator is invalid")
+        elif operator in expected_required and "expected" not in item and "value" not in item:
+            errors.append(f"{prefix}.expected is required for operator {operator}")
+        aggregation = str(item.get("aggregation") or "any").strip().lower()
+        if aggregation not in allowed_aggregations:
+            errors.append(f"{prefix}.aggregation is invalid")
+        if aggregation == "min_passes":
+            try:
+                min_passes = int(item.get("min_passes"))
+            except (TypeError, ValueError):
+                min_passes = 0
+            if min_passes <= 0:
+                errors.append(f"{prefix}.min_passes must be a positive integer when aggregation=min_passes")
+    return errors
+
+
+def default_direction_knowledge_query(
+    *,
+    instance_diagnostics: Any,
+    method_families: Any,
+    fallback: list[str],
+    limit: int = 6,
+) -> list[str]:
+    """Prefer high-flexibility query tags when the parsed instance profile supports them."""
+
+    compatible_tags: list[str] = []
+    for item in method_families or []:
+        family_id = str((item.get("id") if isinstance(item, dict) else item) or "").strip().lower()
+        if family_id == "constructive_search":
+            compatible_tags.extend(["high_flexibility", "assignment_regret", "idle_gap"])
+        elif family_id == "coupled_local_search":
+            compatible_tags.extend(
+                ["high_flexibility", "assignment_regret", "assignment_trust_region", "order_preserving_redecode"]
+            )
+    preferred = high_flexibility_query_tags(
+        instance_diagnostics,
+        compatible_tags=compatible_tags,
+        limit=limit,
+    )
+    if preferred:
+        return preferred
+    return _strings(fallback, limit=limit)
+
+
+def high_flexibility_query_tags(
+    instance_diagnostics: Any,
+    *,
+    compatible_tags: list[str] | set[str] | None = None,
+    limit: int = 4,
+) -> list[str]:
+    """Return canonical high-flexibility query tags for compatible families only."""
+
+    diagnostics = instance_diagnostics if isinstance(instance_diagnostics, dict) else {}
+    summary = diagnostics.get("summary") if isinstance(diagnostics.get("summary"), dict) else {}
+    avg_candidates = float(summary.get("avg_candidate_count", 0.0) or 0.0)
+    flexible_ratio = float(summary.get("avg_flexible_operation_ratio", 0.0) or 0.0)
+    if not (avg_candidates >= 3.0 and flexible_ratio >= 0.5):
+        return []
+    preferred = [
+        "high_flexibility",
+        "assignment_regret",
+        "assignment_trust_region",
+        "order_preserving_redecode",
+        "idle_gap",
+    ]
+    allowed = {str(item).strip().lower() for item in compatible_tags or [] if str(item).strip()}
+    result: list[str] = []
+    for tag in preferred:
+        if allowed and tag not in allowed:
+            continue
+        result.append(tag)
+        if len(result) >= max(1, limit):
             break
     return result
 
@@ -564,11 +794,20 @@ def deterministic_round_reflection(request: RoundReflectionRequest) -> dict[str,
         item for item in request.competition_result.get("candidates") or [] if isinstance(item, dict)
     ]
     findings: list[dict[str, Any]] = []
-    activation_failed = False
+    measured_candidate_count = 0
+    inconclusive_candidate_count = 0
     for candidate in candidates[:4]:
         activation = candidate.get("mechanism_activation") if isinstance(candidate.get("mechanism_activation"), dict) else {}
-        activated = activation.get("passed") is not False
-        activation_failed = activation_failed or not activated
+        activation_required = candidate.get("activation_required") is True
+        activated = (
+            activation.get("passed") is True
+            if activation_required
+            else activation.get("passed") is not False
+        )
+        if activated:
+            measured_candidate_count += 1
+        else:
+            inconclusive_candidate_count += 1
         findings.append(
             {
                 "candidate_id": str(candidate.get("candidate_id") or "")[:80],
@@ -585,8 +824,9 @@ def deterministic_round_reflection(request: RoundReflectionRequest) -> dict[str,
             }
         )
     promoted = bool(request.promotion_check.get("promoted"))
-    outcome = "supported" if promoted else "inconclusive_not_exercised" if activation_failed else "refuted"
-    action = "scale" if promoted else "probe" if activation_failed else "pivot"
+    no_measured_candidate = measured_candidate_count == 0
+    outcome = "supported" if promoted else "inconclusive_not_exercised" if no_measured_candidate else "refuted"
+    action = "scale" if promoted else "probe" if no_measured_candidate else "pivot"
     return {
         "schema_version": 1,
         "round_index": request.round_index,
@@ -594,9 +834,12 @@ def deterministic_round_reflection(request: RoundReflectionRequest) -> dict[str,
         "summary": (
             "候选严格提升并通过晋级检查。"
             if promoted
-            else "至少一个候选未真正触达声明机制，不能把无提升解释为算法无效。"
-            if activation_failed
-            else "候选机制已执行但没有严格提升，应更换主要假设或方法层级。"
+            else "没有候选真正触达声明机制，不能把无提升解释为算法无效。"
+            if no_measured_candidate
+            else (
+                "至少一个候选机制已执行但没有严格提升，应更新主要假设或方法层级；"
+                f"另有 {inconclusive_candidate_count} 个候选保持为未执行证据。"
+            )
         ),
         "candidate_findings": findings,
         "next_action": {
@@ -886,7 +1129,13 @@ def _validate_assignment_revision(*, parent: WorkerAssignment, revision: WorkerA
         raise ValueError("repair assignment cannot change target_file")
     parent_skills = [str(item.get("skill_id") or "") for item in parent.implementation_skills]
     revision_skills = [str(item.get("skill_id") or "") for item in revision.implementation_skills]
-    if revision_skills != parent_skills:
+    staged_baseline_revision = (
+        int(parent.lineage.get("round_index", 0) or 0) == -1
+        and int(revision.lineage.get("round_index", 0) or 0) == -1
+        and int(revision.lineage.get("baseline_trial", 0) or 0)
+        == int(parent.lineage.get("baseline_trial", 0) or 0) + 1
+    )
+    if revision_skills != parent_skills and not staged_baseline_revision:
         raise ValueError("repair assignment cannot change implementation_skills")
     if revision.lineage.get("parent_assignment_id") != parent.assignment_id:
         raise ValueError("repair assignment must reference its parent assignment")
@@ -1027,6 +1276,38 @@ def enforce_improvement_direction_contract(
     if round_index < 0:
         return plan
     result = dict(plan)
+    previous_rounds = [
+        item for item in loop_feedback.get("previous_rounds") or [] if isinstance(item, dict)
+    ]
+    research_state = project_research_state(
+        previous_rounds,
+        next_round_guidance=loop_feedback.get("next_round_guidance"),
+        user_intervention=loop_feedback.get("user_intervention"),
+    )
+    if previous_rounds and research_state.get("method_family_policy") == "inherit":
+        latest_plan = (
+            previous_rounds[-1].get("direction_plan")
+            if isinstance(previous_rounds[-1].get("direction_plan"), dict)
+            else {}
+        )
+        for field in ("method_family", "method_families", "knowledge_query"):
+            if latest_plan.get(field) not in (None, "", [], {}):
+                result[field] = latest_plan[field]
+    state_stage = str(research_state.get("experiment_stage") or "").strip()
+    if previous_rounds and state_stage in {"probe", "scale", "pivot", "research_tournament"}:
+        result["experiment_stage"] = state_stage
+    result["research_transition"] = {
+        key: research_state.get(key)
+        for key in (
+            "planning_mode",
+            "selection_required",
+            "selection_reason",
+            "method_family_policy",
+            "requested_next_action",
+            "next_action",
+            "transition_adjustment",
+        )
+    }
     required_preserve = (
         "Preserve the promoted incumbent parser, operation representation, constructor, decoder, output schema, "
         "and semantically validated search mechanisms."

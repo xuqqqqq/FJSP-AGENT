@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import shutil
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -13,6 +14,7 @@ from harness_agent.agents.main import DirectionPlanningAgent
 from harness_agent.orchestration.loop import (
     DEFAULT_IN_ROUND_REPAIR_ATTEMPTS,
     WorkerLoopResult,
+    candidate_incumbent_payload,
     compact_promotion_check,
     compact_proposal_audit,
     load_worker_loop_result,
@@ -22,6 +24,7 @@ from harness_agent.orchestration.loop import (
 )
 from harness_agent.orchestration.loop import normalize_baseline_source
 from harness_agent.core.models import TaskContract
+from harness_agent.domains.pack import get_domain_pack
 from harness_agent.agents.semantic import AlgorithmSemanticReviewer
 from harness_agent.worker import CodingWorker
 
@@ -62,6 +65,10 @@ class StandardWorkerLoopRequest:
     round_intervention: Callable[[int, Any, dict[str, Any]], str | None] | None = None
     cancellation: CancellationToken | None = None
     agent_generated_solver_path: str = "examples/agent_generated_fjsp_solver.py"
+    provided_project_root: Path | None = None
+    provided_solver_command: str | None = None
+    provided_target_file: str | None = None
+    provided_project_read_paths: list[str] | None = None
     experiment_id: str = "standard_worker_loop"
     hypothesis: str = (
         "Improve the standard FJSP solver under the fixed evaluator. "
@@ -76,12 +83,26 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
     # Worker、Core 和报告都引用这份文件，避免调用过程中口径漂移。
     output_dir = request.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    execution_project_root = request.project_root.resolve()
+    if request.provided_project_root is not None:
+        execution_project_root = prepare_provided_project_source(
+            uploaded_root=request.provided_project_root.resolve(),
+            trusted_project_root=request.project_root.resolve(),
+            output_path=output_dir / "provided_project_source",
+        )
+        request = replace(
+            request,
+            provided_project_read_paths=provided_project_read_paths(
+                execution_project_root,
+                target_file=request.provided_target_file,
+            ),
+        )
     contract_path = output_dir / "standard_worker_contract.json"
     context_path = output_dir / "context_packet.json"
     contract_payload = build_standard_worker_contract_payload(request)
     contract_path.write_text(json.dumps(contract_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     contract = TaskContract.load(contract_path)
-    errors = contract.validate(request.project_root)
+    errors = contract.validate(execution_project_root)
     if errors:
         raise ValueError(f"generated standard worker contract is invalid: {errors}")
 
@@ -100,7 +121,8 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
             hypothesis=request.hypothesis,
         )
     )
-    # 3. 标准流程强制 agent_generated baseline；后端不会退回历史 solver。
+    # 3. 无上传项目时由 Agent 从零生成 baseline；有上传项目时先原样评测，
+    # 后续候选始终从 Core 已晋升的 incumbent 继续演进。
     resume_result = (
         load_worker_loop_result(request.resume_loop_result)
         if request.resume_loop_result is not None
@@ -108,7 +130,7 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
     )
     loop_result = run_worker_loop(
         contract=contract,
-        project_root=request.project_root,
+        project_root=execution_project_root,
         output_dir=output_dir / "worker_loop",
         context_packet_path=context_path,
         worker=request.worker,
@@ -120,8 +142,8 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
         max_runtime_seconds=max(1, request.max_runtime_seconds),
         apply_worker_changes=bool(request.apply_worker_changes),
         promotion_repeats=max(1, request.promotion_repeats),
-        # 平台只评测 Agent 自己写出的 solver，不允许切回仓库中的历史实现。
-        baseline_source="agent_generated",
+        baseline_source="provided_project" if request.provided_project_root is not None else "agent_generated",
+        worker_input_root=request.project_root,
         in_round_repair_attempts=max(0, request.in_round_repair_attempts),
         max_competing_workers=max(1, min(4, request.max_competing_workers)),
         round_intervention=request.round_intervention,
@@ -171,9 +193,12 @@ def build_standard_worker_contract_payload(request: StandardWorkerLoopRequest) -
         raise FileNotFoundError(f"no standard FJSP instances matched {instance_dir / request.pattern}")
 
     resources: dict[str, str] = {}
-    solver_path = str(request.agent_generated_solver_path or "examples/agent_generated_fjsp_solver.py").replace(
-        "\\", "/"
-    )
+    provided = request.provided_project_root is not None
+    solver_path = str(
+        request.provided_target_file
+        if provided
+        else request.agent_generated_solver_path or "examples/agent_generated_fjsp_solver.py"
+    ).replace("\\", "/")
     solver = standard_solver_command(request)
     quick_test = f"python -m py_compile {solver_path}"
     evaluator = "python examples/standard_fjsp_evaluator.py --instance {instance} --solution {solution} --metrics {metrics}"
@@ -207,29 +232,42 @@ def build_standard_worker_contract_payload(request: StandardWorkerLoopRequest) -
             "max_workers": max(1, request.max_workers),
         },
         "paths": {
-            "allowed_paths": ["examples"],
+            "allowed_paths": ["."] if provided else ["examples"],
             # evaluator/parser 属于固定 Core。即使 solver 与 evaluator 同在 examples，
             # Coding Agent 也不得通过改评测规则来制造“提升”。
             "forbidden_paths": [
                 ".git",
                 "outputs",
                 "examples/standard_fjsp_evaluator.py",
+                "harness_agent",
+                ".algoforge_worker_inputs",
+                ".algoforge_worker_runtime",
             ],
         },
         "resources": resources,
         "review": {
             "status": "confirmed",
             "note": (
-                "Solver 必须由 Coding Agent 生成；固定 evaluator 是唯一验收依据。"
+                "先原样评测用户提供项目，再由 Coding Agent 只修改指定主文件；固定 evaluator 是唯一验收依据。"
+                if provided
+                else "Solver 必须由 Coding Agent 生成；固定 evaluator 是唯一验收依据。"
             ),
-            "baseline_source": "agent_generated",
+            "baseline_source": "provided_project" if provided else "agent_generated",
             "agent_generated_solver_path": request.agent_generated_solver_path,
+            "worker_target_file": solver_path,
+            "provided_project_read_paths": request.provided_project_read_paths or [],
         },
     }
 
 
 def standard_solver_command(request: StandardWorkerLoopRequest) -> str:
     """返回 Agent 生成 solver 的唯一运行命令。"""
+
+    if request.provided_project_root is not None:
+        command = str(request.provided_solver_command or "").strip()
+        if not command:
+            raise ValueError("provided project requires provided_solver_command")
+        return command
 
     solver_path = str(request.agent_generated_solver_path or "examples/agent_generated_fjsp_solver.py").replace(
         "\\", "/"
@@ -238,6 +276,90 @@ def standard_solver_command(request: StandardWorkerLoopRequest) -> str:
         f"python {solver_path} --input {{instance}} --output {{solution}} --seed {{seed}} "
         "--time-limit-sec {solver_time_limit_seconds}"
     )
+
+
+PROVIDED_PROJECT_QUARANTINE_ROOTS = frozenset(
+    {
+        ".codex",
+        ".git",
+        ".opencode",
+        "domain_packs",
+        "instances",
+        "knowledge",
+        "outputs",
+        "solutions",
+        "tests",
+        "trusted",
+    }
+)
+PROVIDED_PROJECT_QUARANTINE_FILES = frozenset(
+    {"evaluate.py", "evaluator.py", "standard_fjsp_evaluator.py"}
+)
+PROVIDED_PROJECT_READ_SUFFIXES = frozenset(
+    {".cfg", ".ini", ".json", ".py", ".toml", ".yaml", ".yml"}
+)
+
+
+def prepare_provided_project_source(
+    *,
+    uploaded_root: Path,
+    trusted_project_root: Path,
+    output_path: Path,
+) -> Path:
+    """Compose an executable baseline without trusting archive-local Core assets."""
+
+    if not uploaded_root.is_dir():
+        raise ValueError(f"provided project root does not exist: {uploaded_root}")
+    if output_path.exists():
+        shutil.rmtree(output_path)
+
+    source_root = uploaded_root.resolve()
+
+    def ignore(directory: str, names: list[str]) -> set[str]:
+        current = Path(directory).resolve()
+        relative = current.relative_to(source_root)
+        blocked = {name for name in names if name in {"__pycache__", ".pytest_cache", ".mypy_cache"}}
+        if not relative.parts:
+            blocked.update(name for name in names if name.casefold() in PROVIDED_PROJECT_QUARANTINE_ROOTS)
+            blocked.update(name for name in names if name.casefold() in PROVIDED_PROJECT_QUARANTINE_FILES)
+        return blocked
+
+    shutil.copytree(source_root, output_path, ignore=ignore)
+    pack = get_domain_pack("FJSP")
+    if pack is None:
+        raise ValueError("standard FJSP Domain Pack is unavailable")
+    for relative_text in pack.agent_generated_baseline_preserve_paths:
+        relative = Path(relative_text)
+        source = trusted_project_root / relative
+        if not source.exists():
+            raise ValueError(f"fixed Core dependency is missing: {relative_text}")
+        target = output_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if source.is_dir():
+            shutil.copytree(source, target, dirs_exist_ok=True)
+        else:
+            shutil.copy2(source, target)
+    return output_path.resolve()
+
+
+def provided_project_read_paths(project_root: Path, *, target_file: str | None) -> list[str]:
+    """Expose bounded supporting project text to Worker as read-only context."""
+
+    target = str(target_file or "").replace("\\", "/")
+    protected_prefixes = ("harness_agent/", "examples/standard_fjsp_evaluator.py")
+    result: list[str] = []
+    for path in sorted(project_root.rglob("*"), key=lambda item: item.as_posix().casefold()):
+        if not path.is_file() or path.stat().st_size > 512_000:
+            continue
+        relative = path.relative_to(project_root).as_posix()
+        if relative == target or relative.startswith(protected_prefixes):
+            continue
+        if path.suffix.lower() not in PROVIDED_PROJECT_READ_SUFFIXES:
+            continue
+        result.append(relative)
+        if len(result) >= 200:
+            break
+    return result
 
 
 def standard_worker_manifest(
@@ -313,6 +435,8 @@ def standard_worker_manifest(
         "baseline_source": loop_result.baseline_source,
         "baseline_generation": loop_result.baseline_generation,
         "final_key": list(loop_result.final_key),
+        "best_legal_incumbent": candidate_incumbent_payload(loop_result.best_legal_incumbent),
+        "best_activated_incumbent": candidate_incumbent_payload(loop_result.best_activated_incumbent),
         "improved": loop_result.final_key > loop_result.baseline_key,
         "round_count": len(loop_result.rounds),
         "promoted_rounds": promoted_rounds,
@@ -324,6 +448,7 @@ def standard_worker_manifest(
         "experience_memory": experience_memory,
         "skill_usage_records": skill_usage_records,
         "in_round_repair": repair_stats,
+        "local_trials": repair_stats,
         "agent_generated_quality": agent_quality,
         "algorithm_semantic_review": semantic_review,
         "final_worktree": str(loop_result.final_worktree),

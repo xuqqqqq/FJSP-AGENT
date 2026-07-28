@@ -8,12 +8,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import shutil
 import shlex
 import subprocess
+import time
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from ..deepseek_client import load_local_env, resolve_secret
 from harness_agent.context.worker import (
@@ -35,6 +40,16 @@ OPENCODE_WORKER_AGENT = "algoforge-worker"
 MIN_OPENCODE_AGENT_STEPS = 8
 MAX_OPENCODE_AGENT_STEPS = 16
 WORKER_RUNTIME_POLICY_MAX_CHARS = 4_000
+OPENCODE_COMPACTION_CONFIG = {
+    "auto": True,
+    "prune": True,
+    "tail_turns": 2,
+    "preserve_recent_tokens": 8_000,
+}
+SESSION_WORKSPACE_ROOT = ".algoforge_opencode_session"
+SESSION_WORKSPACE_NAME = "workspace"
+SESSION_STATE_FILE = "session_state.json"
+SESSION_LANE_SEGMENT_MAX_CHARS = 32
 OPENCODE_WORKER_ROLE_PROMPT = """You are `algoforge-worker`.
 
 Execute the attached validated WorkerAssignment as the sole planning input.
@@ -76,6 +91,8 @@ class OpenCodeWorker(CodingWorker):
         variant: str | None = None,
         timeout_seconds: int | None = None,
         cancellation: CancellationToken | None = None,
+        provider_stream_retries: int | None = None,
+        provider_retry_backoff_seconds: float | None = None,
     ) -> None:
         configured_executable = (
             os.environ.get("OPENCODE_EXECUTABLE") or executable
@@ -97,6 +114,22 @@ class OpenCodeWorker(CodingWorker):
             env_var="OPENCODE_WORKER_TIMEOUT_SECONDS",
         )
         self.cancellation = cancellation
+        self.provider_stream_retries = max(
+            0,
+            int(
+                provider_stream_retries
+                if provider_stream_retries is not None
+                else os.environ.get("OPENCODE_PROVIDER_STREAM_RETRIES", "2")
+            ),
+        )
+        self.provider_retry_backoff_seconds = max(
+            0.0,
+            float(
+                provider_retry_backoff_seconds
+                if provider_retry_backoff_seconds is not None
+                else os.environ.get("OPENCODE_PROVIDER_RETRY_BACKOFF_SECONDS", "1")
+            ),
+        )
 
     def capabilities(self) -> WorkerCapabilities:
         available = self.executable_path is not None
@@ -105,6 +138,7 @@ class OpenCodeWorker(CodingWorker):
             supports_code_generation=available,
             supports_repair=available,
             supports_structured_output=False,
+            supports_session_reuse=available,
         )
 
     def run_experiment(self, spec: ExperimentSpec) -> WorkerResult:
@@ -149,14 +183,23 @@ class OpenCodeWorker(CodingWorker):
                 artifacts={"output_dir": str(output_dir)},
             )
 
-        prompt = self._prompt(spec, assignment=assignment)
+        worktree_path = Path(spec.worktree_path).resolve()
+        session_launch = self._resolve_session_launch(
+            spec,
+            assignment=assignment,
+            worktree_path=worktree_path,
+        )
+        prompt = self._prompt(spec, assignment=assignment, session_launch=session_launch)
         prompt_path = output_dir / "opencode_prompt.md"
         budget_path = output_dir / "opencode_context_budget.json"
         stdout_path = output_dir / "opencode.stdout.txt"
         events_path = output_dir / "opencode_events.jsonl"
+        compaction_path = output_dir / "opencode_compaction.json"
         stderr_path = output_dir / "opencode.stderr.txt"
         command_path = output_dir / "opencode_command.json"
         runtime_config_path = output_dir / "opencode_runtime_config.json"
+        session_path = output_dir / "opencode_session.json"
+        provider_retries_path = output_dir / "opencode_provider_retries.json"
         prompt_path.write_text(prompt, encoding="utf-8")
         assignment_chars = len(assignment_path.read_text(encoding="utf-8"))
         context_budget = worker_context_budget_payload(
@@ -171,71 +214,188 @@ class OpenCodeWorker(CodingWorker):
             spec,
             assignment=assignment,
             attachment_paths=[prompt_path, assignment_path],
+            workspace_roots=[worktree_path, session_launch.launch_dir],
         )
         runtime_config_path.write_text(json_dumps(runtime_config), encoding="utf-8")
         command = self._command(
             prompt_path,
             assignment_path,
-            worktree_path=Path(spec.worktree_path),
+            worktree_path=session_launch.launch_dir,
+            session_id=session_launch.command_session_id,
         )
         command_path.write_text(json_dumps(command), encoding="utf-8")
+        self._write_session_launch_record(session_path, session_launch, observed_session_id=None)
 
-        # OpenCode 直接改 worktree，所以 stdout/stderr 不是装饰性日志，
-        # 而是回溯本轮行为、定位超时/鉴权失败的第一手证据。
+        # Provider stream failures are infrastructure faults, not algorithmic
+        # Local Trials. Retry them inside this Worker call and reuse the session
+        # that already contains completed reads/reasoning.
+        worker_deadline = (
+            time.monotonic() + float(self.timeout_seconds)
+            if self.timeout_seconds is not None
+            else None
+        )
+        attempt_index = 0
+        attempt_command = command
+        stdout_chars = 0
+        stderr_chars = 0
+        provider_attempts: list[dict[str, Any]] = []
+        retry_reason: str | None = None
         timed_out = False
-        # OpenCode emits one JSON object per line. Writing its streams directly
-        # to disk lets the Web monitor expose public commentary while the model
-        # is still working, instead of dumping the whole trace after exit.
-        with (
-            events_path.open("w", encoding="utf-8", buffering=1) as events_stream,
-            stderr_path.open("w", encoding="utf-8", buffering=1) as stderr_stream,
-        ):
-            popen_kwargs: dict[str, object] = {
-                "cwd": spec.worktree_path,
-                "env": opencode_subprocess_environment(runtime_config=runtime_config),
-                "stdin": subprocess.DEVNULL,
-                "text": True,
-                "stdout": events_stream,
-                "stderr": stderr_stream,
-            }
-            if os.name == "nt":
-                popen_kwargs["creationflags"] = CREATE_NEW_PROCESS_GROUP
-            else:
-                popen_kwargs["start_new_session"] = True
-            process = subprocess.Popen(command, **popen_kwargs)
-            registration = (
-                self.cancellation.register_terminator(lambda: kill_process_tree(process))
-                if self.cancellation is not None
-                else None
-            )
-            try:
-                process.wait(timeout=self.timeout_seconds)
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                # 超时后必须显式结束整棵进程树，避免子进程继续占用 worktree、
-                # 文件句柄或外部 provider 连接。
-                kill_process_tree(process)
+        process: subprocess.Popen[str]
+        while True:
+            timed_out = False
+            stream_mode = "w" if attempt_index == 0 else "a"
+            # OpenCode emits one JSON object per line. Appending retries to the
+            # same file keeps Web monitoring and audit consumers continuous.
+            with (
+                events_path.open(stream_mode, encoding="utf-8", buffering=1) as events_stream,
+                stderr_path.open(stream_mode, encoding="utf-8", buffering=1) as stderr_stream,
+            ):
+                popen_kwargs: dict[str, object] = {
+                    "cwd": str(session_launch.launch_dir),
+                    "env": opencode_subprocess_environment(runtime_config=runtime_config),
+                    "stdin": subprocess.DEVNULL,
+                    "text": True,
+                    "stdout": events_stream,
+                    "stderr": stderr_stream,
+                }
+                if os.name == "nt":
+                    popen_kwargs["creationflags"] = CREATE_NEW_PROCESS_GROUP
+                else:
+                    popen_kwargs["start_new_session"] = True
+                process = subprocess.Popen(attempt_command, **popen_kwargs)
+                registration = (
+                    self.cancellation.register_terminator(lambda: kill_process_tree(process))
+                    if self.cancellation is not None
+                    else None
+                )
+                attempt_timeout = self.timeout_seconds
+                if attempt_index > 0 and worker_deadline is not None:
+                    attempt_timeout = max(0.001, worker_deadline - time.monotonic())
                 try:
-                    process.wait(timeout=5)
+                    process.wait(timeout=attempt_timeout)
                 except subprocess.TimeoutExpired:
+                    timed_out = True
                     kill_process_tree(process)
                     try:
-                        process.kill()
-                    except OSError:
-                        pass
-            finally:
-                events_stream.flush()
-                stderr_stream.flush()
-                if self.cancellation is not None:
-                    self.cancellation.unregister_terminator(registration)
+                        process.wait(timeout=self._timeout_cleanup_grace_seconds())
+                    except subprocess.TimeoutExpired:
+                        kill_process_tree(process)
+                        try:
+                            process.kill()
+                        except OSError:
+                            pass
+                finally:
+                    events_stream.flush()
+                    stderr_stream.flush()
+                    if self.cancellation is not None:
+                        self.cancellation.unregister_terminator(registration)
 
-        stdout = events_path.read_text(encoding="utf-8", errors="replace")
-        stderr = stderr_path.read_text(encoding="utf-8", errors="replace")
+            stdout = events_path.read_text(encoding="utf-8", errors="replace")
+            stderr = stderr_path.read_text(encoding="utf-8", errors="replace")
+            attempt_stdout = stdout[stdout_chars:]
+            attempt_stderr = stderr[stderr_chars:]
+            stdout_chars = len(stdout)
+            stderr_chars = len(stderr)
+            cleanup_process_descendants(process)
+            observed_attempt_session = extract_opencode_session_id(attempt_stdout)
+            retry_reason = (
+                retryable_opencode_provider_error(attempt_stdout, attempt_stderr)
+                if not timed_out and process.returncode != 0
+                else None
+            )
+            provider_attempts.append(
+                {
+                    "attempt_index": attempt_index,
+                    "returncode": process.returncode,
+                    "timed_out": timed_out,
+                    "reason": retry_reason,
+                    "observed_session_id": observed_attempt_session,
+                    "event_stream_bytes": len(attempt_stdout.encode("utf-8")),
+                    "command": attempt_command,
+                }
+            )
+            if retry_reason is None or attempt_index >= self.provider_stream_retries:
+                break
+            if worker_deadline is not None and time.monotonic() >= worker_deadline:
+                break
+            attempt_index += 1
+            retry_session_id = observed_attempt_session or session_launch.command_session_id
+            attempt_command = self._command(
+                prompt_path,
+                assignment_path,
+                worktree_path=session_launch.launch_dir,
+                session_id=retry_session_id,
+            )
+            if self.provider_retry_backoff_seconds > 0:
+                delay = self.provider_retry_backoff_seconds * (2 ** (attempt_index - 1))
+                if worker_deadline is not None:
+                    delay = min(delay, max(0.0, worker_deadline - time.monotonic()))
+                if delay > 0:
+                    time.sleep(delay)
+
+        provider_retry_count = max(0, len(provider_attempts) - 1)
+        provider_retry_recovered = provider_retry_count > 0 and not timed_out and process.returncode == 0
+        provider_retry_exhausted = bool(retry_reason and not provider_retry_recovered)
+        provider_retries_path.write_text(
+            json_dumps(
+                {
+                    "schema_version": 1,
+                    "max_retries": self.provider_stream_retries,
+                    "retry_count": provider_retry_count,
+                    "recovered": provider_retry_recovered,
+                    "exhausted": provider_retry_exhausted,
+                    "attempts": provider_attempts,
+                }
+            ),
+            encoding="utf-8",
+        )
+        timed_out_target_synced = False
+        if not timed_out and process.returncode == 0 and stdout.strip():
+            _sync_worker_target_from_session(
+                session_launch.launch_dir,
+                worktree_path,
+                assignment.target_file,
+            )
+        elif timed_out:
+            timed_out_target_synced = _sync_worker_target_from_session(
+                session_launch.launch_dir,
+                worktree_path,
+                assignment.target_file,
+            )
+        observed_session_id = extract_opencode_session_id(stdout)
+        self._write_session_launch_record(
+            session_path,
+            session_launch,
+            observed_session_id=observed_session_id,
+        )
+        # The per-attempt record is audit evidence; the lane state is what lets
+        # the next Local Trial locate and safely resume the observed session.
+        self._write_session_launch_record(
+            session_launch.state_path,
+            session_launch,
+            observed_session_id=observed_session_id,
+        )
         stdout_path.write_text(stdout, encoding="utf-8")
+        compaction_path.write_text(
+            json_dumps(summarize_opencode_compaction_events(stdout)),
+            encoding="utf-8",
+        )
+        session_artifacts = self._session_result_artifacts(
+            session_launch,
+            observed_session_id=observed_session_id,
+            event_stream_bytes=len(stdout.encode("utf-8")),
+        )
+        provider_retry_artifacts = {
+            "provider_retries": str(provider_retries_path),
+            "provider_retry_count": str(provider_retry_count),
+            "provider_retry_recovered": str(provider_retry_recovered).lower(),
+            "provider_retry_exhausted": str(provider_retry_exhausted).lower(),
+        }
         if timed_out:
             return WorkerResult(
                 status="timeout",
-                changed_files=[],
+                changed_files=[assignment.target_file] if timed_out_target_synced else [],
                 summary=f"OpenCode exceeded {self.timeout_seconds} seconds.",
                 raw_log_path=str(stdout_path),
                 artifacts={
@@ -245,17 +405,34 @@ class OpenCodeWorker(CodingWorker):
                     "stderr": str(stderr_path),
                     "command": str(command_path),
                     "runtime_config": str(runtime_config_path),
+                    "session": str(session_path),
                     "worker_assignment": str(assignment_path),
                     "events": str(events_path),
+                    "compaction": str(compaction_path),
+                    **provider_retry_artifacts,
+                    **session_artifacts,
                 },
             )
 
-        cleanup_process_descendants(process)
         if self.cancellation is not None:
             self.cancellation.raise_if_cancelled()
 
         status = opencode_status(process.returncode, stdout, stderr)
-        summary = f"OpenCode exited with code {process.returncode}. Harness diff/evaluator artifacts decide acceptance."
+        if session_launch.command_session_id and not stdout.strip():
+            status = "failed_runtime"
+            summary = (
+                "OpenCode continuation exited without a JSON event stream; the requested session "
+                "was not counted as resumed."
+            )
+        else:
+            summary = (
+                f"OpenCode exited with code {process.returncode}. "
+                "Harness diff/evaluator artifacts decide acceptance."
+            )
+        if provider_retry_recovered:
+            summary = f"Recovered after {provider_retry_count} provider stream retry; {summary}"
+        elif provider_retry_exhausted:
+            summary = f"Provider stream retries exhausted after {provider_retry_count} retries; {summary}"
         return WorkerResult(
             status=status,
             changed_files=[],
@@ -269,12 +446,44 @@ class OpenCodeWorker(CodingWorker):
                 "stderr": str(stderr_path),
                 "command": str(command_path),
                 "runtime_config": str(runtime_config_path),
+                "session": str(session_path),
                 "worker_assignment": str(assignment_path),
                 "events": str(events_path),
+                "compaction": str(compaction_path),
+                **provider_retry_artifacts,
+                **session_artifacts,
             },
         )
 
-    def _command(self, prompt_path: Path, assignment_path: Path, *, worktree_path: Path) -> list[str]:
+    @staticmethod
+    def _session_result_artifacts(
+        session_launch: "OpenCodeSessionLaunch",
+        *,
+        observed_session_id: str | None,
+        event_stream_bytes: int,
+    ) -> dict[str, str]:
+        artifacts = {
+            "resume_strategy": session_launch.strategy,
+            "event_stream_bytes": str(max(0, int(event_stream_bytes))),
+        }
+        if session_launch.requested_session_id:
+            artifacts["requested_session_id"] = session_launch.requested_session_id
+        if session_launch.command_session_id:
+            artifacts["command_session_id"] = session_launch.command_session_id
+        if observed_session_id:
+            artifacts["observed_session_id"] = observed_session_id
+            # Backward-compatible continuity handle for non-OpenCode orchestration.
+            artifacts["session_id"] = observed_session_id
+        return artifacts
+
+    def _command(
+        self,
+        prompt_path: Path,
+        assignment_path: Path,
+        *,
+        worktree_path: Path,
+        session_id: str | None = None,
+    ) -> list[str]:
         """构造最终命令行。
 
         使用 OpenCode 原生 file attachment 让说明在首个模型请求中直接可见，
@@ -290,13 +499,15 @@ class OpenCodeWorker(CodingWorker):
         session_title = f"AlgoForge Worker {worktree_path.parent.name}"[:120]
         # Explicit titles suppress OpenCode's auxiliary title-generation call.
         command.extend(["--title", session_title])
+        if session_id:
+            command.extend(["--session", session_id])
         command.extend(
             [
                 "--agent",
                 OPENCODE_WORKER_AGENT,
                 "--format",
                 "json",
-                f"--dir={worktree_path.resolve()}",
+                f"--dir={_absolute_path_no_resolve(worktree_path)}",
             ]
         )
         command.append("Execute the attached Main Agent assignment under the attached worker runtime policy.")
@@ -311,6 +522,7 @@ class OpenCodeWorker(CodingWorker):
         *,
         assignment: WorkerAssignment,
         attachment_paths: list[Path],
+        workspace_roots: list[Path] | None = None,
     ) -> dict[str, object]:
         """给 OpenCode 注入只对本次 worker 生效的硬执行边界。
 
@@ -320,11 +532,12 @@ class OpenCodeWorker(CodingWorker):
         """
         requested_steps = max(1, int(spec.max_steps)) * 3
         agent_steps = min(MAX_OPENCODE_AGENT_STEPS, max(MIN_OPENCODE_AGENT_STEPS, requested_steps))
-        worktree_path = Path(spec.worktree_path).resolve()
+        actual_worktree_path = Path(spec.worktree_path).resolve()
+        permitted_roots = _unique_workspace_roots(workspace_roots or [actual_worktree_path])
         read_permissions: dict[str, str] = {"*": "deny"}
-        self._allow_worktree_path(read_permissions, worktree_path, assignment.target_file)
+        self._allow_worktree_path(read_permissions, permitted_roots, assignment.target_file)
         for item in assignment.read_set:
-            self._allow_worktree_path(read_permissions, worktree_path, str(item.get("path") or ""))
+            self._allow_worktree_path(read_permissions, permitted_roots, str(item.get("path") or ""))
         skill_permissions: str | dict[str, str] = "deny"
         if assignment.implementation_skills:
             skill_permissions = {"*": "deny"}
@@ -332,9 +545,9 @@ class OpenCodeWorker(CodingWorker):
                 skill_id = str(item.get("skill_id") or "").strip()
                 sandbox_path = str(item.get("sandbox_path") or "").strip()
                 skill_permissions[skill_id] = "allow"
-                self._allow_worktree_tree(read_permissions, worktree_path, sandbox_path)
+                self._allow_worktree_tree(read_permissions, permitted_roots, sandbox_path)
         edit_permissions: dict[str, str] = {"*": "deny"}
-        self._allow_worktree_path(edit_permissions, worktree_path, assignment.target_file)
+        self._allow_worktree_path(edit_permissions, permitted_roots, assignment.target_file)
         bash_permissions = {
             "*": "deny",
             f"python -m py_compile {assignment.target_file}": "allow",
@@ -346,6 +559,7 @@ class OpenCodeWorker(CodingWorker):
         return {
             "$schema": "https://opencode.ai/config.json",
             "snapshot": False,
+            "compaction": dict(OPENCODE_COMPACTION_CONFIG),
             "agent": {
                 OPENCODE_WORKER_AGENT: {
                     "description": "Bounded AlgoForge implementation worker",
@@ -378,31 +592,34 @@ class OpenCodeWorker(CodingWorker):
         }
 
     @staticmethod
-    def _allow_worktree_path(permissions: dict[str, str], worktree_path: Path, relative: str) -> None:
+    def _allow_worktree_path(permissions: dict[str, str], worktree_paths: list[Path], relative: str) -> None:
         """Allow one path in the forms emitted by OpenCode on Windows and POSIX."""
 
         normalized = relative.replace("\\", "/").strip()
         if not normalized:
             return
-        absolute = (worktree_path / normalized).resolve()
-        for pattern in (normalized, str(absolute), absolute.as_posix()):
-            permissions[pattern] = "allow"
+        permissions[normalized] = "allow"
+        for worktree_path in worktree_paths:
+            absolute = _absolute_path_no_resolve(worktree_path / normalized)
+            resolved = absolute.resolve()
+            for pattern in (str(absolute), absolute.as_posix(), str(resolved), resolved.as_posix()):
+                permissions[pattern] = "allow"
 
     @staticmethod
-    def _allow_worktree_tree(permissions: dict[str, str], worktree_path: Path, relative: str) -> None:
+    def _allow_worktree_tree(permissions: dict[str, str], worktree_paths: list[Path], relative: str) -> None:
         normalized = relative.replace("\\", "/").strip().rstrip("/")
         if not normalized:
             return
-        absolute = (worktree_path / normalized).resolve()
-        for pattern in (
-            normalized,
-            f"{normalized}/**",
-            str(absolute),
-            f"{absolute}{os.sep}**",
-            absolute.as_posix(),
-            f"{absolute.as_posix()}/**",
-        ):
+        for pattern in (normalized, f"{normalized}/**"):
             permissions[pattern] = "allow"
+        for worktree_path in worktree_paths:
+            absolute = _absolute_path_no_resolve(worktree_path / normalized)
+            resolved = absolute.resolve()
+            for path_variant in (absolute, resolved):
+                permissions[str(path_variant)] = "allow"
+                permissions[f"{path_variant}{os.sep}**"] = "allow"
+                permissions[path_variant.as_posix()] = "allow"
+                permissions[f"{path_variant.as_posix()}/**"] = "allow"
 
     def _load_assignment(self, spec: ExperimentSpec) -> tuple[Path, WorkerAssignment]:
         """缺少 Main Agent 任务书时 fail closed，不启动外部进程。"""
@@ -438,7 +655,13 @@ class OpenCodeWorker(CodingWorker):
         if missing_skills:
             raise ValueError("required Worker Implementation Skills are missing: " + ", ".join(missing_skills))
 
-    def _prompt(self, spec: ExperimentSpec, *, assignment: WorkerAssignment) -> str:
+    def _prompt(
+        self,
+        spec: ExperimentSpec,
+        *,
+        assignment: WorkerAssignment,
+        session_launch: "OpenCodeSessionLaunch",
+    ) -> str:
         """返回短而稳定的执行协议；动态规划内容只存在于 JSON 任务书。"""
 
         target_file_policy = (
@@ -446,6 +669,18 @@ class OpenCodeWorker(CodingWorker):
             "if it is absent, create it and continue instead of reporting a missing-input blocker."
             if assignment.mode == "baseline"
             else "This is improvement/repair mode. `target_file` is the required incumbent; read it before editing and preserve unrelated working behavior."
+        )
+        try:
+            baseline_trial = int(assignment.lineage.get("baseline_trial") or 1)
+        except (TypeError, ValueError):
+            baseline_trial = 1
+        write_first_policy = (
+            "- Trial 1 write-first checkpoint: after loading the required Skill, read the required `read_set` "
+            "in one batch and immediately create `target_file`. Do not open optional Skill reference files "
+            "or spend a separate turn narrating a plan before the first target checkpoint. Prioritize a complete "
+            "minimal legal solver over optional reading, explanation, or checks."
+            if assignment.mode == "baseline" and baseline_trial <= 1
+            else ""
         )
         prompt = f"""
 # AlgoForge Coding Worker Runtime Policy
@@ -461,6 +696,7 @@ The assignment is the sole planning input for this worker.
 - Read only `target_file`, paths listed in `read_set`, and files under selected Skill folders;
   do not list, glob, recursively scan, or broadly explore the repository.
 - {target_file_policy}
+{write_first_policy}
 - Edit only `target_file`. Do not change contracts, knowledge assets, evaluator,
   Harness code, runtime configuration, or any other file.
 - Work alone. Task/subagent, question, and network tools are disabled.
@@ -480,12 +716,161 @@ Runtime identifiers:
 - direction_id: {assignment.direction_id}
 - mode: {assignment.mode}
 - worktree: {spec.worktree_path}
+- local_trial: {max(1, spec.local_trial_index + 1)}/{max(1, spec.local_trial_count)}
+- session_mode: {session_launch.prompt_mode}
+
+For a continued Local Trial, the Harness may restore an earlier best valid parent
+into a new isolated worktree. Treat the current attached assignment, worktree,
+and runtime feedback as authoritative; use session memory only to avoid repeating
+failed edits and to refine the same direction.
 """.strip()
+        if session_launch.prompt_note:
+            prompt += f"\n\nSession continuity note:\n- {session_launch.prompt_note}"
         if len(prompt) > WORKER_RUNTIME_POLICY_MAX_CHARS:
             raise ValueError(
                 f"worker runtime policy exceeds {WORKER_RUNTIME_POLICY_MAX_CHARS} chars: {len(prompt)}"
             )
         return prompt
+
+    def _resolve_session_launch(
+        self,
+        spec: ExperimentSpec,
+        *,
+        assignment: WorkerAssignment,
+        worktree_path: Path,
+    ) -> "OpenCodeSessionLaunch":
+        requested_session_id = str(spec.session_id or "").strip() or None
+        session_root = _session_scope_root(worktree_path) / SESSION_WORKSPACE_ROOT
+        existing_state_path = _find_session_state(session_root, requested_session_id)
+        lane_key = _session_lane_key(spec.experiment_id, assignment.direction_id)
+        state_dir = (
+            existing_state_path.parent
+            if existing_state_path is not None
+            else session_root / _safe_session_segment(lane_key)
+        )
+        alias_path = state_dir / SESSION_WORKSPACE_NAME
+        state_path = state_dir / SESSION_STATE_FILE
+        previous_state = _read_session_state(state_path)
+        launch_dir = worktree_path
+        prompt_mode = "new_direction_session"
+        prompt_note: str | None = None
+        command_session_id = requested_session_id
+        strategy = "direct_worktree"
+
+        alias_error: str | None = None
+        try:
+            launch_dir = _ensure_session_workspace_alias(
+                alias_path,
+                worktree_path,
+                preserved_target_file=(
+                    assignment.target_file
+                    if requested_session_id and existing_state_path is not None
+                    else None
+                ),
+            )
+            strategy = "materialized_session_workspace"
+            prompt_mode = (
+                "continued_same_direction_via_materialized_workspace"
+                if requested_session_id
+                else "new_direction_session_via_materialized_workspace"
+            )
+            if requested_session_id and existing_state_path is None:
+                command_session_id = None
+                strategy = "restart_equivalent_context_missing_workspace_state"
+                prompt_mode = "restarted_equivalent_context_due_to_missing_workspace_state"
+                prompt_note = (
+                    f"Do not resume OpenCode session {requested_session_id} because this Harness run has no "
+                    "persisted workspace binding for it. Continue from the attached assignment, refreshed "
+                    "worktree, and current runtime feedback instead."
+                )
+        except OSError as exc:
+            alias_error = str(exc)
+            previous_launch_dir = str(
+                previous_state.get("actual_worktree_path")
+                or previous_state.get("launch_dir")
+                or previous_state.get("last_launch_dir")
+                or ""
+            ).strip()
+            previous_dir_changed = previous_launch_dir and previous_launch_dir != str(worktree_path)
+            likely_new_trial_worktree = spec.local_trial_index > 0 or worktree_path.parent.name.startswith("repair_")
+            if requested_session_id and (previous_dir_changed or likely_new_trial_worktree):
+                command_session_id = None
+                strategy = "restart_equivalent_context"
+                prompt_mode = "restarted_equivalent_context_due_to_workspace_binding"
+                prior_dir = previous_launch_dir or "the previous worktree"
+                prompt_note = (
+                    f"Do not resume OpenCode session {requested_session_id} because its prior workspace "
+                    f"directory was {prior_dir} while this attempt runs in {worktree_path}. Continue from "
+                    "the attached assignment, refreshed worktree, and current runtime feedback instead."
+                )
+            elif requested_session_id:
+                prompt_mode = "continued_same_direction_without_stable_workspace"
+            elif alias_error:
+                prompt_mode = "new_direction_session_without_stable_workspace"
+
+        session_launch = OpenCodeSessionLaunch(
+            launch_dir=launch_dir,
+            command_session_id=command_session_id,
+            requested_session_id=requested_session_id,
+            prompt_mode=prompt_mode,
+            prompt_note=prompt_note,
+            strategy=strategy,
+            state_path=state_path,
+            alias_path=alias_path if strategy == "materialized_session_workspace" else None,
+            actual_worktree_path=worktree_path,
+            alias_error=alias_error,
+        )
+        self._write_session_launch_record(state_path, session_launch, observed_session_id=requested_session_id)
+        return session_launch
+
+    def _write_session_launch_record(
+        self,
+        path: Path,
+        session_launch: "OpenCodeSessionLaunch",
+        *,
+        observed_session_id: str | None,
+    ) -> None:
+        payload = {
+            "schema_version": 1,
+            "requested_session_id": session_launch.requested_session_id,
+            "command_session_id": session_launch.command_session_id,
+            "observed_session_id": observed_session_id,
+            "resume_strategy": session_launch.strategy,
+            "prompt_mode": session_launch.prompt_mode,
+            "actual_worktree_path": str(session_launch.actual_worktree_path),
+            "launch_dir": str(session_launch.launch_dir),
+            "stable_workspace_alias": (
+                str(session_launch.alias_path) if session_launch.alias_path is not None else None
+            ),
+            "materialized_workspace": (
+                str(session_launch.alias_path)
+                if session_launch.strategy == "materialized_session_workspace"
+                else None
+            ),
+            "alias_error": session_launch.alias_error,
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json_dumps(payload), encoding="utf-8")
+
+    def _timeout_cleanup_grace_seconds(self) -> float:
+        timeout_seconds = self.timeout_seconds
+        if timeout_seconds is None:
+            return 1.0
+        return max(0.2, min(1.0, float(timeout_seconds)))
+
+
+@dataclass(frozen=True)
+class OpenCodeSessionLaunch:
+    launch_dir: Path
+    command_session_id: str | None
+    requested_session_id: str | None
+    prompt_mode: str
+    prompt_note: str | None
+    strategy: str
+    state_path: Path
+    alias_path: Path | None
+    actual_worktree_path: Path
+    alias_error: str | None
 
 
 def json_dumps(value: object) -> str:
@@ -528,6 +913,178 @@ def resolve_optional_timeout_seconds(explicit_value: int | None, *, env_var: str
         return None
     parsed_value = int(raw_value)
     return max(1, parsed_value) if parsed_value > 0 else None
+
+
+def _absolute_path_no_resolve(path: Path) -> Path:
+    return Path(os.path.abspath(os.fspath(path)))
+
+
+def _unique_workspace_roots(paths: list[Path]) -> list[Path]:
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        raw = str(_absolute_path_no_resolve(path))
+        if raw in seen:
+            continue
+        seen.add(raw)
+        unique.append(_absolute_path_no_resolve(path))
+    return unique
+
+
+def _safe_session_segment(raw_value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", str(raw_value or "").strip()).strip("._")
+    cleaned = cleaned or "direction"
+    if len(cleaned) <= SESSION_LANE_SEGMENT_MAX_CHARS:
+        return cleaned
+    digest = hashlib.sha256(cleaned.encode("utf-8")).hexdigest()[:20]
+    prefix_length = SESSION_LANE_SEGMENT_MAX_CHARS - len(digest) - 1
+    return f"{cleaned[:prefix_length]}-{digest}"
+
+
+def _session_direction_root(worktree_path: Path) -> Path:
+    attempt_root = worktree_path.parent.resolve()
+    if re.fullmatch(r"repair_\d+", attempt_root.name) and attempt_root.parent.exists():
+        return attempt_root.parent.resolve()
+    return attempt_root
+
+
+def _session_scope_root(worktree_path: Path) -> Path:
+    attempt_root = worktree_path.parent.resolve()
+    for candidate in (attempt_root, *attempt_root.parents):
+        if candidate.name == "worker_loop":
+            return candidate
+    return _session_direction_root(worktree_path)
+
+
+def _session_lane_key(experiment_id: str, direction_id: str) -> str:
+    experiment_lane = re.sub(r"_attempt_\d+$", "", str(experiment_id or "").strip())
+    return f"{direction_id}-{experiment_lane or 'lane'}"
+
+
+def _find_session_state(session_root: Path, session_id: str | None) -> Path | None:
+    if not session_id or not session_root.is_dir():
+        return None
+    for state_path in sorted(session_root.glob(f"*/{SESSION_STATE_FILE}")):
+        state = _read_session_state(state_path)
+        known_ids = {
+            str(state.get(key) or "").strip()
+            for key in ("observed_session_id", "command_session_id", "requested_session_id")
+        }
+        if session_id in known_ids:
+            return state_path
+    return None
+
+
+def _read_session_state(path: Path) -> dict[str, object]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _ensure_session_workspace_alias(
+    alias_path: Path,
+    worktree_path: Path,
+    *,
+    preserved_target_file: str | None = None,
+) -> Path:
+    """Refresh a real, path-stable lane workspace from the current parent worktree.
+
+    OpenCode may canonicalize junction targets before binding a session to a
+    project. Retargeting a junction therefore leaves the visible ``--dir``
+    unchanged while still moving the session to a different internal project.
+    Keeping the workspace directory itself stable avoids that mismatch.
+    """
+
+    preserved_target_bytes: bytes | None = None
+    if preserved_target_file:
+        source_target = worktree_path / preserved_target_file
+        existing_target = alias_path / preserved_target_file
+        if not source_target.is_file() and existing_target.is_file():
+            preserved_target_bytes = existing_target.read_bytes()
+
+    alias_path.parent.mkdir(parents=True, exist_ok=True)
+    if alias_path.is_symlink() or bool(
+        getattr(os.path, "isjunction", lambda _: False)(os.fspath(alias_path))
+    ):
+        _remove_directory_link(alias_path)
+    elif alias_path.exists() and not alias_path.is_dir():
+        raise OSError(f"session workspace path is not a directory: {alias_path}")
+    alias_path.mkdir(parents=True, exist_ok=True)
+
+    for child in list(alias_path.iterdir()):
+        if child.name == ".git" and child.is_dir():
+            continue
+        if child.is_symlink() or bool(
+            getattr(os.path, "isjunction", lambda _: False)(os.fspath(child))
+        ):
+            _remove_directory_link(child)
+        elif child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+    source_root = worktree_path.resolve()
+    for source in source_root.iterdir():
+        # Never copy a changing worktree pointer or repository database. The
+        # lane owns an independent Git boundary initialized below.
+        if source.name == ".git":
+            continue
+        destination = alias_path / source.name
+        if source.is_dir():
+            shutil.copytree(source, destination)
+        else:
+            shutil.copy2(source, destination)
+    if preserved_target_bytes is not None:
+        destination = alias_path / preserved_target_file
+        if not destination.exists():
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(preserved_target_bytes)
+    if not (alias_path / ".git").is_dir():
+        completed = subprocess.run(
+            ["git", "init", "--quiet", str(alias_path)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if completed.returncode != 0 or not (alias_path / ".git").is_dir():
+            stderr = (completed.stderr or completed.stdout or "").strip()
+            raise OSError(stderr or f"failed to initialize session workspace {alias_path}")
+    return _absolute_path_no_resolve(alias_path)
+
+
+def _remove_directory_link(alias_path: Path) -> None:
+    if not alias_path.exists() and not alias_path.is_symlink():
+        return
+    if alias_path.is_symlink():
+        alias_path.unlink()
+        return
+    is_junction = bool(getattr(os.path, "isjunction", lambda _: False)(os.fspath(alias_path)))
+    if is_junction:
+        os.rmdir(alias_path)
+        return
+    raise OSError(f"session workspace path is not a removable link: {alias_path}")
+
+
+def _sync_worker_target_from_session(
+    session_workspace: Path,
+    worktree_path: Path,
+    target_file: str,
+) -> bool:
+    if _absolute_path_no_resolve(session_workspace) == _absolute_path_no_resolve(worktree_path):
+        return False
+    source = session_workspace / target_file
+    destination = worktree_path / target_file
+    if not source.is_file():
+        return False
+    if destination.is_file() and source.read_bytes() == destination.read_bytes():
+        return False
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    return True
 
 
 def opencode_subprocess_environment(
@@ -630,6 +1187,91 @@ def merge_nested_dicts(base: dict[str, object], override: dict[str, object]) -> 
     return merged
 
 
+def summarize_opencode_compaction_events(events_text: str) -> dict[str, Any]:
+    """Summarize only explicit top-level OpenCode compaction lifecycle events."""
+
+    status_counts = {"started": 0, "completed": 0, "failed": 0}
+    observed: list[dict[str, Any]] = []
+    unknown_status_count = 0
+    for line_number, line in enumerate(events_text.splitlines(), start=1):
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        event_type = str(event.get("type") or "").strip().lower().replace("-", ".").replace("_", ".")
+        status = _top_level_compaction_status(event_type, event.get("status"))
+        if status is None and not _is_top_level_compaction_type(event_type):
+            continue
+        if status in status_counts:
+            status_counts[status] += 1
+        else:
+            unknown_status_count += 1
+        observed.append(
+            {
+                "line": line_number,
+                "type": str(event.get("type") or "")[:120],
+                "status": status or str(event.get("status") or "unknown")[:80],
+            }
+        )
+    return {
+        "schema_version": 1,
+        "source": "opencode_jsonl_top_level_events",
+        "event_count": len(observed),
+        "started": status_counts["started"],
+        "completed": status_counts["completed"],
+        "failed": status_counts["failed"],
+        "unknown_status_count": unknown_status_count,
+        "status_counts": status_counts,
+        "events": observed[:32],
+        "events_truncated": len(observed) > 32,
+    }
+
+
+def extract_opencode_session_id(events_text: str) -> str | None:
+    """Return the first explicit OpenCode session id from JSONL events."""
+
+    for line in events_text.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        for source in (event, event.get("part")):
+            if not isinstance(source, dict):
+                continue
+            for key in ("sessionID", "sessionId", "session_id"):
+                value = str(source.get(key) or "").strip()
+                if value:
+                    return value[:200]
+    return None
+
+
+def _is_top_level_compaction_type(event_type: str) -> bool:
+    if event_type in {"compaction", "session.compacted"}:
+        return True
+    prefixes = ("compaction.", "session.compaction.", "session.next.compaction.")
+    lifecycle_suffixes = {"start", "started", "end", "ended", "complete", "completed", "failed", "error"}
+    return event_type.startswith(prefixes) and event_type.rsplit(".", 1)[-1] in lifecycle_suffixes
+
+
+def _top_level_compaction_status(event_type: str, raw_status: Any) -> str | None:
+    if not _is_top_level_compaction_type(event_type):
+        return None
+    suffix = event_type.rsplit(".", 1)[-1]
+    status_value = raw_status or (suffix if event_type != "compaction" else "")
+    raw = str(status_value).strip().lower()
+    if raw in {"start", "started", "starting", "running"}:
+        return "started"
+    if raw in {"end", "ended", "complete", "completed", "compacted", "success", "succeeded"}:
+        return "completed"
+    if raw in {"error", "fail", "failed", "failure"}:
+        return "failed"
+    return None
+
+
 def opencode_status(returncode: int, stdout: str, stderr: str) -> str:
     """把底层退出结果归一成 harness 可消费的 worker 状态。
 
@@ -650,3 +1292,34 @@ def opencode_status(returncode: int, stdout: str, stderr: str) -> str:
     if any(term in combined for term in auth_terms):
         return "authorization_required"
     return "failed_runtime"
+
+
+def retryable_opencode_provider_error(stdout: str, stderr: str = "") -> str | None:
+    """Return a narrowly allowlisted transient provider-stream failure."""
+
+    for line in reversed(stdout.splitlines()):
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict) or str(event.get("type") or "").lower() != "error":
+            continue
+        error = event.get("error") if isinstance(event.get("error"), dict) else {}
+        data = error.get("data") if isinstance(error.get("data"), dict) else {}
+        nested = data.get("message")
+        if isinstance(nested, str):
+            try:
+                nested = json.loads(nested)
+            except json.JSONDecodeError:
+                nested = {}
+        nested_error = nested.get("error") if isinstance(nested, dict) else {}
+        if (
+            isinstance(nested_error, dict)
+            and str(nested_error.get("type") or "").lower() == "upstream_error"
+            and str(nested_error.get("code") or "").lower() == "stream_read_error"
+        ):
+            return "stream_read_error"
+    combined = f"{stdout}\n{stderr}".lower()
+    if "upstream_error" in combined and "stream_read_error" in combined:
+        return "stream_read_error"
+    return None

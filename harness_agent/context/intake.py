@@ -26,6 +26,7 @@ EXCLUDED_DIR_NAMES = {
     "dist",
     "node_modules",
     "outputs",
+    "tmp",
     "venv",
 }
 

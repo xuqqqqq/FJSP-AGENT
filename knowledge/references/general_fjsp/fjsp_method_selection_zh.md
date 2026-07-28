@@ -29,7 +29,7 @@ status: curated_reference
 
 | 方法族 | 适用场景 | 优势 | 主要风险 | 何时优先 |
 | --- | --- | --- | --- | --- |
-| 构造启发式 / 构造式 Beam | 需要先快速得到稳定可行解；实例大或高柔性；工程上需要强可解释性 | 可用空闲间隙、关键压力和有界多状态搜索联合形成分配与顺序 | 规则上界可能一般；Beam 宽度和分支设计不当会耗时或过早剪枝 | 首轮建基线；高柔性但缺少可信关键结构；需要 warm start |
+| 构造启发式 / 构造式 Beam | 需要先快速得到稳定可行解；工程上需要强可解释性；或已有明确 Beam 覆盖假设 | 可用空闲间隙、规则组合或有界多状态搜索形成分配与顺序 | 规则上界可能一般；Beam 宽度和分支设计不当会耗时或过早剪枝 | 首轮建基线；需要 warm start；assignment-first 已激活但仍有明确构造覆盖缺口 |
 | 局部搜索 / 禁忌 / ILS | 已有可行解，希望继续压 makespan；单目标或少量目标 | 改进能力强，工程实现边界清楚，适合围绕关键路径/机器块做迭代 | 很依赖解表示、邻域质量和增量评估；容易过拟合少数实例 | 有稳定基线、需要中短时预算内持续改进 |
 | 群体方法 / GA / DE / PSO / 蚁群等 | 解空间粗糙、需要更强多样性；想同时探索多种编码/调度偏好 | 全局探索更强，适合与局部搜索做混合 | 编码设计和可行性维护复杂，预算不足时波动大 | 需要多样性、允许较长预算、可承受更多调参 |
 | CP-SAT / MILP / 精确方法 | 规模较小或结构规整；需要高质量证明或强下界 | 对小中型实例可能直接给出很强结果；可做精确校验 | 大规模 FJSP 常很快变慢；复杂变体建模成本高 | 小规模、高价值实例；需要验证建模正确性 |
@@ -55,13 +55,19 @@ status: curated_reference
 
 ### 3. 高柔性，但还没有局部瓶颈证据
 
-不要仅因为候选机器多，就直接选择 assignment local search。高柔性会放大机器分配空间；
-一次只检查少量换机 move 的浅扫描，可能既覆盖不足，又无法评价换机后排序变化。
+不要仅因为候选机器多，就直接做浅层 assignment local search，也不要默认跳到 Beam。高柔性且
+候选加工时间跨度非零时，先建立 assignment-first 构造基线：使用 earliest-gap，在 start-first
+之后按精确定义的
+`pressure = (candidate_count - 1) * duration_span` 区分工序；高 pressure 工序再按
+`assignment_regret = assignment_cost - theoretical_fastest_duration` 细化机器选择，低 pressure
+工序继续保留剩余链等顺序压力。请求标签为 `constructive_search`、`high_flexibility`、
+`idle_gap`、`assignment_regret`、`decoder`。最佳/次佳完整 score 元组差不属于 assignment regret。
 
-若候选机分布较分散、可利用机器空隙较多，并且 incumbent 关键路径/关键块尚不稳定，优先
-比较“多规则构造组合 + 空闲间隙感知关键压力 + 有界 Beam + 状态下界/去重”。请求标签可用
-`constructive_search`、`beam_search`、`idle_gap`、`critical_dispatch`。已有稳定关键块证据，
-或具备完整迭代式 VND/Tabu 时，再把局部搜索提升为主方向。
+构造机制激活并得到稳定 incumbent 后，若关键或近关键瓶颈已经可定位，再选择
+`coupled_local_search`，请求 `high_flexibility`、`assignment_trust_region`、
+`order_preserving_redecode`、`critical_path`：只做小半径换机，换机后保留 incumbent 的机器顺序秩
+重解码。只有上述机制已激活但仍有明确构造覆盖缺口，且候选真正保留多个不同部分排程时，
+才把 `beam_search` 作为独立备选方向。
 
 ### 4. 约束复杂，单一局部邻域不够
 
@@ -83,7 +89,7 @@ status: curated_reference
 | 特征 | 更偏好的方法族 | 备注 |
 | --- | --- | --- |
 | 仅标准 FJSP、目标单一、需要快 | 构造启发式 + 轻量局部搜索 | 先求稳，再决定是否加深搜索 |
-| 标准 FJSP、高柔性、缺少稳定关键结构 | 空闲间隙感知构造 + 有界 Beam + 规则组合 | 浅层换机扫描覆盖率低；Beam 后仍可局部精修 |
+| 标准 FJSP、高柔性、缺少稳定关键结构 | earliest-gap + pressure/regret assignment-first 构造 | 先验证精确 regret；有关键/近关键证据后再进入 trust-region 与保序重解码 |
 | 有 setup time / 顺序相关代价 | 局部搜索或混合方法 | 需要把序列变化的影响纳入评价，单纯规则法常不够 |
 | 有 batching / transport / reentrant | 混合方法 | 状态表示和可行性维护通常比标准 FJSP 更难 |
 | 小规模但质量要求高 | CP-SAT / 精确 + 启发式热启动 | 精确方法可当主方法或校验器 |
@@ -116,17 +122,29 @@ status: curated_reference
 ```text
 profile = read(instance_diagnostics)
 history = read(incumbent_and_round_evidence)
+family = None
+query = None
 
 if no_legal_incumbent(history):
     pressure = construction
-elif high_flexibility(profile) and not reliable_local_bottleneck(history):
-    pressure = construction  # 用构造式搜索重新探索分配与顺序
+    if high_flexibility(profile) and nonzero_duration_span(profile):
+        family = constructive_search
+        query = [high_flexibility, idle_gap, assignment_regret, decoder]
+elif high_flexibility(profile) and not activated_exact_regret(history):
+    pressure = assignment
+    family = constructive_search
+    query = [high_flexibility, idle_gap, assignment_regret, decoder]
+elif high_flexibility(profile) and reliable_local_bottleneck(history):
+    pressure = coupled
+    family = coupled_local_search
+    query = [high_flexibility, assignment_trust_region,
+             order_preserving_redecode, critical_path]
 else:
     pressure = classify_primary_pressure(profile, history)
 
-family = compare_applicable_method_families(pressure, profile, budget, constraints)
+family = family or compare_applicable_method_families(pressure, profile, budget, constraints)
 alternative = strongest_unselected_family(family, pressure)
-query = public_query_tags_for(family, pressure, active_variant)
+query = query or public_query_tags_for(family, pressure, active_variant)
 
 return method_family, pressure, measured_evidence, uncertainties,
        alternative_with_rejection_reason, query
@@ -146,6 +164,9 @@ return method_family, pressure, measured_evidence, uncertainties,
   状态和解码语义直接规划。
 - 第二阶段检索结果至少包含一张匹配实现卡或一个兼容 Method Package，之后才能签发
   Coding Worker 任务书。
+- 高柔性路由必须包含 `high_flexibility`，并按阶段包含 `assignment_regret` 或
+  `assignment_trust_region + order_preserving_redecode`；不能仅返回 `beam_search`、
+  `initialization` 或 `decoder`。
 - 方向有效性最终由候选合法性、语义覆盖和 Core promotion 结果证明；静态画像只用于提出
   可检验假设。
 

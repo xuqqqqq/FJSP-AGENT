@@ -149,13 +149,53 @@ class WorkerAssignmentTests(unittest.TestCase):
             self.assertTrue(
                 any("must not import harness_agent" in value for value in payload["forbidden"])
             )
-            diagnostics = payload["runtime_contract"]["optional_solver_diagnostics"]
-            self.assertIn("candidate_runs", diagnostics["bounded_schema"])
-            self.assertIn("search_counters", diagnostics["bounded_schema"])
-            self.assertIn("never affect", diagnostics["purpose"])
-
+            self.assertNotIn("optional_solver_diagnostics", payload["runtime_contract"])
+            self.assertEqual(
+                ["parser_and_model", "simple_legal_constructor", "cli_and_output", "deterministic_fallback"],
+                payload["implementation_order"],
+            )
             assignment_path = write_worker_assignment(tmp_path / "worker_assignment.json", assignment)
             self.assertEqual(payload, WorkerAssignment.load(assignment_path).to_payload())
+
+    def test_provided_project_assignment_uses_primary_target_and_supporting_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "context.json",
+                )
+            )
+            context = load_context_dict(context_path)
+            context["evaluator_protocol"].update(
+                {
+                    "baseline_source": "provided_project",
+                    "worker_target_file": "fjsp/solver.py",
+                    "provided_project_read_paths": ["solver.py", "fjsp/model.py"],
+                }
+            )
+            assignment = build_worker_assignment(
+                context=context,
+                direction_plan={
+                    "direction_id": "d000-existing",
+                    "hypothesis": "Improve one existing solver mechanism.",
+                    "change_scope": ["Preserve the existing CLI and edit one mechanism."],
+                },
+                loop_feedback={},
+                round_index=0,
+                attempt_index=0,
+                max_steps=4,
+                max_runtime_seconds=120,
+            )
+
+        self.assertEqual("fjsp/solver.py", assignment.target_file)
+        provided = {
+            item["path"]: item
+            for item in assignment.read_set
+            if item.get("role") == "provided_project_source"
+        }
+        self.assertEqual({"solver.py", "fjsp/model.py"}, set(provided))
+        self.assertTrue(all(item["required"] for item in provided.values()))
 
     def test_verbose_baseline_plan_does_not_repeat_incumbent_narrative_to_worker(self) -> None:
         context = {
@@ -213,8 +253,10 @@ class WorkerAssignmentTests(unittest.TestCase):
         serialized = json.dumps(assignment.to_payload(), ensure_ascii=False, indent=2)
 
         self.assertEqual({}, assignment.latest_feedback)
-        self.assertEqual(component_ids, assignment.implementation_order)
-        self.assertEqual(component_ids, [item["id"] for item in assignment.deliverables])
+        staged_ids = ["parser_and_model", "simple_legal_constructor", "cli_and_output", "deterministic_fallback"]
+        self.assertEqual(staged_ids, assignment.implementation_order)
+        self.assertEqual(staged_ids, [item["id"] for item in assignment.deliverables])
+        self.assertNotIn("bounded_beam_constructor", serialized)
         self.assertLessEqual(len(serialized), WORKER_ASSIGNMENT_MAX_CHARS)
 
     def test_repair_assignment_prioritizes_concrete_result_revalidation_error(self) -> None:
@@ -336,6 +378,195 @@ class WorkerAssignmentTests(unittest.TestCase):
             ["solve.beam_width"],
             assignment.latest_feedback["main_agent_next_mutation"]["target_symbols"],
         )
+
+    def test_high_flex_assignment_loads_playbook_skill_and_read_set(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "context.json",
+                )
+            )
+            context = load_context_dict(context_path)
+            assignment = build_worker_assignment(
+                context=context,
+                direction_plan={
+                    "direction_id": "d000-high-flex",
+                    "method_family": "constructive_search",
+                    "method_families": [{"id": "constructive_search", "role": "primary"}],
+                    "knowledge_query": ["high_flexibility", "assignment_regret"],
+                    "hypothesis": "Use assignment-first routing for a high-flexibility profile.",
+                    "change_scope": ["Preserve the incumbent and probe assignment-first controls."],
+                },
+                loop_feedback={},
+                round_index=0,
+                attempt_index=0,
+                max_steps=2,
+                max_runtime_seconds=60,
+            )
+
+        self.assertIn(
+            "high-flexibility-fjsp-playbook",
+            [item["skill_id"] for item in assignment.implementation_skills],
+        )
+        self.assertTrue(
+            any(
+                item["path"].endswith("high_flexibility_assignment_first_playbook.md")
+                for item in assignment.read_set
+            )
+        )
+
+    def test_agent_generated_high_flex_baseline_stages_scope_skills_and_materials(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "context.json",
+                )
+            )
+            context = load_context_dict(context_path)
+            direction = {
+                "direction_id": "d000-high-flex-baseline",
+                "method_family": "constructive_search",
+                "method_families": [{"id": "constructive_search", "role": "primary"}],
+                "knowledge_query": [
+                    "constructive_search",
+                    "high_flexibility",
+                    "idle_gap",
+                    "assignment_regret",
+                    "decoder",
+                ],
+                "hypothesis": "Build the high-flexibility baseline in bounded stages.",
+                "change_scope": ["Create a complete standalone solver."],
+            }
+
+            trial_1 = build_worker_assignment(
+                context=context,
+                direction_plan=direction,
+                loop_feedback={},
+                round_index=-1,
+                attempt_index=0,
+                max_steps=4,
+                max_runtime_seconds=300,
+            )
+            refinement_feedback = {
+                "current_round_repair": {
+                    "status": "refinement_required",
+                    "allow_objective_refinement": True,
+                    "repair_targets": {},
+                }
+            }
+            trial_2 = build_worker_assignment(
+                context=context,
+                direction_plan=direction,
+                loop_feedback=refinement_feedback,
+                round_index=-1,
+                attempt_index=1,
+                max_steps=4,
+                max_runtime_seconds=300,
+                parent_assignment_id=trial_1.assignment_id,
+            )
+            trial_3 = build_worker_assignment(
+                context=context,
+                direction_plan=direction,
+                loop_feedback=refinement_feedback,
+                round_index=-1,
+                attempt_index=2,
+                max_steps=4,
+                max_runtime_seconds=300,
+                parent_assignment_id=trial_2.assignment_id,
+            )
+
+        self.assertEqual(
+            ["parser_and_model", "simple_legal_constructor", "cli_and_output", "deterministic_fallback"],
+            [item["id"] for item in trial_1.deliverables],
+        )
+        self.assertEqual(
+            ["fjsp-solver-foundation-worker"],
+            [item["skill_id"] for item in trial_1.implementation_skills],
+        )
+        self.assertNotIn("optional_solver_diagnostics", trial_1.runtime_contract)
+
+        trial_2_ids = [item["id"] for item in trial_2.deliverables]
+        self.assertEqual(
+            ["earliest_gap", "operation_pressure", "exact_assignment_regret", "low_pressure_order"],
+            trial_2_ids,
+        )
+        trial_2_skills = [item["skill_id"] for item in trial_2.implementation_skills]
+        self.assertIn("fjsp-solver-foundation-worker", trial_2_skills)
+        self.assertIn("fjsp-constructive-search-worker", trial_2_skills)
+        self.assertIn("high-flexibility-fjsp-playbook", trial_2_skills)
+        self.assertNotIn("fjsp-experiment-design-worker", trial_2_skills)
+        self.assertNotIn("optional_solver_diagnostics", trial_2.runtime_contract)
+
+        self.assertEqual(
+            ["activation_telemetry", "mechanism_refinement"],
+            [item["id"] for item in trial_3.deliverables],
+        )
+        self.assertIn(
+            "fjsp-experiment-design-worker",
+            [item["skill_id"] for item in trial_3.implementation_skills],
+        )
+        self.assertIn("optional_solver_diagnostics", trial_3.runtime_contract)
+
+        redundant_names = {
+            "constructive_multistart_blueprint.md",
+            "optimization_playbook.md",
+            "idle_critical_beam_implementation_template.md",
+            "core_pseudocode.md",
+        }
+        for assignment in (trial_1, trial_2, trial_3):
+            self.assertTrue(
+                redundant_names.isdisjoint(Path(item["path"]).name for item in assignment.read_set)
+            )
+
+    def test_incomplete_agent_generated_baseline_retries_trial_one(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "context.json",
+                )
+            )
+            context = load_context_dict(context_path)
+            direction = {
+                "direction_id": "d000-high-flex-baseline",
+                "method_family": "constructive_search",
+                "method_families": [{"id": "constructive_search", "role": "primary"}],
+                "knowledge_query": ["high_flexibility", "assignment_regret"],
+                "hypothesis": "Build the high-flexibility baseline in bounded stages.",
+            }
+            retry = build_worker_assignment(
+                context=context,
+                direction_plan=direction,
+                loop_feedback={
+                    "current_round_repair": {
+                        "status": "repair_required",
+                        "baseline_trial": 1,
+                        "resume_incomplete_baseline": True,
+                        "repair_targets": {
+                            "agentic_judgment_issues": ["worker_status_not_usable: timeout"]
+                        },
+                    }
+                },
+                round_index=-1,
+                attempt_index=1,
+                max_steps=4,
+                max_runtime_seconds=300,
+                parent_assignment_id="d000-high-flex-baseline-a00",
+            )
+
+        self.assertEqual("baseline", retry.mode)
+        self.assertEqual(1, retry.lineage["baseline_trial"])
+        self.assertEqual(
+            ["parser_and_model", "simple_legal_constructor", "cli_and_output", "deterministic_fallback"],
+            retry.implementation_order,
+        )
+        target_row = next(item for item in retry.read_set if item["path"] == retry.target_file)
+        self.assertFalse(target_row["required"])
 
     def test_semantic_review_alone_cannot_trigger_repair(self) -> None:
         context = {
@@ -466,7 +697,7 @@ class WorkerAssignmentTests(unittest.TestCase):
             any(value.startswith("Preserve all code unrelated") for value in assignment.preserve)
         )
 
-    def test_vague_legal_no_improvement_feedback_cannot_issue_repair_assignment(self) -> None:
+    def test_legal_no_improvement_feedback_issues_bounded_refinement_assignment(self) -> None:
         context = {
             "task": {"problem_family": "FJSP"},
             "evaluator_protocol": {
@@ -496,22 +727,31 @@ class WorkerAssignmentTests(unittest.TestCase):
         feedback = {
             "current_round_repair": {
                 "status": "refinement_required",
+                "allow_objective_refinement": True,
                 "avoid": ["legal_but_not_strictly_better"],
                 "repair_targets": {},
             }
         }
 
-        with self.assertRaisesRegex(ValueError, "concrete repair_targets"):
-            build_worker_assignment(
-                context=context,
-                direction_plan=direction,
-                loop_feedback=feedback,
-                round_index=0,
-                attempt_index=1,
-                max_steps=2,
-                max_runtime_seconds=60,
-                parent_assignment_id="d000-a00",
-            )
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan=direction,
+            loop_feedback=feedback,
+            round_index=0,
+            attempt_index=1,
+            max_steps=2,
+            max_runtime_seconds=60,
+            parent_assignment_id="d000-a00",
+        )
+
+        self.assertEqual("improvement", assignment.mode)
+        self.assertEqual(["same_direction_objective_refinement"], assignment.implementation_order)
+        self.assertEqual(
+            ["same_direction_objective_refinement"],
+            [item["id"] for item in assignment.deliverables],
+        )
+        self.assertIn("one bounded objective-improvement edit", assignment.objective)
+        self.assertIsNone(assignment.method_package["implementation_asset"])
 
     def test_improvement_reads_incumbent_contract_and_semantics_without_reference_solver(self) -> None:
         context = {

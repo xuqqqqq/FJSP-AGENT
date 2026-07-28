@@ -19,6 +19,8 @@ const state = {
   codingTimelineHeaders: new Set(),
   currentJobStatus: null,
   renderedInterventionKey: null,
+  interventionCountdownTimer: null,
+  interventionAction: "revise",
   resources: [],
   resourceCategory: "skill",
   selectedResourceId: null,
@@ -26,6 +28,7 @@ const state = {
   resourceAuthoring: {},
   resourceEditorCategory: "skill",
   resumeTargetJobId: null,
+  starterProject: null,
 };
 const DEFAULT_STANDARD_SEEDS = "0,1,2,3,4,5,6,7,8,9";
 const DEFAULT_CHAT_PLACEHOLDER = "例如：载入示例、检查配置、启动任务、查看历史任务";
@@ -36,9 +39,9 @@ const DEFAULT_CHAT_ACTIONS = [
   {label: "启动", command: "启动"},
 ];
 const WAITING_CHAT_ACTIONS = [
-  {label: "采用建议", command: "采用 Main 建议"},
+  {label: "同意换向", command: "同意换向"},
+  {label: "继续当前方向", command: "继续当前方向"},
   {label: "刷新状态", command: "刷新"},
-  {label: "历史任务", command: "历史任务"},
 ];
 
 const $ = (id) => document.getElementById(id);
@@ -51,6 +54,7 @@ const VIEW_TITLES = {
   versions: "版本记录",
   resources: "知识库 / Skills",
   models: "模型分配",
+  "import-project": "导入已有项目",
   setup: "任务配置",
 };
 
@@ -87,6 +91,60 @@ function setupFileMirror(inputId, textId) {
   fileInput.addEventListener("change", () => readFileToTextarea(fileInput, textarea));
 }
 
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function readStarterProject(fileInput) {
+  const file = fileInput.files?.[0];
+  state.starterProject = null;
+  if (!file) {
+    renderStarterProjectState();
+    return;
+  }
+  renderStarterProjectState("读取中...");
+  try {
+    state.starterProject = {
+      name: file.name,
+      base64: arrayBufferToBase64(await file.arrayBuffer()),
+    };
+    renderStarterProjectState(`${file.name} · ${(file.size / 1024).toFixed(1)} KiB`);
+  } catch (error) {
+    state.starterProject = null;
+    fileInput.value = "";
+    renderStarterProjectState(error.message || "读取失败");
+  }
+}
+
+function renderStarterProjectState(statusText = null) {
+  const loaded = Boolean(state.starterProject);
+  const displayText = statusText || (loaded ? state.starterProject.name : "未选择");
+  $("starter-project-status").textContent = displayText;
+  $("starter-project-setup-status").textContent = loaded ? state.starterProject.name : "未选择";
+  $("starter-project-summary").classList.toggle("hidden", !loaded);
+  $("clear-starter-project").disabled = !loaded;
+  $("continue-starter-project").disabled = !loaded;
+  updateContractSummary();
+}
+
+function clearStarterProject() {
+  state.starterProject = null;
+  $("starter-project-file").value = "";
+  renderStarterProjectState();
+}
+
+function continueStarterProjectSetup() {
+  if (!state.starterProject) return;
+  setActiveView("setup");
+  window.scrollTo({top: 0, behavior: "smooth"});
+}
+
 async function loadDemo(options = {}) {
   const response = await fetch("/api/examples");
   const demo = await response.json();
@@ -99,6 +157,7 @@ async function loadDemo(options = {}) {
   $("instance-text").dataset.filename = demo.instance.name;
   $("best-text").value = demo.best_known_csv.text;
   $("best-text").dataset.filename = demo.best_known_csv.name;
+  clearStarterProject();
   $("max-rounds").value = demo.config.max_rounds;
   $("seeds").value = demo.config.seeds;
   $("max-workers").value = demo.config.max_workers || 2;
@@ -635,7 +694,7 @@ function formatShortTime(value) {
 }
 
 function buildPayload() {
-  return {
+  const payload = {
     title: $("title").value,
     requirement: {
       name: $("requirement-text").dataset.filename || "requirement.md",
@@ -670,12 +729,21 @@ function buildPayload() {
     promotion_repeats: Number($("promotion-repeats").value || 1),
     pause_between_rounds: $("pause-between-rounds").checked,
   };
+  if (state.starterProject) {
+    payload.starter_project = state.starterProject;
+    payload.starter_solver_entrypoint = $("starter-solver-entrypoint").value.trim();
+    payload.starter_solver_command = $("starter-solver-command").value.trim();
+    payload.starter_target_file = $("starter-target-file").value.trim();
+  }
+  return payload;
 }
 
 function updateContractSummary() {
   const target = $("edit-scope-summary");
   if (!target) return;
-  target.textContent = "Agent 自写 solver · 固定 Core 评测 · 自动选择方法知识";
+  target.textContent = state.starterProject
+    ? "现有项目 baseline · 指定主文件增量演进 · 固定 Core 评测"
+    : "Agent 自写 solver · 固定 Core 评测 · 自动选择方法知识";
 }
 
 async function submitJob(event) {
@@ -753,6 +821,7 @@ function resetConversationState(jobId) {
   state.mainTimelineHeaderRendered = false;
   state.codingTimelineHeaders = new Set();
   state.renderedInterventionKey = null;
+  clearInterventionCountdown();
   setChatInputPlaceholder(DEFAULT_CHAT_PLACEHOLDER);
 }
 
@@ -883,6 +952,99 @@ function stableAgentColorIndex(value) {
   return hash % 4;
 }
 
+function renderAgentStatusBar(job) {
+  const bar = $("agent-status-bar");
+  const summaryNode = $("agent-status-summary");
+  const track = $("agent-status-track");
+  if (!bar || !summaryNode || !track) return;
+  const snapshot = job.agent_status;
+  const agents = Array.isArray(snapshot?.agents) ? snapshot.agents : [];
+  if (!agents.length) {
+    bar.classList.add("hidden");
+    summaryNode.replaceChildren();
+    track.replaceChildren();
+    return;
+  }
+
+  const summary = snapshot.summary || {};
+  const activeCount = Number(summary.running || 0) + Number(summary.waiting || 0);
+  const title = document.createElement("strong");
+  title.textContent = "Agent 工作状态";
+  const activity = document.createElement("span");
+  activity.className = "agent-status-activity";
+  activity.textContent = activeCount ? `${activeCount} 个活跃` : "当前无活跃 Agent";
+  const capacity = document.createElement("small");
+  capacity.textContent = `Subagent 累计调用 ${summary.started_subagents || 0} · 并发上限 ${summary.configured_subagents || 0} · Coding trace ${summary.started_workers || 0} · 候选尝试 ${summary.reported_worker_attempts || 0} · 并行上限 ${summary.configured_workers || 0}`;
+  summaryNode.replaceChildren(title, activity, capacity);
+
+  const statusLabels = {
+    queued: "排队中",
+    running: "运行中",
+    waiting: "等待中",
+    completed: "已完成",
+    failed: "失败",
+    stopped: "已停止",
+  };
+  const roleMarks = {main: "M", subagent: "S", coding: "C"};
+  const fragment = document.createDocumentFragment();
+  for (const agent of agents) {
+    const status = statusLabels[agent.status] ? agent.status : "queued";
+    const quietSeconds = agentQuietSeconds(agent, status);
+    const activityClass = quietSeconds >= 600 ? "activity-stalled" : quietSeconds >= 90 ? "activity-quiet" : "activity-active";
+    const item = document.createElement("article");
+    const colorIndex = stableAgentColorIndex(agent.key || agent.name || agent.role);
+    item.className = `agent-status-item status-${status} ${activityClass} agent-color-${colorIndex}`;
+    item.title = agent.detail || "";
+
+    const mark = document.createElement("span");
+    mark.className = "agent-status-mark";
+    mark.textContent = roleMarks[agent.role] || "A";
+
+    const body = document.createElement("div");
+    body.className = "agent-status-body";
+    const head = document.createElement("header");
+    const name = document.createElement("strong");
+    name.textContent = agent.name || "Agent";
+    const stateLabel = document.createElement("span");
+    stateLabel.className = "agent-status-label";
+    stateLabel.textContent = agentActivityLabel(statusLabels[status], quietSeconds);
+    head.append(name, stateLabel);
+
+    const detail = document.createElement("p");
+    detail.textContent = agentStatusDetail(job, agent);
+    const meta = document.createElement("small");
+    const model = [agent.model, agent.variant].filter(Boolean).join(" · ");
+    const updated = formatTraceTime(agent.updated_at);
+    meta.textContent = [agent.stage, model, updated].filter(Boolean).join(" · ");
+    body.append(head, detail, meta);
+    item.append(mark, body);
+    fragment.appendChild(item);
+  }
+  track.replaceChildren(fragment);
+  bar.classList.remove("hidden");
+}
+
+function agentQuietSeconds(agent, status) {
+  if (!["running", "waiting"].includes(status)) return 0;
+  const numeric = Number(agent.updated_at);
+  const timestamp = Number.isFinite(numeric) && numeric > 0 ? numeric : Date.parse(agent.updated_at || "");
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return 0;
+  return Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+}
+
+function agentActivityLabel(baseLabel, quietSeconds) {
+  if (quietSeconds < 90) return baseLabel;
+  const minutes = Math.max(1, Math.floor(quietSeconds / 60));
+  return quietSeconds >= 600 ? `可能停滞 · ${minutes}分无输出` : `推理中 · ${minutes}分无输出`;
+}
+
+function agentStatusDetail(job, agent) {
+  if (agent.role !== "main") return agent.detail || "等待状态更新";
+  const trace = Array.isArray(job.main_agent_trace) ? job.main_agent_trace : [];
+  const meaningful = [...trace].reverse().find((record) => record.kind !== "usage" && String(record.text || "").trim());
+  return meaningful?.text || agent.detail || "等待状态更新";
+}
+
 function renderWorkerAuditEvents(job) {
   const events = Array.isArray(job.events) ? job.events : [];
   if (state.eventJobId !== job.id) {
@@ -1006,10 +1168,12 @@ function renderPendingIntervention(job) {
   const key = `${job.id}:${pending.next_round_index}:${pending.requested_at}`;
   if (state.renderedInterventionKey === key) return;
   state.renderedInterventionKey = key;
+  state.interventionAction = "revise";
   setChatInputPlaceholder(INTERVENTION_CHAT_PLACEHOLDER);
   const analysis = pending.main_analysis || {};
   const assessment = analysis.incumbent_assessment || {};
   const mutation = analysis.next_mutation || {};
+  const directionChange = pending.recommendation_kind === "direction_change";
   const thread = $("chat-thread");
   const card = document.createElement("section");
   card.className = "round-intervention-card";
@@ -1019,7 +1183,7 @@ function renderPendingIntervention(job) {
         <span>轮间人工门控</span>
         <strong>第 ${Number(pending.completed_round_index) + 1} 轮已完成</strong>
       </div>
-      <small>下一轮：${Number(pending.next_round_index) + 1}</small>
+      <small data-intervention-countdown>下一轮：${Number(pending.next_round_index) + 1}</small>
     </header>
     <h3>${escapeHtml(analysis.title || "Main Agent 下一轮建议")}</h3>
     ${renderReasoningTrace(analysis.reasoning_trace)}
@@ -1039,22 +1203,61 @@ function renderPendingIntervention(job) {
     ${renderAnalysisList("证伪指标", mutation.falsification_metrics)}
     ${renderAnalysisList("未选方向", analysis.alternatives_considered)}
     ${renderAnalysisList("验收条件", analysis.acceptance_checks)}
+    ${directionChange ? `<p><b>方法族：</b>${escapeHtml(pending.current_method_family || "当前方向")} → ${escapeHtml(pending.proposed_method_family || "Main 建议方向")}</p>` : ""}
     <footer>
-      <button type="button" class="primary" data-intervention-action="accept">采用 Main 建议</button>
-      <button type="button" class="ghost" data-intervention-action="custom">输入指定方向</button>
+      <button type="button" class="primary" data-intervention-action="accept">${directionChange ? "同意换方向" : "采用 Main 建议"}</button>
+      ${directionChange ? '<button type="button" class="ghost" data-intervention-action="continue">继续当前方向</button>' : ""}
+      <button type="button" class="ghost" data-intervention-action="custom">细化当前方向</button>
+      ${directionChange ? "" : '<button type="button" class="ghost" data-intervention-action="pivot">切换方法族</button>'}
     </footer>
   `;
   thread.appendChild(card);
   card.querySelector('[data-intervention-action="accept"]').addEventListener("click", async () => {
-    appendChatMessage("user", "采用 Main Agent 建议，继续下一轮。");
+    appendChatMessage("user", directionChange ? "同意 Main Agent 的换向建议。" : "采用 Main Agent 建议，继续下一轮。");
     await submitRoundIntervention({useMainRecommendation: true});
   });
+  card.querySelector('[data-intervention-action="continue"]')?.addEventListener("click", async () => {
+    appendChatMessage("user", "不同意换向，继续当前方向。");
+    await submitRoundIntervention({continueCurrentDirection: true});
+  });
   card.querySelector('[data-intervention-action="custom"]').addEventListener("click", () => {
+    state.interventionAction = "revise";
     setChatInputPlaceholder(INTERVENTION_CHAT_PLACEHOLDER);
     $("chat-input")?.focus();
   });
+  card.querySelector('[data-intervention-action="pivot"]')?.addEventListener("click", () => {
+    state.interventionAction = "pivot";
+    setChatInputPlaceholder("输入希望切换到的方法族、搜索压力或换向理由");
+    $("chat-input")?.focus();
+  });
   thread.scrollTop = thread.scrollHeight;
+  startInterventionCountdown(card, pending);
   showUnifiedConversation({scrollThread: true});
+}
+
+function clearInterventionCountdown() {
+  if (state.interventionCountdownTimer !== null) {
+    window.clearInterval(state.interventionCountdownTimer);
+    state.interventionCountdownTimer = null;
+  }
+}
+
+function startInterventionCountdown(card, pending) {
+  clearInterventionCountdown();
+  const target = card.querySelector("[data-intervention-countdown]");
+  const timeoutSeconds = Number(pending.timeout_seconds || 0);
+  const requestedAt = Date.parse(pending.requested_at || "");
+  if (!target || !Number.isFinite(requestedAt) || timeoutSeconds <= 0) return;
+  const deadline = requestedAt + timeoutSeconds * 1000;
+  const update = () => {
+    const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    target.textContent = remaining > 0
+      ? `${remaining}s 后默认继续当前方向`
+      : "默认继续当前方向处理中";
+    if (remaining <= 0) clearInterventionCountdown();
+  };
+  update();
+  state.interventionCountdownTimer = window.setInterval(update, 250);
 }
 
 function renderAnalysisList(title, values) {
@@ -1085,7 +1288,12 @@ function renderReasoningTrace(values) {
   `;
 }
 
-async function submitRoundIntervention({direction = "", useMainRecommendation = false} = {}) {
+async function submitRoundIntervention({
+  direction = "",
+  useMainRecommendation = false,
+  continueCurrentDirection = false,
+  action = "revise",
+} = {}) {
   if (!state.currentJobId) return;
   const response = await fetch(`/api/jobs/${encodeURIComponent(state.currentJobId)}/continue`, {
     method: "POST",
@@ -1093,6 +1301,8 @@ async function submitRoundIntervention({direction = "", useMainRecommendation = 
     body: JSON.stringify({
       direction,
       use_main_recommendation: useMainRecommendation,
+      continue_current_direction: continueCurrentDirection,
+      action,
     }),
   });
   const payload = await response.json();
@@ -1104,10 +1314,14 @@ async function submitRoundIntervention({direction = "", useMainRecommendation = 
     "assistant",
     useMainRecommendation
       ? "已采用 Main Agent 建议，Coding Worker 即将按任务书开始下一轮。"
+      : continueCurrentDirection
+      ? "已保留当前方向，Main Agent 正在规划该方向内的下一次局部变异。"
       : "已收到你的方向。Main Agent 正在结合硬约束重新整理下一轮任务书。",
   );
+  clearInterventionCountdown();
   state.currentJobStatus = "running";
   state.renderedInterventionKey = null;
+  state.interventionAction = "revise";
   setChatInputPlaceholder(DEFAULT_CHAT_PLACEHOLDER);
   renderChatActions(DEFAULT_CHAT_ACTIONS);
   showUnifiedConversation({scrollThread: true});
@@ -1160,12 +1374,16 @@ async function handleChatCommand(message, options = {}) {
   }
   const normalized = message.trim().toLowerCase();
   if (state.currentJobStatus === "waiting_for_user") {
-    if (["采用建议", "采用 main 建议", "继续", "continue"].some((token) => normalized.includes(token))) {
+    if (["同意换向", "同意切换", "采用建议", "采用 main 建议"].some((token) => normalized.includes(token))) {
       await submitRoundIntervention({useMainRecommendation: true});
       return;
     }
+    if (["继续当前方向", "不同意换向", "拒绝换向", "继续", "continue"].some((token) => normalized.includes(token))) {
+      await submitRoundIntervention({continueCurrentDirection: true});
+      return;
+    }
     if (!["刷新", "状态", "status"].some((token) => normalized.includes(token))) {
-      await submitRoundIntervention({direction: message});
+      await submitRoundIntervention({direction: message, action: state.interventionAction});
       return;
     }
   }
@@ -1384,6 +1602,7 @@ function renderJob(job) {
     appendChatMessage("assistant", `任务状态：${statusLabel(job.status)}`);
   }
   renderChatActions(job.status === "waiting_for_user" ? WAITING_CHAT_ACTIONS : DEFAULT_CHAT_ACTIONS);
+  renderAgentStatusBar(job);
   renderUnifiedTimeline(job);
   renderPendingIntervention(job);
 
@@ -1852,6 +2071,9 @@ setupFileMirror("requirement-file", "requirement-text");
 setupFileMirror("io-file", "io-text");
 setupFileMirror("instance-file", "instance-text");
 setupFileMirror("best-file", "best-text");
+$("starter-project-file").addEventListener("change", (event) => readStarterProject(event.currentTarget));
+$("clear-starter-project").addEventListener("click", clearStarterProject);
+$("continue-starter-project").addEventListener("click", continueStarterProjectSetup);
 $("load-demo").addEventListener("click", loadDemo);
 $("job-form").addEventListener("submit", submitJob);
 $("refresh").addEventListener("click", refreshJob);

@@ -206,6 +206,9 @@ def resolve_worker_implementation_skills(
             excluded_skills.append({"skill_id": skill.skill_id, "reason": "missing_skill_source"})
             continue
         tag_overlap = len(set(skill.activation_tags).intersection(query_tags))
+        if skill.require_activation_tag_match and tag_overlap == 0:
+            excluded_skills.append({"skill_id": skill.skill_id, "reason": "activation_tag_mismatch"})
+            continue
         score = len(covered) * 1000 + tag_overlap * 100 + int(skill.default_priority)
         if skill.always_include:
             score += 10_000

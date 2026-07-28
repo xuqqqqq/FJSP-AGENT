@@ -77,6 +77,11 @@ class DomainPackTests(unittest.TestCase):
         )
         self.assertIsNotNone(pack.method_family("constructive_search"))
         self.assertIsNotNone(pack.worker_implementation_skill("fjsp-constructive-search-worker"))
+        high_flexibility_skill = pack.worker_implementation_skill("high-flexibility-fjsp-playbook")
+        self.assertIsNotNone(high_flexibility_skill)
+        assert high_flexibility_skill is not None
+        self.assertTrue(high_flexibility_skill.require_activation_tag_match)
+        self.assertTrue((high_flexibility_skill.source_path / "SKILL.md").is_file())
 
     def test_worker_skills_match_multiple_canonical_families_without_unselected_skills(self) -> None:
         catalog = method_family_catalog(problem_family="FJSP")
@@ -105,6 +110,157 @@ class DomainPackTests(unittest.TestCase):
         self.assertNotIn("fjsp-exact-hybrid-worker", skill_ids)
         self.assertNotIn("fjsp-sdst-adapter-worker", skill_ids)
         self.assertEqual([], resolved["audit"]["uncovered_method_families"])
+
+    def test_high_flexibility_worker_skill_requires_matching_query_tag(self) -> None:
+        ordinary = resolve_worker_implementation_skills(
+            problem_family="FJSP",
+            method_families=["constructive_search"],
+            knowledge_query_tags=["construction", "beam_search"],
+        )
+        constructive = resolve_worker_implementation_skills(
+            problem_family="FJSP",
+            method_families=["constructive_search"],
+            knowledge_query_tags=["high_flexibility", "assignment_regret"],
+        )
+        local = resolve_worker_implementation_skills(
+            problem_family="FJSP",
+            method_families=["coupled_local_search"],
+            knowledge_query_tags=["assignment_trust_region"],
+        )
+
+        self.assertNotIn(
+            "high-flexibility-fjsp-playbook",
+            [item["skill_id"] for item in ordinary["skills"]],
+        )
+        self.assertIn(
+            {"skill_id": "high-flexibility-fjsp-playbook", "reason": "activation_tag_mismatch"},
+            ordinary["audit"]["excluded_skills"],
+        )
+        self.assertIn(
+            "high-flexibility-fjsp-playbook",
+            [item["skill_id"] for item in constructive["skills"]],
+        )
+        self.assertIn(
+            "high-flexibility-fjsp-playbook",
+            [item["skill_id"] for item in local["skills"]],
+        )
+
+    def test_high_flexibility_worker_skill_excludes_sdst(self) -> None:
+        resolved = resolve_worker_implementation_skills(
+            problem_family="FJSP",
+            method_families=["constructive_search", "coupled_local_search"],
+            active_features=["sequence_dependent_setup"],
+            knowledge_query_tags=["high_flexibility", "assignment_trust_region"],
+        )
+
+        self.assertNotIn(
+            "high-flexibility-fjsp-playbook",
+            [item["skill_id"] for item in resolved["skills"]],
+        )
+        self.assertIn(
+            {"skill_id": "high-flexibility-fjsp-playbook", "reason": "feature_incompatible"},
+            resolved["audit"]["excluded_skills"],
+        )
+
+    def test_high_flexibility_route_uses_exact_assignment_first_contract(self) -> None:
+        skill_text = (
+            ROOT / ".codex" / "skills" / "high-flexibility-fjsp-playbook" / "SKILL.md"
+        ).read_text(encoding="utf-8")
+        card_text = (
+            ROOT
+            / "knowledge"
+            / "references"
+            / "standard_fjsp"
+            / "high_flexibility_assignment_first_playbook.md"
+        ).read_text(encoding="utf-8")
+        router_text = (
+            ROOT
+            / "knowledge"
+            / "references"
+            / "general_fjsp"
+            / "fjsp_instance_feature_method_router.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("pressure = (候选机器数 - 1) * duration_span", skill_text)
+        self.assertIn(
+            "pressure(op) = (candidate_count(op) - 1) * duration_span(op)",
+            card_text,
+        )
+        for text in (skill_text, card_text):
+            self.assertIn("assignment_cost", text)
+            self.assertIn("theoretical_fastest", text)
+            self.assertIn("完整 score 元组", text)
+            self.assertIn("order_rank_edges_preserved", text)
+
+        self.assertIn("high_flexibility_assignment_first_playbook.md", router_text)
+        self.assertNotIn("high_flexibility_idle_critical_beam_blueprint.md", router_text)
+
+    def test_worker_skill_activation_tags_are_queryable_by_a_compatible_family(self) -> None:
+        pack = get_domain_pack("FJSP")
+        self.assertIsNotNone(pack)
+        assert pack is not None
+        public_tags = {
+            item["tag"]
+            for item in knowledge_query_catalog(problem_family="FJSP")["tags"]
+        }
+        family_tags = {
+            family.family_id: set(family.query_tags)
+            for family in pack.method_families
+        }
+
+        for skill in pack.worker_implementation_skills:
+            if not skill.require_activation_tag_match:
+                continue
+            compatible_tags = {
+                tag
+                for family_id in skill.method_families
+                for tag in family_tags.get(family_id, set())
+            }
+            for tag in set(skill.activation_tags).intersection(public_tags):
+                self.assertIn(
+                    tag,
+                    compatible_tags,
+                    msg=f"{skill.skill_id} exposes {tag} but no compatible family can query it",
+                )
+
+    def test_domain_pack_loader_rejects_unqueryable_worker_skill_tags(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            manifest = tmp_path / "domain_pack.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "family_id": "broken",
+                        "knowledge": {
+                            "knowledge_query": {
+                                "tag_descriptions": {
+                                    "construction": "constructive search",
+                                    "assignment_regret": "assignment pressure",
+                                }
+                            }
+                        },
+                        "method_families": [
+                            {
+                                "family_id": "constructive_search",
+                                "query_tags": ["construction"],
+                            }
+                        ],
+                        "worker_implementation_skills": [
+                            {
+                                "skill_id": "broken-skill",
+                                "source_path": ".codex/skills/broken-skill",
+                                "method_families": ["constructive_search"],
+                                "activation_tags": ["assignment_regret"],
+                                "require_activation_tag_match": True,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "no compatible family can query"):
+                load_domain_pack(manifest, project_root=tmp_path)
 
     def test_worker_skill_matching_uses_feature_gate_for_sdst_adapter(self) -> None:
         standard = resolve_worker_implementation_skills(
@@ -767,6 +923,10 @@ class DomainPackTests(unittest.TestCase):
                 "critical_dispatch",
                 "critical_path",
                 "assignment_aware_local_search",
+                "high_flexibility",
+                "assignment_regret",
+                "assignment_trust_region",
+                "order_preserving_redecode",
                 "cp_sat",
                 "population",
             }.issubset(public_query_tags)
@@ -787,11 +947,29 @@ class DomainPackTests(unittest.TestCase):
 
         high_flexibility = select_tagged_knowledge_cards(
             problem_family="standard_fjsp",
-            knowledge_query_tags=["constructive_search", "beam_search", "idle_gap"],
+            knowledge_query_tags=["high_flexibility", "assignment_regret", "idle_gap"],
         )
         high_flexibility_names = [path.name for path in high_flexibility.cards]
-        self.assertIn("high_flexibility_idle_critical_beam_blueprint.md", high_flexibility_names)
+        self.assertIn("high_flexibility_assignment_first_playbook.md", high_flexibility_names)
+        self.assertNotIn("high_flexibility_idle_critical_beam_blueprint.md", high_flexibility_names)
         self.assertFalse(any("awls" in name or "hgtsa" in name for name in high_flexibility_names))
+
+        beam = select_tagged_knowledge_cards(
+            problem_family="standard_fjsp",
+            knowledge_query_tags=["beam_search"],
+        )
+        beam_names = [path.name for path in beam.cards]
+        self.assertIn("idle_critical_beam_implementation_template.md", beam_names)
+        self.assertNotIn("high_flexibility_assignment_first_playbook.md", beam_names)
+        self.assertFalse(
+            (
+                ROOT
+                / "knowledge"
+                / "references"
+                / "standard_fjsp"
+                / "high_flexibility_idle_critical_beam_blueprint.md"
+            ).exists()
+        )
 
     def test_second_stage_query_cannot_reactivate_awls_or_hgtsa_assets(self) -> None:
         detailed = select_tagged_knowledge_cards(

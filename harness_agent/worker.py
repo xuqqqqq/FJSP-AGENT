@@ -21,6 +21,7 @@ class WorkerCapabilities:
     supports_code_generation: bool
     supports_repair: bool
     supports_structured_output: bool
+    supports_session_reuse: bool = False
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,9 @@ class ExperimentSpec:
     output_dir: str | None = None
     apply_changes: bool = False
     worker_assignment_path: str | None = None
+    session_id: str | None = None
+    local_trial_index: int = 0
+    local_trial_count: int = 1
 
 
 @dataclass(frozen=True)

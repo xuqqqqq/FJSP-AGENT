@@ -43,6 +43,7 @@ class AssignmentPipelineIntegrationTests(unittest.TestCase):
                     seeds=[0],
                     timeout_seconds=5,
                     max_workers=1,
+                    max_competing_workers=1,
                     iterations=1,
                     max_steps=2,
                     max_runtime_seconds=30,
@@ -65,7 +66,7 @@ class AssignmentPipelineIntegrationTests(unittest.TestCase):
             baseline_assignment_payload = json.loads(baseline_assignment.read_text(encoding="utf-8"))
             round_assignment_payload = json.loads(round_assignment.read_text(encoding="utf-8"))
             self.assertEqual(
-                "Implement the complete selected package.",
+                "Create the smallest complete standalone legal solver: parser, simple construction, CLI/output, and deterministic fallback only.",
                 baseline_assignment_payload["objective"],
             )
             self.assertEqual(
@@ -99,14 +100,17 @@ class AssignmentPipelineIntegrationTests(unittest.TestCase):
                 self.assertFalse(any("agent_generated_fjsp_solver.py *" in command for command in bash))
                 self.assertEqual("deny", permissions["skill"]["*"])
                 self.assertEqual("allow", permissions["skill"]["fjsp-solver-foundation-worker"])
-                self.assertEqual("allow", permissions["skill"]["fjsp-coupled-local-search-worker"])
+                if attempt_dir.name == "agent_generated_baseline":
+                    self.assertNotIn("fjsp-coupled-local-search-worker", permissions["skill"])
+                else:
+                    self.assertEqual("allow", permissions["skill"]["fjsp-coupled-local-search-worker"])
 
             baseline_worktree = Path(manifest["baseline_generation"]["worktree"])
             self.assertTrue(
                 (baseline_worktree / ".opencode" / "skills" / "fjsp-solver-foundation-worker" / "SKILL.md").is_file()
             )
-            self.assertTrue(
-                (baseline_worktree / ".opencode" / "skills" / "fjsp-coupled-local-search-worker" / "SKILL.md").is_file()
+            self.assertFalse(
+                (baseline_worktree / ".opencode" / "skills" / "fjsp-coupled-local-search-worker").exists()
             )
             self.assertFalse(
                 (baseline_worktree / ".opencode" / "skills" / "fjsp-constructive-search-worker").exists()
@@ -247,6 +251,14 @@ def _write_role_aware_fake_opencode(tmp_path: Path) -> Path:
                 "                'alternatives_considered': ['A partial package would not satisfy completion.'],",
                 "                'selection_rationale': 'The selected package matches the requested knowledge tags.',",
                 "                'method_package_id': 'standard_fjsp_awls_hgtsa',",
+                "                'activation_checks': [",
+                "                    {",
+                "                        'id': 'solver_self_check',",
+                "                        'path': 'diagnostics.solver_contract_self_check.enabled',",
+                "                        'operator': 'truthy',",
+                "                        'expected': True,",
+                "                    }",
+                "                ],",
                 "            },",
                 "            'worker_assignment': {'objective': 'Implement the complete selected package.'},",
                 "        }",

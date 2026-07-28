@@ -288,6 +288,7 @@ def summarize_direction_graph(rounds: list[dict[str, Any]]) -> dict[str, Any]:
     """
 
     directions: list[dict[str, Any]] = []
+    plan_id_to_graph_id: dict[str, str] = {}
     latest_promoted_id: str | None = None
     previous_direction_id: str | None = None
     for item in rounds:
@@ -302,6 +303,8 @@ def summarize_direction_graph(rounds: list[dict[str, Any]]) -> dict[str, Any]:
         decision = str(item.get("decision") or "unknown")
         status = direction_status(item)
         attempts = direction_attempts(item)
+        parent_direction_id = explicit_parent_direction_id(item, direction_plan)
+        resolved_parent_id = plan_id_to_graph_id.get(parent_direction_id or "", parent_direction_id)
         mechanism_activation = compact_mechanism_activation(
             item.get("mechanism_activation")
             if isinstance(item.get("mechanism_activation"), dict)
@@ -311,7 +314,7 @@ def summarize_direction_graph(rounds: list[dict[str, Any]]) -> dict[str, Any]:
         # 图节点保留方向语义和产物引用，不复制 solver 源码或实例具体解。
         direction = {
             "direction_id": direction_id,
-            "parent_id": latest_promoted_id or previous_direction_id,
+            "parent_id": resolved_parent_id or previous_direction_id,
             "round_index": round_index,
             "title": direction_title(item, primary),
             "status": status,
@@ -341,6 +344,9 @@ def summarize_direction_graph(rounds: list[dict[str, Any]]) -> dict[str, Any]:
             },
         }
         directions.append(direction)
+        plan_direction_id = str(direction_plan.get("direction_id") or "").strip()
+        if plan_direction_id:
+            plan_id_to_graph_id[plan_direction_id] = direction_id
         previous_direction_id = direction_id
         if decision == "promoted":
             latest_promoted_id = direction_id
@@ -358,6 +364,17 @@ def summarize_direction_graph(rounds: list[dict[str, Any]]) -> dict[str, Any]:
         "directions": directions,
         "guidance": direction_graph_guidance(directions),
     }
+
+
+def explicit_parent_direction_id(
+    round_record: dict[str, Any],
+    direction_plan: dict[str, Any],
+) -> str | None:
+    for container in (direction_plan, round_record):
+        parent_direction_id = str(container.get("parent_direction_id") or "").strip()
+        if parent_direction_id:
+            return parent_direction_id
+    return None
 
 
 def build_experience_memory(
@@ -1156,19 +1173,48 @@ def algorithm_semantic_reviews_from_direction(direction: dict[str, Any]) -> list
     ]
 
 
-def direction_has_verified_blocking_semantic_finding(direction: dict[str, Any]) -> bool:
-    reviews = algorithm_semantic_reviews_from_direction(direction)
-    if not reviews:
-        return False
-    final = reviews[-1]
-    if any(
+def _semantic_review_has_blocking_finding(review: dict[str, Any]) -> bool:
+    return any(
         isinstance(finding, dict) and bool(finding.get("blocking"))
-        for finding in _list(final.get("findings"))
-    ):
-        return True
-    if final.get("status") in {"unavailable", "skipped"}:
-        return False
-    return False
+        for finding in _list(review.get("findings"))
+    )
+
+
+def _semantic_review_is_explicit_repair_attempt(attempt: dict[str, Any]) -> bool:
+    kind = str(attempt.get("kind") or attempt_kind(attempt) or "").strip().lower()
+    return kind in {"repair", "semantic_repair"}
+
+
+def _semantic_review_clears_blocker(attempt: dict[str, Any], review: dict[str, Any]) -> bool:
+    return (
+        _semantic_review_is_explicit_repair_attempt(attempt)
+        and str(review.get("status") or "").strip().lower() in {"pass", "warning"}
+        and review.get("accepted") is True
+        and not _semantic_review_has_blocking_finding(review)
+    )
+
+
+def _direction_semantic_blocker_state(direction: dict[str, Any]) -> tuple[bool, bool]:
+    seen_blocker = False
+    active_blocker = False
+    for attempt in _list(direction.get("attempts")):
+        if not isinstance(attempt, dict):
+            continue
+        review = _dict(attempt.get("algorithm_semantic_review"))
+        if not review:
+            continue
+        if _semantic_review_has_blocking_finding(review):
+            seen_blocker = True
+            active_blocker = True
+            continue
+        if active_blocker and _semantic_review_clears_blocker(attempt, review):
+            active_blocker = False
+    return seen_blocker, active_blocker
+
+
+def direction_has_verified_blocking_semantic_finding(direction: dict[str, Any]) -> bool:
+    _, active_blocker = _direction_semantic_blocker_state(direction)
+    return active_blocker
 
 
 def direction_semantically_validated(direction: dict[str, Any]) -> bool:
@@ -1179,16 +1225,21 @@ def direction_validated_lesson_eligible(direction: dict[str, Any]) -> bool:
     if direction.get("decision") != "promoted":
         return False
     activation = _dict(direction.get("mechanism_activation"))
-    if activation.get("passed") is False:
+    if str(activation.get("status") or "").strip().lower() != "passed":
+        return False
+    if activation.get("passed") is not True:
         return False
     return not direction_has_verified_blocking_semantic_finding(direction)
 
 
 def validated_lesson_confidence(direction: dict[str, Any]) -> str:
+    activation = _dict(direction.get("mechanism_activation"))
+    if str(activation.get("status") or "").strip().lower() != "passed" or activation.get("passed") is not True:
+        return "candidate"
     reviews = algorithm_semantic_reviews_from_direction(direction)
     if any(
-        review.get("status") in {"pass", "warning"}
-        and review.get("accepted") is not False
+        str(review.get("status") or "").strip().lower() in {"pass", "warning"}
+        and review.get("accepted") is True
         for review in reviews
     ):
         return "core_activation_and_semantic_validated"
@@ -1196,21 +1247,8 @@ def validated_lesson_confidence(direction: dict[str, Any]) -> str:
 
 
 def algorithm_semantic_direction_recovered(direction: dict[str, Any]) -> bool:
-    reviews = algorithm_semantic_reviews_from_direction(direction)
-    first_blocked = next(
-        (
-            index
-            for index, review in enumerate(reviews)
-            if review.get("status") == "repair_required" or review.get("accepted") is False
-        ),
-        None,
-    )
-    if first_blocked is None:
-        return False
-    return any(
-        review.get("status") in {"pass", "warning"} and review.get("accepted") is not False
-        for review in reviews[first_blocked + 1 :]
-    )
+    seen_blocker, active_blocker = _direction_semantic_blocker_state(direction)
+    return seen_blocker and not active_blocker
 
 
 # ---------------------------------------------------------------------------
