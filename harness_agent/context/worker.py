@@ -422,6 +422,15 @@ def _assignment_implementation_skills(
             "selected method families have no Worker Implementation Skill: " + ", ".join(uncovered)
         )
     result: list[dict[str, Any]] = []
+    lane_policy = (
+        direction_plan.get("worker_lane_policy")
+        if isinstance(direction_plan.get("worker_lane_policy"), dict)
+        else {}
+    )
+    delegated_improvement = (
+        baseline_trial is None
+        and lane_policy.get("mechanism_selection") == "delegated_to_worker"
+    )
     for item in selection.get("skills") or []:
         if not isinstance(item, dict):
             continue
@@ -431,6 +440,14 @@ def _assignment_implementation_skills(
         if baseline_trial == 1 and skill_id != "fjsp-solver-foundation-worker":
             continue
         if baseline_trial == 2 and skill_id == "fjsp-experiment-design-worker":
+            continue
+        if delegated_improvement and skill_id in {
+            "fjsp-solver-foundation-worker",
+            "fjsp-experiment-design-worker",
+        }:
+            # The promoted incumbent already carries the foundation contract,
+            # while Core owns evaluation. Fast lanes need only the selected
+            # family Skill and any matching implementation playbook.
             continue
         result.append(
             {
@@ -557,7 +574,13 @@ def _assignment_read_set(
         }
     )
     rows.extend(_staged_instance_read_set(context))
-    rows.extend(_staged_document_read_set(context))
+    lane_policy = (
+        direction_plan.get("worker_lane_policy")
+        if isinstance(direction_plan.get("worker_lane_policy"), dict)
+        else {}
+    )
+    if mode == "baseline" or lane_policy.get("mechanism_selection") != "delegated_to_worker":
+        rows.extend(_staged_document_read_set(context))
     if high_flexibility and baseline_trial is not None:
         rows = [
             item

@@ -398,6 +398,10 @@ class WorkerAssignmentTests(unittest.TestCase):
                     "knowledge_query": ["high_flexibility", "assignment_regret"],
                     "hypothesis": "Use assignment-first routing for a high-flexibility profile.",
                     "change_scope": ["Preserve the incumbent and probe assignment-first controls."],
+                    "worker_lane_policy": {
+                        "mechanism_selection": "delegated_to_worker",
+                        "lane_count": 3,
+                    },
                 },
                 loop_feedback={},
                 round_index=0,
@@ -406,15 +410,20 @@ class WorkerAssignmentTests(unittest.TestCase):
                 max_runtime_seconds=60,
             )
 
-        self.assertIn(
-            "high-flexibility-fjsp-playbook",
-            [item["skill_id"] for item in assignment.implementation_skills],
-        )
+        skill_ids = [item["skill_id"] for item in assignment.implementation_skills]
+        self.assertIn("high-flexibility-fjsp-playbook", skill_ids)
+        self.assertIn("fjsp-constructive-search-worker", skill_ids)
+        self.assertNotIn("fjsp-solver-foundation-worker", skill_ids)
+        self.assertNotIn("fjsp-experiment-design-worker", skill_ids)
         self.assertTrue(
             any(
                 item["path"].endswith("high_flexibility_assignment_first_playbook.md")
                 for item in assignment.read_set
             )
+        )
+        self.assertLessEqual(len(assignment.read_set), 7)
+        self.assertFalse(
+            any(item["role"] == "requirement_or_io_contract" for item in assignment.read_set)
         )
 
     def test_agent_generated_high_flex_baseline_stages_scope_skills_and_materials(self) -> None:
