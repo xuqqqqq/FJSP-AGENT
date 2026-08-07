@@ -489,7 +489,8 @@ function setModelSelectValue(select, model) {
 }
 
 function selectedProvider(model) {
-  return String(model || "").trim().split("/", 1)[0].toLowerCase();
+  const provider = String(model || "").trim().split("/", 1)[0].toLowerCase();
+  return provider === "qiming" ? "openai" : provider;
 }
 
 function selectedAgentModel(role) {

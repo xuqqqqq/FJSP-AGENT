@@ -785,6 +785,11 @@ class WebAppTests(unittest.TestCase):
         self.assertIn('class="resource-browser"', resources_view)
         self.assertNotIn('class="model-allocation"', resources_view)
         self.assertIn('class="model-allocation"', models_view)
+        self.assertIn('<option value="qiming/glm-5.2">GLM 5.2</option>', models_view)
+        self.assertIn(
+            '<option value="qiming/deepseek-v4-flash">DeepSeek V4 Flash</option>',
+            models_view,
+        )
 
     def test_browser_safe_json_replaces_non_finite_numbers(self) -> None:
         safe = browser_safe_json({"key": [float("-inf"), float("inf"), 1.0]})

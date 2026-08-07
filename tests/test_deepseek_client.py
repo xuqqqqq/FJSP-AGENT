@@ -10,6 +10,16 @@ from harness_agent.deepseek_client import DeepSeekClient, DeepSeekConfig
 
 
 class DeepSeekClientTests(unittest.TestCase):
+    def test_chat_uses_a_gateway_compatible_user_agent(self) -> None:
+        raw = {"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
+
+        with patch("urllib.request.urlopen", return_value=_FakeResponse(raw)) as urlopen:
+            client = DeepSeekClient(DeepSeekConfig(api_key="test-key"))
+            client.chat([{"role": "user", "content": "ping"}])
+
+        request = urlopen.call_args.args[0]
+        self.assertEqual("fjsp-harness-agent/1.0", request.get_header("User-agent"))
+
     def test_chat_with_usage_preserves_prompt_cache_metrics(self) -> None:
         raw = {
             "choices": [{"message": {"role": "assistant", "content": '{"summary":"ok"}'}}],

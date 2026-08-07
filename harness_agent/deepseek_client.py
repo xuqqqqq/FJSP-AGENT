@@ -135,6 +135,7 @@ class DeepSeekClient:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.config.api_key}",
+                "User-Agent": "fjsp-harness-agent/1.0",
             },
             method="POST",
         )
