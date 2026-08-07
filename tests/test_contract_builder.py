@@ -66,6 +66,7 @@ class ContractBuilderTests(unittest.TestCase):
             self.assertIn("maintenance_windows", feature_names)
             self.assertIn("cross_factory_transfer", feature_names)
             self.assertIn("alternative_routes", feature_names)
+            self.assertIn("minimum_time_lag", feature_names)
 
             metric_names = {item["metric"] for item in review["metric_hints"]}
             self.assertIn("completed_weight", metric_names)

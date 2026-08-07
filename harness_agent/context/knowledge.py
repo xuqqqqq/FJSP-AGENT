@@ -28,7 +28,20 @@ _SDST_PATH_MARKERS = (
     "_sdst_",
     "sdst_hudata",
     "sdst_fattahi",
-    "decoder_neighborhood.md",
+    "references/sdst/agent_generated_decoder_neighborhood.md",
+)
+
+_MIN_TIME_LAG_TAGS = {
+    "fjsp_min_time_lag",
+    "minimum_time_lag",
+    "mitfjsp",
+    "lag_aware_decoder",
+}
+
+_MIN_TIME_LAG_PATH_MARKERS = (
+    "min_time_lag",
+    "minimum_time_lag",
+    "mitfjsp",
 )
 
 
@@ -66,12 +79,16 @@ def method_package_catalog(
         }
     features = {str(item).strip().lower() for item in active_features or [] if str(item).strip()}
     query_tags = {str(item).strip().lower() for item in knowledge_query_tags or [] if str(item).strip()}
+    known_families = {family.family_id for family in pack.method_families}
+    selected_families = query_tags.intersection(known_families)
     packages = []
     for package in pack.method_packages:
         required = {str(item).strip().lower() for item in package.required_features if str(item).strip()}
         excluded = {str(item).strip().lower() for item in package.excluded_features if str(item).strip()}
         activation = {str(item).strip().lower() for item in package.activation_tags if str(item).strip()}
         if not package.selection_enabled or required - features or excluded & features:
+            continue
+        if package.method_families and selected_families and not selected_families.intersection(package.method_families):
             continue
         if query_tags and (not activation or not query_tags.intersection(activation)):
             continue
@@ -82,6 +99,7 @@ def method_package_catalog(
         "problem_family": problem_family,
         "active_features": sorted(features),
         "knowledge_query_tags": sorted(query_tags),
+        "selected_method_families": sorted(selected_families),
         "packages": packages,
         "recommended_package_id": packages[0]["package_id"] if packages else None,
     }
@@ -373,6 +391,15 @@ def select_knowledge_cards(
         tags.update({"sdst", "setup_time", "sequence_dependent_setup"})
     else:
         tags.difference_update(_SDST_TAGS)
+    min_time_lag_active = _minimum_time_lag_active(
+        tags=tags,
+        instance_diagnostics=instance_diagnostics,
+        active_features=active_features,
+    )
+    if min_time_lag_active:
+        tags.update({"fjsp_min_time_lag", "minimum_time_lag", "time_lag", "lag_aware_decoder"})
+    else:
+        tags.difference_update(_MIN_TIME_LAG_TAGS)
 
     selected: list[Path] = []
     excluded: list[dict[str, str]] = []
@@ -396,6 +423,15 @@ def select_knowledge_cards(
                 }
             )
             return
+        if not min_time_lag_active and _is_min_time_lag_specific_path(path):
+            excluded.append(
+                {
+                    "path": str(path),
+                    "source": source,
+                    "reason": "inactive_minimum_time_lag",
+                }
+            )
+            return
         selected.append(path)
 
     for path in pack.base_cards:
@@ -409,7 +445,9 @@ def select_knowledge_cards(
         "status": "ok",
         "problem_family": problem_family,
         "domain_pack": pack.family_id,
-        "active_variant": "fjsp_sdst" if sdst_active else "standard_fjsp",
+        "active_variant": (
+            "fjsp_sdst" if sdst_active else "fjsp_min_time_lag" if min_time_lag_active else "standard_fjsp"
+        ),
         "active_features": sorted(_active_feature_terms(instance_diagnostics, active_features)),
         "requested_tags": requested_tags,
         "effective_tags": sorted(tags),
@@ -454,6 +492,15 @@ def select_tagged_knowledge_cards(
         effective_tags.update({"sdst", "setup_time", "sequence_dependent_setup"})
     else:
         effective_tags.difference_update(_SDST_TAGS)
+    min_time_lag_active = _minimum_time_lag_active(
+        tags=effective_tags,
+        instance_diagnostics=instance_diagnostics,
+        active_features=active_features,
+    )
+    if min_time_lag_active:
+        effective_tags.update({"fjsp_min_time_lag", "minimum_time_lag", "time_lag", "lag_aware_decoder"})
+    else:
+        effective_tags.difference_update(_MIN_TIME_LAG_TAGS)
 
     selected: list[Path] = []
     excluded: list[dict[str, str]] = []
@@ -477,6 +524,15 @@ def select_tagged_knowledge_cards(
                 }
             )
             return
+        if not min_time_lag_active and _is_min_time_lag_specific_path(path):
+            excluded.append(
+                {
+                    "path": str(path),
+                    "source": source,
+                    "reason": "inactive_minimum_time_lag",
+                }
+            )
+            return
         if _matches_query_excluded_path_marker(path, markers=pack.knowledge_query_excluded_path_markers):
             excluded.append(
                 {
@@ -488,7 +544,10 @@ def select_tagged_knowledge_cards(
             return
         selected.append(path)
 
-    for tag in requested_tags:
+    # Active variant tags are mandatory retrieval constraints, not merely audit
+    # metadata. Otherwise a generic Main query such as ``constructive_search``
+    # recognizes the variant but silently omits its decoder/search contracts.
+    for tag in sorted(set(requested_tags) | effective_tags):
         for path in pack.tagged_cards.get(tag, []):
             add_candidate(path, source=f"tag:{tag}")
 
@@ -500,7 +559,9 @@ def select_tagged_knowledge_cards(
         "problem_family": problem_family,
         "domain_pack": pack.family_id,
         "selection_mode": "tagged_query",
-        "active_variant": "fjsp_sdst" if sdst_active else "standard_fjsp",
+        "active_variant": (
+            "fjsp_sdst" if sdst_active else "fjsp_min_time_lag" if min_time_lag_active else "standard_fjsp"
+        ),
         "active_features": sorted(_active_feature_terms(instance_diagnostics, active_features)),
         "requested_tags": requested_tags,
         "effective_tags": sorted(effective_tags),
@@ -544,7 +605,50 @@ def _active_feature_terms(
     terms = {str(value).strip().lower() for value in (active_features or []) if str(value).strip()}
     if _sdst_state_from_diagnostics(instance_diagnostics):
         terms.update({"fjsp_sdst", "sequence_dependent_setup", "setup_time"})
+    if _minimum_time_lag_state_from_diagnostics(instance_diagnostics):
+        terms.update({"fjsp_min_time_lag", "minimum_time_lag", "time_lag"})
     return terms
+
+
+def _minimum_time_lag_active(
+    *,
+    tags: set[str],
+    instance_diagnostics: dict[str, Any] | None,
+    active_features: list[str] | None,
+) -> bool:
+    diagnostic_state = _minimum_time_lag_state_from_diagnostics(instance_diagnostics)
+    if diagnostic_state is not None:
+        return diagnostic_state
+    feature_terms = _active_feature_terms(instance_diagnostics, active_features)
+    if feature_terms & _MIN_TIME_LAG_TAGS:
+        return True
+    return bool(tags & _MIN_TIME_LAG_TAGS)
+
+
+def _minimum_time_lag_state_from_diagnostics(
+    instance_diagnostics: dict[str, Any] | None,
+) -> bool | None:
+    if not isinstance(instance_diagnostics, dict):
+        return None
+    summary = instance_diagnostics.get("summary") if isinstance(instance_diagnostics.get("summary"), dict) else {}
+    instances = [item for item in instance_diagnostics.get("instances") or [] if isinstance(item, dict)]
+    diagnostics_have_shape = (
+        instance_diagnostics.get("status") in {"available", "partial"}
+        and (
+            int(summary.get("profiled_count") or 0) > 0
+            or int(summary.get("instance_count") or 0) > 0
+            or bool(instances)
+        )
+    )
+    if not diagnostics_have_shape:
+        return None
+    if int(summary.get("min_time_lag_instance_count") or 0) > 0:
+        return True
+    return any(
+        str(item.get("variant") or "").strip().lower() == "fjsp_min_time_lag"
+        or bool(item.get("has_minimum_time_lags"))
+        for item in instances
+    )
 
 
 def _sdst_state_from_diagnostics(instance_diagnostics: dict[str, Any] | None) -> bool | None:
@@ -589,6 +693,11 @@ def _slot_requests_sdst(slot_manifest: dict[str, Any] | None) -> bool:
 def _is_sdst_specific_path(path: Path) -> bool:
     normalized = str(path).replace("\\", "/").lower()
     return any(marker in normalized for marker in _SDST_PATH_MARKERS)
+
+
+def _is_min_time_lag_specific_path(path: Path) -> bool:
+    normalized = str(path).replace("\\", "/").lower()
+    return any(marker in normalized for marker in _MIN_TIME_LAG_PATH_MARKERS)
 
 
 def _is_experiment_memory_path(path: Path) -> bool:

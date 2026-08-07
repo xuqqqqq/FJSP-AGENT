@@ -57,11 +57,13 @@ class StandardFjspContextProvider:
             else "unavailable"
         )
         sdst_instances = [item for item in profiled if item.get("variant") == "fjsp_sdst"]
+        min_lag_instances = [item for item in profiled if item.get("variant") == "fjsp_min_time_lag"]
         best_known_count = sum(1 for item in profiled if item.get("best_known_makespan") is not None)
         summary = {
             "instance_count": len(contract.instances),
             "profiled_count": len(profiled),
             "sdst_instance_count": len(sdst_instances),
+            "min_time_lag_instance_count": len(min_lag_instances),
             "shape_group_count": len(_instance_shape_groups(profiled)),
             "setup_time_kinds": sorted(
                 {str(item.get("setup_time_kind")) for item in profiled if item.get("setup_time_kind")}
@@ -92,6 +94,13 @@ class StandardFjspContextProvider:
             "max_setup_to_processing_avg_ratio": max(
                 (float(item.get("setup_to_processing_avg_ratio", 0.0) or 0.0) for item in profiled),
                 default=0.0,
+            ),
+            "max_min_time_lag": max(
+                (int(item.get("min_time_lag_max", 0) or 0) for item in profiled),
+                default=0,
+            ),
+            "avg_min_time_lag_density": _rounded_average(
+                float(item.get("min_time_lag_density", 0.0) or 0.0) for item in min_lag_instances
             ),
             "best_known_available_count": best_known_count,
             "best_known_semantics": "diagnostic_only_score_remains_negative_makespan",
@@ -129,8 +138,14 @@ class StandardFjspContextProvider:
             int(summary.get("sdst_instance_count") or 0) > 0
             or any(kind not in {"", "none", "null"} for kind in setup_kinds)
         )
+        diagnostics_show_min_lag = int(summary.get("min_time_lag_instance_count") or 0) > 0
+        features: list[str] = []
         if diagnostics_show_sdst:
-            return ["fjsp_sdst", "sequence_dependent_setup", "setup_time"]
+            features.extend(["fjsp_sdst", "sequence_dependent_setup", "setup_time"])
+        if diagnostics_show_min_lag:
+            features.extend(["fjsp_min_time_lag", "minimum_time_lag", "time_lag"])
+        if features:
+            return features
         if diagnostics_have_shape:
             return []
 
@@ -142,7 +157,11 @@ class StandardFjspContextProvider:
             ensure_ascii=False,
         ).lower()
         if re.search(r"\bfjsp[-_]?sdst\b|\bsequence[-_\s]?dependent[-_\s]?setup\b|\bsetup[-_\s]?matrix\b", text):
-            return ["fjsp_sdst", "sequence_dependent_setup", "setup_time"]
+            features.extend(["fjsp_sdst", "sequence_dependent_setup", "setup_time"])
+        if re.search(r"\bfjsp[-_]?min(?:imum)?[-_\s]?time[-_\s]?lag\b|\bmin(?:imum)?[-_\s]?time[-_\s]?lag\b|最小时间(?:间隔|滞后)", text):
+            features.extend(["fjsp_min_time_lag", "minimum_time_lag", "time_lag"])
+        if features:
+            return list(dict.fromkeys(features))
         return []
 
     def solution_contract(self) -> dict[str, Any]:
@@ -218,12 +237,14 @@ def _single_instance_diagnostics(
         if processing_avg > 0 and setup_stats["avg_nonzero"] is not None
         else 0.0
     )
+    lag_values = [constraint.lag for constraint in instance.minimum_time_lags]
+    adjacent_pair_count = sum(max(0, len(job.operations) - 1) for job in instance.jobs)
     best_known = _load_best_known_diagnostic(best_known_csv, instance.name)
     payload.update(
         {
             "parsed": True,
             "name": instance.name,
-            "variant": "fjsp_sdst" if instance.has_sequence_dependent_setup else "standard_fjsp",
+            "variant": instance.variant,
             "job_count": instance.job_count,
             "machine_count": instance.machine_count,
             "operation_count": instance.operation_count,
@@ -262,6 +283,14 @@ def _single_instance_diagnostics(
             "setup_time_avg_nonzero": setup_stats["avg_nonzero"],
             "setup_time_avg_all": setup_stats["avg_all"],
             "setup_to_processing_avg_ratio": setup_ratio,
+            "min_time_lag_constraint_count": len(lag_values),
+            "min_time_lag_positive_count": sum(1 for value in lag_values if value > 0),
+            "min_time_lag_min": min(lag_values, default=0),
+            "min_time_lag_max": max(lag_values, default=0),
+            "min_time_lag_avg": _rounded_average(float(value) for value in lag_values),
+            "min_time_lag_density": _round_float(len(lag_values) / adjacent_pair_count)
+            if adjacent_pair_count
+            else 0.0,
             "best_known_makespan": best_known,
             "best_known_diagnostic_only": best_known is not None,
         }
@@ -306,13 +335,16 @@ def _instance_shape_groups(profiled: list[dict[str, Any]]) -> dict[str, list[dic
 
 
 def _instance_shape_key(item: dict[str, Any]) -> str:
-    return (
+    key = (
         f"j{int(item.get('job_count', 0) or 0)}_"
         f"m{int(item.get('machine_count', 0) or 0)}_"
         f"ops{int(item.get('operation_count', 0) or 0)}_"
         f"c{int(item.get('max_candidate_count', 0) or 0)}_"
         f"{item.get('setup_time_kind') or 'none'}"
     )
+    if str(item.get("variant") or "") == "fjsp_min_time_lag":
+        key += "_min_time_lag"
+    return key
 
 
 def _instance_shape_group_summaries(profiled: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -436,6 +468,16 @@ def _instance_direction_hints(summary: dict[str, Any], profiled: list[dict[str, 
             hints.append("Setup is material; any later direction must preserve setup-aware timing semantics.")
     else:
         hints.append("No sequence-dependent setup matrix was detected in the parsed instances.")
+    if int(summary.get("min_time_lag_instance_count", 0) or 0) > 0:
+        hints.append(
+            "Minimum time-lag constraints are active; construction, full decoding, and every move evaluation "
+            "must propagate each listed adjacent-pair lower bound."
+        )
+        hints.append(
+            "Measured min-lag structure: "
+            f"density_avg={summary.get('avg_min_time_lag_density', 0.0)}, "
+            f"max_lag={summary.get('max_min_time_lag', 0)}."
+        )
     hints.append(
         "Measured assignment structure: "
         f"avg_candidates={summary.get('avg_candidate_count', 0.0)}, "

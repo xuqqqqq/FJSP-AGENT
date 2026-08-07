@@ -183,6 +183,10 @@ button {
   font-weight: 500;
 }
 
+a.side-import-action {
+  text-decoration: none;
+}
+
 .search-box {
   display: grid;
   gap: 6px;
@@ -335,16 +339,17 @@ h3 {
   gap: 10px;
 }
 
+.mobile-view-picker {
+  display: none;
+}
+
 .workspace-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
   min-height: calc(100vh - 66px);
 }
 
 .main-stage {
   min-width: 0;
   padding: 24px clamp(18px, 3vw, 38px) 48px;
-  border-right: 1px solid var(--border);
   background: var(--surface);
 }
 
@@ -354,20 +359,6 @@ h3 {
 
 .workspace-view.active {
   display: block;
-}
-
-.inspector-tabs button {
-  min-height: 36px;
-  padding: 0 12px;
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-  background: var(--surface);
-}
-
-.inspector-tabs .active {
-  color: var(--primary-text);
-  border-color: var(--primary);
-  background: var(--primary-soft);
 }
 
 .page-section,
@@ -1161,6 +1152,10 @@ h3 {
   min-height: 640px;
 }
 
+#view-worker .split-view {
+  grid-template-columns: 320px minmax(0, 1fr);
+}
+
 .subnav-panel {
   min-width: 0;
   padding: 18px 14px 18px 0;
@@ -1171,6 +1166,18 @@ h3 {
   margin: 8px 0 18px;
   color: var(--text-muted);
   line-height: 1.6;
+}
+
+.audit-inspector {
+  padding-right: 18px;
+}
+
+.audit-inspector .inspector-card {
+  margin-bottom: 12px;
+}
+
+.round-list-title {
+  margin-top: 24px;
 }
 
 .content-panel {
@@ -1402,6 +1409,47 @@ h3 {
   color: var(--text);
   border: 1px solid var(--border);
   background: var(--surface);
+}
+
+.artifact-button.active {
+  color: var(--primary-text);
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.artifact-workspace {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  min-height: 620px;
+  margin-top: 18px;
+}
+
+.artifact-browser-panel {
+  min-width: 0;
+  padding-right: 20px;
+  border-right: 1px solid var(--border);
+}
+
+.artifact-browser-panel p {
+  margin: 8px 0 18px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.artifact-browser-panel .artifact-list {
+  display: grid;
+}
+
+.artifact-browser-panel .artifact-button {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.artifact-workspace .report-panel {
+  margin: 0;
+  padding: 0 0 0 24px;
 }
 
 .trend-placeholder {
@@ -2029,36 +2077,267 @@ h3 {
   opacity: 0.45;
 }
 
-.starter-project-summary {
-  display: flex;
+.project-review {
+  max-width: 1120px;
+  padding-bottom: 26px;
+}
+
+.project-review-titlebar {
+  align-items: flex-start;
+}
+
+.project-review-summary {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(150px, 0.8fr) minmax(150px, 0.8fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
-  padding: 12px 14px;
+  gap: 0;
   border: 1px solid var(--border);
   border-left: 3px solid var(--success);
   background: var(--success-soft);
 }
 
-.starter-project-summary.hidden {
-  display: none;
+.project-review-summary > div {
+  min-width: 0;
+  min-height: 66px;
+  padding: 13px 16px;
+  border-right: 1px solid rgba(22, 130, 93, 0.18);
 }
 
-.starter-project-summary span,
-.starter-project-summary strong {
+.project-review-summary span,
+.project-review-summary strong,
+.provided-setup-toolbar span,
+.provided-setup-toolbar strong {
   display: block;
 }
 
-.starter-project-summary span {
+.project-review-summary div > span,
+.provided-setup-toolbar span {
   margin-bottom: 3px;
   color: var(--text-muted);
   font-size: 11px;
 }
 
-.starter-project-summary strong {
+.project-review-summary strong,
+.provided-setup-toolbar strong {
   overflow-wrap: anywhere;
   font-size: 13px;
+}
+
+.project-review-summary > .status-pill {
+  margin: 0 14px;
+}
+
+.project-review-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.9fr) minmax(360px, 1.1fr);
+  min-height: 460px;
+  margin-top: 22px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.project-files-panel,
+.project-contract-panel {
+  min-width: 0;
+  padding: 18px 0;
+}
+
+.project-files-panel {
+  padding-right: 18px;
+}
+
+.project-contract-panel {
+  padding-left: 18px;
+  border-left: 1px solid var(--border);
+}
+
+.review-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.review-panel-heading h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.project-file-tree {
+  max-height: 500px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  list-style: none;
+}
+
+.project-file-tree li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  min-height: 42px;
+  padding: 10px 12px 10px calc(12px + var(--tree-depth) * 14px);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.project-file-tree li:last-child {
+  border-bottom: 0;
+}
+
+.project-file-tree li.sensitive {
+  border-left: 3px solid var(--danger);
+  background: var(--danger-soft);
+}
+
+.project-file-tree span {
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.project-file-tree small {
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.project-review-contract {
+  margin: 0;
+  border-top: 1px solid var(--border);
+}
+
+.project-review-contract > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 14px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.project-review-contract dt {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.project-review-contract dd {
+  min-width: 0;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.project-review-contract dd > span,
+.project-review-contract dd > small {
+  display: block;
+}
+
+.review-contract-note {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.review-check {
+  align-self: start;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.review-check.valid {
+  color: var(--success);
+}
+
+.review-check.invalid {
+  color: var(--danger);
+}
+
+.review-check.neutral {
+  color: var(--text-muted);
+}
+
+.project-review-issues {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.review-issue-block {
+  padding: 11px 13px;
+  border-left: 3px solid var(--border-strong);
+  background: var(--surface-soft);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.review-issue-block strong,
+.review-issue-block span {
+  display: block;
+}
+
+.review-issue-block ul {
+  margin: 6px 0 0 18px;
+  padding: 0;
+}
+
+.review-issue-block.error {
+  border-left-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.review-issue-block.warning {
+  border-left-color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.review-issue-block.success {
+  border-left-color: var(--success);
+  background: var(--success-soft);
+}
+
+.project-review-actions,
+.provided-setup-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.project-review-actions {
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.project-review-actions button {
+  min-height: 40px;
+  padding: 0 16px;
+}
+
+.project-review-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.provided-setup-toolbar {
+  margin-bottom: 20px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--success);
+  background: var(--success-soft);
+}
+
+.provided-project-task-form {
+  border-bottom-color: var(--success);
 }
 
 .field {
@@ -2160,17 +2439,6 @@ pre {
   white-space: pre-wrap;
 }
 
-/* 右侧检查器：只展示 Context/Core/Artifact 证据，不承载编辑操作。 */
-.inspector {
-  position: sticky;
-  top: 66px;
-  align-self: start;
-  height: calc(100vh - 66px);
-  padding: 16px;
-  overflow: auto;
-  background: var(--surface-soft);
-}
-
 .inspector-head {
   justify-content: space-between;
   gap: 12px;
@@ -2180,24 +2448,6 @@ pre {
 .inspector-head span {
   color: var(--text-muted);
   font-size: 12px;
-}
-
-.inspector-tabs {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-bottom: 16px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-}
-
-.inspector-tabs button {
-  border: 0;
-  border-right: 1px solid var(--border);
-  border-radius: 0;
-}
-
-.inspector-tabs button:last-child {
-  border-right: 0;
 }
 
 .inspector-card {
@@ -2210,10 +2460,6 @@ pre {
 .inspector-card p {
   margin: 8px 0 12px;
   line-height: 1.65;
-}
-
-.full-button {
-  width: 100%;
 }
 
 .evidence-list {
@@ -2238,20 +2484,219 @@ pre {
   text-align: right;
 }
 
-/* 响应式布局：先收起检查器，再把导航切换为横向区域。 */
+/* 已有项目演进使用独立 HTML 文档，不继承工作台网格。 */
+.project-document {
+  min-height: 100vh;
+  background: var(--surface);
+}
+
+.project-page-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-height: 72px;
+  padding: 12px max(24px, calc((100vw - 1280px) / 2));
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.project-page-brand {
+  color: var(--primary-text);
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.project-page-header p {
+  margin-bottom: 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.project-page-header h1 {
+  font-size: 19px;
+}
+
+.ghost-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 14px;
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.ghost-link:hover {
+  color: var(--primary-text);
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.project-page-main {
+  width: min(100%, 1280px);
+  margin: 0 auto;
+  padding: 28px 32px 56px;
+}
+
+.project-import-main {
+  max-width: 1040px;
+}
+
+.project-setup-main {
+  max-width: 1180px;
+}
+
+.project-flow-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0 0 30px;
+  padding: 0;
+  border-bottom: 1px solid var(--border);
+  list-style: none;
+}
+
+.project-flow-steps li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 52px;
+  padding: 0 10px;
+  color: var(--text-muted);
+  border-bottom: 3px solid transparent;
+}
+
+.project-flow-steps li span {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  font-size: 12px;
+}
+
+.project-flow-steps li.current {
+  color: var(--primary-text);
+  border-bottom-color: var(--primary);
+}
+
+.project-flow-steps li.done {
+  color: var(--success);
+  border-bottom-color: var(--success);
+}
+
+.project-flow-steps li.current span {
+  color: #fff;
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+.project-flow-steps li.done span {
+  color: #fff;
+  border-color: var(--success);
+  background: var(--success);
+}
+
+.project-page-section {
+  margin-bottom: 26px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.project-contract-inputs,
+.project-setup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.project-page-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.project-page-actions button {
+  min-height: 42px;
+  padding: 0 18px;
+}
+
+.project-page-message {
+  min-height: 24px;
+  margin-top: 14px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.project-page-message.error {
+  color: var(--danger);
+}
+
+.project-baseline-band {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.75fr) minmax(160px, 0.75fr) minmax(260px, 1.5fr) auto;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 28px;
+  padding: 16px 18px;
+  border-left: 3px solid var(--success);
+  background: var(--success-soft);
+}
+
+.project-baseline-band span,
+.project-baseline-band strong,
+.project-contract-readonly span,
+.project-contract-readonly strong {
+  display: block;
+}
+
+.project-baseline-band span,
+.project-contract-readonly span {
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.project-baseline-band strong,
+.project-contract-readonly strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.project-contract-readonly {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 18px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.project-runtime-grid {
+  margin-top: 18px;
+}
+
+.project-setup-form > .advanced {
+  padding: 0 0 24px;
+  background: transparent;
+}
+
+.project-setup-form > .advanced summary {
+  padding: 14px 0;
+}
+
+/* 响应式布局：收拢工作台导航与页面内双栏。 */
 @media (max-width: 1280px) {
   .app-shell {
     grid-template-columns: 240px minmax(0, 1fr);
-  }
-
-  .workspace-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .inspector {
-    position: static;
-    height: auto;
-    border-top: 1px solid var(--border);
   }
 }
 
@@ -2282,6 +2727,7 @@ pre {
   }
 
   .split-view,
+  .artifact-workspace,
   .doc-grid,
   .config-grid,
   .contract-strip,
@@ -2331,9 +2777,51 @@ pre {
   }
 
   .project-import-actions,
-  .starter-project-summary {
+  .provided-setup-toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .project-review-summary,
+  .project-review-layout {
+    grid-template-columns: 1fr;
+  }
+
+  #view-worker .split-view {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .project-baseline-band {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .project-baseline-band .ghost-link {
+    width: max-content;
+  }
+
+  .project-review-summary > div {
+    border-right: 0;
+    border-bottom: 1px solid rgba(22, 130, 93, 0.18);
+  }
+
+  .project-review-summary > .status-pill {
+    width: max-content;
+    margin: 12px 14px;
+  }
+
+  .project-files-panel {
+    padding-right: 0;
+  }
+
+  .project-contract-panel {
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+
+  .project-review-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
   }
 
   .agent-status-bar {
@@ -2358,6 +2846,16 @@ pre {
     border-right: 0;
   }
 
+  .artifact-browser-panel {
+    padding: 0 0 18px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .artifact-workspace .report-panel {
+    padding: 20px 0 0;
+  }
+
   .content-panel {
     padding-left: 0;
   }
@@ -2378,5 +2876,133 @@ pre {
   .artifact-path {
     max-width: 100%;
     white-space: normal;
+  }
+}
+
+@media (max-width: 640px) {
+  .side-rail {
+    position: static;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+    height: auto;
+    padding: 10px;
+    overflow: visible;
+  }
+
+  .brand-lockup,
+  .search-box,
+  .nav-group,
+  .side-footer {
+    display: none;
+  }
+
+  .side-action,
+  .side-import-action {
+    min-height: 44px;
+    margin: 0;
+  }
+
+  .side-import-action {
+    padding: 6px 10px;
+  }
+
+  .workspace-header {
+    position: static;
+    min-height: 0;
+    padding: 12px 14px;
+  }
+
+  .workspace-header h1 {
+    font-size: 18px;
+  }
+
+  .mobile-view-picker {
+    display: grid;
+    width: 100%;
+    gap: 5px;
+  }
+
+  .mobile-view-picker span {
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .mobile-view-picker select {
+    width: 100%;
+    min-height: 42px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+  }
+
+  .header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .workspace-grid {
+    display: block;
+    min-height: 0;
+  }
+
+  .main-stage {
+    padding: 16px 14px 32px;
+    border-right: 0;
+  }
+
+  .project-review-layout {
+    min-height: 0;
+  }
+
+  .project-file-tree {
+    max-height: 360px;
+  }
+
+  .project-review-titlebar .ghost,
+  .project-review-actions button {
+    width: 100%;
+  }
+
+  .project-page-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 12px 14px;
+  }
+
+  .project-page-brand {
+    display: none;
+  }
+
+  .project-page-main {
+    padding: 18px 14px 40px;
+  }
+
+  .project-flow-steps li {
+    justify-content: center;
+    padding: 0 4px;
+  }
+
+  .project-flow-steps li strong {
+    display: none;
+  }
+
+  .project-contract-inputs,
+  .project-setup-grid,
+  .project-contract-readonly,
+  .project-baseline-band {
+    grid-template-columns: 1fr;
+  }
+
+  .project-page-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .project-page-actions .ghost-link,
+  .project-page-actions button,
+  .project-baseline-band .ghost-link {
+    width: 100%;
   }
 }

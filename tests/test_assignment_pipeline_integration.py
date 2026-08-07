@@ -73,6 +73,16 @@ class AssignmentPipelineIntegrationTests(unittest.TestCase):
                 "Implement the complete selected package.",
                 round_assignment_payload["objective"],
             )
+            round_read_paths = [item["path"].replace("\\", "/") for item in round_assignment_payload["read_set"]]
+            self.assertIn(
+                "knowledge/references/standard_fjsp/standard_fjsp_awls_hgtsa_execution_skeleton.md",
+                round_read_paths,
+            )
+            self.assertFalse(any(path.endswith("/reference_solver.py") for path in round_read_paths))
+            self.assertFalse(any(path.endswith("/README.md") for path in round_read_paths))
+            self.assertFalse(
+                any(path.endswith("/standard_fjsp_algorithm_semantic_review_contract.md") for path in round_read_paths)
+            )
             self.assertTrue(
                 (loop_root / "agent_generated_baseline" / "main_agent" / "planning_packet.json").is_file()
             )

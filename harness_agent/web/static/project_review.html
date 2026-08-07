@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>审核已有项目 · AlgoForge</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/static/style.css?v=20260731-project-documents-1" />
+  </head>
+  <body class="project-document" data-project-step="review">
+    <header class="project-page-header">
+      <a class="project-page-brand" href="/">AlgoForge</a>
+      <div>
+        <p>已有项目演进</p>
+        <h1>审核项目</h1>
+      </div>
+      <a class="ghost-link" href="/">返回工作台</a>
+    </header>
+    <main class="project-page-main">
+      <ol class="project-flow-steps" aria-label="已有项目配置进度">
+        <li class="done"><span>1</span><strong>导入项目</strong></li>
+        <li class="current"><span>2</span><strong>审核契约</strong></li>
+        <li><span>3</span><strong>演进配置</strong></li>
+      </ol>
+
+      <section class="project-page-section project-review">
+        <div class="section-head project-review-titlebar">
+          <div>
+            <span class="section-kicker">人工审核</span>
+            <h2>核对 ZIP 内容和实际算法入口</h2>
+          </div>
+          <a class="ghost-link" href="/projects/import">返回修改</a>
+        </div>
+        <div class="project-review-summary">
+          <div><span>项目 ZIP</span><strong id="review-project-name">-</strong></div>
+          <div><span>项目规模</span><strong id="review-project-stats">-</strong></div>
+          <div><span>已去除顶层目录</span><strong id="review-project-root">-</strong></div>
+          <span class="status-pill" id="review-contract-status">等待检查</span>
+        </div>
+        <div class="project-review-layout">
+          <div class="project-files-panel">
+            <div class="review-panel-heading">
+              <div><span class="section-kicker">ZIP 内容</span><h3>项目文件</h3></div>
+              <span id="review-file-count" class="muted">0 个文件</span>
+            </div>
+            <ul id="review-file-tree" class="project-file-tree"></ul>
+          </div>
+          <div class="project-contract-panel">
+            <div class="review-panel-heading">
+              <div><span class="section-kicker">执行边界</span><h3>平台识别结果</h3></div>
+            </div>
+            <dl class="project-review-contract">
+              <div><dt>Solver 入口</dt><dd id="review-entrypoint">-</dd><span id="review-entrypoint-status" class="review-check">待检查</span></div>
+              <div><dt>主要可编辑文件</dt><dd id="review-target-file">-</dd><span id="review-target-status" class="review-check">待检查</span></div>
+              <div>
+                <dt>自动识别的算法实现</dt>
+                <dd><span id="review-detected-target">-</span><small id="review-detection-reason" class="review-contract-note">-</small></dd>
+                <span id="review-detection-status" class="review-check">待检查</span>
+              </div>
+              <div><dt>Solver 命令模板</dt><dd id="review-command">-</dd><span id="review-command-status" class="review-check">待检查</span></div>
+              <div><dt>ZIP 内项目算例</dt><dd id="review-project-instances">-</dd><span id="review-project-instances-status" class="review-check neutral">待确认</span></div>
+            </dl>
+            <div id="review-issues" class="project-review-issues"></div>
+          </div>
+        </div>
+      </section>
+      <div class="project-page-actions">
+        <a class="ghost-link" href="/projects/import">返回修改契约</a>
+        <button class="primary" type="button" id="confirm-starter-project-review" disabled>确认无误，进入演进配置</button>
+      </div>
+      <p id="project-page-message" class="project-page-message" aria-live="polite"></p>
+    </main>
+    <script src="/static/project.js?v=20260731-project-documents-1"></script>
+  </body>
+</html>

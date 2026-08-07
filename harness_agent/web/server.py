@@ -11,6 +11,7 @@ Web 层只负责输入落盘、后台任务生命周期、状态轮询和产物�
 from __future__ import annotations
 
 import argparse
+import ast
 import base64
 import binascii
 import io
@@ -18,7 +19,9 @@ import json
 import math
 import os
 import re
+import shutil
 import stat
+import tempfile
 import threading
 import time
 import traceback
@@ -33,7 +36,9 @@ from harness_agent.deepseek_client import is_deepseek_configured, load_local_env
 from harness_agent.orchestration.loop import DEFAULT_IN_ROUND_REPAIR_ATTEMPTS, load_worker_loop_result
 from harness_agent.context.knowledge import knowledge_query_catalog, method_family_catalog, method_package_catalog
 from harness_agent.core.cancellation import CancellationToken, TaskCancelled
+from harness_agent.core.runtime import solver_runtime_status
 from harness_agent.agents.opencode_main import OpenCodeMainAgent
+from harness_agent.agents.semantic import DeepSeekAlgorithmSemanticReviewer
 from harness_agent.domains.io import parse_standard_fjsp
 from harness_agent.orchestration.standard import StandardWorkerLoopRequest, run_standard_worker_loop
 from harness_agent.workers.opencode_worker import (
@@ -55,6 +60,12 @@ MAX_STARTER_FILE_BYTES = 16 * 1024 * 1024
 MAX_STARTER_ARCHIVE_ENTRIES = 2_000
 MAX_ARTIFACT_CHARS = 240_000
 MAX_RESOURCE_CHARS = 240_000
+FRONTEND_DOCUMENTS = {
+    "/": "index.html",
+    "/projects/import": "project_import.html",
+    "/projects/import/review": "project_review.html",
+    "/projects/import/setup": "project_setup.html",
+}
 RESOURCE_TEXT_SUFFIXES = frozenset({".md", ".json", ".py", ".yaml", ".yml", ".csv", ".txt"})
 SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 KNOWLEDGE_SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
@@ -84,6 +95,20 @@ DEFAULT_STANDARD_FJSP_DP18A_BOUNDS_CSV = (
 _JOBS: dict[str, dict[str, Any]] = {}
 _LOCK = threading.Lock()
 _ROUND_GATES: dict[str, "WebRoundInterventionGate"] = {}
+
+
+def is_frontend_route(path: str) -> bool:
+    """Return whether a browser path is served by the client-side router."""
+
+    normalized = str(path or "/").rstrip("/") or "/"
+    return normalized in FRONTEND_DOCUMENTS
+
+
+def frontend_document(path: str) -> str | None:
+    """Resolve one browser route to its physical HTML document."""
+
+    normalized = str(path or "/").rstrip("/") or "/"
+    return FRONTEND_DOCUMENTS.get(normalized)
 _JOB_CANCELLATIONS: dict[str, CancellationToken] = {}
 _ACTIVE_OUTPUT_ROOT = DEFAULT_OUTPUT_ROOT
 _RESOURCE_WRITE_LOCK = threading.Lock()
@@ -149,6 +174,243 @@ def validate_starter_solver_command(value: Any, *, entrypoint: str) -> str:
     except (KeyError, ValueError) as exc:
         raise ValueError(f"starter solver command has an invalid placeholder: {exc}") from exc
     return command
+
+
+STARTER_INSTANCE_SUFFIXES = frozenset({".fjs", ".fjsp"})
+STARTER_ALGORITHM_SYMBOLS = frozenset({"solve", "search", "optimize", "optimise", "improve"})
+STARTER_ALGORITHM_STEMS = ("solver", "search", "optimizer", "optimiser", "heuristic", "algorithm")
+
+
+def inspect_starter_python_contract(project_root: Path, *, entrypoint: str) -> dict[str, Any]:
+    """Infer a Python CLI contract without executing uploaded project code."""
+
+    entrypoint_path = project_root / entrypoint
+    result: dict[str, Any] = {
+        "recommended_target_file": entrypoint,
+        "recommended_solver_command": None,
+        "entrypoint_is_wrapper": False,
+        "algorithm_candidates": [],
+        "cli_options": [],
+        "cli_positionals": [],
+        "detection_reason": "未发现可静态确认的独立算法模块。",
+    }
+    if not entrypoint_path.is_file() or entrypoint_path.suffix.lower() != ".py":
+        return result
+    try:
+        tree = ast.parse(entrypoint_path.read_text(encoding="utf-8-sig"), filename=entrypoint)
+    except (OSError, SyntaxError, UnicodeError):
+        return result
+
+    options, positionals = _python_argparse_arguments(tree)
+    result["cli_options"] = sorted(options)
+    result["cli_positionals"] = positionals
+    result["recommended_solver_command"] = _recommended_python_solver_command(
+        entrypoint=entrypoint,
+        options=options,
+        positionals=positionals,
+    )
+
+    entrypoint_definitions = {
+        node.name.casefold()
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    }
+    candidates: dict[str, dict[str, Any]] = {}
+    for imported_path, symbol in _local_imported_symbols(project_root, entrypoint_path, tree):
+        relative = imported_path.relative_to(project_root).as_posix()
+        if relative == entrypoint or imported_path.name == "__init__.py":
+            continue
+        stem = imported_path.stem.casefold()
+        score = 0
+        if symbol.casefold() in STARTER_ALGORITHM_SYMBOLS:
+            score += 100
+        if any(token in stem for token in STARTER_ALGORITHM_STEMS):
+            score += 60
+        if score < 60:
+            continue
+        current = candidates.get(relative)
+        if current is None or score > int(current["score"]):
+            candidates[relative] = {"path": relative, "symbol": symbol, "score": score}
+
+    ranked = sorted(candidates.values(), key=lambda item: (-int(item["score"]), str(item["path"])))
+    result["algorithm_candidates"] = ranked[:8]
+    if ranked and not (entrypoint_definitions & STARTER_ALGORITHM_SYMBOLS):
+        recommended = str(ranked[0]["path"])
+        result["recommended_target_file"] = recommended
+        result["entrypoint_is_wrapper"] = True
+        result["detection_reason"] = (
+            f"入口通过本地导入调用 `{recommended}` 中的 `{ranked[0]['symbol']}`；"
+            "应保留入口协议并演进实际算法模块。"
+        )
+    return result
+
+
+def _python_argparse_arguments(tree: ast.AST) -> tuple[set[str], list[str]]:
+    options: set[str] = set()
+    positionals: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        if node.func.attr != "add_argument":
+            continue
+        names = [
+            item.value
+            for item in node.args
+            if isinstance(item, ast.Constant) and isinstance(item.value, str)
+        ]
+        for name in names:
+            if name.startswith("-"):
+                options.add(name)
+            elif name not in positionals:
+                positionals.append(name)
+    return options, positionals
+
+
+def _recommended_python_solver_command(
+    *,
+    entrypoint: str,
+    options: set[str],
+    positionals: list[str],
+) -> str | None:
+    parts = ["python", entrypoint]
+    if "--input" in options:
+        parts.extend(["--input", "{instance}"])
+    elif "--instance" in options:
+        parts.extend(["--instance", "{instance}"])
+    elif "instance" in {name.casefold() for name in positionals}:
+        parts.append("{instance}")
+    else:
+        return None
+    if "--output" not in options:
+        return None
+    parts.extend(["--output", "{solution}"])
+    if "--seed" in options:
+        parts.extend(["--seed", "{seed}"])
+    for option in ("--time-limit-sec", "--time-limit-seconds", "--time-limit"):
+        if option in options:
+            parts.extend([option, "{solver_time_limit_seconds}"])
+            break
+    return " ".join(parts)
+
+
+def _local_imported_symbols(
+    project_root: Path,
+    source_path: Path,
+    tree: ast.AST,
+) -> list[tuple[Path, str]]:
+    resolved: list[tuple[Path, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            module_path = _resolve_local_module(project_root, source_path, node.module, node.level)
+            if module_path is None:
+                continue
+            for alias in node.names:
+                target = _resolve_reexported_symbol(
+                    project_root,
+                    module_path,
+                    alias.name,
+                    visited=set(),
+                )
+                resolved.append((target or module_path, alias.name))
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                module_path = _resolve_local_module(project_root, source_path, alias.name, 0)
+                if module_path is not None:
+                    resolved.append((module_path, alias.name.rsplit(".", 1)[-1]))
+    return resolved
+
+
+def _resolve_local_module(
+    project_root: Path,
+    source_path: Path,
+    module: str | None,
+    level: int,
+) -> Path | None:
+    if level:
+        base = source_path.parent
+        for _ in range(max(0, level - 1)):
+            base = base.parent
+    else:
+        base = project_root
+    module_parts = [part for part in str(module or "").split(".") if part]
+    candidate = base.joinpath(*module_parts)
+    paths = [candidate.with_suffix(".py"), candidate / "__init__.py"]
+    for path in paths:
+        try:
+            path.resolve().relative_to(project_root.resolve())
+        except ValueError:
+            continue
+        if path.is_file():
+            return path
+    return None
+
+
+def _resolve_reexported_symbol(
+    project_root: Path,
+    module_path: Path,
+    symbol: str,
+    *,
+    visited: set[tuple[str, str]],
+) -> Path | None:
+    key = (str(module_path.resolve()), symbol)
+    if key in visited or len(visited) >= 12:
+        return None
+    visited.add(key)
+    try:
+        tree = ast.parse(module_path.read_text(encoding="utf-8-sig"), filename=str(module_path))
+    except (OSError, SyntaxError, UnicodeError):
+        return None
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == symbol:
+            return module_path
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        for alias in node.names:
+            exported_name = alias.asname or alias.name
+            if exported_name != symbol:
+                continue
+            nested = _resolve_local_module(project_root, module_path, node.module, node.level)
+            if nested is None:
+                continue
+            return _resolve_reexported_symbol(
+                project_root,
+                nested,
+                alias.name,
+                visited=visited,
+            ) or nested
+    return None
+
+
+def starter_command_compatibility_errors(command: str, *, detection: dict[str, Any]) -> list[str]:
+    options = set(detection.get("cli_options") or [])
+    if not options and not detection.get("cli_positionals"):
+        return []
+    used_options = set(re.findall(r"(?<![\w{])--[A-Za-z0-9][A-Za-z0-9-]*", command))
+    unsupported = sorted(used_options - options)
+    if not unsupported:
+        return []
+    return [
+        "Solver 命令使用了入口 argparse 未声明的参数："
+        + ", ".join(unsupported)
+        + "。请采用自动识别命令或修正入口。"
+    ]
+
+
+def starter_project_instance_paths(project_root: Path) -> list[Path]:
+    """Return bounded project instances in a deterministic order."""
+
+    return [
+        path
+        for path in sorted(project_root.rglob("*"), key=lambda item: item.as_posix().casefold())
+        if path.is_file() and is_supported_starter_instance(path)
+    ][:64]
+
+
+def is_supported_starter_instance(path: Path) -> bool:
+    """Recognize ordinary FJSP files and confirmed compound min-lag names."""
+
+    lowered = path.name.casefold()
+    return path.suffix.lower() in STARTER_INSTANCE_SUFFIXES or ".mitfjsp." in lowered or lowered.endswith(".mitfjsp")
 
 
 def extract_starter_project(archive: dict[str, Any], *, destination: Path) -> dict[str, Any]:
@@ -236,6 +498,189 @@ def extract_starter_project(archive: dict[str, Any], *, destination: Path) -> di
         "stripped_root": common_root,
         "project_root": str(destination.resolve()),
     }
+
+
+def preview_starter_project(payload: dict[str, Any]) -> dict[str, Any]:
+    """Inspect an uploaded project with the production ZIP safety checks, without executing it."""
+
+    archive = payload.get("starter_project") if isinstance(payload.get("starter_project"), dict) else {}
+    with tempfile.TemporaryDirectory(prefix="algoforge_starter_preview_") as temporary_dir:
+        project_root = Path(temporary_dir) / "project"
+        metadata = extract_starter_project(archive, destination=project_root)
+        files: list[dict[str, Any]] = []
+        project_instances: list[dict[str, Any]] = []
+        warnings: list[str] = []
+        sensitive_paths: list[str] = []
+        for path in sorted(project_root.rglob("*"), key=lambda item: item.relative_to(project_root).as_posix().casefold()):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(project_root).as_posix()
+            suffix = path.suffix.lower()
+            lowered_parts = {part.casefold() for part in Path(relative).parts}
+            sensitive = (
+                ".env" in lowered_parts
+                or suffix in {".key", ".pem", ".p12", ".pfx"}
+                or any(token in path.name.casefold() for token in ("credential", "secret", "private_key"))
+            )
+            if sensitive:
+                sensitive_paths.append(relative)
+            files.append(
+                {
+                    "path": relative,
+                    "size": path.stat().st_size,
+                    "suffix": suffix or "file",
+                    "sensitive": sensitive,
+                }
+            )
+            if is_supported_starter_instance(path):
+                project_instances.append({"path": relative, "size": path.stat().st_size})
+
+        use_project_instances = bool(project_instances) and coerce_bool(
+            payload.get("starter_use_project_instances"),
+            True,
+        )
+        project_instance_errors: list[str] = []
+        for item in project_instances:
+            profile = inspect_instance_profile(project_root / str(item["path"]))
+            item["valid"] = bool(profile.get("valid"))
+            item["operation_count"] = profile.get("operation_count")
+            if use_project_instances and not profile.get("valid"):
+                project_instance_errors.append(
+                    f"项目算例 {item['path']} 无法由固定 Core 解析：{profile.get('error', '未知错误')}"
+                )
+
+        entrypoint_error = None
+        target_error = None
+        command_error = None
+        try:
+            entrypoint = normalize_starter_project_path(
+                payload.get("starter_solver_entrypoint"),
+                field="starter_solver_entrypoint",
+                default="solver.py",
+            )
+        except ValueError as exc:
+            entrypoint = str(payload.get("starter_solver_entrypoint") or "solver.py")
+            entrypoint_error = str(exc)
+        detection = (
+            inspect_starter_python_contract(project_root, entrypoint=entrypoint)
+            if entrypoint_error is None
+            else {}
+        )
+        auto_detect_contract = bool(payload.get("auto_detect_contract"))
+        detected_target = str(detection.get("recommended_target_file") or entrypoint)
+        try:
+            target_file = normalize_starter_project_path(
+                detected_target if auto_detect_contract else payload.get("starter_target_file"),
+                field="starter_target_file",
+                default=entrypoint,
+            )
+        except ValueError as exc:
+            target_file = str(payload.get("starter_target_file") or entrypoint)
+            target_error = str(exc)
+        try:
+            command = validate_starter_solver_command(
+                (
+                    detection.get("recommended_solver_command")
+                    if auto_detect_contract and detection.get("recommended_solver_command")
+                    else payload.get("starter_solver_command")
+                ),
+                entrypoint=entrypoint,
+            )
+        except ValueError as exc:
+            command = str(payload.get("starter_solver_command") or "")
+            command_error = str(exc)
+
+        entrypoint_path = project_root / entrypoint if not entrypoint_error else None
+        target_path = project_root / target_file if not target_error else None
+        entrypoint_exists = bool(entrypoint_path and entrypoint_path.is_file())
+        target_exists = bool(target_path and target_path.is_file())
+        if not entrypoint_error and not entrypoint_exists:
+            entrypoint_error = f"Solver 入口不存在：{entrypoint}"
+        if not target_error and not target_exists:
+            target_error = f"主要可编辑文件不存在：{target_file}"
+        if (
+            not target_error
+            and detection.get("entrypoint_is_wrapper")
+            and target_file == entrypoint
+        ):
+            target_error = (
+                f"{entrypoint} 被识别为 CLI 包装器，不能作为唯一算法演进目标；"
+                f"请改用 {detected_target}。"
+            )
+        command_compatibility_errors = (
+            starter_command_compatibility_errors(command, detection=detection)
+            if command and not command_error
+            else []
+        )
+
+        syntax_checks: dict[str, dict[str, Any]] = {}
+        for label, relative, path in (
+            ("entrypoint", entrypoint, entrypoint_path),
+            ("target_file", target_file, target_path),
+        ):
+            if not path or not path.is_file() or path.suffix.lower() != ".py":
+                continue
+            try:
+                compile(path.read_bytes(), relative, "exec")
+            except (SyntaxError, ValueError) as exc:
+                syntax_checks[label] = {"valid": False, "error": str(exc)}
+            else:
+                syntax_checks[label] = {"valid": True, "error": None}
+
+        contract_errors = [
+            error
+            for error in (entrypoint_error, target_error, command_error)
+            if error
+        ]
+        syntax_errors = [
+            f"{entrypoint if key == 'entrypoint' else target_file} 无法通过 Python 语法检查：{check['error']}"
+            for key, check in syntax_checks.items()
+            if not check["valid"]
+        ]
+        if command and entrypoint and entrypoint not in command:
+            warnings.append("Solver 命令模板没有直接引用当前入口文件，请人工确认命令与入口一致。")
+        if use_project_instances:
+            warnings.append(
+                f"ZIP 内 {len(project_instances)} 个项目算例将复制到不可变任务输入区，"
+                "并由平台固定 Core 正式评测；ZIP 自带 evaluator 不会执行。"
+            )
+        if sensitive_paths:
+            warnings.append(
+                f"发现 {len(sensitive_paths)} 个可能包含凭据的文件；Worker 不应读取或修改这些文件。"
+            )
+        if not files:
+            contract_errors.append("ZIP 中没有可审核的项目文件")
+
+        return {
+            "name": metadata["name"],
+            "archive_bytes": metadata["archive_bytes"],
+            "expanded_bytes": metadata["expanded_bytes"],
+            "file_count": metadata["file_count"],
+            "stripped_root": metadata["stripped_root"],
+            "files": files,
+            "project_instances": project_instances,
+            "sensitive_paths": sensitive_paths,
+            "warnings": warnings,
+            "errors": contract_errors + syntax_errors + command_compatibility_errors + project_instance_errors,
+            "can_continue": (
+                not contract_errors
+                and not syntax_errors
+                and not command_compatibility_errors
+                and not project_instance_errors
+            ),
+            "contract": {
+                "entrypoint": entrypoint,
+                "entrypoint_exists": entrypoint_exists,
+                "target_file": target_file,
+                "target_exists": target_exists,
+                "solver_command": command,
+                "command_valid": command_error is None and not command_compatibility_errors,
+                "syntax_checks": syntax_checks,
+                "auto_detected": auto_detect_contract,
+                "detection": detection,
+                "use_project_instances": use_project_instances,
+            },
+        }
 
 
 def _ignored_zip_metadata(name: str) -> bool:
@@ -1146,8 +1591,6 @@ def refresh_persisted_worker_summary(job: dict[str, Any]) -> None:
 
 
 def enrich_worker_manifest_from_loop_result(manifest: dict[str, Any]) -> dict[str, Any]:
-    if manifest.get("final_summary"):
-        return manifest
     artifacts = manifest.get("artifacts") if isinstance(manifest.get("artifacts"), dict) else {}
     loop_result_path = Path(str(artifacts.get("loop_result") or ""))
     if not loop_result_path.exists():
@@ -1171,6 +1614,13 @@ def enrich_worker_manifest_from_loop_result(manifest: dict[str, Any]) -> dict[st
     enriched["final_summary"] = final_summary
     enriched["final_round_index"] = final_round_index
     enriched["latest_candidate_summary"] = latest_candidate_summary
+    enriched["official_incumbent"] = {
+        "objective_key": final_key,
+        "worktree": loop_result.get("final_worktree"),
+    }
+    enriched["best_legal_incumbent"] = loop_result.get("best_legal_incumbent")
+    enriched["best_activated_incumbent"] = loop_result.get("best_activated_incumbent")
+    enriched["lane_development_states"] = loop_result.get("lane_development_states") or {}
     return enriched
 
 
@@ -1303,6 +1753,7 @@ def service_health_payload() -> dict[str, Any]:
         "service": "algoforge-web",
         "opencode_available": worker_capabilities.supports_code_generation,
         "provider_configured": is_deepseek_configured(),
+        "solver_runtime": solver_runtime_status(),
     }
 
 
@@ -1412,6 +1863,9 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
     starter_entrypoint: str | None = None
     starter_target_file: str | None = None
     starter_solver_command: str | None = None
+    starter_use_project_instances = False
+    starter_instance_paths: list[Path] = []
+    starter_instance_relatives: list[str] = []
     if str(starter_archive.get("base64") or "").strip():
         starter_project_root = input_dir / "starter_project"
         starter_project = extract_starter_project(starter_archive, destination=starter_project_root)
@@ -1433,6 +1887,62 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
             payload.get("starter_solver_command"),
             entrypoint=starter_entrypoint,
         )
+        starter_detection = inspect_starter_python_contract(
+            starter_project_root,
+            entrypoint=starter_entrypoint,
+        )
+        if (
+            starter_detection.get("entrypoint_is_wrapper")
+            and starter_target_file == starter_entrypoint
+        ):
+            recommended = starter_detection.get("recommended_target_file")
+            raise ValueError(
+                f"starter target file {starter_entrypoint!r} is a CLI wrapper; "
+                f"use the detected algorithm module {recommended!r}"
+            )
+        compatibility_errors = starter_command_compatibility_errors(
+            starter_solver_command,
+            detection=starter_detection,
+        )
+        if compatibility_errors:
+            raise ValueError(compatibility_errors[0])
+        for relative in (starter_entrypoint, starter_target_file):
+            path = starter_project_root / relative
+            if path.suffix.lower() != ".py":
+                continue
+            try:
+                compile(path.read_bytes(), relative, "exec")
+            except (SyntaxError, ValueError) as exc:
+                raise ValueError(f"starter project file failed Python syntax validation: {relative}: {exc}") from exc
+        available_instances = starter_project_instance_paths(starter_project_root)
+        starter_use_project_instances = coerce_bool(
+            payload.get("starter_use_project_instances"),
+            bool(available_instances),
+        )
+        if starter_use_project_instances:
+            if not available_instances:
+                raise ValueError("starter project contains no supported .fjs/.fjsp/.mitfjsp instance files")
+            provided_instance_root = input_dir / "provided_instances"
+            profiles: list[dict[str, Any]] = []
+            for source in available_instances:
+                relative = source.relative_to(starter_project_root)
+                destination = provided_instance_root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+                profile = inspect_instance_profile(destination)
+                if not profile.get("valid"):
+                    raise ValueError(
+                        f"starter project instance is incompatible with fixed Core: "
+                        f"{relative.as_posix()}: {profile.get('error', 'unknown error')}"
+                    )
+                profiles.append(profile)
+                starter_instance_paths.append(destination)
+                starter_instance_relatives.append(relative.as_posix())
+            instance_profile = dict(
+                max(profiles, key=lambda item: int(item.get("operation_count", 0) or 0))
+            )
+            instance_profile["instance_count"] = len(profiles)
+            instance_profile["instance_files"] = list(starter_instance_relatives)
 
     # Web 层只接受资源预算，不接受具体算法参数。任何求解方法都必须由
     # Main Agent 从需求/IO/知识库中选择，并由 Coding Agent 实际写出。
@@ -1495,6 +2005,8 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         "starter_solver_entrypoint": starter_entrypoint,
         "starter_target_file": starter_target_file,
         "starter_solver_command": starter_solver_command,
+        "starter_use_project_instances": starter_use_project_instances,
+        "starter_project_instances": starter_instance_relatives,
         "starter_project": starter_project,
     }
 
@@ -1510,6 +2022,7 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
             "requirement": str(req_path.resolve()),
             "io": str(io_path.resolve()),
             "instance": str(instance_path.resolve()),
+            "starter_instances": [str(path.resolve()) for path in starter_instance_paths],
             "best_known_csv": str(best_known_path.resolve()) if best_known_path else None,
             "starter_project": str(starter_project_root.resolve()) if starter_project_root else None,
         },
@@ -1646,12 +2159,16 @@ def inspect_instance_profile(instance_path: Path) -> dict[str, Any]:
         {
             "format": "standard_fjsp",
             "valid": True,
+            "variant": parsed.variant,
             "job_count": parsed.job_count,
             "machine_count": parsed.machine_count,
             "operation_count": parsed.operation_count,
             "max_candidate_count": parsed.max_candidate_count,
             "has_sequence_dependent_setup": parsed.has_sequence_dependent_setup,
             "setup_time_kind": parsed.setup_time_kind,
+            "has_minimum_time_lags": parsed.has_minimum_time_lags,
+            "min_time_lag_constraint_count": len(parsed.minimum_time_lags),
+            "min_time_lag_max": max((constraint.lag for constraint in parsed.minimum_time_lags), default=0),
             "scale": parsed.job_count * parsed.machine_count * parsed.operation_count,
         }
     )
@@ -1735,6 +2252,8 @@ def method_package_features(profile: dict[str, Any]) -> list[str]:
         return raw
     if bool(profile.get("has_sequence_dependent_setup")):
         return ["fjsp_sdst", "sequence_dependent_setup", "setup_time"]
+    if bool(profile.get("has_minimum_time_lags")):
+        return ["fjsp_min_time_lag", "minimum_time_lag", "time_lag"]
     return []
 
 
@@ -1748,13 +2267,27 @@ def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
         "setup_times",
         "setup_matrix",
     }
+    minimum_lag_aliases = {
+        "fjsp_min_time_lag",
+        "min_time_lag",
+        "minimum_time_lag",
+        "time_lag",
+        "mitfjsp",
+    }
     for item in profile.get("variant_features") or []:
         text = str(item or "").strip().lower()
         if not text:
             continue
-        canonical.add("sequence_dependent_setup" if text in aliases else text)
+        if text in aliases:
+            canonical.add("sequence_dependent_setup")
+        elif text in minimum_lag_aliases:
+            canonical.add("minimum_time_lag")
+        else:
+            canonical.add(text)
     if bool(profile.get("has_sequence_dependent_setup")):
         canonical.add("sequence_dependent_setup")
+    if bool(profile.get("has_minimum_time_lags")):
+        canonical.add("minimum_time_lag")
     return canonical
 
 
@@ -1918,9 +2451,7 @@ def run_job(job_id: str) -> None:
             max_subagents=config["main_max_subagents"],
             cancellation=cancellation,
         )
-        if config.get("pause_between_rounds") and (
-            run_iterations > 1 or resume_loop_result is not None
-        ):
+        if run_iterations > 1 or resume_loop_result is not None:
             round_gate = WebRoundInterventionGate(job, cancellation=cancellation)
             with _LOCK:
                 _ROUND_GATES[job_id] = round_gate
@@ -1945,6 +2476,8 @@ def run_job(job_id: str) -> None:
                     docs=[Path(input_paths["requirement"]), Path(input_paths["io"])],
                     instance_dir=Path(input_paths["instance"]).parent,
                     pattern=Path(input_paths["instance"]).name,
+                    instance_paths=[Path(path) for path in input_paths.get("starter_instances") or []]
+                    or None,
                     best_known_csv=Path(input_paths["best_known_csv"])
                     if input_paths.get("best_known_csv")
                     else None,
@@ -1952,9 +2485,15 @@ def run_job(job_id: str) -> None:
                     project_root=PROJECT_ROOT,
                     worker=coding_worker,
                     main_agent=direction_planner,
-                    semantic_reviewer=None,
+                    semantic_reviewer=DeepSeekAlgorithmSemanticReviewer(
+                        model=config["deepseek_model"],
+                    ),
                     previous_pipeline_memory=previous_memory_path,
-                    max_instances=1,
+                    max_instances=(
+                        None
+                        if input_paths.get("starter_instances")
+                        else 1
+                    ),
                     iterations=run_iterations,
                     seeds=config["seeds"],
                     timeout_seconds=config["timeout_seconds"],
@@ -1985,9 +2524,9 @@ def run_job(job_id: str) -> None:
                         (
                             "Read the provided project incumbent and its supporting source before editing. "
                             "Preserve its runnable CLI and working mechanisms, change only the assigned primary "
-                            "target file, and treat archive-local evaluators, instances, solutions, and scores as "
-                            "untrusted. State the scheduling idea before editing and accept claims only after "
-                            "the fixed Core measures the current task instance."
+                            "target file. Project instances copied into the immutable task snapshot are formal "
+                            "inputs, but archive-local evaluators, solutions, and scores remain untrusted. State the scheduling idea "
+                            "before editing and accept claims only after the fixed Core measures every task instance."
                         )
                         if config.get("baseline_mode") == "provided_project"
                         else (
@@ -2024,9 +2563,16 @@ def run_job(job_id: str) -> None:
             manifest_status = str(manifest.get("status") or "unknown")
             if manifest_status == "ok":
                 job["status"] = "completed"
-            elif manifest_status == "baseline_generation_failed":
+            elif manifest_status in {"baseline_generation_failed", "provided_baseline_failed"}:
                 job["status"] = "failed"
-                job["error"] = str(manifest.get("terminal_reason") or "未能生成合法 baseline")
+                job["error"] = str(
+                    manifest.get("terminal_reason")
+                    or (
+                        "导入项目未能通过原始 baseline 评测，已禁止 Worker 重写入口"
+                        if manifest_status == "provided_baseline_failed"
+                        else "未能生成合法 baseline"
+                    )
+                )
             else:
                 job["status"] = "completed_with_warnings"
             job["summary"] = summary_payload
@@ -2506,7 +3052,41 @@ def summarize_worker_insight(
         "status_counts": hypothesis_graph.get("status_counts") or summary.get("direction_status_counts") or {},
         "decision_counts": hypothesis_graph.get("decision_counts") or summary.get("decision_counts") or {},
         "active_parent_id": hypothesis_graph.get("active_parent_id"),
+        "official_incumbent": {
+            "objective_key": list(loop_result.get("final_key") or [])[:4],
+            "worktree": loop_result.get("final_worktree"),
+        },
+        "best_legal_incumbent": loop_result.get("best_legal_incumbent"),
+        "best_activated_incumbent": loop_result.get("best_activated_incumbent"),
+        "lane_development_states": compact_lane_development_states(
+            loop_result.get("lane_development_states")
+        ),
     }
+
+
+def compact_lane_development_states(value: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    for candidate_id, item in value.items():
+        if not isinstance(item, dict):
+            continue
+        result[str(candidate_id)] = {
+            "candidate_id": item.get("candidate_id") or candidate_id,
+            "method_family": item.get("method_family"),
+            "method_package_id": item.get("method_package_id"),
+            "checkpoint_worktree": item.get("checkpoint_worktree"),
+            "objective_key": list(item.get("objective_key") or [])[:4],
+            "track": item.get("track"),
+            "stage": json_int(item.get("stage"), 0),
+            "verified_components": list(item.get("verified_components") or [])[:16],
+            "session_id": item.get("session_id"),
+            "session_status": item.get("session_status"),
+            "event_stream_status": item.get("event_stream_status"),
+            "last_failure": item.get("last_failure"),
+            "last_update_round": json_int(item.get("last_update_round"), -1),
+        }
+    return result
 
 
 def compact_direction(item: dict[str, Any], rounds: list[Any]) -> dict[str, Any]:
@@ -2660,6 +3240,14 @@ def compact_competition_result(value: Any) -> dict[str, Any]:
                 "core_eligible": item.get("core_eligible"),
                 "semantic_eligible": item.get("semantic_eligible"),
                 "worker_status": item.get("worker_status"),
+                "requested_session_id": item.get("requested_session_id"),
+                "command_session_id": item.get("command_session_id"),
+                "observed_session_id": item.get("observed_session_id"),
+                "session_reused": item.get("session_reused"),
+                "session_event_stream_bytes": item.get("session_event_stream_bytes"),
+                "parent_checkpoint": item.get("parent_checkpoint"),
+                "checkpoint_decision": item.get("checkpoint_decision") or {},
+                "lane_development_state": item.get("lane_development_state") or {},
             }
         )
     return {
@@ -2668,6 +3256,11 @@ def compact_competition_result(value: Any) -> dict[str, Any]:
         "eligible_candidate_count": int(value.get("eligible_candidate_count", 0) or 0),
         "selected_candidate_id": value.get("selected_candidate_id"),
         "selected_for_promotion": bool(value.get("selected_for_promotion")),
+        "best_legal_candidate": value.get("best_legal_candidate"),
+        "best_activated_candidate": value.get("best_activated_candidate"),
+        "lane_development_states": compact_lane_development_states(
+            value.get("lane_development_states")
+        ),
         "candidates": candidates[:4],
     }
 
@@ -2903,6 +3496,12 @@ def summarize_worker_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         "rejected_before_eval": rejected_before_eval,
         "in_round_repair": in_round_repair,
         "round_dirs": round_dirs,
+        "official_incumbent": manifest.get("official_incumbent") or {},
+        "best_legal_incumbent": manifest.get("best_legal_incumbent"),
+        "best_activated_incumbent": manifest.get("best_activated_incumbent"),
+        "lane_development_states": compact_lane_development_states(
+            manifest.get("lane_development_states")
+        ),
         **diagnostic_fields,
     }
 
@@ -3868,8 +4467,8 @@ def format_progress_value(value: Any) -> str:
 class AlgoForgeWebHandler(BaseHTTPRequestHandler):
     """无框架本地 HTTP 路由；业务逻辑委托给上面的纯函数。
 
-    GET 提供静态页面、任务历史、洞察和产物；POST `/api/jobs` 创建任务，
-    POST `/api/jobs/<id>/continue` 提交轮间人工方向。长任务由后台线程执行。
+    GET 提供静态页面、任务历史、洞察和产物；POST `/api/starter-projects/preview`
+    只读审核 ZIP；POST `/api/jobs` 创建任务。长任务由后台线程执行。
     """
 
     server_version = "AlgoForgeWeb/0.1"
@@ -3879,8 +4478,9 @@ class AlgoForgeWebHandler(BaseHTTPRequestHandler):
         if parsed.path == "/healthz":
             self._json(200, service_health_payload())
             return
-        if parsed.path == "/":
-            self._serve_static("index.html")
+        document = frontend_document(parsed.path)
+        if document:
+            self._serve_static(document)
             return
         if parsed.path.startswith("/static/"):
             self._serve_static(parsed.path.removeprefix("/static/"))
@@ -3935,6 +4535,9 @@ class AlgoForgeWebHandler(BaseHTTPRequestHandler):
         try:
             if parsed.path == "/api/resources":
                 self._json(201, create_project_resource(self._read_json()))
+                return
+            if parsed.path == "/api/starter-projects/preview":
+                self._json(200, preview_starter_project(self._read_json()))
                 return
             if parsed.path.startswith("/api/jobs/") and parsed.path.endswith("/resume"):
                 parts = [item for item in parsed.path.split("/") if item]
@@ -4021,8 +4624,15 @@ def run_web_server(host: str = "127.0.0.1", port: int = 7860, *, output_root: Pa
     output_root.mkdir(parents=True, exist_ok=True)
     load_persisted_jobs(output_root)
     server = ThreadingHTTPServer((host, port), AlgoForgeWebHandler)
+    runtime = solver_runtime_status()
     print(f"[web] AlgoForge demo UI: http://{host}:{port}")
     print(f"[web] Output root: {output_root.resolve()}")
+    print(
+        "[web] Solver runtime: "
+        f"python={runtime['python_version']} executable={runtime['python_executable']} "
+        f"ortools_available={runtime['ortools_available']} "
+        f"ortools_version={runtime['ortools_version']}"
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -14,6 +14,7 @@ from harness_agent.agents.main import RoundReflectionRequest, deterministic_roun
 from harness_agent.agents.opencode_main import (
     OPENCODE_MAIN_AGENT,
     OpenCodeMainAgent,
+    build_fast_planning_packet,
     build_implementation_planning_packet,
     build_planning_packet,
     bounded_timeout_seconds,
@@ -23,7 +24,10 @@ from harness_agent.agents.opencode_main import (
     incumbent_planning_contract_errors,
     monitor_process_stall,
     merge_event_summaries,
+    method_package_query_tags,
     normalize_direction_selection,
+    opencode_event_stream_health,
+    resolve_fast_method_package,
     summarize_opencode_events,
 )
 from harness_agent.context.packet import ContextPacketRequest, write_context_packet
@@ -34,6 +38,41 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class OpenCodeMainAgentTests(unittest.TestCase):
+    def test_method_package_query_tags_include_selected_family_after_fast_fallback(self) -> None:
+        self.assertEqual(
+            ["initialization", "decoder", "constructive_search"],
+            method_package_query_tags(
+                knowledge_query=[
+                    "__direction_selection_pending__",
+                    "initialization",
+                    "decoder",
+                    "initialization",
+                ],
+                method_family="constructive_search",
+            ),
+        )
+
+    def test_step_start_only_is_not_a_meaningful_main_event_stream(self) -> None:
+        health = opencode_event_stream_health(
+            json.dumps({"type": "step_start", "sessionID": "ses-started"}) + "\n"
+        )
+
+        self.assertEqual("startup_only", health["event_stream_status"])
+        self.assertEqual(0, health["meaningful_event_count"])
+
+    def test_main_text_event_is_meaningful(self) -> None:
+        health = opencode_event_stream_health(
+            "\n".join(
+                [
+                    json.dumps({"type": "step_start"}),
+                    json.dumps({"type": "text", "text": "planning"}),
+                ]
+            )
+        )
+
+        self.assertEqual("meaningful", health["event_stream_status"])
+        self.assertEqual(1, health["meaningful_event_count"])
+
     def test_format_retry_timeout_is_bounded_when_main_has_no_global_timeout(self) -> None:
         self.assertEqual(90, bounded_timeout_seconds(None, 90))
         self.assertEqual(30, bounded_timeout_seconds(30, 90))
@@ -186,6 +225,20 @@ class OpenCodeMainAgentTests(unittest.TestCase):
                 "method_families": [{"id": "constructive_search", "role": "primary"}],
                 "knowledge_query": ["construction", "beam_search"],
                 "hypothesis": "Scale the measured frontier.",
+                "activation_checks": [
+                    {"path": "diagnostics.expanded", "operator": "gt", "expected": 0}
+                ],
+            },
+            "competition_result": {
+                "candidates": [
+                    {
+                        "candidate_id": "c00",
+                        "activation_required": True,
+                        "mechanism_activation": {"status": "passed", "passed": True},
+                        "observed_session_id": "ses-c00",
+                        "session_event_stream_bytes": 128,
+                    }
+                ]
             },
             "round_reflection": {
                 "hypothesis_outcome": "supported",
@@ -261,6 +314,50 @@ class OpenCodeMainAgentTests(unittest.TestCase):
         self.assertEqual("pivot", invalid_state["next_action"])
         self.assertEqual("refuted_hypothesis_requires_pivot", invalid_state["transition_adjustment"])
 
+    def test_scale_without_activation_and_session_evidence_requires_tournament(self) -> None:
+        packet = build_planning_packet(
+            context={
+                "task": {"task_id": "scale-gate", "problem_family": "standard_fjsp"},
+                "knowledge_query_catalog": {"tags": [{"tag": "construction"}]},
+                "method_family_catalog": {
+                    "families": [{"family_id": "constructive_search", "query_tags": ["construction"]}]
+                },
+            },
+            loop_feedback={
+                "previous_rounds": [
+                    {
+                        "decision": "promoted",
+                        "direction_plan": {
+                            "method_family": "constructive_search",
+                            "method_families": [{"id": "constructive_search", "role": "primary"}],
+                            "knowledge_query": ["construction"],
+                        },
+                        "competition_result": {
+                            "candidates": [
+                                {
+                                    "candidate_id": "c00",
+                                    "activation_required": False,
+                                    "mechanism_activation": {"passed": True},
+                                    "session_event_stream_bytes": 0,
+                                }
+                            ]
+                        },
+                        "round_reflection": {
+                            "hypothesis_outcome": "supported",
+                            "next_action": {"action": "scale"},
+                        },
+                    }
+                ]
+            },
+            round_index=1,
+        )
+
+        state = packet["research_state"]
+        self.assertTrue(state["selection_required"])
+        self.assertEqual("research_tournament", state["experiment_stage"])
+        self.assertEqual("reselect", state["method_family_policy"])
+        self.assertIsNone(inherited_direction_selection(planning_packet=packet, round_index=1))
+
     def test_opencode_main_skips_family_selection_for_scale_transition(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -282,6 +379,20 @@ class OpenCodeMainAgentTests(unittest.TestCase):
                     "method_families": [{"id": "constructive_search", "role": "primary"}],
                     "knowledge_query": ["beam_search"],
                     "hypothesis": "The measured frontier should be scaled.",
+                    "activation_checks": [
+                        {"path": "diagnostics.expanded", "operator": "gt", "expected": 0}
+                    ],
+                },
+                "competition_result": {
+                    "candidates": [
+                        {
+                            "candidate_id": "c00",
+                            "activation_required": True,
+                            "mechanism_activation": {"status": "passed", "passed": True},
+                            "observed_session_id": "ses-c00",
+                            "session_event_stream_bytes": 128,
+                        }
+                    ]
                 },
                 "round_reflection": {
                     "hypothesis_outcome": "supported",
@@ -434,6 +545,284 @@ class OpenCodeMainAgentTests(unittest.TestCase):
                 sanitized["ignored_output_fields"],
             )
             self.assertFalse((tmp_path / "main" / "implementation_planning_packet.json").exists())
+
+    def test_fast_planning_binds_recommended_method_package_after_family_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "context.json",
+                )
+            )
+            executable = tmp_path / "opencode.exe"
+            executable.write_text("placeholder", encoding="utf-8")
+            payload = {
+                "direction_selection": {
+                    "method_family": "coupled_local_search",
+                    "method_families": [{"id": "coupled_local_search", "role": "primary"}],
+                    "diagnosis": "The incumbent needs coupled assignment and sequence moves.",
+                    "selection_rationale": "Use the compatible local-search package.",
+                    "knowledge_query": ["assignment_aware_local_search", "adaptive_weight"],
+                },
+                "direction_brief": {
+                    "title": "Coupled local search",
+                    "strategy_type": "local_search_operator",
+                    "hypothesis": "AWLS neighborhoods can improve the incumbent.",
+                },
+            }
+            events = {
+                "stdout": json.dumps(
+                    {"type": "text", "part": {"type": "text", "text": json.dumps(payload)}}
+                ),
+                "stderr": "",
+                "returncode": 0,
+                "timed_out": False,
+                "stalled": False,
+            }
+            agent = OpenCodeMainAgent(
+                executable=str(executable),
+                project_root=ROOT,
+                planning_mode="fast",
+            )
+
+            with patch.object(agent, "_run_once", return_value=events):
+                plan = agent.plan_direction(
+                    DirectionPlanRequest(
+                        round_index=0,
+                        context_packet_path=context_path,
+                        loop_feedback={"competition": {"max_competing_workers": 3}},
+                        output_dir=tmp_path / "main",
+                    )
+                )
+
+            self.assertEqual("standard_fjsp_awls_hgtsa", plan["method_package_id"])
+            self.assertEqual("catalog_recommendation", plan["method_package_selection"]["selection_source"])
+            self.assertEqual(
+                "standard_fjsp_awls_hgtsa",
+                plan["direction_selection"]["method_package_id"],
+            )
+            self.assertTrue(plan["implementation_bundle"]["required_components"])
+            self.assertTrue(plan["implementation_bundle"]["component_dependencies"])
+            self.assertTrue(plan["implementation_bundle"]["competition_tracks"])
+            self.assertTrue(plan["implementation_bundle"]["checkpoint_checks"])
+            self.assertGreater(len(plan["implementation_order"]), 1)
+            selection = json.loads(
+                (tmp_path / "main" / "direction_selection.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual("standard_fjsp_awls_hgtsa", selection["method_package_id"])
+
+    def test_fast_package_resolution_inherits_compatible_same_direction_package(self) -> None:
+        package_id, source = resolve_fast_method_package(
+            catalog={
+                "recommended_package_id": "new-package",
+                "packages": [
+                    {"package_id": "continued-package"},
+                    {"package_id": "new-package"},
+                ],
+            },
+            method_family="coupled_local_search",
+            loop_feedback={
+                "previous_rounds": [
+                    {
+                        "direction_plan": {
+                            "method_family": "coupled_local_search",
+                            "method_package_id": "continued-package",
+                        }
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual("continued-package", package_id)
+        self.assertEqual("same_direction_inheritance", source)
+
+    def test_fast_planning_inherits_active_family_during_scale(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "context.json",
+                )
+            )
+            executable = tmp_path / "opencode.exe"
+            executable.write_text("placeholder", encoding="utf-8")
+            previous = {
+                "round_index": 0,
+                "decision": "promoted",
+                "direction_plan": {
+                    "direction_id": "d000",
+                    "method_family": "constructive_search",
+                    "method_families": [{"id": "constructive_search", "role": "primary"}],
+                    "knowledge_query": ["beam_search"],
+                    "hypothesis": "Scale the measured constructive frontier.",
+                    "activation_checks": [
+                        {"path": "diagnostics.expanded", "operator": "gt", "expected": 0}
+                    ],
+                },
+                "competition_result": {
+                    "candidates": [
+                        {
+                            "candidate_id": "c00",
+                            "activation_required": True,
+                            "mechanism_activation": {"status": "passed", "passed": True},
+                            "observed_session_id": "ses-c00",
+                            "session_event_stream_bytes": 128,
+                        }
+                    ]
+                },
+                "round_reflection": {
+                    "hypothesis_outcome": "supported",
+                    "next_action": {"action": "scale", "rationale": "Core improved."},
+                },
+            }
+            payload = {
+                "direction_selection": {
+                    "method_family": "local_search_operator",
+                    "knowledge_query": ["critical_path"],
+                    "diagnosis": "Model emitted a strategy label instead of a canonical family.",
+                },
+                "direction_brief": {
+                    "title": "Continue measured direction",
+                    "hypothesis": "Refine the active family.",
+                },
+            }
+            events = {
+                "stdout": json.dumps(
+                    {"type": "text", "part": {"type": "text", "text": json.dumps(payload)}},
+                ),
+                "stderr": "",
+                "returncode": 0,
+                "timed_out": False,
+                "stalled": False,
+            }
+            agent = OpenCodeMainAgent(
+                executable=str(executable),
+                project_root=ROOT,
+                planning_mode="fast",
+            )
+            with patch.object(agent, "_run_once", return_value=events):
+                plan = agent.plan_direction(
+                    DirectionPlanRequest(
+                        round_index=1,
+                        context_packet_path=context_path,
+                        loop_feedback={"previous_rounds": [previous], "competition": {"max_competing_workers": 3}},
+                        output_dir=tmp_path / "main",
+                    )
+                )
+
+            self.assertEqual("opencode_main_agent_fast", plan["planner"])
+            self.assertEqual("constructive_search", plan["method_family"])
+            self.assertEqual("research_state_inheritance", plan["direction_selection"]["selection_source"])
+            self.assertEqual("scale", plan["experiment_stage"])
+            self.assertEqual(3, plan["worker_lane_policy"]["lane_count"])
+
+    def test_fast_planning_fallback_keeps_delegated_worker_lanes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "context.json",
+                )
+            )
+            executable = tmp_path / "opencode.exe"
+            executable.write_text("placeholder", encoding="utf-8")
+            events = {
+                "stdout": json.dumps({"type": "text", "part": {"type": "text", "text": "{}"}}),
+                "stderr": "",
+                "returncode": 0,
+                "timed_out": False,
+                "stalled": False,
+            }
+            agent = OpenCodeMainAgent(
+                executable=str(executable),
+                project_root=ROOT,
+                planning_mode="fast",
+            )
+            fallback_plan = {
+                "direction_id": "d000",
+                "title": "Fallback coupled search",
+                "strategy_type": "local_search_operator",
+                "method_family": "coupled_local_search",
+                "method_families": [{"id": "coupled_local_search", "role": "primary"}],
+                "knowledge_query": ["assignment_aware_local_search", "adaptive_weight"],
+                "hypothesis": "Continue with compatible local-search guidance.",
+                "method_package_id": "",
+                "candidate_variants": [],
+                "activation_checks": [],
+                "planner": "evidence_fallback",
+            }
+
+            with (
+                patch.object(agent, "_run_once", return_value=events),
+                patch.object(agent.fallback, "plan_direction", return_value=fallback_plan),
+            ):
+                plan = agent.plan_direction(
+                    DirectionPlanRequest(
+                        round_index=0,
+                        context_packet_path=context_path,
+                        loop_feedback={"competition": {"max_competing_workers": 3}},
+                        output_dir=tmp_path / "main",
+                    )
+                )
+
+            self.assertEqual("evidence_fallback", plan["planner"])
+            self.assertEqual("delegated_to_worker", plan["worker_lane_policy"]["mechanism_selection"])
+            self.assertEqual(3, plan["worker_lane_policy"]["lane_count"])
+            self.assertEqual([], plan["candidate_variants"])
+            self.assertEqual([], plan["activation_checks"])
+            self.assertEqual("standard_fjsp_awls_hgtsa", plan["method_package_id"])
+            self.assertEqual(
+                "catalog_recommendation",
+                plan["method_package_selection"]["selection_source"],
+            )
+            self.assertTrue(plan["implementation_bundle"]["competition_tracks"])
+            self.assertTrue(plan["implementation_bundle"]["checkpoint_checks"])
+            self.assertGreater(len(plan["implementation_order"]), 1)
+
+    def test_fast_planning_packet_preserves_decision_contract_under_hard_limit(self) -> None:
+        packet = build_fast_planning_packet(
+            {
+                "task_digest": {"problem_family": "fjsp"},
+                "instance_diagnostics": {"valid": True, "operation_count": 387},
+                "research_state": {
+                    "selection_required": False,
+                    "active_method_family": "coupled_local_search",
+                },
+                "incumbent_evidence": {"best_metrics": {"makespan": 2211}},
+                "incumbent_capability_audit": {
+                    "summary": {"target": "solver.py"},
+                    "capabilities": [{"name": f"capability-{i}", "evidence": "x" * 800} for i in range(80)],
+                    "functions": [{"name": f"function-{i}", "source": "y" * 1200} for i in range(80)],
+                    "call_edges": [[f"f{i}", f"f{i + 1}"] for i in range(200)],
+                },
+                "method_family_catalog": {
+                    "families": [{"family_id": "coupled_local_search"}, {"family_id": "constructive_search"}]
+                },
+                "knowledge_query_catalog": {"tags": [{"tag": "critical_path"}]},
+                "runtime_limits": {"max_competing_workers": 3},
+                "next_round_guidance": {"action": "scale"},
+            }
+        )
+
+        self.assertLessEqual(len(json.dumps(packet, ensure_ascii=False)), 20_500)
+        for field in (
+            "instance_diagnostics",
+            "research_state",
+            "incumbent_evidence",
+            "incumbent_capability_audit",
+            "method_family_catalog",
+            "knowledge_query_catalog",
+            "runtime_limits",
+            "planner_output_contract",
+        ):
+            self.assertIn(field, packet)
+        self.assertTrue(packet["instance_diagnostics"]["valid"])
+        self.assertEqual("coupled_local_search", packet["research_state"]["active_method_family"])
+        self.assertNotIn("functions", packet["incumbent_capability_audit"])
+        self.assertNotIn("call_edges", packet["incumbent_capability_audit"])
 
     def test_historical_aggregates_read_competition_from_compact_direction_plan(self) -> None:
         rounds = []
@@ -2104,6 +2493,8 @@ class OpenCodeMainAgentTests(unittest.TestCase):
                             "activation_required": True,
                             "objective_key": [-110.0],
                             "mechanism_activation": {"status": "passed", "passed": True},
+                            "observed_session_id": "ses-measured",
+                            "session_event_stream_bytes": 128,
                         },
                     ]
                 },

@@ -52,6 +52,12 @@ class MainAgentTests(unittest.TestCase):
 
             self.assertEqual("d002", stored["direction_id"])
             self.assertEqual("repair_rule", stored["strategy_type"])
+            self.assertEqual("research_tournament", stored["experiment_stage"])
+            self.assertGreaterEqual(len(stored["candidate_variants"]), 2)
+            self.assertGreaterEqual(
+                len({item["method_family"] for item in stored["candidate_variants"]}),
+                2,
+            )
             self.assertEqual(["Repair the decoder before tuning."], stored["change_scope"])
             self.assertIn("Keep the promoted parser.", stored["preserve"])
             self.assertEqual("", stored["method_package_id"])
@@ -245,11 +251,32 @@ class MainAgentTests(unittest.TestCase):
                                     {"component_id": "toy_decoder", "title": "Toy decoder"},
                                     {"component_id": "toy_search", "title": "Toy search"},
                                 ],
+                                "component_dependencies": [
+                                    {
+                                        "component_id": "toy_search",
+                                        "depends_on": ["toy_decoder"],
+                                        "reason": "Search depends on decoded toy states.",
+                                    }
+                                ],
                                 "coupled_groups": [
                                     {
                                         "group_id": "toy_loop",
                                         "component_ids": ["toy_decoder", "toy_search"],
                                         "rule": "Decoder output must feed the search.",
+                                    }
+                                ],
+                                "competition_tracks": [
+                                    {
+                                        "track_id": "direct_evidence",
+                                        "component_ids": ["toy_decoder", "toy_search"],
+                                        "selection_hint": "Keep both toy components available to delegated lanes.",
+                                    }
+                                ],
+                                "checkpoint_checks": [
+                                    {
+                                        "check_id": "toy_legality",
+                                        "component_ids": ["toy_decoder", "toy_search"],
+                                        "requirement": "Toy decoding and search must remain behaviorally aligned.",
                                     }
                                 ],
                             },
@@ -268,12 +295,28 @@ class MainAgentTests(unittest.TestCase):
             ["toy_decoder", "toy_search"],
             [item["component_id"] for item in plan["implementation_bundle"]["required_components"]],
         )
+        self.assertEqual(
+            ["toy_search"],
+            [item["component_id"] for item in plan["implementation_bundle"]["component_dependencies"]],
+        )
+        self.assertEqual(
+            ["direct_evidence"],
+            [item["track_id"] for item in plan["implementation_bundle"]["competition_tracks"]],
+        )
+        self.assertEqual(
+            ["toy_legality"],
+            [item["check_id"] for item in plan["implementation_bundle"]["checkpoint_checks"]],
+        )
         self.assertIn(
             "Implement and verify the complete selected method bundle in one coherent direction: toy_decoder, toy_search",
             plan["change_scope"],
         )
         self.assertIn(
             "Every required component in implementation_bundle must have reachable source evidence; partial package implementation is not complete.",
+            plan["acceptance_checks"],
+        )
+        self.assertIn(
+            "Checkpoint toy_legality: Toy decoding and search must remain behaviorally aligned.",
             plan["acceptance_checks"],
         )
         self.assertIn("reference_solver.py", " ".join(plan["knowledge_paths"]))
@@ -333,6 +376,58 @@ class MainAgentTests(unittest.TestCase):
         )
 
         self.assertEqual(["toy_decoder"], plan["implementation_order"])
+
+    def test_tracked_competition_plan_keeps_full_package_scope_for_delegated_lanes(self) -> None:
+        context = {
+            "method_package_catalog": {
+                "recommended_package_id": "toy_complete_bundle",
+                "packages": [
+                    {
+                        "package_id": "toy_complete_bundle",
+                        "assets": ["knowledge/toy/reference_solver.py"],
+                        "implementation_contract_asset": "knowledge/toy/contract.json",
+                        "implementation_contract": {
+                            "contract_id": "toy_complete_contract",
+                            "fallback_improvement_order": ["toy_search", "toy_decoder"],
+                            "required_components": [
+                                {"component_id": "toy_decoder", "title": "Toy decoder"},
+                                {"component_id": "toy_search", "title": "Toy search"},
+                            ],
+                            "component_dependencies": [
+                                {"component_id": "toy_search", "depends_on": ["toy_decoder"]}
+                            ],
+                            "competition_tracks": [
+                                {
+                                    "track_id": "direct_evidence",
+                                    "component_ids": ["toy_decoder", "toy_search"],
+                                }
+                            ],
+                            "checkpoint_checks": [
+                                {
+                                    "check_id": "toy_legality",
+                                    "component_ids": ["toy_decoder", "toy_search"],
+                                    "requirement": "Toy decoding and search must stay aligned.",
+                                }
+                            ],
+                        },
+                    }
+                ],
+            }
+        }
+        plan = bind_direction_plan_to_method_catalog(
+            normalize_direction_plan(
+                {
+                    "strategy_type": "local_search_operator",
+                    "method_package_id": "toy_complete_bundle",
+                    "planner": "opencode_main_agent_fast",
+                },
+                round_index=0,
+            ),
+            context=context,
+        )
+
+        self.assertEqual(["toy_decoder", "toy_search"], plan["implementation_order"])
+        self.assertEqual(["toy_decoder", "toy_search"], [item["id"] for item in plan["deliverables"]])
 
     def test_fallback_improvement_advances_past_used_components(self) -> None:
         context = self._toy_method_catalog()
@@ -444,6 +539,21 @@ class MainAgentTests(unittest.TestCase):
         self.assertTrue(any("Preserve the promoted incumbent" in item for item in plan["preserve"]))
         self.assertTrue(any("strictly better" in item for item in plan["acceptance_checks"]))
 
+    def test_constructive_improvement_is_not_mislabeled_as_local_search(self) -> None:
+        plan = enforce_improvement_direction_contract(
+            normalize_direction_plan(
+                {
+                    "method_family": "constructive_search",
+                    "strategy_type": "baseline_constructor",
+                },
+                round_index=1,
+            ),
+            round_index=1,
+            loop_feedback={"incumbent_key_before": [-1202.0]},
+        )
+
+        self.assertEqual("dispatch_rule", plan["strategy_type"])
+
     def test_post_baseline_probe_inherits_active_family_for_every_main_backend(self) -> None:
         plan = enforce_improvement_direction_contract(
             normalize_direction_plan(
@@ -468,6 +578,20 @@ class MainAgentTests(unittest.TestCase):
                             "method_family": "constructive_search",
                             "method_families": [{"id": "constructive_search", "role": "primary"}],
                             "knowledge_query": ["beam_search"],
+                            "activation_checks": [
+                                {"path": "diagnostics.expanded", "operator": "gt", "expected": 0}
+                            ],
+                        },
+                        "competition_result": {
+                            "candidates": [
+                                {
+                                    "candidate_id": "c00",
+                                    "activation_required": True,
+                                    "mechanism_activation": {"passed": True},
+                                    "observed_session_id": "ses-c00",
+                                    "session_event_stream_bytes": 128,
+                                }
+                            ]
                         },
                         "round_reflection": {
                             "hypothesis_outcome": "supported",
@@ -483,7 +607,7 @@ class MainAgentTests(unittest.TestCase):
         self.assertEqual("scale", plan["experiment_stage"])
         self.assertEqual("inherit", plan["research_transition"]["method_family_policy"])
 
-    def test_fallback_research_context_defers_pivot_and_preserves_experiment_contract(self) -> None:
+    def test_fallback_research_context_builds_neutral_family_tournament(self) -> None:
         context = {
             "method_family_catalog": {
                 "families": [
@@ -536,13 +660,19 @@ class MainAgentTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual("constructive_search", selected["method_family"])
-        self.assertEqual(["beam_search"], selected["knowledge_query"])
-        self.assertEqual("probe", selected["experiment_stage"])
-        self.assertTrue(selected["transition_deferred"])
-        self.assertEqual("pivot", selected["deferred_action"])
-        self.assertEqual("expanded", selected["activation_checks"][0]["id"])
-        self.assertEqual("wide", selected["candidate_variants"][0]["candidate_id"])
+        self.assertIsNone(selected["method_family"])
+        self.assertEqual(
+            {"constructive_search", "coupled_local_search"},
+            {item["id"] for item in selected["method_families"]},
+        )
+        self.assertEqual([], selected["knowledge_query"])
+        self.assertEqual("research_tournament", selected["experiment_stage"])
+        self.assertFalse(selected["transition_deferred"])
+        self.assertEqual(2, len(selected["candidate_variants"]))
+        self.assertEqual(
+            {"constructive_search", "coupled_local_search"},
+            {item["method_family"] for item in selected["candidate_variants"]},
+        )
 
 
 if __name__ == "__main__":

@@ -82,6 +82,7 @@ class DomainMethodPackage:
     package_id: str
     title: str
     description: str = ""
+    method_families: list[str] = field(default_factory=list)
     strategy_types: list[str] = field(default_factory=list)
     activation_tags: list[str] = field(default_factory=list)
     required_features: list[str] = field(default_factory=list)
@@ -101,6 +102,7 @@ class DomainMethodPackage:
             "package_id": self.package_id,
             "title": self.title,
             "description": self.description,
+            "method_families": list(self.method_families),
             "strategy_types": list(self.strategy_types),
             "activation_tags": list(self.activation_tags),
             "required_features": list(self.required_features),
@@ -384,6 +386,13 @@ def _validate_domain_pack_taxonomy(pack: DomainPack) -> None:
                 "family can query: "
                 + ", ".join(sorted(unreachable))
             )
+    for package in pack.method_packages:
+        missing_families = set(package.method_families) - set(families)
+        if missing_families:
+            raise ValueError(
+                f"Domain Pack {pack.family_id} package {package.package_id} references unknown method families: "
+                + ", ".join(sorted(missing_families))
+            )
 
 
 def load_domain_packs(
@@ -509,6 +518,7 @@ def _load_method_package(value: dict[str, Any], *, project_root: Path) -> Domain
         package_id=str(value.get("package_id") or "").strip(),
         title=str(value.get("title") or value.get("package_id") or "").strip(),
         description=str(value.get("description") or "").strip(),
+        method_families=_normalized_terms(value.get("method_families")),
         strategy_types=[str(item) for item in value.get("strategy_types") or [] if str(item).strip()],
         activation_tags=[str(item).strip().lower() for item in value.get("activation_tags") or [] if str(item).strip()],
         required_features=[str(item) for item in value.get("required_features") or [] if str(item).strip()],

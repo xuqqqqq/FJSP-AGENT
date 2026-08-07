@@ -28,7 +28,6 @@ const state = {
   resourceAuthoring: {},
   resourceEditorCategory: "skill",
   resumeTargetJobId: null,
-  starterProject: null,
 };
 const DEFAULT_STANDARD_SEEDS = "0,1,2,3,4,5,6,7,8,9";
 const DEFAULT_CHAT_PLACEHOLDER = "例如：载入示例、检查配置、启动任务、查看历史任务";
@@ -53,8 +52,8 @@ const VIEW_TITLES = {
   experiments: "实验监督",
   versions: "版本记录",
   resources: "知识库 / Skills",
+  artifacts: "报告与产物",
   models: "模型分配",
-  "import-project": "导入已有项目",
   setup: "任务配置",
 };
 
@@ -62,7 +61,26 @@ const VIEW_TITLES = {
 // 页面导航与本地文件镜像
 // ---------------------------------------------------------------------------
 
-function setActiveView(view) {
+function viewFromUrl() {
+  const view = new URLSearchParams(window.location.search).get("view");
+  return VIEW_TITLES[view] ? view : "overview";
+}
+
+function writeViewToUrl(view, {replace = false} = {}) {
+  const url = new URL(window.location.href);
+  if (view === "overview") {
+    url.searchParams.delete("view");
+  } else {
+    url.searchParams.set("view", view);
+  }
+  const next = `${url.pathname}${url.search}${url.hash}`;
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (next === current) return;
+  const method = replace ? "replaceState" : "pushState";
+  window.history[method]({view}, "", next);
+}
+
+function setActiveView(view, options = {}) {
   const targetView = VIEW_TITLES[view] ? view : "overview";
   state.activeView = targetView;
   document.querySelectorAll(".workspace-view").forEach((item) => {
@@ -73,6 +91,15 @@ function setActiveView(view) {
   });
   const title = $("workspace-title");
   if (title) title.textContent = VIEW_TITLES[targetView];
+  const mobileViewSelect = $("mobile-view-select");
+  if (mobileViewSelect && mobileViewSelect.value !== targetView) {
+    mobileViewSelect.value = targetView;
+  }
+  document.title = `${VIEW_TITLES[targetView]} · AlgoForge`;
+  if (options.updateUrl !== false) {
+    writeViewToUrl(targetView, {replace: options.replaceUrl});
+  }
+  if (options.scroll !== false) window.scrollTo(0, 0);
   if (targetView === "resources" && !state.resourceCatalogLoaded) {
     loadResourceCatalog().catch(() => {});
   }
@@ -91,60 +118,6 @@ function setupFileMirror(inputId, textId) {
   fileInput.addEventListener("change", () => readFileToTextarea(fileInput, textarea));
 }
 
-function arrayBufferToBase64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  const chunkSize = 0x8000;
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
-  }
-  return btoa(binary);
-}
-
-async function readStarterProject(fileInput) {
-  const file = fileInput.files?.[0];
-  state.starterProject = null;
-  if (!file) {
-    renderStarterProjectState();
-    return;
-  }
-  renderStarterProjectState("读取中...");
-  try {
-    state.starterProject = {
-      name: file.name,
-      base64: arrayBufferToBase64(await file.arrayBuffer()),
-    };
-    renderStarterProjectState(`${file.name} · ${(file.size / 1024).toFixed(1)} KiB`);
-  } catch (error) {
-    state.starterProject = null;
-    fileInput.value = "";
-    renderStarterProjectState(error.message || "读取失败");
-  }
-}
-
-function renderStarterProjectState(statusText = null) {
-  const loaded = Boolean(state.starterProject);
-  const displayText = statusText || (loaded ? state.starterProject.name : "未选择");
-  $("starter-project-status").textContent = displayText;
-  $("starter-project-setup-status").textContent = loaded ? state.starterProject.name : "未选择";
-  $("starter-project-summary").classList.toggle("hidden", !loaded);
-  $("clear-starter-project").disabled = !loaded;
-  $("continue-starter-project").disabled = !loaded;
-  updateContractSummary();
-}
-
-function clearStarterProject() {
-  state.starterProject = null;
-  $("starter-project-file").value = "";
-  renderStarterProjectState();
-}
-
-function continueStarterProjectSetup() {
-  if (!state.starterProject) return;
-  setActiveView("setup");
-  window.scrollTo({top: 0, behavior: "smooth"});
-}
-
 async function loadDemo(options = {}) {
   const response = await fetch("/api/examples");
   const demo = await response.json();
@@ -157,7 +130,6 @@ async function loadDemo(options = {}) {
   $("instance-text").dataset.filename = demo.instance.name;
   $("best-text").value = demo.best_known_csv.text;
   $("best-text").dataset.filename = demo.best_known_csv.name;
-  clearStarterProject();
   $("max-rounds").value = demo.config.max_rounds;
   $("seeds").value = demo.config.seeds;
   $("max-workers").value = demo.config.max_workers || 2;
@@ -681,6 +653,23 @@ async function selectHistoryJob(jobId, options = {}) {
   } else {
     await handleTerminalJob(job);
   }
+  if (options.loadReport) setActiveView("artifacts");
+}
+
+async function loadSolverRuntimeStatus() {
+  const response = await fetch("/healthz");
+  const payload = await response.json();
+  const runtime = payload.solver_runtime || {};
+  const panel = $("solver-runtime-status");
+  const ortoolsLabel = runtime.ortools_available
+    ? `OR-Tools ${runtime.ortools_version || "版本未知"}`
+    : "OR-Tools 不可用";
+  panel.innerHTML = `
+    <strong>Solver Runtime：${runtime.ortools_available ? "Exact 可用" : "仅启发式"}</strong>
+    <span>Python ${escapeHtml(runtime.python_version || "未知")} · ${escapeHtml(ortoolsLabel)}</span>
+    <small>${escapeHtml(runtime.python_executable || "Python 路径未知")}</small>
+  `;
+  panel.className = `api-panel ${runtime.ortools_available ? "ready" : "missing"}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -729,21 +718,13 @@ function buildPayload() {
     promotion_repeats: Number($("promotion-repeats").value || 1),
     pause_between_rounds: $("pause-between-rounds").checked,
   };
-  if (state.starterProject) {
-    payload.starter_project = state.starterProject;
-    payload.starter_solver_entrypoint = $("starter-solver-entrypoint").value.trim();
-    payload.starter_solver_command = $("starter-solver-command").value.trim();
-    payload.starter_target_file = $("starter-target-file").value.trim();
-  }
   return payload;
 }
 
 function updateContractSummary() {
   const target = $("edit-scope-summary");
   if (!target) return;
-  target.textContent = state.starterProject
-    ? "现有项目 baseline · 指定主文件增量演进 · 固定 Core 评测"
-    : "Agent 自写 solver · 固定 Core 评测 · 自动选择方法知识";
+  target.textContent = "Agent 自写 solver · 固定 Core 评测 · 自动选择方法知识";
 }
 
 async function submitJob(event) {
@@ -753,7 +734,11 @@ async function submitJob(event) {
 
 async function submitCurrentJob() {
   const payload = buildPayload();
-  if (!payload.requirement.text.trim() || !payload.io.text.trim() || !payload.instance.text.trim()) {
+  if (
+    !payload.requirement.text.trim()
+    || !payload.io.text.trim()
+    || !payload.instance.text.trim()
+  ) {
     $("artifact-preview").textContent = "请先提供需求文档、IO 文档和算例。";
     appendChatMessage("assistant", "还缺需求文档、IO 文档或算例。把内容粘到配置区，或先说“载入示例”。");
     return;
@@ -1563,7 +1548,7 @@ async function handleTerminalJob(job) {
   const previewIsTransient = !state.previewArtifactName || state.previewArtifactName === "status";
   if (preferredReport && previewIsTransient && state.autoPreviewKey !== autoPreviewKey) {
     state.autoPreviewKey = autoPreviewKey;
-    await loadArtifact(preferredReport);
+    await loadArtifact(preferredReport, {navigate: false});
   }
 }
 
@@ -1684,6 +1669,8 @@ function renderJob(job) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "artifact-button";
+    button.dataset.artifactName = name;
+    button.classList.toggle("active", state.previewArtifactName === name);
     button.textContent = name === "status" ? "任务状态 JSON" : labelForArtifact(name, labelOrPath);
     button.addEventListener("click", () => loadArtifact(name));
     artifactList.appendChild(button);
@@ -1966,6 +1953,8 @@ function labelForArtifact(name) {
   const labels = {
     manifest: "运行清单",
     report: "演示报告",
+    loop_report: "Worker Loop 报告",
+    loop_result: "Worker Loop 结果",
     hypothesis_graph: "假设图谱",
     hypothesis_graph_report: "假设图谱报告",
     experience_memory: "经验记忆",
@@ -1976,8 +1965,9 @@ function labelForArtifact(name) {
   return labels[name] || name;
 }
 
-async function loadArtifact(name) {
+async function loadArtifact(name, options = {}) {
   if (!state.currentJobId) return;
+  if (options.navigate !== false) setActiveView("artifacts");
   const response = await fetch(`/api/jobs/${state.currentJobId}/artifact?name=${encodeURIComponent(name)}`);
   const payload = await response.json();
   if (!response.ok) {
@@ -1985,6 +1975,9 @@ async function loadArtifact(name) {
     return;
   }
   state.previewArtifactName = name;
+  document.querySelectorAll("[data-artifact-name]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.artifactName === name);
+  });
   $("artifact-path").textContent = payload.path;
   $("artifact-preview").textContent = payload.text + (payload.truncated ? "\n\n[内容过长，已截断预览]" : "");
 }
@@ -2071,9 +2064,6 @@ setupFileMirror("requirement-file", "requirement-text");
 setupFileMirror("io-file", "io-text");
 setupFileMirror("instance-file", "instance-text");
 setupFileMirror("best-file", "best-text");
-$("starter-project-file").addEventListener("change", (event) => readStarterProject(event.currentTarget));
-$("clear-starter-project").addEventListener("click", clearStarterProject);
-$("continue-starter-project").addEventListener("click", continueStarterProjectSetup);
 $("load-demo").addEventListener("click", loadDemo);
 $("job-form").addEventListener("submit", submitJob);
 $("refresh").addEventListener("click", refreshJob);
@@ -2131,6 +2121,12 @@ document.querySelectorAll("[data-view-target]").forEach((button) => {
     setActiveView(button.dataset.viewTarget);
   });
 });
+$("mobile-view-select").addEventListener("change", (event) => {
+  setActiveView(event.target.value);
+});
+window.addEventListener("popstate", () => {
+  setActiveView(viewFromUrl(), {updateUrl: false});
+});
 document.querySelectorAll("[data-artifact-shortcut]").forEach((button) => {
   button.addEventListener("click", () => {
     loadArtifact(button.dataset.artifactShortcut);
@@ -2138,13 +2134,22 @@ document.querySelectorAll("[data-artifact-shortcut]").forEach((button) => {
 });
 
 initializeChat();
-setActiveView("overview");
+const initialView = viewFromUrl();
+setActiveView(initialView, {replaceUrl: true, scroll: false});
 loadDeepSeekStatus().catch(() => {
   $("deepseek-status").textContent = "DeepSeek API：状态读取失败";
   $("deepseek-status").className = "api-panel missing";
 });
+loadSolverRuntimeStatus().catch(() => {
+  $("solver-runtime-status").textContent = "Solver Runtime：状态读取失败";
+  $("solver-runtime-status").className = "api-panel missing";
+});
 loadDemo({silent: true}).catch(() => {
   $("artifact-preview").textContent = "内置示例读取失败，但仍可手动粘贴文档和算例。";
-}).finally(() => {
-  loadJobHistory().catch(() => {});
+}).finally(async () => {
+  await loadJobHistory().catch(() => {});
+  const requestedJobId = new URLSearchParams(window.location.search).get("job");
+  if (requestedJobId) {
+    selectHistoryJob(requestedJobId, {loadReport: initialView === "artifacts"}).catch(() => {});
+  }
 });

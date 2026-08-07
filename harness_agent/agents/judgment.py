@@ -1123,6 +1123,7 @@ def _is_standard_fjsp_without_setup_context(context: dict[str, Any], quality_con
         "sequence_dependent_setup",
         "no_wait",
         "time_lag",
+        "minimum_time_lag",
         "machine_calendar",
         "batching",
         "transportation",

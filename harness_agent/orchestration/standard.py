@@ -43,6 +43,7 @@ class StandardWorkerLoopRequest:
     output_dir: Path
     project_root: Path
     worker: CodingWorker
+    instance_paths: list[Path] | None = None
     main_agent: DirectionPlanningAgent | None = None
     semantic_reviewer: AlgorithmSemanticReviewer | None = None
     best_known_csv: Path | None = None
@@ -135,7 +136,7 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
         context_packet_path=context_path,
         worker=request.worker,
         main_agent=request.main_agent,
-        semantic_reviewer=None,
+        semantic_reviewer=request.semantic_reviewer,
         experiment_id=request.experiment_id,
         iterations=max(0, request.iterations),
         max_steps=max(1, request.max_steps),
@@ -186,7 +187,11 @@ def build_standard_worker_contract_payload(request: StandardWorkerLoopRequest) -
     """
 
     instance_dir = resolve_input_path(request.project_root, request.instance_dir)
-    paths = sorted(instance_dir.glob(request.pattern))
+    paths = (
+        sorted(resolve_input_path(request.project_root, path) for path in request.instance_paths)
+        if request.instance_paths
+        else sorted(instance_dir.glob(request.pattern))
+    )
     if request.max_instances is not None:
         paths = paths[: request.max_instances]
     if not paths:
@@ -296,7 +301,7 @@ PROVIDED_PROJECT_QUARANTINE_FILES = frozenset(
     {"evaluate.py", "evaluator.py", "standard_fjsp_evaluator.py"}
 )
 PROVIDED_PROJECT_READ_SUFFIXES = frozenset(
-    {".cfg", ".ini", ".json", ".py", ".toml", ".yaml", ".yml"}
+    {".cfg", ".ini", ".json", ".md", ".py", ".toml", ".yaml", ".yml"}
 )
 
 
@@ -406,6 +411,7 @@ def standard_worker_manifest(
             "docs": [str(path) for path in request.docs],
             "instance_dir": str(request.instance_dir),
             "pattern": request.pattern,
+            "instance_paths": [str(path) for path in request.instance_paths or []],
             "best_known_csv": str(request.best_known_csv) if request.best_known_csv else None,
             "slot_manifest": str(request.slot_manifest) if request.slot_manifest else None,
             "project_intake_manifest": str(request.project_intake_manifest) if request.project_intake_manifest else None,
@@ -418,8 +424,10 @@ def standard_worker_manifest(
             if request.resume_loop_result
             else 0,
             "seeds": request.seeds or [0],
-            "baseline_source": "agent_generated",
+            "baseline_source": loop_result.baseline_source,
             "agent_generated_solver_path": request.agent_generated_solver_path,
+            "provided_solver_command": request.provided_solver_command,
+            "provided_target_file": request.provided_target_file,
             "iterations": max(0, request.iterations),
             "apply_worker_changes": bool(request.apply_worker_changes),
             "promotion_repeats": max(1, request.promotion_repeats),

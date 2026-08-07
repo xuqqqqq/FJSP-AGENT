@@ -9,7 +9,7 @@ import re
 import shlex
 import traceback
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -108,6 +108,25 @@ class CandidateIncumbent:
 
 
 @dataclass(frozen=True)
+class LaneDevelopmentState:
+    """Persistent development lineage for one competing Coding Worker lane."""
+
+    candidate_id: str
+    method_family: str
+    method_package_id: str
+    checkpoint_worktree: Path
+    objective_key: tuple[float, ...]
+    track: str
+    stage: int
+    verified_components: list[str]
+    session_id: str | None = None
+    session_status: str = "not_started"
+    event_stream_status: str = "unknown"
+    last_failure: str | None = None
+    last_update_round: int = -1
+
+
+@dataclass(frozen=True)
 class WorkerLoopResult:
     """完整闭环的返回值：初始 incumbent、最终 incumbent 和每轮证据。"""
 
@@ -122,6 +141,29 @@ class WorkerLoopResult:
     stop_reason: str | None = None
     best_legal_incumbent: CandidateIncumbent | None = None
     best_activated_incumbent: CandidateIncumbent | None = None
+    lane_development_states: dict[str, LaneDevelopmentState] = field(default_factory=dict)
+
+
+def materialize_selected_round_artifacts(
+    *,
+    cycle_dir: Path,
+    context_packet_path: Path,
+    delta_path: Path,
+    patch_path: Path,
+) -> None:
+    """Keep legacy round-level aliases for the lane selected by competition."""
+
+    cycle_dir.mkdir(parents=True, exist_ok=True)
+    for source, name in (
+        (context_packet_path, "context_packet.json"),
+        (delta_path, "worker_worktree_delta.json"),
+        (patch_path, "worker_changes.patch"),
+    ):
+        source = Path(source)
+        target = cycle_dir / name
+        if source.resolve() == target.resolve() or not source.is_file():
+            continue
+        target.write_bytes(source.read_bytes())
 
 
 def run_worker_loop(
@@ -241,6 +283,11 @@ def run_worker_loop(
     best_activated_incumbent = (
         resume_from.best_activated_incumbent if resume_from is not None else None
     )
+    lane_development_states = dict(
+        resume_from.lane_development_states or {}
+        if resume_from is not None
+        else {}
+    )
     if (
         resume_from is None
         and normalized_baseline_source == "agent_generated"
@@ -274,6 +321,38 @@ def run_worker_loop(
             stop_reason=stop_reason,
             best_legal_incumbent=best_legal_incumbent,
             best_activated_incumbent=best_activated_incumbent,
+            lane_development_states=lane_development_states,
+        )
+        write_loop_report(output_dir=output_dir, result=result, problem_family=contract.problem_family)
+        return result
+    if (
+        resume_from is None
+        and normalized_baseline_source == "provided_project"
+        and (
+            baseline_summary.total <= 0
+            or baseline_summary.valid != baseline_summary.total
+            or _all_negative_infinity(incumbent_key)
+        )
+    ):
+        if baseline_summary.total <= 0:
+            stop_reason = "provided_project_evaluator_produced_no_results"
+        elif baseline_summary.valid != baseline_summary.total:
+            stop_reason = "provided_project_baseline_invalid"
+        else:
+            stop_reason = "provided_project_objective_missing"
+        result = WorkerLoopResult(
+            baseline_key=incumbent_key,
+            final_key=incumbent_key,
+            final_worktree=incumbent_worktree,
+            rounds=[],
+            baseline_summary=baseline_summary,
+            baseline_source=normalized_baseline_source,
+            baseline_generation=None,
+            status="provided_baseline_failed",
+            stop_reason=stop_reason,
+            best_legal_incumbent=best_legal_incumbent,
+            best_activated_incumbent=best_activated_incumbent,
+            lane_development_states=lane_development_states,
         )
         write_loop_report(output_dir=output_dir, result=result, problem_family=contract.problem_family)
         return result
@@ -415,14 +494,6 @@ def run_worker_loop(
                     user_intervention["direction_patch_path"] = str(patch_path.resolve())
                 direction_plan["user_intervention"] = user_intervention
         try:
-            continued_worker_session_id = continuing_direction_worker_session(
-                round_records[-1] if round_records else None,
-                direction_plan,
-            )
-            continued_worker_lane_id = continuing_direction_worker_lane(
-                round_records[-1] if round_records else None,
-                direction_plan,
-            )
             (
                 cycle,
                 round_context_packet_path,
@@ -451,8 +522,7 @@ def run_worker_loop(
                 worker_input_root=(worker_input_root or project_root),
                 user_intervention=user_intervention,
                 max_competing_workers=max_competing_workers,
-                initial_session_id=continued_worker_session_id,
-                initial_session_candidate_id=continued_worker_lane_id,
+                lane_development_states=lane_development_states,
                 cancellation=cancellation,
             )
             direction_plan = dict(direction_plan)
@@ -468,6 +538,12 @@ def run_worker_loop(
                 best_activated_incumbent,
                 competition_result.get("best_activated_candidate"),
                 round_index=round_index,
+            )
+            materialize_selected_round_artifacts(
+                cycle_dir=cycle_dir,
+                context_packet_path=round_context_packet_path,
+                delta_path=cycle.delta_path,
+                patch_path=cycle.patch_path,
             )
         except TaskCancelled:
             raise
@@ -589,13 +665,12 @@ def run_worker_loop(
             if isinstance(direction_plan.get("mechanism_activation"), dict)
             else {}
         )
-        if semantic_review_blocks_promotion(semantic_review):
+        if competition_result.get("selected_for_promotion") is False:
             promotion_check = {
                 "status": "skipped",
-                "reason": semantic_review_promotion_block_reason(semantic_review),
+                "reason": "no_eligible_competition_candidate",
                 "promoted": False,
                 "required_repeats": max(1, promotion_repeats),
-                "semantic_review": semantic_review,
             }
         else:
             promotion_check = evaluate_promotion_check(
@@ -608,6 +683,8 @@ def run_worker_loop(
                 promotion_repeats=promotion_repeats,
                 cancellation=cancellation,
             )
+        if isinstance(semantic_review, dict):
+            promotion_check["semantic_review_advisory"] = semantic_review
         promoted = bool(promotion_check.get("promoted"))
         # 只有 promotion check 能修改 incumbent 指针；rollback 只保留产物。
         if promoted:
@@ -660,6 +737,7 @@ def run_worker_loop(
         baseline_generation=baseline_generation,
         best_legal_incumbent=best_legal_incumbent,
         best_activated_incumbent=best_activated_incumbent,
+        lane_development_states=lane_development_states,
     )
     write_loop_report(output_dir=output_dir, result=result, problem_family=contract.problem_family)
     return result
@@ -690,11 +768,19 @@ def run_competing_worker_cycles(
     max_competing_workers: int,
     initial_session_id: str | None = None,
     initial_session_candidate_id: str | None = None,
+    lane_development_states: dict[str, LaneDevelopmentState] | None = None,
     cancellation: CancellationToken | None = None,
 ) -> tuple[Any, Path, list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     """Evaluate isolated Coding Worker variants and return the best eligible lane."""
 
-    candidate_plans = competitive_direction_plans(direction_plan, limit=max_competing_workers)
+    lane_states = lane_development_states if lane_development_states is not None else {}
+    candidate_plans = competitive_direction_plans(
+        direction_plan,
+        limit=max_competing_workers,
+        lane_development_states=lane_states,
+        incumbent_worktree=project_root,
+        incumbent_key=incumbent_key,
+    )
     multiple = len(candidate_plans) > 1
 
     def run_candidate(
@@ -710,10 +796,32 @@ def run_competing_worker_cycles(
         variant = candidate_plan.get("candidate_variant") or {}
         candidate_id = str(variant.get("candidate_id") or f"c{candidate_index:02d}")
         candidate_dir = output_dir if not multiple else output_dir / "candidates" / candidate_id
+        parent_state, archived_state = lane_development_state_for_incumbent(
+            lane_states.get(candidate_id),
+            candidate_plan=candidate_plan,
+            incumbent_worktree=project_root,
+            incumbent_key=incumbent_key,
+        )
+        parent_worktree = (
+            parent_state.checkpoint_worktree
+            if parent_state is not None and parent_state.checkpoint_worktree.exists()
+            else project_root
+        )
+        requested_session_id = (
+            parent_state.session_id
+            if parent_state is not None
+            else initial_session_id
+            if initial_session_id
+            and (
+                candidate_id == initial_session_candidate_id
+                or (not initial_session_candidate_id and candidate_index == 0)
+            )
+            else None
+        )
         try:
             cycle, context_path, attempts = run_worker_cycle_with_in_round_repairs(
                 contract=contract,
-                project_root=project_root,
+                project_root=parent_worktree,
                 worker=worker,
                 output_dir=candidate_dir,
                 base_context_packet_path=base_context_packet_path,
@@ -724,6 +832,9 @@ def run_competing_worker_cycles(
                 apply_worker_changes=apply_worker_changes,
                 baseline_summary=baseline_summary,
                 incumbent_key=incumbent_key,
+                semantic_review_floor_key=(
+                    parent_state.objective_key if parent_state is not None else incumbent_key
+                ),
                 baseline_generation=baseline_generation,
                 previous_rounds=previous_rounds,
                 repair_attempts=repair_attempts,
@@ -732,15 +843,7 @@ def run_competing_worker_cycles(
                 assignment_issuer=assignment_issuer,
                 worker_input_root=worker_input_root,
                 user_intervention=user_intervention,
-                initial_session_id=(
-                    initial_session_id
-                    if initial_session_id
-                    and (
-                        candidate_id == initial_session_candidate_id
-                        or (not initial_session_candidate_id and candidate_index == 0)
-                    )
-                    else None
-                ),
+                initial_session_id=requested_session_id,
                 cancellation=cancellation,
             )
             key = summary_objective_key(cycle.summary, contract.objectives)
@@ -769,10 +872,20 @@ def run_competing_worker_cycles(
                 if activation_required
                 else mechanism_activation.get("passed") is not False
             )
-            eligible = core_eligible and semantic_eligible
+            worker_changed_files = list(getattr(cycle.worker_result, "changed_files", []) or [])
+            target_file = str(candidate_plan.get("target_file") or "")
+            target_changed = bool(
+                target_file in worker_changed_files if target_file else worker_changed_files
+            )
+            exact_execution = evaluate_exact_solver_execution(candidate_plan, cycle.summary)
+            exact_execution_eligible = exact_execution.get("passed") is not False
+            eligible = core_eligible and target_changed and exact_execution_eligible
             outcome = {
                 "candidate_id": candidate_id,
                 "candidate_index": candidate_index,
+                # The candidate cycle produced a Core-evaluable outcome. Keep
+                # that lifecycle status separate from the underlying Worker
+                # process status used by lane checkpoint accounting.
                 "status": "completed",
                 "eligible": eligible,
                 "ja_accepted": ja_accepted,
@@ -785,8 +898,12 @@ def run_competing_worker_cycles(
                 "activation_required": activation_required,
                 "activation_advisory_only": True,
                 "mechanism_activation": mechanism_activation,
+                "exact_execution_eligible": exact_execution_eligible,
+                "exact_execution": exact_execution,
                 "objective_key": list(key),
                 "worker_status": cycle.worker_result.status,
+                "worker_changed_files": worker_changed_files,
+                "target_changed": target_changed,
                 "worker_model": worker_model_from_result(cycle.worker_result),
                 "summary": summary_payload(cycle.summary),
                 "smoke_gate": cycle_smoke_gate_payload(cycle),
@@ -795,10 +912,24 @@ def run_competing_worker_cycles(
                 ),
                 "local_trials": in_round_repair_summary(attempts),
                 "worker_session_id": str((selected_attempt or {}).get("session_id") or "") or None,
+                "requested_session_id": (selected_attempt or {}).get("requested_session_id"),
+                "command_session_id": (selected_attempt or {}).get("command_session_id"),
+                "observed_session_id": (selected_attempt or {}).get("observed_session_id"),
+                "session_reused": bool((selected_attempt or {}).get("session_reused")),
+                "session_event_stream_bytes": (selected_attempt or {}).get("session_event_stream_bytes"),
                 "semantic_review": semantic_review or {},
                 "cycle_dir": str(candidate_dir),
                 "worktree": str(cycle.worktree_path),
                 "patch_path": str(cycle.patch_path),
+                "parent_checkpoint": str(parent_worktree),
+                "parent_objective_key": list(
+                    parent_state.objective_key if parent_state is not None else incumbent_key
+                ),
+                "archived_lineage": (
+                    lane_development_state_payload(archived_state)
+                    if archived_state is not None
+                    else None
+                ),
             }
             candidate_plan = dict(candidate_plan)
             candidate_plan["mechanism_activation"] = mechanism_activation
@@ -822,6 +953,15 @@ def run_competing_worker_cycles(
                 "error": str(exc),
                 "exception_path": str(exception_path),
                 "cycle_dir": str(candidate_dir),
+                "parent_checkpoint": str(parent_worktree),
+                "parent_objective_key": list(
+                    parent_state.objective_key if parent_state is not None else incumbent_key
+                ),
+                "archived_lineage": (
+                    lane_development_state_payload(archived_state)
+                    if archived_state is not None
+                    else None
+                ),
             }
             return candidate_index, outcome, None
 
@@ -835,6 +975,14 @@ def run_competing_worker_cycles(
 
     candidate_results.sort(key=lambda item: item[0])
     outcomes = [item[1] for item in candidate_results]
+    update_lane_development_states(
+        lane_states,
+        candidate_plans=candidate_plans,
+        outcomes=outcomes,
+        incumbent_worktree=project_root,
+        incumbent_key=incumbent_key,
+        round_index=round_index,
+    )
     completed = [item[2] for item in candidate_results if item[2] is not None]
     eligible_completed = [item for item in completed if item[1]]
     selection_pool = eligible_completed or completed
@@ -845,6 +993,7 @@ def run_competing_worker_cycles(
             "execution_mode": "parallel" if concurrency > 1 else "serial",
             "max_concurrency": concurrency,
             "candidates": outcomes,
+            "lane_development_states": lane_development_states_payload(lane_states),
         }
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "competition_result.json").write_text(
@@ -874,7 +1023,26 @@ def run_competing_worker_cycles(
         predicate=lambda item: (
             bool(item.get("core_eligible"))
             and (item.get("mechanism_activation") or {}).get("passed") is True
+            and item.get("exact_execution_eligible") is not False
         ),
+    )
+    winner_outcome = next(
+        (
+            item
+            for item in outcomes
+            if item.get("candidate_id") == (selected_variant.get("candidate_id") or "c00")
+        ),
+        {},
+    )
+    winner_lane_state = (
+        winner_outcome.get("lane_development_state")
+        if isinstance(winner_outcome.get("lane_development_state"), dict)
+        else {}
+    )
+    continued_session_id = (
+        str(winner_lane_state.get("session_id") or "") or None
+        if winner_lane_state.get("session_status") == "continued"
+        else None
     )
     result = {
         "status": "selected" if has_eligible_winner else "no_eligible_candidate",
@@ -888,16 +1056,24 @@ def run_competing_worker_cycles(
         "selected_objective_key": list(winner[0]) if has_eligible_winner else [],
         "measured_candidate_id": selected_variant.get("candidate_id") or "c00",
         "measured_objective_key": list(winner[0]),
-        "continued_session_id": initial_session_id,
-        "continued_session_candidate_id": initial_session_candidate_id,
+        "continued_session_id": continued_session_id,
+        "continued_session_candidate_id": (
+            (selected_variant.get("candidate_id") or "c00")
+            if continued_session_id
+            else None
+        ),
         "selected_session_id": str(winner_attempt.get("session_id") or "") or None,
         "selected_for_promotion": has_eligible_winner,
         "selected_for_promotion_check": has_eligible_winner,
-        "selection_rule": "best Core objective among JA/Core/semantic-eligible isolated candidates",
+        "selection_rule": (
+            "best Core objective among changed Core-legal isolated candidates; exact_hybrid candidates "
+            "must prove diagnostics.cp_sat_called=true; semantic review and other activation checks are advisory"
+        ),
         "activation_advisory_only": True,
         "best_legal_candidate": best_legal_candidate,
         "best_activated_candidate": best_activated_candidate,
         "candidates": outcomes,
+        "lane_development_states": lane_development_states_payload(lane_states),
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "competition_result.json").write_text(
@@ -928,12 +1104,404 @@ def best_competition_candidate(
         "worktree": winner.get("worktree"),
         "summary": winner.get("summary") or {},
         "mechanism_activation": winner.get("mechanism_activation") or {},
+        "exact_execution_eligible": winner.get("exact_execution_eligible"),
+        "exact_execution": winner.get("exact_execution") or {},
         "ja_accepted": winner.get("ja_accepted"),
         "semantic_eligible": winner.get("semantic_eligible"),
     }
 
 
-def competitive_direction_plans(direction_plan: dict[str, Any], *, limit: int) -> list[dict[str, Any]]:
+def reusable_lane_development_state(
+    state: LaneDevelopmentState | None,
+    *,
+    candidate_plan: dict[str, Any],
+) -> tuple[LaneDevelopmentState | None, LaneDevelopmentState | None]:
+    """Return a reusable same-package state and an optional archived pivot state."""
+
+    if state is None:
+        return None, None
+    method_family = str(candidate_plan.get("method_family") or "")
+    method_package_id = str(candidate_plan.get("method_package_id") or "")
+    same_direction = (
+        state.method_family == method_family
+        and state.method_package_id == method_package_id
+        and state.checkpoint_worktree.exists()
+    )
+    return (state, None) if same_direction else (None, state)
+
+
+def lane_development_state_for_incumbent(
+    state: LaneDevelopmentState | None,
+    *,
+    candidate_plan: dict[str, Any],
+    incumbent_worktree: Path | None,
+    incumbent_key: tuple[float, ...] | None,
+) -> tuple[LaneDevelopmentState | None, LaneDevelopmentState | None]:
+    """Keep lane sessions, but rebase stale lane code onto the official incumbent."""
+
+    reusable, archived = reusable_lane_development_state(
+        state,
+        candidate_plan=candidate_plan,
+    )
+    if reusable is None or incumbent_worktree is None or incumbent_key is None:
+        return reusable, archived
+    incumbent = incumbent_worktree.resolve()
+    if reusable.checkpoint_worktree.resolve() == incumbent:
+        return reusable, archived
+    return (
+        replace(
+            reusable,
+            checkpoint_worktree=incumbent,
+            objective_key=incumbent_key,
+            stage=0,
+            verified_components=[],
+            last_failure="rebased_to_official_incumbent",
+        ),
+        reusable,
+    )
+
+
+def lane_development_state_payload(state: LaneDevelopmentState) -> dict[str, Any]:
+    return {
+        "candidate_id": state.candidate_id,
+        "method_family": state.method_family,
+        "method_package_id": state.method_package_id,
+        "checkpoint_worktree": str(state.checkpoint_worktree),
+        "objective_key": list(state.objective_key),
+        "track": state.track,
+        "stage": state.stage,
+        "verified_components": list(state.verified_components),
+        "session_id": state.session_id,
+        "session_status": state.session_status,
+        "event_stream_status": state.event_stream_status,
+        "last_failure": state.last_failure,
+        "last_update_round": state.last_update_round,
+    }
+
+
+def lane_development_states_payload(
+    states: dict[str, LaneDevelopmentState],
+) -> dict[str, dict[str, Any]]:
+    return {
+        candidate_id: lane_development_state_payload(state)
+        for candidate_id, state in sorted(states.items())
+    }
+
+
+def lane_development_state_from_payload(value: Any) -> LaneDevelopmentState | None:
+    if not isinstance(value, dict):
+        return None
+    candidate_id = str(value.get("candidate_id") or "").strip()
+    checkpoint = str(value.get("checkpoint_worktree") or "").strip()
+    objective = value.get("objective_key")
+    if not candidate_id or not checkpoint or not isinstance(objective, (list, tuple)) or not objective:
+        return None
+    try:
+        objective_key = tuple(float(item) for item in objective)
+        stage = max(0, int(value.get("stage", 0) or 0))
+        raw_last_update_round = value.get("last_update_round", -1)
+        last_update_round = int(
+            raw_last_update_round if raw_last_update_round is not None else -1
+        )
+    except (TypeError, ValueError):
+        return None
+    return LaneDevelopmentState(
+        candidate_id=candidate_id,
+        method_family=str(value.get("method_family") or ""),
+        method_package_id=str(value.get("method_package_id") or ""),
+        checkpoint_worktree=Path(checkpoint).resolve(),
+        objective_key=objective_key,
+        track=str(value.get("track") or ""),
+        stage=stage,
+        verified_components=_dedupe(
+            [str(item) for item in value.get("verified_components") or [] if str(item).strip()]
+        ),
+        session_id=str(value.get("session_id") or "") or None,
+        session_status=str(value.get("session_status") or "not_started"),
+        event_stream_status=str(value.get("event_stream_status") or "unknown"),
+        last_failure=str(value.get("last_failure") or "") or None,
+        last_update_round=last_update_round,
+    )
+
+
+def _lane_track_metadata(plan: dict[str, Any]) -> tuple[str, int, int]:
+    lane = plan.get("worker_lane") if isinstance(plan.get("worker_lane"), dict) else {}
+    track = str(lane.get("track_id") or lane.get("lane_role") or "")
+    try:
+        stage = max(0, int(lane.get("stage", 0) or 0))
+    except (TypeError, ValueError):
+        stage = 0
+    try:
+        stage_count = max(1, int(lane.get("stage_count", 1) or 1))
+    except (TypeError, ValueError):
+        stage_count = 1
+    return track, stage, stage_count
+
+
+def evaluate_lane_checkpoint(
+    outcome: dict[str, Any],
+    *,
+    parent_key: tuple[float, ...],
+    candidate_plan: dict[str, Any],
+) -> dict[str, Any]:
+    objective_key = tuple(float(item) for item in outcome.get("objective_key") or [])
+    summary = outcome.get("summary") if isinstance(outcome.get("summary"), dict) else {}
+    worker_status = str(outcome.get("worker_status") or outcome.get("status") or "")
+    worker_completed = worker_status in {"completed", "ok", "applied"}
+    timeout_artifact_usable = bool(worker_status == "timeout" and outcome.get("target_changed"))
+    checks = {
+        "worker_completed": worker_completed,
+        "worker_artifact_usable": worker_completed or timeout_artifact_usable,
+        "core_legal": bool(
+            outcome.get("core_eligible")
+            and int(summary.get("total", 0) or 0) > 0
+            and int(summary.get("valid", 0) or 0) == int(summary.get("total", 0) or 0)
+            and int(summary.get("failed", 0) or 0) == 0
+        ),
+        "path_and_semantic_review": bool(
+            outcome.get("ja_accepted")
+            and not semantic_review_has_verified_blocking_finding(outcome.get("semantic_review"))
+        ),
+        "objective_not_worse": bool(
+            objective_key
+            and not _all_negative_infinity(objective_key)
+            and objective_key >= parent_key
+        ),
+    }
+    accepted = all(
+        value
+        for name, value in checks.items()
+        if name != "worker_completed"
+    )
+    declared = [
+        item
+        for item in candidate_plan.get("checkpoint_checks") or []
+        if isinstance(item, dict)
+    ]
+    executable = [item for item in declared if str(item.get("path") or "").strip()]
+    descriptive = [item for item in declared if item not in executable]
+    semantic_review = (
+        outcome.get("semantic_review")
+        if isinstance(outcome.get("semantic_review"), dict)
+        else {}
+    )
+    semantic_status = str(semantic_review.get("status") or "missing").strip().lower()
+    semantic_reviewer = str(semantic_review.get("reviewer") or "").strip().lower()
+    full_review_passed = bool(
+        semantic_status == "pass"
+        and semantic_review.get("accepted") is True
+        and semantic_reviewer not in {"", "none"}
+    )
+    implementation_order = _dedupe(
+        [str(item) for item in candidate_plan.get("implementation_order") or [] if str(item).strip()]
+    )
+    component_status = {
+        str(item.get("component_id") or ""): str(item.get("status") or "").strip().lower()
+        for item in semantic_review.get("component_coverage") or []
+        if isinstance(item, dict) and str(item.get("component_id") or "").strip()
+    }
+    assigned_components_passed = bool(
+        implementation_order
+        and all(component_status.get(component_id) == "implemented" for component_id in implementation_order)
+    )
+    semantic_checkpoint_passed = bool(
+        not semantic_review_has_verified_blocking_finding(semantic_review)
+        and (full_review_passed or assigned_components_passed)
+    )
+    checkpoint_evidence: dict[str, Any]
+    if executable:
+        check_plan = dict(candidate_plan)
+        check_plan["activation_checks"] = executable
+        executable_evidence = evaluate_mechanism_activation(
+            check_plan,
+            run_summary_from_payload(summary),
+        )
+    else:
+        executable_evidence = {
+            "status": "not_required",
+            "passed": True,
+            "declared_check_count": 0,
+            "checks": [],
+        }
+    descriptive_passed = not descriptive or semantic_checkpoint_passed
+    stage_complete = bool(
+        accepted
+        and worker_completed
+        and implementation_order
+        and declared
+        and executable_evidence.get("passed") is True
+        and descriptive_passed
+    )
+    if stage_complete:
+        stage_reason = "completed"
+    elif not worker_completed:
+        stage_reason = "worker_not_completed"
+    elif descriptive and semantic_status in {"missing", "skipped", "not_required", "unavailable"}:
+        stage_reason = "checkpoint_review_unavailable"
+    else:
+        stage_reason = "checkpoint_checks_failed"
+    checkpoint_evidence = {
+        "status": "passed" if stage_complete else "failed",
+        "passed": stage_complete,
+        "declared_check_count": len(declared),
+        "executable_check_count": len(executable),
+        "descriptive_check_count": len(descriptive),
+        "executable": executable_evidence,
+        "semantic_review": {
+            "required": bool(descriptive),
+            "status": semantic_status,
+            "reviewer": semantic_review.get("reviewer"),
+            "accepted": semantic_review.get("accepted"),
+            "passed": descriptive_passed,
+            "full_review_passed": full_review_passed,
+            "assigned_components_passed": assigned_components_passed,
+            "assigned_components": implementation_order,
+        },
+    }
+    failed_checks = [
+        name
+        for name, passed in checks.items()
+        if not passed and name != "worker_completed"
+    ]
+    return {
+        "accepted": accepted,
+        "stage_complete": stage_complete,
+        "checks": checks,
+        "checkpoint_checks": checkpoint_evidence,
+        "reason": "accepted" if accepted else ",".join(failed_checks),
+        "stage_reason": stage_reason,
+    }
+
+
+def update_lane_development_states(
+    states: dict[str, LaneDevelopmentState],
+    *,
+    candidate_plans: list[dict[str, Any]],
+    outcomes: list[dict[str, Any]],
+    incumbent_worktree: Path,
+    incumbent_key: tuple[float, ...],
+    round_index: int,
+) -> None:
+    plans_by_id = {
+        str((plan.get("candidate_variant") or {}).get("candidate_id") or f"c{index:02d}"): plan
+        for index, plan in enumerate(candidate_plans)
+    }
+    for outcome in outcomes:
+        candidate_id = str(outcome.get("candidate_id") or "")
+        plan = plans_by_id.get(candidate_id, {})
+        reusable, _archived = lane_development_state_for_incumbent(
+            states.get(candidate_id),
+            candidate_plan=plan,
+            incumbent_worktree=incumbent_worktree,
+            incumbent_key=incumbent_key,
+        )
+        parent_worktree = reusable.checkpoint_worktree if reusable else incumbent_worktree
+        parent_key = reusable.objective_key if reusable else incumbent_key
+        track, stage, stage_count = _lane_track_metadata(plan)
+        if reusable is not None:
+            stage = reusable.stage
+        checkpoint = evaluate_lane_checkpoint(
+            outcome,
+            parent_key=parent_key,
+            candidate_plan=plan,
+        )
+        outcome["checkpoint_decision"] = checkpoint
+
+        raw_event_bytes = outcome.get("session_event_stream_bytes")
+        try:
+            event_bytes = int(raw_event_bytes) if raw_event_bytes is not None else None
+        except (TypeError, ValueError):
+            event_bytes = 0
+        requested_session = str(outcome.get("requested_session_id") or "") or None
+        commanded_session = str(outcome.get("command_session_id") or "") or None
+        observed_session = str(outcome.get("observed_session_id") or "") or None
+        if observed_session is None and requested_session is None and event_bytes is None:
+            observed_session = str(outcome.get("worker_session_id") or "") or None
+        nonzero_stream = event_bytes is None or event_bytes > 0
+        if requested_session:
+            continuity_ok = bool(
+                outcome.get("session_reused")
+                and commanded_session == requested_session
+                and observed_session == requested_session
+                and nonzero_stream
+            )
+            session_status = "continued" if continuity_ok else "continuity_failed"
+        else:
+            continuity_ok = bool(observed_session and nonzero_stream)
+            session_status = "started" if continuity_ok else "not_observed"
+        session_id = observed_session if continuity_ok else None
+        event_stream_status = (
+            "nonzero" if event_bytes is not None and event_bytes > 0
+            else "zero" if event_bytes == 0
+            else "unknown"
+        )
+
+        checkpoint_accepted = bool(checkpoint["accepted"])
+        stage_complete = bool(checkpoint["stage_complete"])
+        checkpoint["session_continuity"] = {
+            "required": bool(requested_session),
+            "passed": continuity_ok if requested_session else True,
+            "requested_session_id": requested_session,
+            "command_session_id": commanded_session,
+            "observed_session_id": observed_session,
+            "event_stream_status": event_stream_status,
+        }
+        if requested_session and not continuity_ok:
+            stage_complete = False
+            checkpoint["stage_complete"] = False
+            checkpoint["stage_reason"] = "session_continuity_failed"
+        implementation_order = _dedupe(
+            [str(item) for item in plan.get("implementation_order") or [] if str(item).strip()]
+        )
+        verified_components = list(reusable.verified_components) if reusable else []
+        if stage_complete:
+            verified_components = _dedupe([*verified_components, *implementation_order])
+        next_stage = min(stage + 1, stage_count) if stage_complete else stage
+        failure: str | None = None
+        outcome_worker_status = str(outcome.get("worker_status") or outcome.get("status") or "")
+        if outcome_worker_status not in {"completed", "ok", "applied"}:
+            failure = str(outcome.get("error") or outcome_worker_status or "candidate_failed")
+        elif not checkpoint_accepted:
+            failure = str(checkpoint.get("reason") or "checkpoint_rejected")
+        elif not stage_complete:
+            failure = str(checkpoint.get("stage_reason") or "checkpoint_checks_failed")
+        elif requested_session and not continuity_ok:
+            failure = "session_continuity_failed"
+        state = LaneDevelopmentState(
+            candidate_id=candidate_id,
+            method_family=str(plan.get("method_family") or ""),
+            method_package_id=str(plan.get("method_package_id") or ""),
+            checkpoint_worktree=(
+                Path(str(outcome.get("worktree"))).resolve()
+                if checkpoint_accepted and outcome.get("worktree")
+                else parent_worktree.resolve()
+            ),
+            objective_key=(
+                tuple(float(item) for item in outcome.get("objective_key") or [])
+                if checkpoint_accepted
+                else parent_key
+            ),
+            track=track,
+            stage=next_stage,
+            verified_components=verified_components,
+            session_id=session_id,
+            session_status=session_status,
+            event_stream_status=event_stream_status,
+            last_failure=failure,
+            last_update_round=round_index,
+        )
+        states[candidate_id] = state
+        outcome["lane_development_state"] = lane_development_state_payload(state)
+
+
+def competitive_direction_plans(
+    direction_plan: dict[str, Any],
+    *,
+    limit: int,
+    lane_development_states: dict[str, LaneDevelopmentState] | None = None,
+    incumbent_worktree: Path | None = None,
+    incumbent_key: tuple[float, ...] | None = None,
+) -> list[dict[str, Any]]:
     """Expand bounded variants; only research tournaments may cross method families."""
 
     limit = max(1, min(4, int(limit)))
@@ -949,7 +1517,13 @@ def competitive_direction_plans(direction_plan: dict[str, Any], *, limit: int) -
     )
     delegated = lane_policy.get("mechanism_selection") == "delegated_to_worker"
     if not variants and delegated:
-        return delegated_worker_lane_plans(direction_plan, limit=limit)
+        return delegated_worker_lane_plans(
+            direction_plan,
+            limit=limit,
+            lane_development_states=lane_development_states or {},
+            incumbent_worktree=incumbent_worktree,
+            incumbent_key=incumbent_key,
+        )
     if limit <= 1 or not variants:
         return [direction_plan]
     result: list[dict[str, Any]] = []
@@ -971,8 +1545,10 @@ def competitive_direction_plans(direction_plan: dict[str, Any], *, limit: int) -
             "change_scope",
             "implementation_order",
             "deliverables",
+            "knowledge_paths",
             "acceptance_checks",
             "activation_checks",
+            "checkpoint_checks",
         ):
             if variant.get(name):
                 plan[name] = variant[name]
@@ -983,9 +1559,108 @@ def competitive_direction_plans(direction_plan: dict[str, Any], *, limit: int) -
         experiment_stage = "research_tournament" if parent_stage == "research_tournament" else parent_stage
         plan["experiment_stage"] = experiment_stage
         if experiment_stage == "research_tournament":
-            for name in ("method_family", "method_families", "method_package_id", "knowledge_query"):
+            for name in (
+                "method_family",
+                "method_families",
+                "method_package_id",
+                "method_package_selection",
+                "implementation_bundle",
+                "knowledge_query",
+            ):
                 if variant.get(name):
                     plan[name] = variant[name]
+            bundle = (
+                plan.get("implementation_bundle")
+                if isinstance(plan.get("implementation_bundle"), dict)
+                else {}
+            )
+            package_tracks = [
+                item
+                for item in bundle.get("competition_tracks") or []
+                if isinstance(item, dict)
+            ]
+            if package_tracks:
+                track = next(
+                    (
+                        item
+                        for item in package_tracks
+                        if str(item.get("track_id") or item.get("id") or "")
+                        == "direct_evidence"
+                    ),
+                    package_tracks[0],
+                )
+                track_id = str(track.get("track_id") or track.get("id") or "")
+                stages = _track_stages(track)
+                prior_state, _archived = lane_development_state_for_incumbent(
+                    (lane_development_states or {}).get(candidate_id),
+                    candidate_plan=plan,
+                    incumbent_worktree=incumbent_worktree,
+                    incumbent_key=incumbent_key,
+                )
+                stage_index = prior_state.stage if prior_state is not None else 0
+                stage_index = min(stage_index, len(stages))
+                stage_complete = stage_index >= len(stages)
+                stage = {} if stage_complete else stages[stage_index]
+                implementation_order = _dependency_closed_order(
+                    [
+                        *(prior_state.verified_components if prior_state is not None else []),
+                        *(
+                            [str(item) for item in track.get("component_ids") or []]
+                            if stage_complete
+                            else _stage_component_ids(stage)
+                        ),
+                    ],
+                    _component_dependency_map(bundle),
+                )
+                selected_ids = set(implementation_order)
+                plan["implementation_order"] = implementation_order
+                plan["deliverables"] = [
+                    item
+                    for item in bundle.get("required_components") or []
+                    if isinstance(item, dict)
+                    and str(item.get("component_id") or "") in selected_ids
+                ]
+                stage_checkpoint_checks = (
+                    []
+                    if stage_complete
+                    else _track_checkpoint_checks(
+                        bundle,
+                        track,
+                        stage,
+                        stage_index=stage_index,
+                        implementation_order=implementation_order,
+                    )
+                )
+                plan["checkpoint_checks"] = stage_checkpoint_checks
+                plan["acceptance_checks"] = _stage_acceptance_checks(
+                    plan,
+                    stage_checkpoint_checks,
+                )
+                plan["worker_lane"] = {
+                    "schema_version": 1,
+                    "lane_index": index,
+                    "lane_role": track_id,
+                    "track_id": track_id,
+                    "stage": stage_index,
+                    "stage_count": max(1, len(stages)),
+                    "stage_status": "completed" if stage_complete else "active",
+                    "stage_id": (
+                        f"maintenance:{track_id}"
+                        if stage_complete
+                        else str(stage.get("stage_id") or stage.get("id") or stage_index)
+                    ),
+                    "parent_checkpoint": (
+                        str(prior_state.checkpoint_worktree)
+                        if prior_state is not None
+                        else None
+                    ),
+                    "verified_components": (
+                        list(prior_state.verified_components)
+                        if prior_state is not None
+                        else []
+                    ),
+                    "mechanism_selection": "family_hypothesis_tournament",
+                }
         for name in ("preserve", "avoid"):
             plan[name] = _dedupe(
                 [
@@ -1025,10 +1700,148 @@ DELEGATED_WORKER_LANES = (
 )
 
 
+def _component_dependency_map(bundle: dict[str, Any]) -> dict[str, list[str]]:
+    raw = bundle.get("component_dependencies")
+    if isinstance(raw, dict):
+        return {
+            str(component_id): _dedupe(
+                [str(item) for item in dependencies or [] if str(item).strip()]
+            )
+            for component_id, dependencies in raw.items()
+            if str(component_id).strip() and isinstance(dependencies, (list, tuple))
+        }
+    result: dict[str, list[str]] = {}
+    for item in raw or []:
+        if not isinstance(item, dict):
+            continue
+        component_id = str(item.get("component_id") or item.get("id") or "").strip()
+        if component_id:
+            result[component_id] = _dedupe(
+                [
+                    str(value)
+                    for value in item.get("depends_on") or item.get("dependencies") or []
+                    if str(value).strip()
+                ]
+            )
+    return result
+
+
+def _dependency_closed_order(
+    component_ids: list[str],
+    dependencies: dict[str, list[str]],
+) -> list[str]:
+    ordered: list[str] = []
+    visiting: set[str] = set()
+
+    def visit(component_id: str) -> None:
+        if component_id in ordered:
+            return
+        if component_id in visiting:
+            raise ValueError(f"cyclic Method Package component dependency at {component_id}")
+        visiting.add(component_id)
+        for dependency in dependencies.get(component_id, []):
+            visit(dependency)
+        visiting.remove(component_id)
+        ordered.append(component_id)
+
+    for component_id in component_ids:
+        visit(component_id)
+    return ordered
+
+
+def _track_stages(track: dict[str, Any]) -> list[dict[str, Any]]:
+    stages = track.get("stages") or track.get("implementation_stages") or []
+    return [item for item in stages if isinstance(item, dict)]
+
+
+def _stage_component_ids(stage: dict[str, Any]) -> list[str]:
+    return _dedupe(
+        [
+            str(item)
+            for item in (
+                stage.get("component_ids")
+                or stage.get("implementation_order")
+                or stage.get("components")
+                or []
+            )
+            if str(item).strip()
+        ]
+    )
+
+
+def _track_checkpoint_checks(
+    bundle: dict[str, Any],
+    track: dict[str, Any],
+    stage: dict[str, Any],
+    *,
+    stage_index: int,
+    implementation_order: list[str],
+) -> list[dict[str, Any]]:
+    direct = stage.get("checkpoint_checks")
+    if isinstance(direct, list):
+        return [item for item in direct if isinstance(item, dict)]
+    track_id = str(track.get("track_id") or track.get("id") or "")
+    result: list[dict[str, Any]] = []
+    for item in bundle.get("checkpoint_checks") or []:
+        if not isinstance(item, dict):
+            continue
+        item_track = str(item.get("track_id") or "")
+        raw_stage = item.get("stage", item.get("stage_index"))
+        if item_track and item_track != track_id:
+            continue
+        if raw_stage is not None:
+            try:
+                if int(raw_stage) != stage_index:
+                    continue
+            except (TypeError, ValueError):
+                continue
+        component_ids = {
+            str(value) for value in item.get("component_ids") or [] if str(value).strip()
+        }
+        if component_ids:
+            selected_ids = set(implementation_order)
+            component_match = str(
+                item.get("component_match") or item.get("component_mode") or "all"
+            ).strip().lower()
+            if component_match == "any":
+                if component_ids.isdisjoint(selected_ids):
+                    continue
+            elif not component_ids.issubset(selected_ids):
+                continue
+        result.append(item)
+    return result
+
+
+def _stage_acceptance_checks(
+    plan: dict[str, Any],
+    checkpoint_checks: list[dict[str, Any]],
+) -> list[str]:
+    preserved = [
+        str(item)
+        for item in plan.get("acceptance_checks") or []
+        if str(item).strip() and not str(item).lstrip().startswith("Checkpoint")
+    ]
+    selected: list[str] = []
+    for item in checkpoint_checks:
+        requirement = str(item.get("requirement") or item.get("title") or "").strip()
+        if not requirement:
+            continue
+        check_id = str(item.get("check_id") or "").strip()
+        selected.append(
+            f"Checkpoint {check_id}: {requirement}"
+            if check_id
+            else f"Checkpoint: {requirement}"
+        )
+    return _dedupe([*preserved, *selected])[:12]
+
+
 def delegated_worker_lane_plans(
     direction_plan: dict[str, Any],
     *,
     limit: int,
+    lane_development_states: dict[str, LaneDevelopmentState] | None = None,
+    incumbent_worktree: Path | None = None,
+    incumbent_key: tuple[float, ...] | None = None,
 ) -> list[dict[str, Any]]:
     """Compile generic parallel lanes without choosing an algorithm for Workers."""
 
@@ -1043,17 +1856,109 @@ def delegated_worker_lane_plans(
         requested = limit
     lane_count = max(1, min(4, int(limit), requested))
     requested_roles = [str(item).strip() for item in policy.get("roles") or [] if str(item).strip()]
+    lane_development_states = lane_development_states or {}
+    bundle = (
+        direction_plan.get("implementation_bundle")
+        if isinstance(direction_plan.get("implementation_bundle"), dict)
+        else {}
+    )
+    package_tracks = [
+        item for item in bundle.get("competition_tracks") or [] if isinstance(item, dict)
+    ]
+    tracks_by_id = {
+        str(item.get("track_id") or item.get("id") or ""): item
+        for item in package_tracks
+        if str(item.get("track_id") or item.get("id") or "").strip()
+    }
+    dependencies = _component_dependency_map(bundle)
     definitions = {item[0]: item for item in DELEGATED_WORKER_LANES}
-    ordered = [definitions[role] for role in requested_roles if role in definitions]
-    ordered.extend(item for item in DELEGATED_WORKER_LANES if item not in ordered)
+    if package_tracks:
+        package_roles = {
+            str(track.get("track_id") or track.get("id") or ""): (
+                str(track.get("track_id") or track.get("id") or ""),
+                str(track.get("title") or track.get("track_id") or track.get("id") or "Package track"),
+                str(track.get("selection_hint") or "Implement the current package track stage."),
+            )
+            for track in package_tracks
+            if str(track.get("track_id") or track.get("id") or "").strip()
+        }
+        ordered = [package_roles[role] for role in requested_roles if role in package_roles]
+        ordered.extend(item for item in package_roles.values() if item not in ordered)
+        lane_count = min(lane_count, len(ordered))
+        if lane_count == 0:
+            raise ValueError("delegated Method Package declares no usable competition tracks")
+    else:
+        ordered = [definitions[role] for role in requested_roles if role in definitions]
+        ordered.extend(item for item in DELEGATED_WORKER_LANES if item not in ordered)
 
     result: list[dict[str, Any]] = []
     base_direction_id = str(direction_plan.get("direction_id") or "direction")
     base_title = str(direction_plan.get("title") or "Worker-selected mechanism")
     base_hypothesis = str(direction_plan.get("hypothesis") or "")
+    distinct_contracts: set[tuple[tuple[str, ...], int | str]] = set()
     for index, (role_id, role_title, role_objective) in enumerate(ordered[:lane_count]):
         candidate_id = f"lane-{index + 1:02d}-{role_id}"[:48]
         plan = dict(direction_plan)
+        track = tracks_by_id.get(role_id, {})
+        stages = _track_stages(track)
+        prior_state, _archived = lane_development_state_for_incumbent(
+            lane_development_states.get(candidate_id),
+            candidate_plan=plan,
+            incumbent_worktree=incumbent_worktree,
+            incumbent_key=incumbent_key,
+        )
+        stage_index = prior_state.stage if prior_state is not None else 0
+        stage_status = "active"
+        if stages:
+            stage_index = min(stage_index, len(stages))
+            stage_complete = stage_index >= len(stages)
+            stage_status = "completed" if stage_complete else "active"
+            stage = {} if stage_complete else stages[stage_index]
+            implementation_order = _dependency_closed_order(
+                [
+                    *(prior_state.verified_components if prior_state is not None else []),
+                    *(
+                        [str(item) for item in track.get("component_ids") or []]
+                        if stage_complete
+                        else _stage_component_ids(stage)
+                    ),
+                ],
+                dependencies,
+            )
+            contract_stage: int | str = (
+                f"maintenance:{role_id}" if stage_complete else stage_index
+            )
+            contract_key = (tuple(implementation_order), contract_stage)
+            if contract_key in distinct_contracts:
+                raise ValueError(
+                    "delegated lane planning contract produced duplicate component bundle/stage: "
+                    f"{role_id} stage {stage_index}"
+                )
+            distinct_contracts.add(contract_key)
+            plan["implementation_order"] = implementation_order
+            selected_ids = set(implementation_order)
+            plan["deliverables"] = [
+                item
+                for item in bundle.get("required_components") or []
+                if isinstance(item, dict)
+                and str(item.get("component_id") or "") in selected_ids
+            ]
+            stage_checkpoint_checks = (
+                []
+                if stage_complete
+                else _track_checkpoint_checks(
+                    bundle,
+                    track,
+                    stage,
+                    stage_index=stage_index,
+                    implementation_order=implementation_order,
+                )
+            )
+            plan["checkpoint_checks"] = stage_checkpoint_checks
+            plan["acceptance_checks"] = _stage_acceptance_checks(
+                plan,
+                stage_checkpoint_checks,
+            )
         plan["direction_id"] = f"{base_direction_id}-{candidate_id}"[:80]
         plan["title"] = f"{base_title}: {role_title}"[:200]
         plan["worker_objective"] = (
@@ -1072,6 +1977,23 @@ def delegated_worker_lane_plans(
             "schema_version": 1,
             "lane_index": index,
             "lane_role": role_id,
+            "track_id": role_id,
+            "stage": stage_index,
+            "stage_count": max(1, len(stages)),
+            "stage_status": stage_status,
+            "stage_id": (
+                f"maintenance:{role_id}"
+                if stage_status == "completed"
+                else str(stage.get("stage_id") or stage.get("id") or stage_index)
+                if stages
+                else str(stage_index)
+            ),
+            "parent_checkpoint": (
+                str(prior_state.checkpoint_worktree) if prior_state is not None else None
+            ),
+            "verified_components": (
+                list(prior_state.verified_components) if prior_state is not None else []
+            ),
             "mechanism_selection": "delegated_to_worker",
         }
         plan["candidate_variants"] = []
@@ -1189,6 +2111,61 @@ def evaluate_mechanism_activation(
     }
 
 
+def evaluate_exact_solver_execution(
+    direction_plan: dict[str, Any],
+    summary: RunSummary,
+) -> dict[str, Any]:
+    """Require runtime proof that an exact_hybrid candidate actually called CP-SAT."""
+
+    method_family = str(direction_plan.get("method_family") or "").strip()
+    required = method_family == "exact_hybrid"
+    if not required:
+        return {
+            "status": "not_required",
+            "required": False,
+            "passed": None,
+            "cp_sat_called": None,
+            "observed_run_count": 0,
+        }
+
+    payloads = [
+        item
+        for item in summary.activation_evidence or []
+        if isinstance(item, dict)
+    ] or [summary_payload(summary)]
+    observations = [
+        value
+        for payload in payloads
+        for value in _values_for_key(payload, "cp_sat_called")
+    ]
+    called = any(value is True for value in observations)
+    return {
+        "status": "passed" if called else "failed",
+        "required": True,
+        "passed": called,
+        "cp_sat_called": called,
+        "observed_run_count": len(payloads),
+        "observed_values": observations[:16],
+        "reason": None if called else "exact_hybrid_without_cp_sat_execution_evidence",
+    }
+
+
+def _values_for_key(value: Any, key: str, *, depth: int = 0) -> list[Any]:
+    if depth >= 10:
+        return []
+    if isinstance(value, dict):
+        found = [value[key]] if key in value else []
+        for child in value.values():
+            found.extend(_values_for_key(child, key, depth=depth + 1))
+        return found
+    if isinstance(value, list):
+        found: list[Any] = []
+        for child in value[:64]:
+            found.extend(_values_for_key(child, key, depth=depth + 1))
+        return found
+    return []
+
+
 def _resolve_activation_path(payload: Any, path: str) -> tuple[bool, Any]:
     found, observed, _resolved_path = _resolve_activation_path_with_canonical(payload, path)
     return found, observed
@@ -1277,6 +2254,7 @@ def run_worker_cycle_with_in_round_repairs(
     apply_worker_changes: bool,
     baseline_summary: RunSummary,
     incumbent_key: tuple[float, ...],
+    semantic_review_floor_key: tuple[float, ...] | None = None,
     baseline_generation: dict[str, Any] | None,
     previous_rounds: list[LoopRoundRecord],
     repair_attempts: int,
@@ -1407,7 +2385,11 @@ def run_worker_cycle_with_in_round_repairs(
         )
         observed_session_id = str(session_telemetry.get("observed_session_id") or "").strip()
         if session_reuse_enabled and observed_session_id:
-            worker_session_id = observed_session_id
+            worker_session_id = (
+                observed_session_id
+                if requested_session_id is None or session_telemetry.get("session_reused") is True
+                else None
+            )
         semantic_review = run_algorithm_semantic_review(
             reviewer=semantic_reviewer,
             cycle=last_cycle,
@@ -1464,7 +2446,7 @@ def run_worker_cycle_with_in_round_repairs(
             break
         if not session_reuse_enabled and not should_attempt_in_round_repair(
             last_cycle,
-            incumbent_key=incumbent_key,
+            incumbent_key=semantic_review_floor_key or incumbent_key,
             semantic_review=semantic_review,
         ):
             termination_reason = "repair_not_required"
@@ -1575,11 +2557,10 @@ def local_trial_candidate_eligible(
         return False
     if not candidate_key or _all_negative_infinity(candidate_key):
         return False
-    if semantic_review_blocks_promotion(semantic_review):
-        return False
     # Keep the arguments in this compatibility surface because callers still
-    # persist activation diagnostics, but they no longer gate parent selection.
-    del mechanism_activation, activation_required
+    # persist activation and semantic diagnostics, but neither gates the
+    # objective parent selected inside a bounded trial series.
+    del semantic_review, mechanism_activation, activation_required
     return True
 
 
@@ -1640,7 +2621,20 @@ def run_algorithm_semantic_review(
             "reviewer": type(reviewer).__name__,
         }
     effective_candidate_key = candidate_key or _summary_objective_key_from_cycle(cycle)
-    if incumbent_key is not None and effective_candidate_key and effective_candidate_key <= incumbent_key:
+    descriptive_checkpoint_review = any(
+        isinstance(item, dict) and not str(item.get("path") or "").strip()
+        for item in direction_plan.get("checkpoint_checks") or []
+    )
+    deferred_by_objective = bool(
+        incumbent_key is not None
+        and effective_candidate_key
+        and (
+            effective_candidate_key < incumbent_key
+            if descriptive_checkpoint_review
+            else effective_candidate_key <= incumbent_key
+        )
+    )
+    if deferred_by_objective:
         return {
             "schema_version": 1,
             "status": "not_required",
@@ -2160,7 +3154,7 @@ def attempt_failure_signatures(
         signatures.extend(str(item) for item in (audit.get("warnings") or []) if item)
         if audit.get("rejected_change_count"):
             signatures.append("proposal_changes_rejected")
-    if semantic_review_blocks_promotion(semantic_review):
+    if semantic_review_has_verified_blocking_finding(semantic_review):
         signatures.append(semantic_review_promotion_block_reason(semantic_review))
         for finding in semantic_review.get("findings") or []:
             if isinstance(finding, dict) and finding.get("blocking"):
@@ -2179,7 +3173,6 @@ def in_round_repair_summary(attempts: list[dict[str, Any]]) -> dict[str, Any]:
         ),
         final_attempt,
     )
-    final_semantic_review = selected_attempt.get("semantic_review") if isinstance(selected_attempt, dict) else {}
     final_summary = selected_attempt.get("summary") if isinstance(selected_attempt, dict) else {}
     final_total = int((final_summary or {}).get("total", 0) or 0) if isinstance(final_summary, dict) else 0
     final_valid = int((final_summary or {}).get("valid", 0) or 0) if isinstance(final_summary, dict) else 0
@@ -2190,9 +3183,6 @@ def in_round_repair_summary(attempts: list[dict[str, Any]]) -> dict[str, Any]:
         "recovered": bool(
             repair_attempt_count
             and final_accepted
-            and not semantic_review_blocks_promotion(
-                final_semantic_review if isinstance(final_semantic_review, dict) else {}
-            )
             and final_valid == final_total
         ),
         "final_attempt_index": final_attempt.get("attempt_index"),
@@ -2253,7 +3243,15 @@ def continuing_direction_worker_lane(
         if isinstance(previous_plan.get("selected_candidate_variant"), dict)
         else {}
     )
-    return str(selected.get("candidate_id") or "").strip() or None
+    candidate_id = str(selected.get("candidate_id") or "").strip()
+    if candidate_id:
+        return candidate_id
+    competition = (
+        previous_plan.get("competition_result")
+        if isinstance(previous_plan.get("competition_result"), dict)
+        else {}
+    )
+    return str(competition.get("selected_candidate_id") or "").strip() or None
 
 
 def primary_method_family(plan: dict[str, Any]) -> str:
@@ -2607,7 +3605,11 @@ def run_agent_generated_baseline(
                 session_telemetry.get("observed_session_id") or ""
             ).strip()
             if session_reuse_enabled and observed_session_id:
-                worker_session_id = observed_session_id
+                worker_session_id = (
+                    observed_session_id
+                    if requested_session_id is None or session_telemetry.get("session_reused") is True
+                    else None
+                )
             # baseline 尚无正式 incumbent，因此单独保存迄今最强的 Core 合法
             # attempt。后续修补若退化，会回到该锚点继续，而不是越修越差。
             prior_core_anchor = select_best_core_valid_baseline_cycle(
@@ -3535,7 +4537,13 @@ def continue_current_direction_plan(
     plan["direction_id"] = f"d{round_index:03d}"
     if previous_direction_id:
         plan["parent_direction_id"] = previous_direction_id
-    plan["experiment_stage"] = "probe"
+    previous_stage = str(plan.get("experiment_stage") or "probe").strip()
+    # A family tournament is a typed cross-family state. Collapsing it to a
+    # probe makes its candidate variants ineligible to bind their own Method
+    # Packages and destroys per-family lane lineage on the next round.
+    plan["experiment_stage"] = (
+        "research_tournament" if previous_stage == "research_tournament" else "probe"
+    )
     plan["continuation"] = {
         "status": "continued_by_user_policy",
         "skipped_proposed_direction_id": proposed_direction_plan.get("direction_id"),
@@ -3971,8 +4979,8 @@ def agent_generated_baseline_memory_payload(
 def best_core_valid_baseline_anchor(repair: dict[str, Any]) -> dict[str, Any]:
     """Keep the strongest Core-valid baseline attempt even before semantic repair.
 
-    This anchor is evidence for preserving effective search structure, not a
-    promotion candidate.  Promotion still requires a passing semantic review.
+    This anchor preserves effective search structure. Semantic review remains
+    the authority for validated method claims, not Core objective promotion.
     """
 
     best_rank: tuple[float, ...] | None = None
@@ -4012,14 +5020,17 @@ def best_core_valid_baseline_anchor(repair: dict[str, Any]) -> dict[str, Any]:
         "objective_key": list(best_rank[:-2]),
         "core_valid": True,
         "semantic_status": semantic.get("status"),
+        # Keep the legacy key for persisted baseline-memory compatibility. It
+        # now describes semantic-claim eligibility, not Core promotion.
         "promotion_eligible": not semantic_review_blocks_promotion(semantic),
+        "semantic_claim_eligible": not semantic_review_blocks_promotion(semantic),
         "semantic_summary": str(semantic.get("summary") or "")[:800],
         "context_packet_path": context_path,
         "candidate_worktree": worktree,
         "patch_path": str(best_attempt.get("patch_path") or ""),
         "rule": (
             "Preserve effective mechanisms from this Core-valid anchor while repairing its semantic findings. "
-            "Do not promote it until semantic review passes."
+            "Do not promote its method claims into validated knowledge until semantic review passes."
         ),
     }
 
@@ -4146,6 +5157,15 @@ def load_worker_loop_result(path: Path) -> WorkerLoopResult:
         best_activated_incumbent=candidate_incumbent_from_payload(
             payload.get("best_activated_incumbent")
         ),
+        lane_development_states={
+            candidate_id: state
+            for candidate_id, item in (
+                payload.get("lane_development_states")
+                if isinstance(payload.get("lane_development_states"), dict)
+                else {}
+            ).items()
+            if (state := lane_development_state_from_payload(item)) is not None
+        },
     )
 
 
@@ -4314,6 +5334,8 @@ def compact_round_direction_plan(value: dict[str, Any] | None) -> dict[str, Any]
             if isinstance(item, dict)
         ][:4],
         "method_package_id": plan.get("method_package_id"),
+        "method_package_selection": plan.get("method_package_selection") or {},
+        "worker_lane": plan.get("worker_lane") or {},
         "knowledge_query": _bounded_list(plan.get("knowledge_query"), limit=8),
         "hypothesis": _bounded_text(plan.get("hypothesis"), limit=500),
         "worker_objective": _bounded_text(plan.get("worker_objective"), limit=500),
@@ -4341,6 +5363,11 @@ def compact_round_direction_plan(value: dict[str, Any] | None) -> dict[str, Any]
             for item in plan.get("activation_checks") or []
             if isinstance(item, dict)
         ][:8],
+        "checkpoint_checks": [
+            dict(item)
+            for item in plan.get("checkpoint_checks") or []
+            if isinstance(item, dict)
+        ][:12],
         "candidate_variants": [
             {
                 key: item.get(key)
@@ -4398,6 +5425,7 @@ def compact_round_direction_plan(value: dict[str, Any] | None) -> dict[str, Any]
             "best_activated_candidate": compact_observed_candidate(
                 competition.get("best_activated_candidate")
             ),
+            "lane_development_states": competition.get("lane_development_states") or {},
             "candidates": [
                 {
                     "candidate_id": candidate.get("candidate_id"),
@@ -4410,11 +5438,23 @@ def compact_round_direction_plan(value: dict[str, Any] | None) -> dict[str, Any]
                     "activation_eligible": candidate.get("activation_eligible"),
                     "activation_required": candidate.get("activation_required"),
                     "mechanism_activation": candidate.get("mechanism_activation") or {},
+                    "exact_execution_eligible": candidate.get("exact_execution_eligible"),
+                    "exact_execution": candidate.get("exact_execution") or {},
                     "semantic_review": compact_algorithm_semantic_review(
                         candidate.get("semantic_review")
                     ),
                     "worker_model": candidate.get("worker_model"),
                     "worker_status": candidate.get("worker_status"),
+                    "requested_session_id": candidate.get("requested_session_id"),
+                    "command_session_id": candidate.get("command_session_id"),
+                    "observed_session_id": candidate.get("observed_session_id"),
+                    "session_reused": candidate.get("session_reused"),
+                    "session_event_stream_bytes": candidate.get("session_event_stream_bytes"),
+                    "parent_checkpoint": candidate.get("parent_checkpoint"),
+                    "parent_objective_key": candidate.get("parent_objective_key") or [],
+                    "checkpoint_decision": candidate.get("checkpoint_decision") or {},
+                    "lane_development_state": candidate.get("lane_development_state") or {},
+                    "archived_lineage": candidate.get("archived_lineage"),
                     "summary": compact_candidate_evaluator_evidence(candidate.get("summary")),
                     "smoke_gate": compact_candidate_smoke_evidence(candidate.get("smoke_gate")),
                     "proposal_diagnostics": compact_candidate_proposal_evidence(
@@ -4446,6 +5486,8 @@ def compact_observed_candidate(value: Any) -> dict[str, Any] | None:
         "worktree": candidate.get("worktree"),
         "activation_status": activation.get("status"),
         "activation_passed": activation.get("passed"),
+        "exact_execution_eligible": candidate.get("exact_execution_eligible"),
+        "exact_execution": candidate.get("exact_execution") or {},
         "ja_accepted": candidate.get("ja_accepted"),
         "semantic_eligible": candidate.get("semantic_eligible"),
         "summary": compact_candidate_evaluator_evidence(candidate.get("summary")),
@@ -4605,7 +5647,6 @@ def next_round_guidance(
         for item in rolled_back
         if not _all_negative_infinity(item.candidate_key)
         and (item.smoke_gate or {}).get("passed")
-        and not semantic_review_blocks_promotion(item.semantic_review)
     ]
     must_do = [
         "Start from the current promoted incumbent; make one small incremental edit.",
@@ -4683,7 +5724,7 @@ def round_failure_signatures(item: LoopRoundRecord) -> list[str]:
             signatures.append("proposal_changes_rejected")
         for warning in audit.get("warnings") or []:
             signatures.append(_failure_token(str(warning)))
-    if semantic_review_blocks_promotion(item.semantic_review):
+    if semantic_review_has_verified_blocking_finding(item.semantic_review):
         signatures.append("algorithm_semantic_review_repair_required")
         for finding in (item.semantic_review or {}).get("findings") or []:
             if isinstance(finding, dict) and finding.get("blocking"):
@@ -4693,7 +5734,6 @@ def round_failure_signatures(item: LoopRoundRecord) -> list[str]:
     if (
         item.decision == "rolled_back"
         and not _all_negative_infinity(item.candidate_key)
-        and not semantic_review_blocks_promotion(item.semantic_review)
         and not mechanism_failed
     ):
         signatures.append("legal_but_not_strictly_better")
@@ -4995,6 +6035,9 @@ def write_loop_report(*, output_dir: Path, result: WorkerLoopResult, problem_fam
         "final_worktree": str(result.final_worktree),
         "best_legal_incumbent": candidate_incumbent_payload(result.best_legal_incumbent),
         "best_activated_incumbent": candidate_incumbent_payload(result.best_activated_incumbent),
+        "lane_development_states": lane_development_states_payload(
+            result.lane_development_states or {}
+        ),
         "baseline_source": result.baseline_source,
         "baseline_generation": result.baseline_generation,
         "baseline_summary": summary_payload(result.baseline_summary),

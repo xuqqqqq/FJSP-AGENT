@@ -100,6 +100,22 @@ class StandardWorkerLoopTests(unittest.TestCase):
         )
         self.assertEqual("python -m py_compile fjsp/solver.py", payload["commands"]["quick_test"])
 
+    def test_explicit_instance_paths_replace_single_form_instance(self) -> None:
+        request = self.make_request(
+            instance_paths=[
+                ROOT / "examples" / "standard_fjsp_tiny.fjs",
+                ROOT / "examples" / "web_demo_instance.fjs",
+            ],
+            max_instances=None,
+        )
+
+        payload = build_standard_worker_contract_payload(request)
+
+        self.assertEqual(
+            ["standard_fjsp_tiny", "web_demo_instance"],
+            [item["id"] for item in payload["instances"]],
+        )
+
     def test_provided_project_source_quarantines_local_scores_and_overlays_fixed_core(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -195,7 +211,7 @@ class StandardWorkerLoopTests(unittest.TestCase):
         self.assertEqual("judgment_rejected", manifest["terminal_reason"])
         self.assertEqual(0, manifest["round_count"])
 
-    def test_standard_loop_runtime_forces_semantic_reviewer_none(self) -> None:
+    def test_standard_loop_runtime_passes_configured_semantic_reviewer(self) -> None:
         summary = RunSummary(
             total=1,
             valid=1,
@@ -245,7 +261,7 @@ class StandardWorkerLoopTests(unittest.TestCase):
         ):
             run_standard_worker_loop(request)
 
-        self.assertIsNone(run_loop.call_args.kwargs["semantic_reviewer"])
+        self.assertIs(request.semantic_reviewer, run_loop.call_args.kwargs["semantic_reviewer"])
 
     def test_cli_run_worker_loop_passes_no_semantic_reviewer(self) -> None:
         args = build_parser().parse_args(

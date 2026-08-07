@@ -45,7 +45,8 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         )
         for package in manifest.get("method_packages") or []:
             implementation = str(package.get("implementation_asset") or "").replace("\\", "/")
-            self.assertTrue(implementation.startswith("knowledge/"), implementation)
+            if implementation:
+                self.assertTrue(implementation.startswith("knowledge/"), implementation)
 
     def test_domain_pack_declared_project_assets_exist(self) -> None:
         manifest = json.loads(

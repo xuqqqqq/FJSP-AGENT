@@ -18,7 +18,10 @@ from harness_agent.workers.opencode_worker import (
     OPENCODE_WORKER_AGENT,
     OpenCodeWorker,
     _ensure_session_workspace_alias,
+    _find_session_state,
+    _invalid_python_sync_reason,
     _safe_session_segment,
+    _sync_worker_target_from_session,
     extract_opencode_session_id,
     opencode_openai_key_available,
     opencode_status,
@@ -29,6 +32,66 @@ from harness_agent.workers.opencode_worker import (
 
 
 class OpenCodeWorkerTests(unittest.TestCase):
+    def test_session_lookup_requires_observed_session_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            session_root = Path(tmp)
+            state_dir = session_root / "lane"
+            state_dir.mkdir()
+            state_path = state_dir / "session_state.json"
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "requested_session_id": "ses-requested",
+                        "command_session_id": "ses-requested",
+                        "observed_session_id": None,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertIsNone(_find_session_state(session_root, "ses-requested"))
+
+            state_path.write_text(
+                json.dumps({"observed_session_id": "ses-requested"}),
+                encoding="utf-8",
+            )
+            self.assertEqual(state_path, _find_session_state(session_root, "ses-requested"))
+
+    def test_python_sync_validation_accepts_pep263_source_encoding(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "solver.py"
+            source.write_bytes(b"# -*- coding: latin-1 -*-\nname = 'caf\xe9'\n")
+
+            self.assertIsNone(_invalid_python_sync_reason(source))
+
+    def test_atomic_target_sync_failure_preserves_parent_and_cleans_temp(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            session_workspace = tmp_path / "session"
+            worktree = tmp_path / "worktree"
+            source = session_workspace / "examples" / "solver.py"
+            destination = worktree / "examples" / "solver.py"
+            source.parent.mkdir(parents=True)
+            destination.parent.mkdir(parents=True)
+            source.write_text("candidate\n", encoding="utf-8")
+            destination.write_text("parent\n", encoding="utf-8")
+
+            with patch(
+                "harness_agent.workers.opencode_worker.os.replace",
+                side_effect=OSError("replace failed"),
+            ):
+                result = _sync_worker_target_from_session(
+                    session_workspace,
+                    worktree,
+                    "examples/solver.py",
+                    validate_python=True,
+                )
+
+            self.assertFalse(result.synced)
+            self.assertEqual("atomic_sync_failed", result.reason)
+            self.assertEqual("parent\n", destination.read_text(encoding="utf-8"))
+            self.assertEqual([], list(destination.parent.glob(".solver.py.opencode-sync-*.tmp")))
+
     def test_long_session_lane_uses_stable_short_hashed_segment(self) -> None:
         lane_a = "d000-" + "contract_writer_web_provided_project_loop_" * 4
         lane_b = "d000-" + "contract_writer_web_provided_project_loop_" * 3 + "other"
@@ -484,7 +547,7 @@ class OpenCodeWorkerTests(unittest.TestCase):
             self.assertIn("sole planning input", worker_config["prompt"])
             self.assertEqual(8, worker_config["steps"])
             self.assertTrue((output_dir / "opencode_runtime_config.json").exists())
-            process.wait.assert_called_once_with(timeout=None)
+            process.wait.assert_called_once_with(timeout=45.0)
             cleanup.assert_called_once_with(process)
 
     def test_configured_worker_timeout_is_forwarded_to_process_wait(self) -> None:
@@ -524,7 +587,9 @@ class OpenCodeWorkerTests(unittest.TestCase):
                 )
 
         self.assertEqual("completed", result.status)
-        process.wait.assert_called_once_with(timeout=7)
+        process.wait.assert_called_once()
+        self.assertLessEqual(process.wait.call_args.kwargs["timeout"], 7)
+        self.assertGreater(process.wait.call_args.kwargs["timeout"], 6.5)
 
     def test_timeout_kills_tree_and_cleans_descendants_before_returning(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -552,7 +617,11 @@ class OpenCodeWorkerTests(unittest.TestCase):
                 patch("harness_agent.workers.opencode_worker.kill_process_tree") as kill_tree,
                 patch("harness_agent.workers.opencode_worker.cleanup_process_descendants") as cleanup,
             ):
-                result = OpenCodeWorker(executable=str(executable), timeout_seconds=3).run_experiment(
+                result = OpenCodeWorker(
+                    executable=str(executable),
+                    timeout_seconds=3,
+                    provider_stream_retries=0,
+                ).run_experiment(
                     ExperimentSpec(
                         task_id="test",
                         experiment_id="timeout_cleanup",
@@ -567,10 +636,11 @@ class OpenCodeWorkerTests(unittest.TestCase):
                 )
 
         self.assertEqual("timeout", result.status)
-        self.assertEqual(
-            [call(timeout=3), call(timeout=1.0)],
-            process.wait.call_args_list,
-        )
+        self.assertEqual(2, len(process.wait.call_args_list))
+        first_timeout = process.wait.call_args_list[0].kwargs["timeout"]
+        self.assertGreater(first_timeout, 2.5)
+        self.assertLessEqual(first_timeout, 3)
+        self.assertEqual(call(timeout=1.0), process.wait.call_args_list[1])
         kill_tree.assert_called_once_with(process)
         cleanup.assert_called_once_with(process)
 
@@ -599,7 +669,7 @@ class OpenCodeWorkerTests(unittest.TestCase):
                     )
                     (session_workspace / "examples").mkdir(parents=True, exist_ok=True)
                     (session_workspace / "examples" / "agent_generated_fjsp_solver.py").write_text(
-                        "from timed out session\n",
+                        "def recovered_solver() -> str:\n    return 'from timed out session'\n",
                         encoding="utf-8",
                     )
                     (session_workspace / "examples" / "extra.py").write_text(
@@ -623,7 +693,11 @@ class OpenCodeWorkerTests(unittest.TestCase):
                 patch("harness_agent.workers.opencode_worker.kill_process_tree") as kill_tree,
                 patch("harness_agent.workers.opencode_worker.cleanup_process_descendants"),
             ):
-                result = OpenCodeWorker(executable=str(executable), timeout_seconds=3).run_experiment(
+                result = OpenCodeWorker(
+                    executable=str(executable),
+                    timeout_seconds=3,
+                    provider_stream_retries=0,
+                ).run_experiment(
                     ExperimentSpec(
                         task_id="test",
                         experiment_id="timeout_target_sync",
@@ -639,9 +713,170 @@ class OpenCodeWorkerTests(unittest.TestCase):
 
             self.assertEqual("timeout", result.status)
             self.assertEqual(["examples/agent_generated_fjsp_solver.py"], result.changed_files)
-            self.assertEqual("from timed out session\n", target_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                "def recovered_solver() -> str:\n    return 'from timed out session'\n",
+                target_path.read_text(encoding="utf-8"),
+            )
             self.assertFalse((worktree / "examples" / "extra.py").exists())
             kill_tree.assert_called_once_with(process)
+
+    def test_timeout_sync_quarantines_diff_marker_target_and_preserves_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            round_root = tmp_path / "round_000"
+            worktree = round_root / "candidate_worktree"
+            output_dir = round_root / "worker"
+            worktree.mkdir(parents=True)
+            context_packet = tmp_path / "context_packet.json"
+            context_packet.write_text("{}", encoding="utf-8")
+            executable = tmp_path / "opencode.exe"
+            executable.write_text("placeholder", encoding="utf-8")
+            target_path = worktree / "examples" / "agent_generated_fjsp_solver.py"
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.write_text("stable parent target\n", encoding="utf-8")
+            real_popen = subprocess.Popen
+
+            process = MagicMock()
+            wait_calls = {"count": 0}
+
+            def _wait(*args: object, **kwargs: object) -> int:
+                if wait_calls["count"] == 0:
+                    wait_calls["count"] += 1
+                    session_workspace = next(
+                        (round_root / ".algoforge_opencode_session").glob("*/workspace")
+                    )
+                    (session_workspace / "examples").mkdir(parents=True, exist_ok=True)
+                    (session_workspace / "examples" / "agent_generated_fjsp_solver.py").write_text(
+                        "<<<<<<< HEAD\nbroken\n=======\nother\n>>>>>>> branch\n",
+                        encoding="utf-8",
+                    )
+                    raise subprocess.TimeoutExpired(cmd="opencode", timeout=3)
+                wait_calls["count"] += 1
+                return 0
+
+            process.wait.side_effect = _wait
+            process.returncode = None
+
+            def _popen(command: object, *args: object, **kwargs: object) -> object:
+                if isinstance(command, list) and command and command[0] == "git":
+                    return real_popen(command, *args, **kwargs)
+                return process
+
+            with (
+                patch("harness_agent.workers.opencode_worker.subprocess.Popen", side_effect=_popen),
+                patch("harness_agent.workers.opencode_worker.kill_process_tree"),
+                patch("harness_agent.workers.opencode_worker.cleanup_process_descendants"),
+            ):
+                result = OpenCodeWorker(
+                    executable=str(executable),
+                    timeout_seconds=3,
+                    provider_stream_retries=0,
+                ).run_experiment(
+                    ExperimentSpec(
+                        task_id="test",
+                        experiment_id="timeout_target_sync_diff_marker",
+                        context_packet_path=str(context_packet),
+                        worktree_path=str(worktree),
+                        max_steps=1,
+                        max_runtime_seconds=30,
+                        output_dir=str(output_dir),
+                        apply_changes=False,
+                        worker_assignment_path=str(_write_assignment(tmp_path, worktree)),
+                    )
+                )
+
+            quarantine_root = next(
+                (round_root / ".algoforge_opencode_session").glob("*/quarantine/*/examples")
+            )
+            quarantine_path = quarantine_root / "agent_generated_fjsp_solver.py"
+            session_workspace = next((round_root / ".algoforge_opencode_session").glob("*/workspace"))
+            session_target = session_workspace / "examples" / "agent_generated_fjsp_solver.py"
+
+            self.assertEqual("timeout", result.status)
+            self.assertEqual([], result.changed_files)
+            self.assertEqual("stable parent target\n", target_path.read_text(encoding="utf-8"))
+            self.assertFalse(session_target.exists())
+            self.assertIn("<<<<<<< HEAD", quarantine_path.read_text(encoding="utf-8"))
+            self.assertEqual("diff_marker_pollution", result.artifacts["target_sync_reason"])
+
+    def test_timeout_sync_quarantines_invalid_python_and_preserves_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            round_root = tmp_path / "round_000"
+            worktree = round_root / "candidate_worktree"
+            output_dir = round_root / "worker"
+            worktree.mkdir(parents=True)
+            context_packet = tmp_path / "context_packet.json"
+            context_packet.write_text("{}", encoding="utf-8")
+            executable = tmp_path / "opencode.exe"
+            executable.write_text("placeholder", encoding="utf-8")
+            target_path = worktree / "examples" / "agent_generated_fjsp_solver.py"
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.write_text("stable parent target\n", encoding="utf-8")
+            real_popen = subprocess.Popen
+
+            process = MagicMock()
+            wait_calls = {"count": 0}
+
+            def _wait(*args: object, **kwargs: object) -> int:
+                if wait_calls["count"] == 0:
+                    wait_calls["count"] += 1
+                    session_workspace = next(
+                        (round_root / ".algoforge_opencode_session").glob("*/workspace")
+                    )
+                    (session_workspace / "examples").mkdir(parents=True, exist_ok=True)
+                    (session_workspace / "examples" / "agent_generated_fjsp_solver.py").write_text(
+                        "def broken(:\n    pass\n",
+                        encoding="utf-8",
+                    )
+                    raise subprocess.TimeoutExpired(cmd="opencode", timeout=3)
+                wait_calls["count"] += 1
+                return 0
+
+            process.wait.side_effect = _wait
+            process.returncode = None
+
+            def _popen(command: object, *args: object, **kwargs: object) -> object:
+                if isinstance(command, list) and command and command[0] == "git":
+                    return real_popen(command, *args, **kwargs)
+                return process
+
+            with (
+                patch("harness_agent.workers.opencode_worker.subprocess.Popen", side_effect=_popen),
+                patch("harness_agent.workers.opencode_worker.kill_process_tree"),
+                patch("harness_agent.workers.opencode_worker.cleanup_process_descendants"),
+            ):
+                result = OpenCodeWorker(
+                    executable=str(executable),
+                    timeout_seconds=3,
+                    provider_stream_retries=0,
+                ).run_experiment(
+                    ExperimentSpec(
+                        task_id="test",
+                        experiment_id="timeout_target_sync_invalid_python",
+                        context_packet_path=str(context_packet),
+                        worktree_path=str(worktree),
+                        max_steps=1,
+                        max_runtime_seconds=30,
+                        output_dir=str(output_dir),
+                        apply_changes=False,
+                        worker_assignment_path=str(_write_assignment(tmp_path, worktree)),
+                    )
+                )
+
+            quarantine_root = next(
+                (round_root / ".algoforge_opencode_session").glob("*/quarantine/*/examples")
+            )
+            quarantine_path = quarantine_root / "agent_generated_fjsp_solver.py"
+            session_workspace = next((round_root / ".algoforge_opencode_session").glob("*/workspace"))
+            session_target = session_workspace / "examples" / "agent_generated_fjsp_solver.py"
+
+            self.assertEqual("timeout", result.status)
+            self.assertEqual([], result.changed_files)
+            self.assertEqual("stable parent target\n", target_path.read_text(encoding="utf-8"))
+            self.assertFalse(session_target.exists())
+            self.assertIn("def broken(:", quarantine_path.read_text(encoding="utf-8"))
+            self.assertEqual("invalid_python", result.artifacts["target_sync_reason"])
 
     def test_stream_read_error_retries_same_trial_session_and_recovers_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -746,6 +981,249 @@ class OpenCodeWorkerTests(unittest.TestCase):
             self.assertEqual(1, retry_payload["retry_count"])
             self.assertTrue(retry_payload["recovered"])
             self.assertEqual("stream_read_error", retry_payload["attempts"][0]["reason"])
+
+    def test_zero_event_stream_exit_retries_and_records_duration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            round_root = tmp_path / "round_000"
+            worktree = round_root / "candidate_worktree"
+            output_dir = round_root / "worker"
+            worktree.mkdir(parents=True)
+            context_packet = tmp_path / "context_packet.json"
+            context_packet.write_text("{}", encoding="utf-8")
+            executable = tmp_path / "opencode.exe"
+            executable.write_text("placeholder", encoding="utf-8")
+            commands: list[list[str]] = []
+
+            first_process = MagicMock()
+            first_process.wait.return_value = 2
+            first_process.returncode = 2
+            second_process = MagicMock()
+            second_process.wait.return_value = 0
+            second_process.returncode = 0
+
+            def _popen(command: list[str], **kwargs: object) -> object:
+                commands.append(command)
+                stream = kwargs["stdout"]
+                assert hasattr(stream, "write")
+                if len(commands) == 1:
+                    return first_process
+                session_workspace = Path(next(item.split("=", 1)[1] for item in command if item.startswith("--dir=")))
+                target = session_workspace / "examples" / "agent_generated_fjsp_solver.py"
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("# recovered after zero event exit\n", encoding="utf-8")
+                stream.write(json.dumps({"type": "step_finish", "sessionID": "ses_zero_event_retry"}) + "\n")
+                return second_process
+
+            def _session_alias(alias_path: Path, worktree_path: Path, **_: object) -> Path:
+                alias_path.mkdir(parents=True, exist_ok=True)
+                return alias_path
+
+            with (
+                patch(
+                    "harness_agent.workers.opencode_worker._ensure_session_workspace_alias",
+                    side_effect=_session_alias,
+                ),
+                patch("harness_agent.workers.opencode_worker.subprocess.Popen", side_effect=_popen),
+                patch("harness_agent.workers.opencode_worker.cleanup_process_descendants"),
+            ):
+                result = OpenCodeWorker(
+                    executable=str(executable),
+                    provider_stream_retries=1,
+                    provider_retry_backoff_seconds=0,
+                ).run_experiment(
+                    ExperimentSpec(
+                        task_id="test",
+                        experiment_id="zero_event_stream_exit",
+                        context_packet_path=str(context_packet),
+                        worktree_path=str(worktree),
+                        max_steps=1,
+                        max_runtime_seconds=30,
+                        output_dir=str(output_dir),
+                        apply_changes=False,
+                        worker_assignment_path=str(_write_assignment(tmp_path, worktree)),
+                    )
+                )
+
+            self.assertEqual("completed", result.status)
+            self.assertEqual(2, len(commands))
+            retry_payload = json.loads(Path(result.artifacts["provider_retries"]).read_text(encoding="utf-8"))
+            self.assertEqual(1, retry_payload["retry_count"])
+            self.assertEqual("zero_event_stream_exit", retry_payload["attempts"][0]["reason"])
+            self.assertGreaterEqual(retry_payload["attempts"][0]["duration_seconds"], 0.0)
+            self.assertEqual("completed", retry_payload["attempts"][1]["reason"])
+
+    def test_zero_event_startup_timeout_retries_and_recovers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            worktree = tmp_path / "round_000" / "candidate_worktree"
+            output_dir = tmp_path / "round_000" / "worker"
+            worktree.mkdir(parents=True)
+            context_packet = tmp_path / "context_packet.json"
+            context_packet.write_text("{}", encoding="utf-8")
+            executable = tmp_path / "opencode.exe"
+            executable.write_text("placeholder", encoding="utf-8")
+            commands: list[list[str]] = []
+
+            first_process = MagicMock()
+            first_process.wait.side_effect = [
+                subprocess.TimeoutExpired(cmd="opencode", timeout=1),
+                0,
+            ]
+            first_process.returncode = None
+            second_process = MagicMock()
+            second_process.wait.return_value = 0
+            second_process.returncode = 0
+
+            def _popen(command: list[str], **kwargs: object) -> object:
+                commands.append(command)
+                if len(commands) == 2:
+                    stream = kwargs["stdout"]
+                    assert hasattr(stream, "write")
+                    stream.write(json.dumps({"type": "step_finish", "sessionID": "ses_recovered"}) + "\n")
+                return first_process if len(commands) == 1 else second_process
+
+            with (
+                patch("harness_agent.workers.opencode_worker._ensure_session_workspace_alias", side_effect=_fake_session_alias),
+                patch("harness_agent.workers.opencode_worker.subprocess.Popen", side_effect=_popen),
+                patch("harness_agent.workers.opencode_worker.kill_process_tree"),
+                patch("harness_agent.workers.opencode_worker.cleanup_process_descendants"),
+            ):
+                result = OpenCodeWorker(
+                    executable=str(executable),
+                    timeout_seconds=30,
+                    provider_stream_retries=1,
+                    provider_retry_backoff_seconds=0,
+                    zero_event_timeout_seconds=1,
+                ).run_experiment(
+                    ExperimentSpec(
+                        task_id="test",
+                        experiment_id="zero_event_retry",
+                        context_packet_path=str(context_packet),
+                        worktree_path=str(worktree),
+                        max_steps=1,
+                        max_runtime_seconds=30,
+                        output_dir=str(output_dir),
+                        apply_changes=False,
+                        worker_assignment_path=str(_write_assignment(tmp_path, worktree)),
+                    )
+                )
+
+            self.assertEqual("completed", result.status)
+            self.assertEqual(2, len(commands))
+            retry_payload = json.loads(Path(result.artifacts["provider_retries"]).read_text(encoding="utf-8"))
+            self.assertEqual(1, retry_payload["retry_count"])
+            self.assertTrue(retry_payload["recovered"])
+            self.assertEqual("zero_event_stream_timeout", retry_payload["attempts"][0]["reason"])
+            self.assertGreaterEqual(retry_payload["attempts"][0]["duration_seconds"], 0.0)
+
+    def test_zero_event_startup_timeout_records_exhausted_retries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            worktree = tmp_path / "round_000" / "candidate_worktree"
+            output_dir = tmp_path / "round_000" / "worker"
+            worktree.mkdir(parents=True)
+            context_packet = tmp_path / "context_packet.json"
+            context_packet.write_text("{}", encoding="utf-8")
+            executable = tmp_path / "opencode.exe"
+            executable.write_text("placeholder", encoding="utf-8")
+            processes = []
+            for _ in range(2):
+                process = MagicMock()
+                process.wait.side_effect = [subprocess.TimeoutExpired(cmd="opencode", timeout=1), 0]
+                process.returncode = None
+                processes.append(process)
+
+            with (
+                patch("harness_agent.workers.opencode_worker._ensure_session_workspace_alias", side_effect=_fake_session_alias),
+                patch("harness_agent.workers.opencode_worker.subprocess.Popen", side_effect=processes),
+                patch("harness_agent.workers.opencode_worker.kill_process_tree"),
+                patch("harness_agent.workers.opencode_worker.cleanup_process_descendants"),
+            ):
+                result = OpenCodeWorker(
+                    executable=str(executable),
+                    timeout_seconds=30,
+                    provider_stream_retries=1,
+                    provider_retry_backoff_seconds=0,
+                    zero_event_timeout_seconds=1,
+                ).run_experiment(
+                    ExperimentSpec(
+                        task_id="test",
+                        experiment_id="zero_event_exhausted",
+                        context_packet_path=str(context_packet),
+                        worktree_path=str(worktree),
+                        max_steps=1,
+                        max_runtime_seconds=30,
+                        output_dir=str(output_dir),
+                        apply_changes=False,
+                        worker_assignment_path=str(_write_assignment(tmp_path, worktree)),
+                    )
+                )
+
+            self.assertEqual("timeout", result.status)
+            retry_payload = json.loads(Path(result.artifacts["provider_retries"]).read_text(encoding="utf-8"))
+            self.assertEqual(1, retry_payload["retry_count"])
+            self.assertTrue(retry_payload["exhausted"])
+            self.assertEqual(
+                ["zero_event_stream_timeout", "zero_event_stream_timeout"],
+                [attempt["reason"] for attempt in retry_payload["attempts"]],
+            )
+
+    def test_zero_event_startup_retry_budget_caps_attempt_timeout_at_one_hundred_twenty_seconds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            worktree = tmp_path / "round_000" / "candidate_worktree"
+            output_dir = tmp_path / "round_000" / "worker"
+            worktree.mkdir(parents=True)
+            context_packet = tmp_path / "context_packet.json"
+            context_packet.write_text("{}", encoding="utf-8")
+            executable = tmp_path / "opencode.exe"
+            executable.write_text("placeholder", encoding="utf-8")
+            processes = []
+            for timeout_value in (90, 30):
+                process = MagicMock()
+                process.wait.side_effect = [subprocess.TimeoutExpired(cmd="opencode", timeout=timeout_value), 0]
+                process.returncode = None
+                processes.append(process)
+
+            monotonic_values = iter([0, 0, 0, 0, 0, 90, 90, 90, 90, 90, 90, 120, 120, 120])
+
+            with (
+                patch("harness_agent.workers.opencode_worker._ensure_session_workspace_alias", side_effect=_fake_session_alias),
+                patch("harness_agent.workers.opencode_worker.subprocess.Popen", side_effect=processes),
+                patch("harness_agent.workers.opencode_worker.kill_process_tree"),
+                patch("harness_agent.workers.opencode_worker.cleanup_process_descendants"),
+                patch(
+                    "harness_agent.workers.opencode_worker.time.monotonic",
+                    side_effect=lambda: next(monotonic_values),
+                ),
+            ):
+                result = OpenCodeWorker(
+                    executable=str(executable),
+                    timeout_seconds=300,
+                    provider_stream_retries=4,
+                    provider_retry_backoff_seconds=0,
+                    zero_event_timeout_seconds=90,
+                ).run_experiment(
+                    ExperimentSpec(
+                        task_id="test",
+                        experiment_id="zero_event_budget_cap",
+                        context_packet_path=str(context_packet),
+                        worktree_path=str(worktree),
+                        max_steps=1,
+                        max_runtime_seconds=30,
+                        output_dir=str(output_dir),
+                        apply_changes=False,
+                        worker_assignment_path=str(_write_assignment(tmp_path, worktree)),
+                    )
+                )
+
+            self.assertEqual("timeout", result.status)
+            self.assertEqual([call(timeout=90), call(timeout=1.0)], processes[0].wait.call_args_list)
+            self.assertEqual([call(timeout=30), call(timeout=1.0)], processes[1].wait.call_args_list)
+            retry_payload = json.loads(Path(result.artifacts["provider_retries"]).read_text(encoding="utf-8"))
+            self.assertEqual(1, retry_payload["retry_count"])
+            self.assertTrue(retry_payload["exhausted"])
 
     def test_cross_worktree_continuation_without_alias_drops_session_flag(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -11,11 +11,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import py_compile
 import re
 import shutil
 import shlex
 import subprocess
 import time
+import tokenize
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -50,6 +52,7 @@ SESSION_WORKSPACE_ROOT = ".algoforge_opencode_session"
 SESSION_WORKSPACE_NAME = "workspace"
 SESSION_STATE_FILE = "session_state.json"
 SESSION_LANE_SEGMENT_MAX_CHARS = 32
+ZERO_EVENT_STARTUP_RETRY_BUDGET_SECONDS = 120.0
 OPENCODE_WORKER_ROLE_PROMPT = """You are `algoforge-worker`.
 
 Execute the attached validated WorkerAssignment as the sole planning input.
@@ -93,6 +96,7 @@ class OpenCodeWorker(CodingWorker):
         cancellation: CancellationToken | None = None,
         provider_stream_retries: int | None = None,
         provider_retry_backoff_seconds: float | None = None,
+        zero_event_timeout_seconds: int | None = None,
     ) -> None:
         configured_executable = (
             os.environ.get("OPENCODE_EXECUTABLE") or executable
@@ -129,6 +133,15 @@ class OpenCodeWorker(CodingWorker):
                 if provider_retry_backoff_seconds is not None
                 else os.environ.get("OPENCODE_PROVIDER_RETRY_BACKOFF_SECONDS", "1")
             ),
+        )
+        raw_zero_event_timeout = (
+            zero_event_timeout_seconds
+            if zero_event_timeout_seconds is not None
+            else os.environ.get("OPENCODE_ZERO_EVENT_TIMEOUT_SECONDS", "45")
+        )
+        parsed_zero_event_timeout = int(raw_zero_event_timeout)
+        self.zero_event_timeout_seconds = (
+            max(1, parsed_zero_event_timeout) if parsed_zero_event_timeout > 0 else None
         )
 
     def capabilities(self) -> WorkerCapabilities:
@@ -234,6 +247,7 @@ class OpenCodeWorker(CodingWorker):
             if self.timeout_seconds is not None
             else None
         )
+        zero_event_retry_deadline: float | None = None
         attempt_index = 0
         attempt_command = command
         stdout_chars = 0
@@ -244,7 +258,14 @@ class OpenCodeWorker(CodingWorker):
         process: subprocess.Popen[str]
         while True:
             timed_out = False
+            zero_event_stream_timeout = False
+            if zero_event_retry_deadline is None or not _is_zero_event_startup_retry_reason(retry_reason):
+                zero_event_retry_deadline = time.monotonic() + ZERO_EVENT_STARTUP_RETRY_BUDGET_SECONDS
+                if worker_deadline is not None:
+                    zero_event_retry_deadline = min(zero_event_retry_deadline, worker_deadline)
             stream_mode = "w" if attempt_index == 0 else "a"
+            attempt_started_at = time.monotonic()
+            attempt_event_start_bytes = events_path.stat().st_size if events_path.exists() else 0
             # OpenCode emits one JSON object per line. Appending retries to the
             # same file keeps Web monitoring and audit consumers continuous.
             with (
@@ -269,22 +290,54 @@ class OpenCodeWorker(CodingWorker):
                     if self.cancellation is not None
                     else None
                 )
-                attempt_timeout = self.timeout_seconds
-                if attempt_index > 0 and worker_deadline is not None:
-                    attempt_timeout = max(0.001, worker_deadline - time.monotonic())
+                remaining_timeout = (
+                    max(0.001, worker_deadline - time.monotonic())
+                    if worker_deadline is not None
+                    else None
+                )
+                attempt_timeout = remaining_timeout
+                if self.zero_event_timeout_seconds is not None:
+                    zero_event_retry_remaining = max(0.001, zero_event_retry_deadline - time.monotonic())
+                    attempt_timeout = (
+                        min(
+                            float(self.zero_event_timeout_seconds),
+                            zero_event_retry_remaining,
+                            remaining_timeout,
+                        )
+                        if remaining_timeout is not None
+                        else min(
+                            float(self.zero_event_timeout_seconds),
+                            zero_event_retry_remaining,
+                        )
+                    )
                 try:
                     process.wait(timeout=attempt_timeout)
                 except subprocess.TimeoutExpired:
-                    timed_out = True
-                    kill_process_tree(process)
-                    try:
-                        process.wait(timeout=self._timeout_cleanup_grace_seconds())
-                    except subprocess.TimeoutExpired:
+                    events_stream.flush()
+                    current_event_bytes = events_path.stat().st_size if events_path.exists() else 0
+                    zero_event_stream_timeout = current_event_bytes <= attempt_event_start_bytes
+                    if not zero_event_stream_timeout:
+                        remaining_timeout = (
+                            max(0.001, worker_deadline - time.monotonic())
+                            if worker_deadline is not None
+                            else None
+                        )
+                        try:
+                            process.wait(timeout=remaining_timeout)
+                        except subprocess.TimeoutExpired:
+                            timed_out = True
+                    else:
+                        timed_out = True
+                    if timed_out:
                         kill_process_tree(process)
                         try:
-                            process.kill()
-                        except OSError:
-                            pass
+                            process.wait(timeout=self._timeout_cleanup_grace_seconds())
+                        except subprocess.TimeoutExpired:
+                            kill_process_tree(process)
+                            try:
+                                process.kill()
+                            except OSError:
+                                pass
                 finally:
                     events_stream.flush()
                     stderr_stream.flush()
@@ -298,26 +351,47 @@ class OpenCodeWorker(CodingWorker):
             stdout_chars = len(stdout)
             stderr_chars = len(stderr)
             cleanup_process_descendants(process)
+            attempt_event_end_bytes = events_path.stat().st_size if events_path.exists() else 0
+            attempt_event_stream_bytes = max(0, attempt_event_end_bytes - attempt_event_start_bytes)
+            attempt_duration_seconds = max(0.0, time.monotonic() - attempt_started_at)
             observed_attempt_session = extract_opencode_session_id(attempt_stdout)
-            retry_reason = (
-                retryable_opencode_provider_error(attempt_stdout, attempt_stderr)
-                if not timed_out and process.returncode != 0
-                else None
-            )
+            if timed_out and zero_event_stream_timeout:
+                retry_reason = "zero_event_stream_timeout"
+            elif not timed_out and process.returncode != 0 and attempt_event_stream_bytes == 0:
+                retry_reason = "zero_event_stream_exit"
+            else:
+                retry_reason = (
+                    retryable_opencode_provider_error(attempt_stdout, attempt_stderr)
+                    if not timed_out and process.returncode != 0
+                    else None
+                )
+            attempt_reason = retry_reason
+            if attempt_reason is None:
+                if timed_out:
+                    attempt_reason = "worker_timeout"
+                elif process.returncode == 0:
+                    attempt_reason = (
+                        "completed_without_events" if attempt_event_stream_bytes == 0 else "completed"
+                    )
+                else:
+                    attempt_reason = "non_retryable_nonzero_exit"
             provider_attempts.append(
                 {
                     "attempt_index": attempt_index,
                     "returncode": process.returncode,
                     "timed_out": timed_out,
-                    "reason": retry_reason,
+                    "reason": attempt_reason,
                     "observed_session_id": observed_attempt_session,
-                    "event_stream_bytes": len(attempt_stdout.encode("utf-8")),
+                    "event_stream_bytes": attempt_event_stream_bytes,
+                    "duration_seconds": round(attempt_duration_seconds, 6),
                     "command": attempt_command,
                 }
             )
             if retry_reason is None or attempt_index >= self.provider_stream_retries:
                 break
             if worker_deadline is not None and time.monotonic() >= worker_deadline:
+                break
+            if _is_zero_event_startup_retry_reason(retry_reason) and time.monotonic() >= zero_event_retry_deadline:
                 break
             attempt_index += 1
             retry_session_id = observed_attempt_session or session_launch.command_session_id
@@ -331,6 +405,8 @@ class OpenCodeWorker(CodingWorker):
                 delay = self.provider_retry_backoff_seconds * (2 ** (attempt_index - 1))
                 if worker_deadline is not None:
                     delay = min(delay, max(0.0, worker_deadline - time.monotonic()))
+                if _is_zero_event_startup_retry_reason(retry_reason):
+                    delay = min(delay, max(0.0, zero_event_retry_deadline - time.monotonic()))
                 if delay > 0:
                     time.sleep(delay)
 
@@ -350,7 +426,7 @@ class OpenCodeWorker(CodingWorker):
             ),
             encoding="utf-8",
         )
-        timed_out_target_synced = False
+        timed_out_target_sync = TargetSyncResult(synced=False, reason=None, quarantine_path=None)
         if not timed_out and process.returncode == 0 and stdout.strip():
             _sync_worker_target_from_session(
                 session_launch.launch_dir,
@@ -358,10 +434,12 @@ class OpenCodeWorker(CodingWorker):
                 assignment.target_file,
             )
         elif timed_out:
-            timed_out_target_synced = _sync_worker_target_from_session(
+            timed_out_target_sync = _sync_worker_target_from_session(
                 session_launch.launch_dir,
                 worktree_path,
                 assignment.target_file,
+                validate_python=True,
+                quarantine_invalid_source=True,
             )
         observed_session_id = extract_opencode_session_id(stdout)
         self._write_session_launch_record(
@@ -393,10 +471,16 @@ class OpenCodeWorker(CodingWorker):
             "provider_retry_exhausted": str(provider_retry_exhausted).lower(),
         }
         if timed_out:
+            timeout_summary = (
+                f"OpenCode produced no event stream within {self.zero_event_timeout_seconds} seconds "
+                f"after {len(provider_attempts)} provider attempts."
+                if retry_reason == "zero_event_stream_timeout"
+                else f"OpenCode exceeded {self.timeout_seconds} seconds."
+            )
             return WorkerResult(
                 status="timeout",
-                changed_files=[assignment.target_file] if timed_out_target_synced else [],
-                summary=f"OpenCode exceeded {self.timeout_seconds} seconds.",
+                changed_files=[assignment.target_file] if timed_out_target_sync.synced else [],
+                summary=timeout_summary,
                 raw_log_path=str(stdout_path),
                 artifacts={
                     "output_dir": str(output_dir),
@@ -409,6 +493,8 @@ class OpenCodeWorker(CodingWorker):
                     "worker_assignment": str(assignment_path),
                     "events": str(events_path),
                     "compaction": str(compaction_path),
+                    "target_sync_reason": timed_out_target_sync.reason or "",
+                    "target_sync_quarantine": timed_out_target_sync.quarantine_path or "",
                     **provider_retry_artifacts,
                     **session_artifacts,
                 },
@@ -712,18 +798,16 @@ The assignment is the sole planning input for this worker.
 - Finish after the bounded edit and checks; Harness gates decide acceptance.
 
 Runtime identifiers:
-- assignment_id: {assignment.assignment_id}
-- direction_id: {assignment.direction_id}
 - mode: {assignment.mode}
-- worktree: {spec.worktree_path}
 - local_trial: {max(1, spec.local_trial_index + 1)}/{max(1, spec.local_trial_count)}
 - session_mode: {session_launch.prompt_mode}
-
-For a continued Local Trial, the Harness may restore an earlier best valid parent
-into a new isolated worktree. Treat the current attached assignment, worktree,
-and runtime feedback as authoritative; use session memory only to avoid repeating
-failed edits and to refine the same direction.
 """.strip()
+        if session_launch.requested_session_id or spec.local_trial_index > 0:
+            prompt += (
+                "\n\nFor a continued Local Trial, the Harness may restore an earlier best valid parent "
+                "into a new isolated worktree. Treat the current assignment, worktree, and runtime feedback "
+                "as authoritative; use session memory only to avoid repeated failed edits in this direction."
+            )
         if session_launch.prompt_note:
             prompt += f"\n\nSession continuity note:\n- {session_launch.prompt_note}"
         if len(prompt) > WORKER_RUNTIME_POLICY_MAX_CHARS:
@@ -820,7 +904,7 @@ failed edits and to refine the same direction.
             actual_worktree_path=worktree_path,
             alias_error=alias_error,
         )
-        self._write_session_launch_record(state_path, session_launch, observed_session_id=requested_session_id)
+        self._write_session_launch_record(state_path, session_launch, observed_session_id=None)
         return session_launch
 
     def _write_session_launch_record(
@@ -871,6 +955,13 @@ class OpenCodeSessionLaunch:
     alias_path: Path | None
     actual_worktree_path: Path
     alias_error: str | None
+
+
+@dataclass(frozen=True)
+class TargetSyncResult:
+    synced: bool
+    reason: str | None
+    quarantine_path: str | None
 
 
 def json_dumps(value: object) -> str:
@@ -966,11 +1057,8 @@ def _find_session_state(session_root: Path, session_id: str | None) -> Path | No
         return None
     for state_path in sorted(session_root.glob(f"*/{SESSION_STATE_FILE}")):
         state = _read_session_state(state_path)
-        known_ids = {
-            str(state.get(key) or "").strip()
-            for key in ("observed_session_id", "command_session_id", "requested_session_id")
-        }
-        if session_id in known_ids:
+        observed_session_id = str(state.get("observed_session_id") or "").strip()
+        if session_id == observed_session_id:
             return state_path
     return None
 
@@ -1073,18 +1161,87 @@ def _sync_worker_target_from_session(
     session_workspace: Path,
     worktree_path: Path,
     target_file: str,
-) -> bool:
+    *,
+    validate_python: bool = False,
+    quarantine_invalid_source: bool = False,
+) -> TargetSyncResult:
     if _absolute_path_no_resolve(session_workspace) == _absolute_path_no_resolve(worktree_path):
-        return False
+        return TargetSyncResult(synced=False, reason="same_workspace", quarantine_path=None)
     source = session_workspace / target_file
     destination = worktree_path / target_file
     if not source.is_file():
-        return False
-    if destination.is_file() and source.read_bytes() == destination.read_bytes():
-        return False
+        return TargetSyncResult(synced=False, reason="source_missing", quarantine_path=None)
+    source_bytes = source.read_bytes()
+    if destination.is_file() and source_bytes == destination.read_bytes():
+        return TargetSyncResult(synced=False, reason="unchanged", quarantine_path=None)
+    if validate_python and source.suffix.lower() == ".py":
+        validation_reason = _invalid_python_sync_reason(source)
+        if validation_reason is not None:
+            quarantine_path = (
+                str(_quarantine_invalid_worker_target(source, session_workspace, target_file, validation_reason))
+                if quarantine_invalid_source
+                else None
+            )
+            return TargetSyncResult(
+                synced=False,
+                reason=validation_reason,
+                quarantine_path=quarantine_path,
+            )
     destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, destination)
-    return True
+    temporary = destination.parent / f".{destination.name}.opencode-sync-{os.getpid()}-{time.time_ns()}.tmp"
+    try:
+        shutil.copy2(source, temporary)
+        os.replace(temporary, destination)
+    except OSError:
+        return TargetSyncResult(synced=False, reason="atomic_sync_failed", quarantine_path=None)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return TargetSyncResult(synced=True, reason="synced", quarantine_path=None)
+
+
+def _is_zero_event_startup_retry_reason(reason: str | None) -> bool:
+    return reason in {"zero_event_stream_timeout", "zero_event_stream_exit"}
+
+
+def _invalid_python_sync_reason(source: Path) -> str | None:
+    try:
+        with tokenize.open(source) as source_stream:
+            source_text = source_stream.read()
+    except (LookupError, SyntaxError, UnicodeDecodeError):
+        return "invalid_python_encoding"
+    if _contains_diff_markers(source_text):
+        return "diff_marker_pollution"
+    try:
+        py_compile.compile(str(source), doraise=True)
+    except py_compile.PyCompileError:
+        return "invalid_python"
+    return None
+
+
+def _contains_diff_markers(source_text: str) -> bool:
+    for line in source_text.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("<<<<<<<") or stripped == "=======" or stripped.startswith(">>>>>>>"):
+            return True
+    return False
+
+
+def _quarantine_invalid_worker_target(
+    source: Path,
+    session_workspace: Path,
+    target_file: str,
+    reason: str,
+) -> Path:
+    quarantine_root = (
+        session_workspace.parent
+        / "quarantine"
+        / f"{time.time_ns()}-{_safe_session_segment(reason)}"
+    )
+    quarantine_path = quarantine_root / Path(target_file)
+    quarantine_path.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(source, quarantine_path)
+    return quarantine_path
 
 
 def opencode_subprocess_environment(

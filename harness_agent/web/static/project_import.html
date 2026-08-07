@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>导入已有项目 · AlgoForge</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/static/style.css?v=20260731-project-documents-1" />
+  </head>
+  <body class="project-document" data-project-step="import">
+    <header class="project-page-header">
+      <a class="project-page-brand" href="/">AlgoForge</a>
+      <div>
+        <p>已有项目演进</p>
+        <h1>导入项目</h1>
+      </div>
+      <a class="ghost-link" href="/">返回工作台</a>
+    </header>
+    <main class="project-page-main project-import-main">
+      <ol class="project-flow-steps" aria-label="已有项目配置进度">
+        <li class="current"><span>1</span><strong>导入项目</strong></li>
+        <li><span>2</span><strong>审核契约</strong></li>
+        <li><span>3</span><strong>演进配置</strong></li>
+      </ol>
+
+      <section class="project-page-section">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">项目源代码</span>
+            <h2>选择包含现有 solver 的 ZIP</h2>
+          </div>
+        </div>
+        <label class="field project-file-field">
+          <span>项目 ZIP</span>
+          <input type="file" id="starter-project-file" accept=".zip,application/zip" />
+          <output id="starter-project-status" aria-live="polite">未选择</output>
+        </label>
+      </section>
+
+      <section class="project-page-section">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">执行契约</span>
+            <h2>确认入口与允许演进的算法模块</h2>
+          </div>
+        </div>
+        <div class="project-contract-inputs">
+          <label class="field compact">
+            <span>Solver 入口</span>
+            <input id="starter-solver-entrypoint" value="solver.py" />
+          </label>
+          <label class="field compact">
+            <span>主要可编辑文件</span>
+            <input id="starter-target-file" value="solver.py" />
+          </label>
+          <label class="field compact wide-field">
+            <span>Solver 命令模板</span>
+            <input id="starter-solver-command" value="python solver.py --input {instance} --output {solution} --seed {seed} --time-limit-sec {solver_time_limit_seconds}" />
+          </label>
+          <label class="field compact checkbox-field wide-field">
+            <input id="starter-use-project-instances" type="checkbox" checked />
+            <span>使用 ZIP 内算例作为正式 Core 输入</span>
+          </label>
+        </div>
+      </section>
+
+      <div class="project-page-actions">
+        <button class="ghost" type="button" id="clear-starter-project" disabled>清除项目</button>
+        <button class="primary" type="button" id="continue-starter-project" disabled>检查项目结构</button>
+      </div>
+      <p id="project-page-message" class="project-page-message" aria-live="polite"></p>
+    </main>
+    <script src="/static/project.js?v=20260731-project-documents-1"></script>
+  </body>
+</html>

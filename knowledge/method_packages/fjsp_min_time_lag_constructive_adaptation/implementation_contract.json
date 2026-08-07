@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "contract_id": "fjsp_min_time_lag_constructive_adaptation",
+  "mode": "complete_method_package",
+  "completion_rule": "只有当 lag-aware 解码、operation-level 构造决策和所选搜索扩展均可达并通过阶段检查时，才能声明对应阶段完成。",
+  "variant_rule": "Minimum lag 只约束相邻工序的 finish-start 下界，不占用机器；所有候选必须经同一 lag-aware 完整解码器验收。",
+  "required_components": [
+    {
+      "component_id": "lag_state_and_decoder",
+      "title": "最小间隔状态与完整解码",
+      "required_behaviors": [
+        "独立解析相邻工序 minimum lag 尾部并保存固定 lag。",
+        "作业弧使用 processing plus lag，机器弧只使用 processing。",
+        "拒绝不完整、成环、机器重叠或 minimum lag 非法候选，并保留合法 incumbent。"
+      ],
+      "evidence_required": "可达解析、完整解码和最终合法性守卫。"
+    },
+    {
+      "component_id": "operation_ready_dispatch",
+      "title": "Operation-level ready set 构造",
+      "required_behaviors": [
+        "每一步在所有 ready operations 中选择工序，而不是一次提交一个完整 job。",
+        "优先级同时消费 job ready、剩余加工/lag 链和机器压力。"
+      ],
+      "evidence_required": "可达 ready set 和逐工序 dispatch 决策路径。"
+    },
+    {
+      "component_id": "lag_aware_idle_gap_insertion",
+      "title": "Lag-aware 空闲间隙插入",
+      "required_behaviors": [
+        "按 predecessor end plus lag 计算 ready time。",
+        "在候选机器已有区间中寻找最早合法 gap，lag 等待不得占用机器。"
+      ],
+      "evidence_required": "可达 gap scanner 与 lag-aware ready time。"
+    },
+    {
+      "component_id": "assignment_pressure_and_regret",
+      "title": "机器分配压力与 regret",
+      "required_behaviors": [
+        "比较所有可加工机器的插入完成时间、负载压力和替代损失。",
+        "最终选择必须由完整 lag-aware 构造状态验证。"
+      ],
+      "evidence_required": "可达候选机器评分及至少两个不同分配选择的证据。"
+    },
+    {
+      "component_id": "bounded_beam_states",
+      "title": "有界多状态 Beam",
+      "required_behaviors": [
+        "同时保留多个不同的部分排程状态，而不是只改变完整 job permutation。",
+        "用合法下界、宽度和 deadline 限制扩展。"
+      ],
+      "evidence_required": "可达 beam frontier、状态扩展和宽度/deadline 守卫。"
+    },
+    {
+      "component_id": "structural_diversity_and_best",
+      "title": "结构去重、多样化与全局最优保持",
+      "required_behaviors": [
+        "按机器分配和局部机器顺序指纹去重，而不是只按 makespan 去重。",
+        "停滞扰动不得覆盖全局最优合法解。"
+      ],
+      "evidence_required": "可达结构指纹、停滞触发和独立 best 快照。"
+    }
+  ],
+  "component_dependencies": [
+    {"component_id": "operation_ready_dispatch", "depends_on": ["lag_state_and_decoder"]},
+    {"component_id": "lag_aware_idle_gap_insertion", "depends_on": ["lag_state_and_decoder", "operation_ready_dispatch"]},
+    {"component_id": "assignment_pressure_and_regret", "depends_on": ["lag_state_and_decoder", "operation_ready_dispatch"]},
+    {"component_id": "bounded_beam_states", "depends_on": ["lag_state_and_decoder", "operation_ready_dispatch"]},
+    {"component_id": "structural_diversity_and_best", "depends_on": ["bounded_beam_states"]}
+  ],
+  "coupled_groups": [
+    {
+      "group_id": "lag_aware_constructive_core",
+      "component_ids": ["lag_state_and_decoder", "operation_ready_dispatch", "lag_aware_idle_gap_insertion"],
+      "rule": "构造决策、gap 插入和最终验收必须共享同一 minimum-lag 语义。"
+    }
+  ],
+  "competition_tracks": [
+    {
+      "track_id": "direct_evidence",
+      "title": "Operation-level gap 构造",
+      "selection_hint": "先修复完整 job permutation 的搜索限制，再扩展多状态搜索。",
+      "stages": [
+        {"stage_id": "operation_gap", "component_ids": ["lag_state_and_decoder", "operation_ready_dispatch", "lag_aware_idle_gap_insertion"]},
+        {"stage_id": "beam", "component_ids": ["bounded_beam_states"]},
+        {"stage_id": "diversity", "component_ids": ["structural_diversity_and_best"]}
+      ]
+    },
+    {
+      "track_id": "minimal_risk",
+      "title": "分配压力渐进构造",
+      "selection_hint": "保留单状态构造，先改 operation ready 与机器 regret，再加入 gap。",
+      "stages": [
+        {"stage_id": "operation_regret", "component_ids": ["lag_state_and_decoder", "operation_ready_dispatch", "assignment_pressure_and_regret"]},
+        {"stage_id": "gap", "component_ids": ["lag_aware_idle_gap_insertion"]},
+        {"stage_id": "beam", "component_ids": ["bounded_beam_states"]}
+      ]
+    },
+    {
+      "track_id": "orthogonal_mechanism",
+      "title": "多状态结构探索",
+      "selection_hint": "用 Beam 与结构去重探索 operation-level 状态，再补分配压力。",
+      "stages": [
+        {"stage_id": "beam_diversity", "component_ids": ["lag_state_and_decoder", "operation_ready_dispatch", "bounded_beam_states", "structural_diversity_and_best"]},
+        {"stage_id": "assignment", "component_ids": ["assignment_pressure_and_regret"]},
+        {"stage_id": "gap", "component_ids": ["lag_aware_idle_gap_insertion"]}
+      ]
+    }
+  ],
+  "checkpoint_checks": [
+    {
+      "check_id": "lag_decoder_semantics",
+      "component_ids": ["lag_state_and_decoder"],
+      "requirement": "语义审查必须确认 lag 不占用机器，且所有接受路径调用完整 lag-aware 解码。"
+    },
+    {
+      "check_id": "operation_level_reachability",
+      "component_ids": ["operation_ready_dispatch"],
+      "requirement": "源码必须存在跨 job 的 operation-level ready set，不能仅打乱完整 job 顺序。"
+    },
+    {
+      "check_id": "beam_state_evidence",
+      "component_ids": ["bounded_beam_states"],
+      "requirement": "源码和诊断必须证明同时存在多个结构不同的部分排程状态。"
+    },
+    {
+      "check_id": "lag_gap_evidence",
+      "component_ids": ["lag_aware_idle_gap_insertion"],
+      "requirement": "源码必须按 predecessor end plus lag 搜索机器空闲间隙，且等待时间不进入机器区间。"
+    },
+    {
+      "check_id": "assignment_regret_evidence",
+      "component_ids": ["assignment_pressure_and_regret"],
+      "requirement": "源码必须比较多个可加工机器的结构代价，并让评分进入实际分配选择。"
+    },
+    {
+      "check_id": "structural_diversity_evidence",
+      "component_ids": ["structural_diversity_and_best"],
+      "requirement": "源码必须使用 assignment/order 结构指纹去重，并独立保存全局最优。"
+    }
+  ]
+}

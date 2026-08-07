@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "contract_id": "fjsp_min_time_lag_coupled_local_search",
+  "mode": "complete_method_package",
+  "completion_rule": "只有 lag-aware 解码、可回退事务 move 与至少一个已激活邻域形成闭环后，才可声明当前局部搜索阶段完成。",
+  "variant_rule": "Minimum lag 是相邻工序的 machine-free finish-start 下界；所有 move 必须在完整 lag-aware 重解码后才能接受。",
+  "required_components": [
+    {"component_id": "lag_graph_decoder", "title": "Lag-aware 状态与关键图", "required_behaviors": ["作业弧传播 processing plus lag，机器弧只传播 processing。", "完整检测遗漏、重复、机器重叠、正权环与 minimum lag 违反。"], "evidence_required": "可达的完整解码器与关键路径诊断。"},
+    {"component_id": "same_machine_critical_moves", "title": "同机关键块邻域", "required_behaviors": ["围绕关键块及 lag 边界做有界交换或重插。", "每次接受后刷新关键路径与 slack。"], "evidence_required": "生成、完整评测、接受和拒绝计数。"},
+    {"component_id": "cross_machine_reinsertion", "title": "异机换机重插", "required_behaviors": ["联合评估加工时间、插入位置和下游 lag 传播。", "删除与插入作为一个可回退事务执行。"], "evidence_required": "换机候选和合法接受计数。"},
+    {"component_id": "transactional_search_state", "title": "事务搜索状态", "required_behaviors": ["current、candidate 与 global best 相互独立。", "非法或退化 move 不得污染父状态。"], "evidence_required": "回退守卫和独立 best 快照。"},
+    {"component_id": "tabu_or_ils_control", "title": "Tabu/ILS 接受与停滞控制", "required_behaviors": ["使用有界 tenure、aspiration、扰动或重启。", "非严格改善状态不得覆盖 global best。"], "evidence_required": "迭代、tabu/扰动和 best 更新计数。"},
+    {"component_id": "adaptive_neighborhood_policy", "title": "邻域自适应与多样化", "required_behaviors": ["根据生成、合法、接受和改进证据调整邻域预算。", "保留 deadline 和候选数上限。"], "evidence_required": "按邻域分解的选择和收益诊断。"}
+  ],
+  "component_dependencies": [
+    {"component_id": "same_machine_critical_moves", "depends_on": ["lag_graph_decoder", "transactional_search_state"]},
+    {"component_id": "cross_machine_reinsertion", "depends_on": ["lag_graph_decoder", "transactional_search_state"]},
+    {"component_id": "tabu_or_ils_control", "depends_on": ["same_machine_critical_moves", "cross_machine_reinsertion"]},
+    {"component_id": "adaptive_neighborhood_policy", "depends_on": ["tabu_or_ils_control"]}
+  ],
+  "competition_tracks": [
+    {"track_id": "direct_evidence", "title": "Lag 边界换机", "stages": [{"stage_id": "cross_machine", "component_ids": ["lag_graph_decoder", "transactional_search_state", "cross_machine_reinsertion"]}, {"stage_id": "tabu", "component_ids": ["same_machine_critical_moves", "tabu_or_ils_control"]}, {"stage_id": "adaptive", "component_ids": ["adaptive_neighborhood_policy"]}]},
+    {"track_id": "minimal_risk", "title": "同机关键块渐进搜索", "stages": [{"stage_id": "same_machine", "component_ids": ["lag_graph_decoder", "transactional_search_state", "same_machine_critical_moves"]}, {"stage_id": "cross_machine", "component_ids": ["cross_machine_reinsertion"]}, {"stage_id": "tabu", "component_ids": ["tabu_or_ils_control"]}]},
+    {"track_id": "orthogonal_mechanism", "title": "组合事务邻域", "stages": [{"stage_id": "coupled_moves", "component_ids": ["lag_graph_decoder", "transactional_search_state", "same_machine_critical_moves", "cross_machine_reinsertion"]}, {"stage_id": "adaptive", "component_ids": ["tabu_or_ils_control", "adaptive_neighborhood_policy"]}]}
+  ],
+  "checkpoint_checks": [
+    {"check_id": "lag_local_decode", "component_ids": ["lag_graph_decoder"], "requirement": "所有候选接受路径必须调用完整 lag-aware 解码，lag 等待不得占机。"},
+    {"check_id": "transactional_rollback", "component_ids": ["transactional_search_state"], "requirement": "非法候选必须原子回退，global best 必须独立保存。"},
+    {"check_id": "neighborhood_reachability", "component_ids": ["same_machine_critical_moves", "cross_machine_reinsertion"], "component_match": "any", "requirement": "至少一个获准邻域必须产生非零生成与完整评测证据。"}
+  ]
+}

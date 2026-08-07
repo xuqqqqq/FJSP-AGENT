@@ -48,7 +48,9 @@ def build_agent_generated_solver_quality_contract(context: dict[str, Any]) -> di
         )
     if "no_wait" in features:
         variant_required.append("no_wait_start_time_guard")
-    if "time_lag" in features:
+    if "minimum_time_lag" in features:
+        variant_required.append("minimum_time_lag_parser_and_propagation_guard")
+    elif "time_lag" in features:
         variant_required.append("time_lag_precedence_guard")
     if "machine_calendar" in features:
         variant_required.append("machine_calendar_availability_guard")
@@ -179,6 +181,10 @@ _CAPABILITY_PLAYBOOK = {
         "evidence": "Cite the min/max lag checks that bound successor start times relative to predecessor completion.",
         "repair": "Parse lag data from the active IO contract and enforce it during decode and schedule validation.",
     },
+    "minimum_time_lag_parser_and_propagation_guard": {
+        "evidence": "Cite the K + K*4 tail parser, the adjacent-pair lag lookup, and the reachable construction/full-decode path that applies successor_start >= predecessor_end + L_min.",
+        "repair": "Parse every declared adjacent-pair minimum lag and propagate it through construction, full decoding, move evaluation, and output self-check before comparing makespan.",
+    },
     "machine_calendar_availability_guard": {
         "evidence": "Cite the check that scheduled intervals fit machine availability and do not overlap unavailable calendar windows.",
         "repair": "Decode with machine calendars/unavailability windows and reject intervals outside available time.",
@@ -273,12 +279,25 @@ def extract_variant_features(context: dict[str, Any]) -> set[str]:
             if isinstance(item, dict)
         )
     )
+    minimum_lag_from_diagnostics = (
+        int(summary.get("min_time_lag_instance_count") or 0) > 0
+        or any(
+            str(item.get("variant") or "").lower() == "fjsp_min_time_lag"
+            or int(item.get("min_time_lag_constraint_count") or 0) > 0
+            for item in diagnostics.get("instances") or []
+            if isinstance(item, dict)
+        )
+    )
     active_text = _active_problem_feature_text(
         context,
         include_documents=not diagnostics_available,
     )
     if setup_from_diagnostics or (not diagnostics_available and _mentions_sequence_dependent_setup(active_text)):
         features.add("sequence_dependent_setup")
+    if minimum_lag_from_diagnostics or (
+        not diagnostics_available and _mentions_minimum_time_lag(active_text)
+    ):
+        features.update({"minimum_time_lag", "time_lag"})
     if _has_any_pattern(active_text, [r"\bno[-_\s]?wait\b"]):
         features.add("no_wait")
     if _has_any_pattern(active_text, [r"\btime[-_\s]?lag\b"]):
@@ -307,6 +326,18 @@ def _mentions_sequence_dependent_setup(text: str) -> bool:
             r"\bsequence[-_\s]?dependent[-_\s]?setup\b",
             r"\bsetup[-_\s]?matrix\b",
             r"\bsetup[-_\s]?time(?:s)?\b",
+        ],
+    )
+
+
+def _mentions_minimum_time_lag(text: str) -> bool:
+    return _has_any_pattern(
+        text,
+        [
+            r"\bfjsp[-_]?min(?:imum)?[-_\s]?time[-_\s]?lag\b",
+            r"\bmin(?:imum)?[-_\s]?time[-_\s]?lag\b",
+            r"最小时间(?:间隔|滞后)",
+            r"最小生产间隔",
         ],
     )
 

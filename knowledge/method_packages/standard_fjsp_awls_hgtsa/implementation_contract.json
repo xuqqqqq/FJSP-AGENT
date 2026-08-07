@@ -118,6 +118,53 @@
       "evidence_required": "由求解器或自检产生的、可达的截止时间检查和阶段计数器。"
     }
   ],
+  "component_dependencies": [
+    {
+      "component_id": "progress_decoder",
+      "depends_on": ["state_and_initialization"],
+      "reason": "完整解码依赖稳定状态表示与合法初始化。"
+    },
+    {
+      "component_id": "critical_graph_and_blocks",
+      "depends_on": ["progress_decoder"],
+      "reason": "关键图与紧块只能建立在完整调度解码之后。"
+    },
+    {
+      "component_id": "transactional_move_lifecycle",
+      "depends_on": ["progress_decoder"],
+      "reason": "候选应用与回滚必须复用完整解码与状态克隆。"
+    },
+    {
+      "component_id": "same_machine_neighborhood",
+      "depends_on": ["critical_graph_and_blocks", "transactional_move_lifecycle"],
+      "reason": "关键块顺序邻域既依赖关键图，也依赖一致的候选应用生命周期。"
+    },
+    {
+      "component_id": "alternative_machine_neighborhood",
+      "depends_on": ["progress_decoder", "transactional_move_lifecycle"],
+      "reason": "换机重分配需要完整解码和一致的候选提交路径。"
+    },
+    {
+      "component_id": "tabu_and_aspiration",
+      "depends_on": ["transactional_move_lifecycle"],
+      "reason": "逆移动 tabu 依赖稳定且可复现的移动标识。"
+    },
+    {
+      "component_id": "adaptive_weight_scoring",
+      "depends_on": ["transactional_move_lifecycle"],
+      "reason": "自适应权重更新必须绑定到真实接受的搜索转移。"
+    },
+    {
+      "component_id": "diversification_and_best_preservation",
+      "depends_on": ["adaptive_weight_scoring"],
+      "reason": "多样化与停滞判断依赖当前自适应搜索压力。"
+    },
+    {
+      "component_id": "runtime_and_observability",
+      "depends_on": ["state_and_initialization", "progress_decoder", "transactional_move_lifecycle"],
+      "reason": "共享预算与阶段计数器必须覆盖状态、解码和候选生命周期。"
+    }
+  ],
   "coupled_groups": [
     {
       "group_id": "critical_neighborhood_bundle",
@@ -144,6 +191,105 @@
         "runtime_and_observability"
       ],
       "rule": "只有当可达决策发生变化且运行时证据表明相关阶段确实执行时，自适应压力与多样化才算已实现。"
+    }
+  ],
+  "competition_tracks": [
+    {
+      "track_id": "direct_evidence",
+      "title": "直接证据优先",
+      "component_ids": [
+        "state_and_initialization",
+        "progress_decoder",
+        "critical_graph_and_blocks",
+        "alternative_machine_neighborhood",
+        "tabu_and_aspiration",
+        "diversification_and_best_preservation",
+        "adaptive_weight_scoring"
+      ],
+      "selection_hint": "优先选择当前 Core 证据最直接指向、且有清晰可达实现缺口的关键路径与异机邻域组件。",
+      "stages": [
+        {"stage_id": "critical_alternative_nk", "component_ids": ["state_and_initialization", "progress_decoder", "critical_graph_and_blocks", "alternative_machine_neighborhood"]},
+        {"stage_id": "tabu", "component_ids": ["tabu_and_aspiration"]},
+        {"stage_id": "diversification", "component_ids": ["diversification_and_best_preservation"]},
+        {"stage_id": "adaptive_scoring", "component_ids": ["adaptive_weight_scoring"]}
+      ]
+    },
+    {
+      "track_id": "minimal_risk",
+      "title": "最小风险修补",
+      "component_ids": [
+        "state_and_initialization",
+        "progress_decoder",
+        "critical_graph_and_blocks",
+        "same_machine_neighborhood",
+        "alternative_machine_neighborhood",
+        "tabu_and_aspiration",
+        "diversification_and_best_preservation"
+      ],
+      "selection_hint": "先完成同机 N7/N8，再逐步加入异机 NK、tabu 和多样化，减少破坏 incumbent 合法性的风险。",
+      "stages": [
+        {"stage_id": "critical_same_machine_n7_n8", "component_ids": ["state_and_initialization", "progress_decoder", "critical_graph_and_blocks", "same_machine_neighborhood"]},
+        {"stage_id": "alternative_nk", "component_ids": ["alternative_machine_neighborhood"]},
+        {"stage_id": "tabu", "component_ids": ["tabu_and_aspiration"]},
+        {"stage_id": "diversification", "component_ids": ["diversification_and_best_preservation"]}
+      ]
+    },
+    {
+      "track_id": "orthogonal_mechanism",
+      "title": "正交机制探索",
+      "component_ids": [
+        "state_and_initialization",
+        "progress_decoder",
+        "critical_graph_and_blocks",
+        "same_machine_neighborhood",
+        "alternative_machine_neighborhood",
+        "transactional_move_lifecycle",
+        "tabu_and_aspiration",
+        "adaptive_weight_scoring",
+        "diversification_and_best_preservation"
+      ],
+      "selection_hint": "先形成同机、异机与事务 move 的组合闭环，再逐步加入 tabu、自适应评分和多样化。",
+      "stages": [
+        {"stage_id": "combined_transactional_neighborhoods", "component_ids": ["state_and_initialization", "progress_decoder", "critical_graph_and_blocks", "same_machine_neighborhood", "alternative_machine_neighborhood", "transactional_move_lifecycle"]},
+        {"stage_id": "tabu", "component_ids": ["tabu_and_aspiration"]},
+        {"stage_id": "adaptive_scoring", "component_ids": ["adaptive_weight_scoring"]},
+        {"stage_id": "diversification", "component_ids": ["diversification_and_best_preservation"]}
+      ]
+    }
+  ],
+  "checkpoint_checks": [
+    {
+      "check_id": "decoder_legality_surface",
+      "title": "解码合法性面保持可执行",
+      "component_ids": ["state_and_initialization", "progress_decoder"],
+      "requirement": "任何搜索或邻域改动都不得绕过完整覆盖、死锁保护、约束校验和最终输出验证。"
+    },
+    {
+      "check_id": "move_identity_stability",
+      "title": "移动标识在生成到应用间保持一致",
+      "component_ids": ["transactional_move_lifecycle", "tabu_and_aspiration"],
+      "requirement": "被评分、被接受、被应用与被记录为 tabu 逆移动的对象必须保持同一稳定标识。"
+    },
+    {
+      "check_id": "critical_search_evidence",
+      "title": "关键邻域必须有真实执行证据",
+      "component_ids": [
+        "critical_graph_and_blocks",
+        "same_machine_neighborhood",
+        "alternative_machine_neighborhood",
+        "runtime_and_observability"
+      ],
+      "requirement": "关键路径/关键块邻域只有在阶段计数器与可达源码共同证明其被实际执行时才算实现。"
+    },
+    {
+      "check_id": "adaptive_pressure_changes_decisions",
+      "title": "自适应压力必须改变候选排序或选择",
+      "component_ids": [
+        "adaptive_weight_scoring",
+        "diversification_and_best_preservation",
+        "runtime_and_observability"
+      ],
+      "requirement": "自适应权重或多样化状态变化必须能在可达评分或候选选择路径中改变决策，而不只是记录遥测。"
     }
   ]
 }

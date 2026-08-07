@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AlgoForge FJSP 智能演进平台</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="stylesheet" href="/static/style.css?v=20260731-workbench-views-1" />
   </head>
   <body>
     <div class="app-shell">
@@ -20,10 +20,10 @@
         </div>
 
         <button class="primary side-action" type="button" id="load-demo">新建 / 载入示例</button>
-        <button class="side-import-action" type="button" data-view-target="import-project">
+        <a class="side-import-action" href="/projects/import">
           <strong>导入项目 ZIP</strong>
           <span>从已有 solver 开始</span>
-        </button>
+        </a>
 
         <label class="search-box" aria-label="搜索项目、任务与资源">
           <span>搜索</span>
@@ -46,6 +46,7 @@
           <button type="button" class="nav-item" data-view-target="context">上下文</button>
           <button type="button" class="nav-item" data-view-target="experiments">实验记录</button>
           <button type="button" class="nav-item" data-view-target="versions">版本记录</button>
+          <button type="button" class="nav-item" data-view-target="artifacts">报告与产物</button>
           <button type="button" class="nav-item" data-view-target="setup">任务配置</button>
           <button type="button" class="nav-item nav-item-secondary" data-view-target="worker">审计明细</button>
         </div>
@@ -59,9 +60,23 @@
       <section class="workspace">
         <header class="workspace-header">
           <div>
-            <p class="breadcrumb">fjsp-harness-agent · Agent 自演进任务</p>
+            <p class="breadcrumb" id="workspace-breadcrumb">fjsp-harness-agent · Agent 自演进任务</p>
             <h1 id="workspace-title">FJSP 求解质量优化</h1>
           </div>
+          <label class="mobile-view-picker" for="mobile-view-select">
+            <span>当前视图</span>
+            <select id="mobile-view-select">
+              <option value="overview">任务概览</option>
+              <option value="context">上下文</option>
+              <option value="experiments">实验记录</option>
+              <option value="versions">版本记录</option>
+              <option value="artifacts">报告与产物</option>
+              <option value="worker">审计明细</option>
+              <option value="resources">Skills / 知识库</option>
+              <option value="models">模型分配</option>
+              <option value="setup">任务配置</option>
+            </select>
+          </label>
           <div class="header-actions">
             <span class="status-pill running" id="workspace-status">系统就绪</span>
             <button class="ghost" type="button" id="refresh">刷新</button>
@@ -236,8 +251,26 @@
             <!-- 审计明细：保留方向、阶段状态和可审计产物，不暴露原始 patch / tool payload。 -->
             <section id="view-worker" class="workspace-view">
               <section class="split-view">
-                <aside class="subnav-panel">
-                  <h2>优化回合</h2>
+                <aside class="subnav-panel audit-inspector" aria-label="回合检查器">
+                  <div class="inspector-head">
+                    <strong>回合检查器</strong>
+                    <span>方向与 Core 证据</span>
+                  </div>
+                  <section class="inspector-card">
+                    <span class="section-kicker">当前优化方向</span>
+                    <h2 id="inspector-title">Agent 自写 solver 能力提升</h2>
+                    <p>从需求、IO、算例诊断和知识库生成候选代码；Worker 可局部自测，Core 负责最终复验。</p>
+                  </section>
+                  <section class="inspector-card">
+                    <span class="section-kicker">Core 证据</span>
+                    <dl class="evidence-list">
+                      <div><dt>Validator</dt><dd id="inspector-validator">运行后显示</dd></div>
+                      <div><dt>Benchmark</dt><dd id="inspector-benchmark">运行后显示</dd></div>
+                      <div><dt>Context</dt><dd id="inspector-context">可追溯</dd></div>
+                      <div><dt>Artifacts</dt><dd id="inspector-artifacts">报告 / patch / memory</dd></div>
+                    </dl>
+                  </section>
+                  <h3 class="round-list-title">优化回合</h3>
                   <p>选择一轮查看当时的方向与输出。</p>
                   <ol class="round-list" id="worker-round-list">
                     <li><strong>01</strong><span>建立可比较起点</span></li>
@@ -260,13 +293,6 @@
                     <strong>Worker 局部检查只用于选优。</strong>
                     <span>最终是否接受由 Core 从不可变 round base 重建 patch、重新运行算法并验证新输出。</span>
                   </div>
-                  <div class="section-head compact-head">
-                    <div>
-                      <span class="section-kicker">报告与产物</span>
-                      <h2>本轮 artifacts</h2>
-                    </div>
-                  </div>
-                  <div id="artifact-list" class="artifact-list"></div>
                 </div>
               </section>
             </section>
@@ -359,6 +385,35 @@
               </section>
             </section>
 
+            <section id="view-artifacts" class="workspace-view">
+              <section class="page-section">
+                <div class="section-head">
+                  <div>
+                    <span class="section-kicker">运行产物</span>
+                    <h2>报告与可审计文件</h2>
+                  </div>
+                  <span class="muted">选择产物后在右侧阅读全文</span>
+                </div>
+                <div class="artifact-workspace">
+                  <aside class="artifact-browser-panel" aria-label="产物列表">
+                    <h3>当前任务产物</h3>
+                    <p>报告、假设图谱、经验记忆和知识使用记录。</p>
+                    <div id="artifact-list" class="artifact-list"></div>
+                  </aside>
+                  <section class="report-panel" aria-live="polite">
+                    <div class="section-head">
+                      <div>
+                        <span class="section-kicker">产物预览</span>
+                        <h2>报告预览</h2>
+                      </div>
+                      <span id="artifact-path" class="artifact-path"></span>
+                    </div>
+                    <pre id="artifact-preview">选择一个报告后会在这里展示。</pre>
+                  </section>
+                </div>
+              </section>
+            </section>
+
             <section id="view-models" class="workspace-view">
               <section class="page-section">
                 <div class="section-head">
@@ -413,53 +468,18 @@
                     <span>Core：唯一合法性、指标与晋升裁决者</span>
                   </div>
                 </section>
+                <div class="api-panel" id="solver-runtime-status">Solver Runtime：检查中...</div>
                 <div class="api-panel" id="deepseek-status">DeepSeek API：检查中...</div>
               </section>
             </section>
 
-            <section id="view-import-project" class="workspace-view">
-              <section class="page-section project-import">
-                <div class="section-head">
-                  <div>
-                    <span class="section-kicker">已有代码</span>
-                    <h2>导入已有项目</h2>
-                  </div>
-                </div>
-
-                <label class="field project-file-field">
-                  <span>项目 ZIP</span>
-                  <input type="file" id="starter-project-file" accept=".zip,application/zip" />
-                  <output id="starter-project-status" aria-live="polite">未选择</output>
-                </label>
-
-                <div class="config-grid project-import-grid">
-                  <label class="field compact">
-                    <span>Solver 入口</span>
-                    <input id="starter-solver-entrypoint" value="solver.py" />
-                  </label>
-                  <label class="field compact">
-                    <span>主要可编辑文件</span>
-                    <input id="starter-target-file" value="solver.py" />
-                  </label>
-                  <label class="field compact wide-field">
-                    <span>Solver 命令模板</span>
-                    <input id="starter-solver-command" value="python solver.py --input {instance} --output {solution} --seed {seed} --time-limit-sec {solver_time_limit_seconds}" />
-                  </label>
-                </div>
-
-                <div class="project-import-actions">
-                  <button class="ghost" type="button" id="clear-starter-project" disabled>清除项目</button>
-                  <button class="primary" type="button" id="continue-starter-project" disabled>继续配置任务</button>
-                </div>
-              </section>
-            </section>
-
             <section id="view-setup" class="workspace-view">
-              <form id="job-form" class="page-section task-form">
+              <div id="generated-task-form-host">
+                <form id="job-form" class="page-section task-form">
                 <div class="section-head">
                   <div>
-                    <span class="section-kicker">任务契约</span>
-                    <h2>任务配置</h2>
+                    <span class="section-kicker" id="task-form-kicker">新建任务</span>
+                    <h2 id="task-form-title">Agent 生成式任务配置</h2>
                   </div>
                 </div>
 
@@ -467,14 +487,6 @@
                   <span>任务名称</span>
                   <input id="title" name="title" value="Brandimarte Mk01 标准 FJSP 闭环演示" />
                 </label>
-
-                <div id="starter-project-summary" class="starter-project-summary hidden">
-                  <div>
-                    <span>现有项目 baseline</span>
-                    <strong id="starter-project-setup-status">未选择</strong>
-                  </div>
-                  <button class="ghost" type="button" data-view-target="import-project">修改</button>
-                </div>
 
                 <div class="doc-grid">
                   <label class="field">
@@ -489,7 +501,7 @@
                   </label>
                 </div>
 
-                <label class="field">
+                <label class="field" id="task-instance-field">
                   <span>标准 FJSP / FJSP-SDST 算例</span>
                   <input type="file" id="instance-file" accept=".fjs,.txt" />
                   <textarea id="instance-text" rows="5" placeholder="粘贴 .fjs 算例，或选择文件后自动填入"></textarea>
@@ -584,49 +596,12 @@
                   </div>
                 </details>
 
-                <button class="primary submit-button" type="submit">启动循环迭代</button>
-              </form>
-            </section>
-
-            <section class="report-panel">
-              <div class="section-head">
-                <div>
-                  <span class="section-kicker">产物预览</span>
-                  <h2>报告预览</h2>
-                </div>
-                <span id="artifact-path" class="artifact-path"></span>
+                  <button class="primary submit-button" type="submit">启动循环迭代</button>
+                </form>
               </div>
-              <pre id="artifact-preview">选择一个报告后会在这里展示。</pre>
             </section>
-          </main>
 
-          <aside class="inspector" aria-label="回合检查器">
-            <div class="inspector-head">
-              <strong>回合检查器</strong>
-              <span>方向 / 上下文 / 证据</span>
-            </div>
-            <div class="inspector-tabs">
-              <button type="button" class="active" data-view-target="overview">方向</button>
-              <button type="button" data-view-target="context">上下文</button>
-              <button type="button" data-view-target="worker">审计</button>
-              <button type="button" data-view-target="experiments">实验</button>
-            </div>
-            <section class="inspector-card">
-              <span class="section-kicker">当前优化方向</span>
-              <h2 id="inspector-title">Agent 自写 solver 能力提升</h2>
-              <p>从需求、IO、算例诊断和知识库生成候选代码；Worker 可局部自测，Core 负责最终复验。</p>
-              <button class="ghost full-button" type="button" data-view-target="worker">查看审计明细</button>
-            </section>
-            <section class="inspector-card">
-              <span class="section-kicker">Core 证据</span>
-              <dl class="evidence-list">
-                <div><dt>Validator</dt><dd id="inspector-validator">运行后显示</dd></div>
-                <div><dt>Benchmark</dt><dd id="inspector-benchmark">运行后显示</dd></div>
-                <div><dt>Context</dt><dd id="inspector-context">可追溯</dd></div>
-                <div><dt>Artifacts</dt><dd id="inspector-artifacts">报告 / patch / memory</dd></div>
-              </dl>
-            </section>
-          </aside>
+          </main>
         </div>
       </section>
     </div>
@@ -747,6 +722,6 @@
         </div>
       </form>
     </dialog>
-    <script src="/static/app.js?v=20260724-resource-authoring-1"></script>
+    <script src="/static/app.js?v=20260806-solver-runtime-1"></script>
   </body>
 </html>

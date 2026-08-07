@@ -6,8 +6,14 @@ import unittest
 from pathlib import Path
 
 from harness_agent.agents.main import DirectionPlanRequest, EvidenceDrivenMainAgent
+from harness_agent.context.knowledge import method_package_catalog
 from harness_agent.context.loader import load_context_dict
-from harness_agent.context.packet import ContextPacketRequest, write_context_packet
+from harness_agent.context.packet import (
+    ContextPacketRequest,
+    activate_direction_knowledge_context,
+    activate_method_package_context,
+    write_context_packet,
+)
 from harness_agent.context.worker import (
     WORKER_ASSIGNMENT_MAX_CHARS,
     WORKER_ASSIGNMENT_SOFT_CHARS,
@@ -21,6 +27,117 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WorkerAssignmentTests(unittest.TestCase):
+    def test_minimum_time_lag_cards_are_mandatory_for_generic_direction_query(self) -> None:
+        package_catalog = method_package_catalog(
+            problem_family="FJSP",
+            active_features=["minimum_time_lag"],
+            knowledge_query_tags=["constructive_search"],
+        )
+        active_package = next(
+            item
+            for item in package_catalog["packages"]
+            if item["package_id"] == "fjsp_min_time_lag_constructive_adaptation"
+        )
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "evaluator_protocol": {
+                "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance}",
+            },
+            "edit_policy": {"allowed_paths": ["examples"], "forbidden_paths": ["outputs"]},
+            "method_package_catalog": package_catalog,
+            "active_method_package": active_package,
+        }
+        direction = {
+            "direction_id": "d000",
+            "method_family": "constructive_search",
+            "method_package_id": "fjsp_min_time_lag_constructive_adaptation",
+            "implementation_bundle": active_package["implementation_contract"],
+            "knowledge_query": ["constructive_search"],
+            "hypothesis": "Improve a lag-aware constructor.",
+            "worker_lane_policy": {
+                "mechanism_selection": "delegated_to_worker",
+                "lane_count": 3,
+            },
+        }
+
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan=direction,
+            loop_feedback={},
+            round_index=0,
+            attempt_index=0,
+            max_steps=2,
+            max_runtime_seconds=60,
+        )
+
+        read_paths = {item["path"] for item in assignment.read_set}
+        self.assertIn(
+            "knowledge/references/min_time_lag/min_time_lag_semantics_and_decoder.md",
+            read_paths,
+        )
+        self.assertIn(
+            "knowledge/references/min_time_lag/min_time_lag_search_adaptation.md",
+            read_paths,
+        )
+
+    def test_fast_selected_awls_package_materializes_contract_and_n7_nk_guidance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            context_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=Path(tmp) / "context.json",
+                )
+            )
+            context = load_context_dict(context_path)
+            original_catalog = context["method_package_catalog"]
+            context["method_package_catalog"] = method_package_catalog(
+                problem_family="FJSP",
+                active_features=original_catalog.get("active_features") or [],
+                knowledge_query_tags=["assignment_aware_local_search", "adaptive_weight"],
+            )
+            direction = {
+                "direction_id": "d000",
+                "method_family": "coupled_local_search",
+                "method_families": [{"id": "coupled_local_search", "role": "primary"}],
+                "method_package_id": "standard_fjsp_awls_hgtsa",
+                "knowledge_query": ["assignment_aware_local_search", "adaptive_weight"],
+                "hypothesis": "Use AWLS neighborhoods to improve the incumbent.",
+                "worker_lane_policy": {
+                    "mechanism_selection": "delegated_to_worker",
+                    "lane_count": 3,
+                },
+            }
+            activate_method_package_context(context, direction_plan=direction)
+            activate_direction_knowledge_context(context, direction_plan=direction)
+
+            assignment = build_worker_assignment(
+                context=context,
+                direction_plan=direction,
+                loop_feedback={},
+                round_index=0,
+                attempt_index=0,
+                max_steps=2,
+                max_runtime_seconds=60,
+            )
+
+            read_paths = [item["path"].replace("\\", "/") for item in assignment.read_set]
+            self.assertEqual("standard_fjsp_awls_hgtsa", assignment.method_package["package_id"])
+            self.assertIn(
+                "knowledge/method_packages/standard_fjsp_awls_hgtsa/implementation_contract.json",
+                read_paths,
+            )
+            self.assertIn(
+                "knowledge/references/standard_fjsp/standard_fjsp_awls_hgtsa_execution_skeleton.md",
+                read_paths,
+            )
+            self.assertFalse(any(path.endswith("/reference_solver.py") for path in read_paths))
+            self.assertLessEqual(len(read_paths), 7)
+            self.assertIn(
+                "fjsp-coupled-local-search-worker",
+                [item["skill_id"] for item in assignment.implementation_skills],
+            )
+            self.assertLessEqual(len(assignment.implementation_skills), 2)
+
     def test_assignment_size_uses_soft_target_and_hard_ceiling(self) -> None:
         payload = {
             "assignment_id": "d000-a00",
@@ -817,6 +934,110 @@ class WorkerAssignmentTests(unittest.TestCase):
         self.assertIn("knowledge/toy/behavior.md", read_paths)
         self.assertIn("knowledge/toy/operator.md", read_paths)
         self.assertNotIn("knowledge/toy/reference.py", read_paths)
+
+    def test_delegated_assignment_deduplicates_staged_manifest_from_provided_project(self) -> None:
+        context = {
+            "task": {
+                "problem_family": "FJSP",
+                "instances": [{"id": "dp17a", "path": "inputs/dp17a.txt"}],
+            },
+            "evaluator_protocol": {
+                "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance}",
+                "provided_project_read_paths": [
+                    ".algoforge_worker_inputs/manifest.json",
+                    "examples/helper.py",
+                ],
+            },
+            "edit_policy": {"allowed_paths": ["examples"], "forbidden_paths": ["outputs"]},
+            "active_method_package": {
+                "package_id": "toy",
+                "implementation_contract_assets": ["knowledge/toy/contract.json"],
+            },
+        }
+        direction = {
+            "direction_id": "d000",
+            "hypothesis": "Run one delegated lane.",
+            "method_package_id": "toy",
+            "implementation_order": ["search"],
+            "implementation_bundle": {
+                "required_components": [{"component_id": "search", "title": "Search"}],
+            },
+            "worker_lane_policy": {
+                "mechanism_selection": "delegated_to_worker",
+                "lane_count": 3,
+            },
+        }
+
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan=direction,
+            loop_feedback={},
+            round_index=0,
+            attempt_index=0,
+            max_steps=2,
+            max_runtime_seconds=60,
+        )
+
+        manifest_rows = [
+            item
+            for item in assignment.read_set
+            if item["path"] == ".algoforge_worker_inputs/manifest.json"
+        ]
+        self.assertEqual(1, len(manifest_rows))
+        self.assertEqual("instance_manifest", manifest_rows[0]["role"])
+        self.assertEqual(len(assignment.read_set), len({item["path"] for item in assignment.read_set}))
+
+    def test_assignment_preserves_tournament_stage_lineage(self) -> None:
+        context = {
+            "task": {
+                "problem_family": "FJSP",
+                "instances": [{"id": "min-lag", "path": "inputs/min-lag.txt"}],
+            },
+            "evaluator_protocol": {
+                "solver_command_template": "python solver.py --input {instance}",
+            },
+            "edit_policy": {"allowed_paths": ["solver.py"], "forbidden_paths": ["outputs"]},
+        }
+        direction = {
+            "direction_id": "min-lag-local-search",
+            "worker_objective": "Implement the first lag-aware local-search stage.",
+            "experiment_stage": "research_tournament",
+            "method_package_id": "fjsp_min_time_lag_coupled_local_search",
+            "implementation_order": [
+                "lag_graph_decoder",
+                "transactional_search_state",
+                "cross_machine_reinsertion",
+            ],
+            "implementation_bundle": {
+                "required_components": [
+                    {"component_id": "lag_graph_decoder", "title": "Lag decoder"},
+                    {"component_id": "transactional_search_state", "title": "Transactions"},
+                    {"component_id": "cross_machine_reinsertion", "title": "Cross-machine moves"},
+                ],
+            },
+            "worker_lane": {
+                "track_id": "direct_evidence",
+                "stage": 0,
+                "parent_checkpoint": None,
+                "verified_components": [],
+                "mechanism_selection": "family_hypothesis_tournament",
+            },
+        }
+
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan=direction,
+            loop_feedback={},
+            round_index=0,
+            attempt_index=0,
+            max_steps=2,
+            max_runtime_seconds=60,
+        )
+
+        self.assertEqual("direct_evidence", assignment.lineage["track"])
+        self.assertEqual(0, assignment.lineage["stage"])
+        self.assertIsNone(assignment.lineage["parent_checkpoint"])
+        self.assertEqual([], assignment.lineage["verified_components"])
 
 
 if __name__ == "__main__":

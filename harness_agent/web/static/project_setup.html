@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>已有项目演进配置 · AlgoForge</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/static/style.css?v=20260731-project-documents-1" />
+  </head>
+  <body class="project-document" data-project-step="setup">
+    <header class="project-page-header">
+      <a class="project-page-brand" href="/">AlgoForge</a>
+      <div>
+        <p>已有项目演进</p>
+        <h1>配置演进任务</h1>
+      </div>
+      <a class="ghost-link" href="/">返回工作台</a>
+    </header>
+    <main class="project-page-main project-setup-main">
+      <ol class="project-flow-steps" aria-label="已有项目配置进度">
+        <li class="done"><span>1</span><strong>导入项目</strong></li>
+        <li class="done"><span>2</span><strong>审核契约</strong></li>
+        <li class="current"><span>3</span><strong>演进配置</strong></li>
+      </ol>
+
+      <section class="project-baseline-band">
+        <div><span>基线项目</span><strong id="setup-project-name">-</strong></div>
+        <div><span>演进目标文件</span><strong id="setup-target-file">-</strong></div>
+        <div><span>正式 Core 算例</span><strong id="setup-project-instances">-</strong></div>
+        <a class="ghost-link" href="/projects/import/review">返回项目审核</a>
+      </section>
+
+      <form id="project-job-form" class="project-setup-form">
+        <section class="project-page-section">
+          <div class="section-head">
+            <div><span class="section-kicker">演进目标</span><h2>定义这次迭代要改善什么</h2></div>
+          </div>
+          <label class="field">
+            <span>任务名称</span>
+            <input id="project-job-title" required />
+          </label>
+          <label class="field">
+            <span>补充目标与约束</span>
+            <textarea id="project-evolution-objective" rows="5" placeholder="例如：保持现有 CLI 与 JSON 协议，从当前 solver 基线继续演进；优先降低高柔性算例 makespan，并保留每轮合法 incumbent。"></textarea>
+          </label>
+          <div class="project-contract-readonly">
+            <div><span>入口命令</span><strong id="setup-solver-command">-</strong></div>
+            <div><span>平台边界</span><strong>保留原 solver 基线，Coding Worker 仅演进审核通过的目标模块，固定 Core 裁决</strong></div>
+          </div>
+        </section>
+
+        <section class="project-page-section">
+          <div class="section-head">
+            <div><span class="section-kicker">Agent 配置</span><h2>模型与竞争规模</h2></div>
+            <span id="project-provider-status" class="status-pill">检查中</span>
+          </div>
+          <div class="project-setup-grid">
+            <label class="field compact"><span>Main Agent 模型</span><select id="project-main-model"><option value="deepseek/deepseek-v4-pro">DeepSeek V4 Pro</option><option value="openai/gpt-5.4">GPT-5.4</option><option value="openai/gpt-5.4-pro">GPT-5.4 Pro</option></select></label>
+            <label class="field compact"><span>Main 推理等级</span><select id="project-main-variant"><option value="">模型默认</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+            <label class="field compact"><span>Coding Worker 模型</span><select id="project-worker-model"><option value="deepseek/deepseek-v4-pro">DeepSeek V4 Pro</option><option value="openai/gpt-5.4">GPT-5.4</option><option value="openai/gpt-5.4-pro">GPT-5.4 Pro</option></select></label>
+            <label class="field compact"><span>Worker 推理等级</span><select id="project-worker-variant"><option value="">模型默认</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+            <label class="field compact"><span>迭代轮次</span><input id="project-max-rounds" type="number" min="1" max="20" value="6" /></label>
+            <label class="field compact"><span>竞争 Coding Worker</span><input id="project-competing-workers" type="number" min="1" max="4" value="3" /></label>
+            <label class="field compact"><span>Main 子 Agent 上限</span><input id="project-main-subagents" type="number" min="0" max="4" value="4" /></label>
+            <label class="field compact"><span>并行 Core 数</span><input id="project-max-workers" type="number" min="1" max="8" value="2" /></label>
+          </div>
+        </section>
+
+        <details class="project-page-section advanced">
+          <summary>运行预算</summary>
+          <div class="project-setup-grid project-runtime-grid">
+            <label class="field compact wide-field"><span>随机种子</span><input id="project-seeds" value="0,1,2,3,4,5,6,7,8,9" /></label>
+            <label class="field compact"><span>单次 Core 超时（秒）</span><input id="project-timeout" type="number" min="5" max="3600" value="60" /></label>
+            <label class="field compact"><span>Worker 单轮时间（秒）</span><input id="project-worker-runtime" type="number" min="10" max="1800" value="420" /></label>
+            <label class="field compact"><span>Worker 步数上限</span><input id="project-worker-steps" type="number" min="1" max="20" value="4" /></label>
+            <label class="field compact"><span>Local Trial 修复次数</span><input id="project-repair-attempts" type="number" min="0" max="8" value="3" /></label>
+            <label class="field compact"><span>晋升复验次数</span><input id="project-promotion-repeats" type="number" min="1" max="5" value="1" /></label>
+            <label class="field compact checkbox-field wide-field"><input id="project-pause-rounds" type="checkbox" checked /><span>Main 建议换方向时等待用户确认；超时继续当前方向</span></label>
+          </div>
+        </details>
+
+        <div class="project-page-actions">
+          <a class="ghost-link" href="/projects/import/review">返回审核</a>
+          <button class="primary" id="start-project-job" type="submit">从现有 solver 启动演进</button>
+        </div>
+        <p id="project-page-message" class="project-page-message" aria-live="polite"></p>
+      </form>
+    </main>
+    <script src="/static/project.js?v=20260731-project-documents-1"></script>
+  </body>
+</html>

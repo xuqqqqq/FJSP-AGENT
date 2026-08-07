@@ -289,6 +289,37 @@ def build_worker_assignment(
             "attempt_index": attempt_index,
             "round_index": round_index,
             "baseline_trial": baseline_trial,
+            "track": str(
+                (
+                    direction_plan.get("worker_lane")
+                    if isinstance(direction_plan.get("worker_lane"), dict)
+                    else {}
+                ).get("track_id")
+                or (
+                    direction_plan.get("worker_lane")
+                    if isinstance(direction_plan.get("worker_lane"), dict)
+                    else {}
+                ).get("lane_role")
+                or ""
+            ),
+            "stage": (
+                direction_plan.get("worker_lane")
+                if isinstance(direction_plan.get("worker_lane"), dict)
+                else {}
+            ).get("stage"),
+            "parent_checkpoint": (
+                direction_plan.get("worker_lane")
+                if isinstance(direction_plan.get("worker_lane"), dict)
+                else {}
+            ).get("parent_checkpoint"),
+            "verified_components": list(
+                (
+                    direction_plan.get("worker_lane")
+                    if isinstance(direction_plan.get("worker_lane"), dict)
+                    else {}
+                ).get("verified_components")
+                or []
+            )[:32],
         },
         runtime_contract={
             "problem_family": (context.get("task") or {}).get("problem_family"),
@@ -332,7 +363,7 @@ def build_worker_assignment(
                         "limits": "64 runs, 256 layers, 128 distribution items; no raw schedules/states/traces.",
                     }
                 }
-                if (baseline_trial is None and attempt_index == 0) or (baseline_trial is not None and baseline_trial >= 3)
+                if baseline_trial is not None and baseline_trial >= 3
                 else {}
             ),
         },
@@ -487,8 +518,27 @@ def _assignment_read_set(
         if isinstance(context.get("evaluator_protocol"), dict)
         else {}
     )
+    lane_policy = (
+        direction_plan.get("worker_lane_policy")
+        if isinstance(direction_plan.get("worker_lane_policy"), dict)
+        else {}
+    )
+    delegated_improvement = (
+        mode == "improvement"
+        and lane_policy.get("mechanism_selection") == "delegated_to_worker"
+    )
     for path in _unique_strings(evaluator_protocol.get("provided_project_read_paths") or [])[:200]:
         safe_path = _safe_read_path(path)
+        if (
+            delegated_improvement
+            and safe_path
+            and safe_path
+            not in {
+                ".algoforge_worker_runtime/run_smoke.py",
+                ".algoforge_worker_runtime/smoke_config.json",
+            }
+        ):
+            continue
         if safe_path and safe_path != target_file:
             rows.append(
                 {
@@ -544,18 +594,42 @@ def _assignment_read_set(
             *(active_package.get("assets") or []),
         ]
     else:
-        # 改进和修补只需要行为契约及本轮选中的知识。package.assets 往往包含
-        # 完整 reference_solver；即使 implementation_asset 未显式加入，也不能
-        # 通过 supporting_knowledge 旁路重新进入 Worker 上下文。
+        # Worker needs the behavior contract and executable skeleton, not the
+        # reviewer-only semantic rubric or package README.  Keep direction
+        # cards because they carry the lane's concrete operator guidance.
+        worker_semantic_assets = [
+            path
+            for path in active_package.get("semantic_assets") or []
+            if not Path(str(path)).name.endswith("algorithm_semantic_review_contract.md")
+        ]
+        execution_skeletons = [
+            path
+            for path in active_package.get("assets") or []
+            if Path(str(path)).name.endswith("_execution_skeleton.md")
+        ]
         supporting_paths = [
-            *(active_package.get("semantic_assets") or []),
+            *worker_semantic_assets,
+            *execution_skeletons,
             *direction_paths,
         ]
     implementation_asset = _safe_read_path(active_package.get("implementation_asset"))
+    if delegated_improvement and str(active_package.get("package_id") or "").strip():
+        authorized_direction_paths = {
+            path
+            for value in direction_paths
+            if (path := _safe_read_path(value))
+        }
+        supporting_paths = [
+            path
+            for path in supporting_paths
+            if Path(str(path)).name.endswith("_execution_skeleton.md")
+            or _safe_read_path(path) in authorized_direction_paths
+        ]
     for path in _unique_strings(supporting_paths or [])[:6]:
         safe_path = _safe_read_path(path)
         if (
             not safe_path
+            or Path(safe_path).name.endswith("algorithm_semantic_review_contract.md")
             or (
                 high_flexibility
                 and baseline_trial is not None
@@ -574,11 +648,6 @@ def _assignment_read_set(
         }
     )
     rows.extend(_staged_instance_read_set(context))
-    lane_policy = (
-        direction_plan.get("worker_lane_policy")
-        if isinstance(direction_plan.get("worker_lane_policy"), dict)
-        else {}
-    )
     if mode == "baseline" or lane_policy.get("mechanism_selection") != "delegated_to_worker":
         rows.extend(_staged_document_read_set(context))
     if high_flexibility and baseline_trial is not None:
@@ -587,7 +656,32 @@ def _assignment_read_set(
             for item in rows
             if Path(str(item.get("path") or "")).name not in HIGH_FLEX_BASELINE_REDUNDANT_CARDS
         ]
-    return rows
+    return _dedupe_read_set(rows)
+
+
+def _dedupe_read_set(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge repeated staged/provided paths while preserving the stronger role."""
+
+    result: list[dict[str, Any]] = []
+    positions: dict[str, int] = {}
+    for raw in rows:
+        path = str(raw.get("path") or "").strip().replace("\\", "/")
+        if not path:
+            continue
+        row = {**raw, "path": path}
+        position = positions.get(path)
+        if position is None:
+            positions[path] = len(result)
+            result.append(row)
+            continue
+        existing = result[position]
+        existing["required"] = bool(existing.get("required") or row.get("required"))
+        if (
+            existing.get("role") == "provided_project_source"
+            and row.get("role") != "provided_project_source"
+        ):
+            existing["role"] = row.get("role")
+    return result
 
 
 def _staged_instance_read_set(context: dict[str, Any]) -> list[dict[str, Any]]:

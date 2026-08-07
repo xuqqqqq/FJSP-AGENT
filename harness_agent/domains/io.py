@@ -1,4 +1,4 @@
-"""标准 FJSP 与 FJSP-SDST 的固定 IO、数据模型和合法性验证。"""
+"""标准 FJSP 及已确认变体的固定 IO、数据模型和合法性验证。"""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from typing import Any
 
 OpKey = tuple[int, int]
 SetupTimes = tuple[tuple[tuple[int, ...], ...], ...]
+MinimumTimeLags = tuple["MinimumTimeLag", ...]
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,16 @@ class Job:
 
 
 @dataclass(frozen=True)
+class MinimumTimeLag:
+    """同一作业内相邻工序之间的最小等待时间。"""
+
+    job_id: int
+    from_op: int
+    to_op: int
+    lag: int
+
+
+@dataclass(frozen=True)
 class StandardFjspInstance:
     """标准 FJSP/FJSP-SDST 算例的只读结构。
 
@@ -52,6 +63,8 @@ class StandardFjspInstance:
     jobs: tuple[Job, ...]
     setup_times: SetupTimes = ()
     setup_time_kind: str = "none"
+    minimum_time_lags: MinimumTimeLags = ()
+    variant: str = "standard_fjsp"
 
     @property
     def operation_count(self) -> int:
@@ -60,6 +73,10 @@ class StandardFjspInstance:
     @property
     def has_sequence_dependent_setup(self) -> bool:
         return bool(self.setup_times)
+
+    @property
+    def has_minimum_time_lags(self) -> bool:
+        return self.variant == "fjsp_min_time_lag"
 
 
 @dataclass(frozen=True)
@@ -78,7 +95,7 @@ class ScheduleRecord:
 
 
 def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
-    """解析标准 FJSP 以及已确认的 FJSP-SDST setup 尾部。
+    """解析标准 FJSP 以及已确认的 SDST/min-time-lag 尾部。
 
     本模块只实现 IO 和合法性语义，不实现构造、邻域或搜索策略。
 
@@ -158,10 +175,10 @@ def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
         jobs.append(Job(job_id=job_id, operations=tuple(ops)))
 
     operation_count = sum(len(job.operations) for job in jobs)
-    setup_times, setup_time_kind = _parse_optional_setup_times(
+    setup_times, setup_time_kind, minimum_time_lags, variant = _parse_optional_variant_tail(
         path=path,
         tail=numbers[idx:],
-        job_count=job_count,
+        jobs=tuple(jobs),
         machine_count=machine_count,
         operation_count=operation_count,
     )
@@ -174,27 +191,33 @@ def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
         jobs=tuple(jobs),
         setup_times=setup_times,
         setup_time_kind=setup_time_kind,
+        minimum_time_lags=minimum_time_lags,
+        variant=variant,
     )
 
 
-def _parse_optional_setup_times(
+def _parse_optional_variant_tail(
     *,
     path: Path,
     tail: list[int],
-    job_count: int,
+    jobs: tuple[Job, ...],
     machine_count: int,
     operation_count: int,
-) -> tuple[SetupTimes, str]:
-    """解析 FJSP-SDST 的可选 setup 尾部。
+) -> tuple[SetupTimes, str, MinimumTimeLags, str]:
+    """严格解析可选的 SDST matrix 或 min-time-lag constraint list。
 
-    当前支持两类已确认格式：
+    当前支持三类已确认格式：
     1. operation-pair 矩阵；
     2. HUdata 风格的 job-pair 矩阵。
-    如果尾部 token 数不匹配，宁可抛错，也不猜测其语义。
+    3. `K` 后跟 K 条 `(job_id, from_op, to_op, L_min)`。
+    如果尾部结构不匹配，宁可抛错，也不忽略或猜测其语义。
     """
 
     if not tail:
-        return (), "none"
+        return (), "none", (), "standard_fjsp"
+    job_count = len(jobs)
+    if ".mitfjsp" in path.name.casefold():
+        return (), "none", _parse_minimum_time_lags(path=path, tail=tail, jobs=jobs), "fjsp_min_time_lag"
     operation_pair_expected = machine_count * operation_count * operation_count
     job_pair_expected = machine_count * job_count * job_count
     if len(tail) == operation_pair_expected:
@@ -204,11 +227,7 @@ def _parse_optional_setup_times(
         dimension = job_count
         kind = "job_pair"
     else:
-        raise ValueError(
-            f"{path} has trailing tokens that do not match an FJSP-SDST setup matrix: "
-            f"trailing={len(tail)}, expected_operation_pair={operation_pair_expected}, "
-            f"expected_job_pair={job_pair_expected}"
-        )
+        return (), "none", _parse_minimum_time_lags(path=path, tail=tail, jobs=jobs), "fjsp_min_time_lag"
     cursor = 0
     setup_by_machine: list[tuple[tuple[int, ...], ...]] = []
     for machine_id in range(machine_count):
@@ -220,7 +239,48 @@ def _parse_optional_setup_times(
                 raise ValueError(f"{path} has negative setup time for machine {machine_id}")
             rows.append(row)
         setup_by_machine.append(tuple(rows))
-    return tuple(setup_by_machine), kind
+    return tuple(setup_by_machine), kind, (), "fjsp_sdst"
+
+
+def _parse_minimum_time_lags(
+    *,
+    path: Path,
+    tail: list[int],
+    jobs: tuple[Job, ...],
+) -> MinimumTimeLags:
+    """Parse the confirmed adjacent-pair minimum time-lag list."""
+
+    constraint_count = tail[0]
+    if constraint_count < 0 or len(tail) != 1 + 4 * constraint_count:
+        raise ValueError(
+            f"{path} has trailing tokens that match neither a supported setup matrix nor "
+            f"a min-time-lag list: trailing={len(tail)}, declared_constraints={constraint_count}"
+        )
+    constraints: list[MinimumTimeLag] = []
+    seen: set[tuple[int, int, int]] = set()
+    for index in range(constraint_count):
+        offset = 1 + index * 4
+        job_id, from_op, to_op, lag = tail[offset : offset + 4]
+        if not 0 <= job_id < len(jobs):
+            raise ValueError(f"{path} min-time-lag {index} has out-of-range job_id={job_id}")
+        if to_op != from_op + 1:
+            raise ValueError(
+                f"{path} min-time-lag {index} must target adjacent operations: "
+                f"from_op={from_op}, to_op={to_op}"
+            )
+        if not 0 <= from_op < len(jobs[job_id].operations) - 1:
+            raise ValueError(
+                f"{path} min-time-lag {index} has out-of-range operation pair "
+                f"job={job_id}, from_op={from_op}, to_op={to_op}"
+            )
+        if lag < 0:
+            raise ValueError(f"{path} min-time-lag {index} has negative lag={lag}")
+        key = (job_id, from_op, to_op)
+        if key in seen:
+            raise ValueError(f"{path} has duplicate min-time-lag constraint for {key}")
+        seen.add(key)
+        constraints.append(MinimumTimeLag(job_id=job_id, from_op=from_op, to_op=to_op, lag=lag))
+    return tuple(constraints)
 
 
 def operation_index_lookup(instance: StandardFjspInstance) -> dict[OpKey, int]:
@@ -270,9 +330,9 @@ def load_solution(path: Path) -> list[ScheduleRecord]:
         try:
             parsed.append(
                 ScheduleRecord(
-                    job_id=int(item["job_id"]),
-                    op_id=int(item["op_id"]),
-                    machine_id=int(item["machine_id"]),
+                    job_id=int(_solution_field(item, "job_id", "job")),
+                    op_id=int(_solution_field(item, "op_id", "operation")),
+                    machine_id=int(_solution_field(item, "machine_id", "machine")),
                     start=int(item["start"]),
                     end=int(item["end"]),
                 )
@@ -280,6 +340,14 @@ def load_solution(path: Path) -> list[ScheduleRecord]:
         except Exception as exc:  # noqa: BLE001 - convert malformed records into validation errors.
             raise ValueError(f"schedule record {index} is malformed: {item!r}") from exc
     return parsed
+
+
+def _solution_field(item: dict[str, Any], canonical: str, alias: str) -> Any:
+    """Accept the fixed schema and the audited FJSPSolutionV1 field names."""
+
+    if canonical in item:
+        return item[canonical]
+    return item[alias]
 
 
 def write_solution(path: Path, instance: StandardFjspInstance, schedule: list[ScheduleRecord], strategy: str) -> None:
@@ -291,7 +359,7 @@ def write_solution(path: Path, instance: StandardFjspInstance, schedule: list[Sc
 
     payload: dict[str, Any] = {
         "format": "standard_fjsp_schedule_v1",
-        "variant": "fjsp_sdst" if instance.has_sequence_dependent_setup else "standard_fjsp",
+        "variant": instance.variant,
         "instance": instance.name,
         "strategy": strategy,
         "makespan": max((record.end for record in schedule), default=0),
@@ -307,6 +375,8 @@ def write_solution(path: Path, instance: StandardFjspInstance, schedule: list[Sc
             for record in schedule
         ],
     }
+    if instance.has_minimum_time_lags:
+        payload["min_time_lag_policy"] = "checked_by_evaluator"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -315,7 +385,7 @@ def validate_standard_schedule(
     instance: StandardFjspInstance,
     schedule: list[ScheduleRecord],
 ) -> tuple[list[str], dict[str, float]]:
-    """验证标准 FJSP/FJSP-SDST 解的结构与时序合法性。
+    """验证标准 FJSP、FJSP-SDST 和 Min Time-Lag FJSP 解。
 
     这是 parser/validator 层的关键边界：它只判断“这份 schedule 是否满足实例 IO
     语义”，并返回基础指标；不负责比较算法优劣，也不决定是否 promotion。
@@ -371,6 +441,21 @@ def validate_standard_schedule(
                     f"op={op_idx + 1} starts at {nxt.start}"
                 )
 
+    min_time_lag_violations = 0
+    for constraint in instance.minimum_time_lags:
+        previous = seen.get((constraint.job_id, constraint.from_op))
+        successor = seen.get((constraint.job_id, constraint.to_op))
+        if previous is None or successor is None:
+            continue
+        actual_gap = successor.start - previous.end
+        if actual_gap < constraint.lag:
+            min_time_lag_violations += 1
+            errors.append(
+                f"minimum time-lag violation: job={constraint.job_id}, "
+                f"from_op={constraint.from_op}, to_op={constraint.to_op}, "
+                f"required_gap={constraint.lag}, actual_gap={actual_gap}"
+            )
+
     by_machine: dict[int, list[ScheduleRecord]] = {}
     for record in schedule:
         by_machine.setdefault(record.machine_id, []).append(record)
@@ -408,4 +493,7 @@ def validate_standard_schedule(
     if instance.has_sequence_dependent_setup:
         metrics["setup_time"] = float(total_setup_time)
         metrics["setup_count"] = float(setup_count)
+    if instance.has_minimum_time_lags:
+        metrics["min_time_lag_constraints"] = float(len(instance.minimum_time_lags))
+        metrics["min_time_lag_violations"] = float(min_time_lag_violations)
     return errors, metrics

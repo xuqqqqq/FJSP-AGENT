@@ -273,7 +273,12 @@ class DomainPackTests(unittest.TestCase):
             active_features=["sequence_dependent_setup"],
             knowledge_query_tags=["sdst", "setup_time"],
         )
-
+        min_lag = resolve_worker_implementation_skills(
+            problem_family="FJSP",
+            method_families=["coupled_local_search"],
+            active_features=["minimum_time_lag", "time_lag"],
+            knowledge_query_tags=["minimum_time_lag", "lag_aware_decoder"],
+        )
         self.assertNotIn(
             "fjsp-sdst-adapter-worker",
             [item["skill_id"] for item in standard["skills"]],
@@ -285,6 +290,22 @@ class DomainPackTests(unittest.TestCase):
         self.assertIn(
             "fjsp-sdst-adapter-worker",
             [item["skill_id"] for item in sdst["skills"]],
+        )
+        self.assertNotIn(
+            "fjsp-min-time-lag-adapter-worker",
+            [item["skill_id"] for item in standard["skills"]],
+        )
+        self.assertNotIn(
+            "fjsp-min-time-lag-adapter-worker",
+            [item["skill_id"] for item in sdst["skills"]],
+        )
+        self.assertIn(
+            "fjsp-min-time-lag-adapter-worker",
+            [item["skill_id"] for item in min_lag["skills"]],
+        )
+        self.assertNotIn(
+            "fjsp-sdst-adapter-worker",
+            [item["skill_id"] for item in min_lag["skills"]],
         )
 
     def test_domain_pack_declares_knowledge_retrieval_without_backend_tables(self) -> None:
@@ -384,11 +405,32 @@ class DomainPackTests(unittest.TestCase):
                                 "required_behaviors": ["Iteratively improve the toy schedule."],
                             },
                         ],
+                        "component_dependencies": [
+                            {
+                                "component_id": "toy_search",
+                                "depends_on": ["toy_decoder"],
+                                "reason": "Toy search depends on toy decoding.",
+                            }
+                        ],
                         "coupled_groups": [
                             {
                                 "group_id": "toy_loop",
                                 "component_ids": ["toy_decoder", "toy_search"],
                                 "rule": "Decoder and search must stay behaviorally aligned.",
+                            }
+                        ],
+                        "competition_tracks": [
+                            {
+                                "track_id": "direct_evidence",
+                                "component_ids": ["toy_decoder", "toy_search"],
+                                "selection_hint": "Keep both toy components available to delegated lanes.",
+                            }
+                        ],
+                        "checkpoint_checks": [
+                            {
+                                "check_id": "toy_legality",
+                                "component_ids": ["toy_decoder", "toy_search"],
+                                "requirement": "Toy decoding and search must remain behaviorally aligned.",
                             }
                         ],
                     },
@@ -449,6 +491,18 @@ class DomainPackTests(unittest.TestCase):
         self.assertEqual(
             ["toy_decoder", "toy_search"],
             [item["component_id"] for item in package.implementation_contract["required_components"]],
+        )
+        self.assertEqual(
+            ["toy_search"],
+            [item["component_id"] for item in package.implementation_contract["component_dependencies"]],
+        )
+        self.assertEqual(
+            ["direct_evidence"],
+            [item["track_id"] for item in package.implementation_contract["competition_tracks"]],
+        )
+        self.assertEqual(
+            ["toy_legality"],
+            [item["check_id"] for item in package.implementation_contract["checkpoint_checks"]],
         )
 
     def test_domain_pack_resolves_relative_assets_from_project_root(self) -> None:
@@ -655,6 +709,57 @@ class DomainPackTests(unittest.TestCase):
         )
         self.assertFalse(any(path.startswith("knowledge/experiment_memory/") for path in card_paths))
 
+    def test_minimum_time_lag_diagnostics_select_only_variant_cards(self) -> None:
+        diagnostics = {
+            "status": "available",
+            "summary": {
+                "instance_count": 1,
+                "profiled_count": 1,
+                "min_time_lag_instance_count": 1,
+                "sdst_instance_count": 0,
+            },
+            "instances": [{"variant": "fjsp_min_time_lag", "min_time_lag_constraint_count": 1}],
+        }
+
+        active = select_knowledge_cards(
+            problem_family="standard_fjsp",
+            instance_diagnostics=diagnostics,
+            active_features=["fjsp_min_time_lag", "minimum_time_lag", "time_lag"],
+        )
+        standard = select_knowledge_cards(
+            problem_family="standard_fjsp",
+            active_features=[],
+        )
+
+        active_names = {path.name for path in active.cards}
+        standard_names = {path.name for path in standard.cards}
+        self.assertEqual("fjsp_min_time_lag", active.audit["active_variant"])
+        self.assertIn("min_time_lag_semantics_and_decoder.md", active_names)
+        self.assertIn("min_time_lag_search_adaptation.md", active_names)
+        self.assertNotIn("min_time_lag_semantics_and_decoder.md", standard_names)
+        self.assertNotIn("min_time_lag_search_adaptation.md", standard_names)
+        semantics_card = next(path for path in active.cards if path.name == "min_time_lag_semantics_and_decoder.md")
+        semantics_text = semantics_card.read_text(encoding="utf-8")
+        self.assertIn("零权 SCC", semantics_text)
+        self.assertIn("无正权环", semantics_text)
+
+    def test_minimum_time_lag_constructive_package_is_eligible(self) -> None:
+        catalog = method_package_catalog(
+            problem_family="standard_fjsp",
+            active_features=["fjsp_min_time_lag", "minimum_time_lag", "time_lag"],
+            knowledge_query_tags=["constructive_search", "minimum_time_lag"],
+        )
+
+        package_ids = {item["package_id"] for item in catalog["packages"]}
+        self.assertIn("fjsp_min_time_lag_constructive_adaptation", package_ids)
+        self.assertNotIn("standard_fjsp_awls_hgtsa", package_ids)
+        selected = next(
+            item
+            for item in catalog["packages"]
+            if item["package_id"] == "fjsp_min_time_lag_constructive_adaptation"
+        )
+        self.assertEqual(3, len(selected["implementation_contract"]["competition_tracks"]))
+
     def test_context_packet_embeds_domain_pack_capability_and_auto_cards(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -801,6 +906,10 @@ class DomainPackTests(unittest.TestCase):
             problem_family="FJSP",
             active_features=["fjsp_sdst", "sequence_dependent_setup", "setup_time"],
         )
+        min_lag = method_package_catalog(
+            problem_family="FJSP",
+            active_features=["fjsp_min_time_lag", "minimum_time_lag", "time_lag"],
+        )
         construction = method_package_catalog(
             problem_family="FJSP",
             active_features=[],
@@ -815,6 +924,18 @@ class DomainPackTests(unittest.TestCase):
 
         self.assertEqual("standard_fjsp_awls_hgtsa", standard["recommended_package_id"])
         self.assertEqual("fjsp_sdst_awls_adaptation", sdst["recommended_package_id"])
+        self.assertEqual(
+            "fjsp_min_time_lag_constructive_adaptation",
+            min_lag["recommended_package_id"],
+        )
+        self.assertEqual(
+            {
+                "fjsp_min_time_lag_constructive_adaptation",
+                "fjsp_min_time_lag_coupled_local_search",
+                "fjsp_min_time_lag_exact_hybrid",
+            },
+            {item["package_id"] for item in min_lag["packages"]},
+        )
         self.assertEqual([], construction["packages"])
         self.assertEqual("standard_fjsp_awls_hgtsa", local_search["recommended_package_id"])
         self.assertEqual(
@@ -829,6 +950,24 @@ class DomainPackTests(unittest.TestCase):
         self.assertEqual(
             ["fjsp_sdst_awls_adaptation"],
             [item["package_id"] for item in sdst_local_search["packages"]],
+        )
+        min_lag_local_search = method_package_catalog(
+            problem_family="FJSP",
+            active_features=["fjsp_min_time_lag", "minimum_time_lag", "time_lag"],
+            knowledge_query_tags=["coupled_local_search", "critical_path", "minimum_time_lag"],
+        )
+        self.assertEqual(
+            ["fjsp_min_time_lag_coupled_local_search"],
+            [item["package_id"] for item in min_lag_local_search["packages"]],
+        )
+        min_lag_exact = method_package_catalog(
+            problem_family="FJSP",
+            active_features=["fjsp_min_time_lag", "minimum_time_lag", "time_lag"],
+            knowledge_query_tags=["exact_hybrid", "cp_sat", "minimum_time_lag"],
+        )
+        self.assertEqual(
+            ["fjsp_min_time_lag_exact_hybrid"],
+            [item["package_id"] for item in min_lag_exact["packages"]],
         )
         self.assertIsNone(
             resolve_method_package(

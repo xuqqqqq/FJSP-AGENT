@@ -53,7 +53,7 @@ def _fallback_standard_fjsp() -> ProblemFamilyCapability:
         family_id="standard_fjsp",
         display_name="Standard Flexible Job-Shop Scheduling",
         description="Fallback capability used only when the external standard_fjsp domain pack is unavailable.",
-        supported_variants=["standard_fjsp", "fjsp_sdst"],
+        supported_variants=["standard_fjsp", "fjsp_sdst", "fjsp_min_time_lag"],
         canonical_objectives=[{"name": "makespan", "direction": "minimize", "priority": 1}],
         io_contract_notes=[],
         evaluator_invariants=[],

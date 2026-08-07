@@ -97,8 +97,13 @@ class EvidenceDrivenMainAgent:
             round_index=request.round_index,
         )
         inherited = fallback_research_context(context, request.loop_feedback)
-        selected_method_families = inherited.get("method_families") or [{"id": "constructive_search", "role": "primary"}]
-        selected_method_family = inherited.get("method_family") or "constructive_search"
+        tournament = request.round_index >= 0 and not inherited.get("method_family")
+        selected_method_families = inherited.get("method_families") or (
+            fallback_tournament_families(context) if tournament else [{"id": "constructive_search", "role": "primary"}]
+        )
+        selected_method_family = inherited.get("method_family") or (
+            selected_method_families[0]["id"] if selected_method_families else ""
+        )
         default_query = default_direction_knowledge_query(
             instance_diagnostics=context.get("instance_diagnostics"),
             method_families=selected_method_families,
@@ -166,7 +171,9 @@ class EvidenceDrivenMainAgent:
                 "implementation_order": [] if baseline_generation else fallback_order,
                 "avoid": avoid,
                 "knowledge_paths": [],
-                "experiment_stage": inherited.get("experiment_stage") or "probe",
+                "experiment_stage": inherited.get("experiment_stage") or (
+                    "research_tournament" if tournament else "probe"
+                ),
                 "knowledge_query": inherited.get("knowledge_query") or default_query,
                 "method_family": selected_method_family,
                 "method_families": selected_method_families,
@@ -178,7 +185,9 @@ class EvidenceDrivenMainAgent:
                 ],
                 "activation_checks": inherited.get("activation_checks") or [],
                 "activation_contract_version": 1 if inherited.get("activation_checks") else 0,
-                "candidate_variants": inherited.get("candidate_variants") or [],
+                "candidate_variants": inherited.get("candidate_variants") or (
+                    fallback_tournament_variants(context, selected_method_families) if tournament else []
+                ),
                 "stop_conditions": [
                     "该方向的具体修补预算耗尽后停止。",
                     "修补过程中不得切换到无关方法。",
@@ -253,17 +262,83 @@ def fallback_research_context(
         or next_action.get("required_activation_checks")
         or []
     )
-    transition_deferred = state.get("method_family_policy") == "reselect"
+    selection_required = state.get("method_family_policy") == "reselect"
+    tournament_families = fallback_tournament_families(context) if selection_required else []
     return {
-        "method_family": latest_plan.get("method_family") or state.get("active_method_family"),
-        "method_families": latest_plan.get("method_families") or state.get("active_method_families") or [],
-        "knowledge_query": latest_plan.get("knowledge_query") or state.get("active_knowledge_query") or [],
-        "experiment_stage": "probe" if transition_deferred else state.get("experiment_stage") or "probe",
-        "activation_checks": activation_checks,
-        "candidate_variants": latest_plan.get("candidate_variants") or [],
-        "transition_deferred": transition_deferred,
-        "deferred_action": state.get("next_action") if transition_deferred else None,
+        "method_family": None if selection_required else latest_plan.get("method_family") or state.get("active_method_family"),
+        "method_families": tournament_families if selection_required else latest_plan.get("method_families") or state.get("active_method_families") or [],
+        "knowledge_query": [] if selection_required else latest_plan.get("knowledge_query") or state.get("active_knowledge_query") or [],
+        "experiment_stage": "research_tournament" if selection_required else state.get("experiment_stage") or "probe",
+        "activation_checks": [] if selection_required else activation_checks,
+        "candidate_variants": fallback_tournament_variants(context, tournament_families) if selection_required else latest_plan.get("candidate_variants") or [],
+        "transition_deferred": False,
+        "deferred_action": None,
     }
+
+
+def fallback_tournament_families(context: dict[str, Any], *, limit: int = 3) -> list[dict[str, str]]:
+    """Expose compatible catalog hypotheses without selecting a family winner."""
+
+    catalog = context.get("method_family_catalog") if isinstance(context.get("method_family_catalog"), dict) else {}
+    chosen: list[dict[str, str]] = []
+    chosen_ids: set[str] = set()
+    for item in catalog.get("families") or []:
+        if not isinstance(item, dict):
+            continue
+        family_id = str(item.get("family_id") or "").strip()
+        if not family_id or family_id in chosen_ids:
+            continue
+        incompatible = {str(value).strip() for value in item.get("incompatible_with") or []}
+        if incompatible.intersection(chosen_ids):
+            continue
+        chosen.append({"id": family_id, "role": "primary" if not chosen else "challenger"})
+        chosen_ids.add(family_id)
+        if len(chosen) >= max(2, min(4, limit)):
+            break
+    return chosen
+
+
+def fallback_tournament_variants(
+    context: dict[str, Any],
+    families: list[dict[str, str]],
+) -> list[dict[str, Any]]:
+    """Compile one evidence hypothesis per compatible family from catalog metadata."""
+
+    catalog = context.get("method_family_catalog") if isinstance(context.get("method_family_catalog"), dict) else {}
+    by_id = {
+        str(item.get("family_id") or ""): item
+        for item in catalog.get("families") or []
+        if isinstance(item, dict)
+    }
+    variants = []
+    for index, selected in enumerate(families[:4]):
+        family_id = selected["id"]
+        metadata = by_id.get(family_id) or {}
+        title = str(metadata.get("title") or metadata.get("display_name") or family_id)
+        query = _strings(metadata.get("query_tags"), limit=8)
+        variants.append(
+            {
+                "candidate_id": f"family-{index:02d}-{family_id}",
+                "title": title,
+                "hypothesis": f"目录方法族 {family_id} 能对当前合法 incumbent 形成可测量的增量改进。",
+                "worker_objective": "在该方法族边界内自主选择一个可证伪机制，并保留当前合法 incumbent。",
+                "strategy_type": "family_research_probe",
+                "method_family": family_id,
+                "method_families": [{"id": family_id, "role": "primary"}],
+                "knowledge_query": query,
+                "experiment_stage": "research_tournament",
+                "change_scope": ["实现一个由该方法族知识和当前证据共同支持的有界实验。"],
+                "next_mutation": {
+                    "change": "读取获准知识后自主选择并实现一个可由 telemetry 证明执行的机制。",
+                    "preserve": ["当前合法 incumbent 和固定 IO/evaluator 契约。"],
+                    "expected_effect": "产生可比较的 Core 目标与机制激活证据。",
+                    "falsification_metrics": ["mechanism_activation", "Core objective"],
+                },
+                "acceptance_checks": ["候选通过固定 Core 与语义审查。"],
+                "activation_checks": [],
+            }
+        )
+    return variants
 
 
 def fallback_planning_contract_status(
@@ -799,10 +874,18 @@ def deterministic_round_reflection(request: RoundReflectionRequest) -> dict[str,
     for candidate in candidates[:4]:
         activation = candidate.get("mechanism_activation") if isinstance(candidate.get("mechanism_activation"), dict) else {}
         activation_required = candidate.get("activation_required") is True
-        activated = (
-            activation.get("passed") is True
-            if activation_required
-            else activation.get("passed") is not False
+        try:
+            event_bytes = int(candidate.get("session_event_stream_bytes") or 0)
+        except (TypeError, ValueError):
+            event_bytes = 0
+        observed_session = str(
+            candidate.get("observed_session_id") or candidate.get("worker_session_id") or ""
+        ).strip()
+        activated = bool(
+            activation_required
+            and activation.get("passed") is True
+            and event_bytes > 0
+            and observed_session
         )
         if activated:
             measured_candidate_count += 1
@@ -1000,14 +1083,30 @@ def bind_direction_plan_to_method_catalog(
                 for item in implementation_bundle.get("required_components") or []
                 if isinstance(item, dict) and str(item.get("component_id") or "").strip()
             ]
+            component_dependencies = [
+                item
+                for item in implementation_bundle.get("component_dependencies") or []
+                if isinstance(item, dict)
+            ]
+            ordered_component_ids = ordered_component_ids_from_contract(
+                component_ids=component_ids,
+                preferred_order=component_ids,
+                component_dependencies=component_dependencies,
+                include_remaining=True,
+            )
             requested_order = _strings(plan.get("implementation_order"), limit=32)
             requested_order = [component_id for component_id in requested_order if component_id in component_ids]
             baseline_direction = str(plan.get("strategy_type") or "") == "baseline_constructor"
+            preserve_package_scope = _preserve_package_scope_for_tracked_lanes(
+                plan=plan,
+                implementation_bundle=implementation_bundle,
+                requested_order=requested_order,
+            )
             if baseline_direction:
-                selected_component_ids = requested_order or component_ids
+                selected_component_ids = requested_order or ordered_component_ids
                 scope_prefix = (
                     "Implement and verify the complete selected method bundle in one coherent direction: "
-                    + ", ".join(component_ids)
+                    + ", ".join(selected_component_ids)
                 )
             else:
                 package_fallback = [
@@ -1015,7 +1114,16 @@ def bind_direction_plan_to_method_catalog(
                     for component_id in _strings(implementation_bundle.get("fallback_improvement_order"), limit=32)
                     if component_id in component_ids
                 ]
-                selected_component_ids = requested_order or package_fallback[:1] or component_ids[:1]
+                if preserve_package_scope:
+                    selected_component_ids = package_fallback or ordered_component_ids
+                else:
+                    selected_component_ids = requested_order or package_fallback[:1] or ordered_component_ids[:1]
+                selected_component_ids = ordered_component_ids_from_contract(
+                    component_ids=component_ids,
+                    preferred_order=selected_component_ids,
+                    component_dependencies=component_dependencies,
+                    include_remaining=False,
+                )
                 scope_prefix = (
                     "Change only the selected incremental method component(s) while preserving the complete incumbent: "
                     + ", ".join(selected_component_ids)
@@ -1055,6 +1163,11 @@ def bind_direction_plan_to_method_catalog(
                         "Every required component in implementation_bundle must have reachable source evidence; partial package implementation is not complete."
                         if baseline_direction
                         else "Every selected incremental component must have reachable source evidence while all unselected incumbent components remain intact."
+                    ),
+                    *implementation_bundle_checkpoint_checks(
+                        implementation_bundle=implementation_bundle,
+                        selected_component_ids=selected_component_ids,
+                        baseline_direction=baseline_direction,
                     ),
                     "All coupled_groups must remain behaviorally closed across generation, scoring, application, memory, and search control.",
                     *(plan.get("acceptance_checks") or []),
@@ -1167,6 +1280,12 @@ def method_implementation_bundle(package: dict[str, Any]) -> dict[str, Any]:
     components = [item for item in contract.get("required_components") or [] if isinstance(item, dict)]
     if not components:
         return {}
+    component_ids = [
+        str(item.get("component_id") or "")
+        for item in components
+        if str(item.get("component_id") or "").strip()
+    ]
+    known_component_ids = set(component_ids)
     return {
         "contract_id": str(contract.get("contract_id") or "")[:160],
         "contract_path": str(package.get("implementation_contract_asset") or ""),
@@ -1182,8 +1301,213 @@ def method_implementation_bundle(package: dict[str, Any]) -> dict[str, Any]:
         "fallback_improvement_order": _strings(contract.get("fallback_improvement_order"), limit=32),
         # 完整性契约不能静默截断，否则后面的组件永远不会进入实现和审查。
         "required_components": components,
+        "component_dependencies": normalized_component_dependencies(
+            contract.get("component_dependencies"),
+            known_component_ids=known_component_ids,
+        ),
         "coupled_groups": [item for item in contract.get("coupled_groups") or [] if isinstance(item, dict)],
+        "competition_tracks": normalized_competition_tracks(
+            contract.get("competition_tracks"),
+            known_component_ids=known_component_ids,
+        ),
+        "checkpoint_checks": normalized_checkpoint_checks(
+            contract.get("checkpoint_checks"),
+            known_component_ids=known_component_ids,
+        ),
     }
+
+
+def normalized_component_dependencies(
+    value: Any,
+    *,
+    known_component_ids: set[str],
+) -> list[dict[str, Any]]:
+    rows = value if isinstance(value, list) else []
+    merged: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        component_id = str(item.get("component_id") or "").strip()
+        if not component_id or component_id not in known_component_ids:
+            continue
+        depends_on = [
+            dependency_id
+            for dependency_id in _strings(item.get("depends_on"), limit=32)
+            if dependency_id in known_component_ids and dependency_id != component_id
+        ]
+        previous = merged.get(component_id, {})
+        merged[component_id] = {
+            **previous,
+            **dict(item),
+            "component_id": component_id,
+            "depends_on": list(
+                dict.fromkeys([*(previous.get("depends_on") or []), *depends_on])
+            ),
+        }
+        if component_id not in order:
+            order.append(component_id)
+    return [merged[component_id] for component_id in order]
+
+
+def normalized_competition_tracks(
+    value: Any,
+    *,
+    known_component_ids: set[str],
+) -> list[dict[str, Any]]:
+    rows = value if isinstance(value, list) else []
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, item in enumerate(rows):
+        if not isinstance(item, dict):
+            continue
+        track_id = str(item.get("track_id") or f"track_{index + 1}")[:80].strip()
+        if not track_id or track_id in seen:
+            continue
+        component_ids = [
+            component_id
+            for component_id in _strings(item.get("component_ids"), limit=32)
+            if component_id in known_component_ids
+        ]
+        row = dict(item)
+        row["track_id"] = track_id
+        row["component_ids"] = component_ids
+        stages: list[dict[str, Any]] = []
+        for stage_index, stage in enumerate(item.get("stages") or []):
+            if not isinstance(stage, dict):
+                continue
+            stage_component_ids = [
+                component_id
+                for component_id in _strings(stage.get("component_ids"), limit=32)
+                if component_id in known_component_ids
+            ]
+            if not stage_component_ids:
+                continue
+            stage_row = dict(stage)
+            stage_row["stage_id"] = str(
+                stage.get("stage_id") or f"stage_{stage_index + 1}"
+            )[:80]
+            stage_row["component_ids"] = stage_component_ids
+            stages.append(stage_row)
+        if stages:
+            row["stages"] = stages
+        result.append(row)
+        seen.add(track_id)
+    return result
+
+
+def normalized_checkpoint_checks(
+    value: Any,
+    *,
+    known_component_ids: set[str],
+) -> list[dict[str, Any]]:
+    rows = value if isinstance(value, list) else []
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, item in enumerate(rows):
+        if not isinstance(item, dict):
+            continue
+        check_id = str(item.get("check_id") or f"checkpoint_{index + 1}")[:80].strip()
+        if not check_id or check_id in seen:
+            continue
+        component_ids = [
+            component_id
+            for component_id in _strings(item.get("component_ids"), limit=32)
+            if component_id in known_component_ids
+        ]
+        row = dict(item)
+        row["check_id"] = check_id
+        row["component_ids"] = component_ids
+        result.append(row)
+        seen.add(check_id)
+    return result
+
+
+def ordered_component_ids_from_contract(
+    *,
+    component_ids: list[str],
+    preferred_order: list[str],
+    component_dependencies: list[dict[str, Any]],
+    include_remaining: bool,
+) -> list[str]:
+    declared = [component_id for component_id in component_ids if component_id]
+    if not declared:
+        return []
+    known = set(declared)
+    base_order = [component_id for component_id in preferred_order if component_id in known]
+    if include_remaining:
+        base_order.extend(component_id for component_id in declared if component_id not in base_order)
+    dependencies = {
+        str(item.get("component_id") or ""): [
+            dependency_id
+            for dependency_id in _strings(item.get("depends_on"), limit=32)
+            if dependency_id in known
+        ]
+        for item in component_dependencies
+        if isinstance(item, dict) and str(item.get("component_id") or "") in known
+    }
+    ordered: list[str] = []
+    seen: set[str] = set()
+    visiting: set[str] = set()
+
+    def visit(component_id: str) -> None:
+        if component_id in seen or component_id in visiting:
+            return
+        visiting.add(component_id)
+        for dependency_id in dependencies.get(component_id, []):
+            visit(dependency_id)
+        visiting.remove(component_id)
+        seen.add(component_id)
+        ordered.append(component_id)
+
+    for component_id in base_order:
+        visit(component_id)
+    return ordered
+
+
+def _preserve_package_scope_for_tracked_lanes(
+    *,
+    plan: dict[str, Any],
+    implementation_bundle: dict[str, Any],
+    requested_order: list[str],
+) -> bool:
+    tracks = implementation_bundle.get("competition_tracks")
+    if not isinstance(tracks, list) or not tracks:
+        return False
+    if not requested_order:
+        return True
+    # Fast delegated fallback plans arrive with a single deterministic component
+    # from the evidence fallback. Keep the full tracked package surface so lane
+    # compilation can still choose among the package-declared tracks.
+    return bool(str(plan.get("method_package_id") or "").strip() and str(plan.get("planner") or "") == "evidence_fallback")
+
+
+def implementation_bundle_checkpoint_checks(
+    *,
+    implementation_bundle: dict[str, Any],
+    selected_component_ids: list[str],
+    baseline_direction: bool,
+) -> list[str]:
+    selected = set(selected_component_ids)
+    notes: list[str] = []
+    for item in implementation_bundle.get("checkpoint_checks") or []:
+        if not isinstance(item, dict):
+            continue
+        component_ids = {
+            component_id
+            for component_id in _strings(item.get("component_ids"), limit=32)
+            if component_id
+        }
+        if component_ids and not baseline_direction and component_ids.isdisjoint(selected):
+            continue
+        requirement = str(item.get("requirement") or item.get("title") or "").strip()
+        if not requirement:
+            continue
+        check_id = str(item.get("check_id") or "").strip()
+        notes.append(
+            f"Checkpoint {check_id}: {requirement}" if check_id else f"Checkpoint: {requirement}"
+        )
+    return notes[:4]
 
 
 def compact_main_agent_dynamic_context(
@@ -1328,7 +1652,12 @@ def enforce_improvement_direction_contract(
         )
         bounded_scope = _strings(guidance.get("must_do"), limit=2)
         result["title"] = "Incrementally refine the promoted incumbent"
-        result["strategy_type"] = "local_search_operator"
+        result["strategy_type"] = {
+            "constructive_search": "dispatch_rule",
+            "coupled_local_search": "local_search_operator",
+            "exact_hybrid": "path_selection",
+            "population_memetic": "parameter_policy",
+        }.get(str(result.get("method_family") or ""), "local_search_operator")
         result["hypothesis"] = (
             "A bounded operator-level mutation of the promoted incumbent can improve the declared objective while "
             "preserving its evaluator- and semantic-review-backed mechanisms."

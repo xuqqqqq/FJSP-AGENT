@@ -20,12 +20,17 @@ from harness_agent.web.server import (
     _ROUND_GATES,
     agent_status_snapshot,
     browser_safe_json,
+    compact_lane_development_states,
     create_project_resource,
     create_job,
     deepseek_status_payload,
+    frontend_document,
+    inspect_instance_profile,
+    is_frontend_route,
     latest_compatible_experience_memory,
     make_demo_examples,
     mark_stale_persisted_job_interrupted,
+    preview_starter_project,
     read_resource,
     resource_catalog,
     resume_job,
@@ -87,6 +92,31 @@ class WebAppTests(unittest.TestCase):
             if value is not None:
                 os.environ[key] = value
 
+    def test_compact_lane_development_states_exposes_checkpoint_progress(self) -> None:
+        compacted = compact_lane_development_states(
+            {
+                "lane-01": {
+                    "candidate_id": "lane-01",
+                    "method_family": "coupled_local_search",
+                    "method_package_id": "standard_fjsp_awls_hgtsa",
+                    "checkpoint_worktree": "C:/run/lane-01",
+                    "objective_key": [-2241.0],
+                    "track": "direct_evidence",
+                    "stage": 2,
+                    "verified_components": ["progress_decoder", "alternative_machine_neighborhood"],
+                    "session_id": "ses-01",
+                    "session_status": "continued",
+                    "event_stream_status": "nonzero",
+                    "last_failure": None,
+                    "last_update_round": 3,
+                }
+            }
+        )
+
+        self.assertEqual("direct_evidence", compacted["lane-01"]["track"])
+        self.assertEqual(2, compacted["lane-01"]["stage"])
+        self.assertEqual("ses-01", compacted["lane-01"]["session_id"])
+
     def test_stale_running_job_is_marked_interrupted_without_losing_history(self) -> None:
         payload = {
             "id": "stale-job",
@@ -100,9 +130,16 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(4, payload["summary"]["worker_summary"]["completed_round_count"])
 
     def test_service_health_does_not_require_provider_credentials(self) -> None:
+        runtime = {
+            "python_executable": r"C:\runtime\python.exe",
+            "python_version": "3.12.9",
+            "ortools_available": True,
+            "ortools_version": "9.15.6755",
+            "ortools_error": None,
+        }
         with patch("harness_agent.web.server.OpenCodeWorker") as worker_cls, patch(
             "harness_agent.web.server.is_deepseek_configured", return_value=False
-        ):
+        ), patch("harness_agent.web.server.solver_runtime_status", return_value=runtime):
             worker_cls.return_value.capabilities.return_value.supports_code_generation = True
             payload = service_health_payload()
 
@@ -110,6 +147,7 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual("algoforge-web", payload["service"])
         self.assertTrue(payload["opencode_available"])
         self.assertFalse(payload["provider_configured"])
+        self.assertEqual(runtime, payload["solver_runtime"])
 
     def test_create_job_extracts_provided_project_and_keeps_archive_out_of_status(self) -> None:
         archive = self.zip_payload(
@@ -197,29 +235,302 @@ class WebAppTests(unittest.TestCase):
                     output_root=Path(tmp),
                 )
 
-    def test_frontend_exposes_provided_project_contract(self) -> None:
-        index = (ROOT / "harness_agent" / "web" / "static" / "index.html").read_text(encoding="utf-8")
-        app = (ROOT / "harness_agent" / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    def test_preview_starter_project_lists_files_and_validates_contract(self) -> None:
+        archive = self.zip_payload(
+            {
+                "fjsp-project/solver.py": "print('entry')\n",
+                "fjsp-project/fjsp/search.py": "def improve():\n    return 1\n",
+                "fjsp-project/README.md": "# Solver\n",
+            }
+        )
 
-        import_start = index.index('id="view-import-project"')
-        setup_start = index.index('id="view-setup"')
-        import_view = index[import_start:setup_start]
+        preview = preview_starter_project(
+            {
+                "starter_project": archive,
+                "starter_solver_entrypoint": "solver.py",
+                "starter_target_file": "fjsp/search.py",
+                "starter_solver_command": "python solver.py {instance} --output {solution} --seed {seed}",
+            }
+        )
+
+        self.assertTrue(preview["can_continue"])
+        self.assertEqual("fjsp-project", preview["stripped_root"])
+        self.assertEqual(
+            ["fjsp/search.py", "README.md", "solver.py"],
+            [item["path"] for item in preview["files"]],
+        )
+        self.assertTrue(preview["contract"]["entrypoint_exists"])
+        self.assertTrue(preview["contract"]["target_exists"])
+        self.assertTrue(preview["contract"]["syntax_checks"]["entrypoint"]["valid"])
+
+        invalid = preview_starter_project(
+            {
+                "starter_project": archive,
+                "starter_solver_entrypoint": "missing.py",
+                "starter_target_file": "fjsp/search.py",
+                "starter_solver_command": "python missing.py {instance} --output {solution} --seed {seed}",
+            }
+        )
+        self.assertFalse(invalid["can_continue"])
+        self.assertTrue(any("Solver 入口不存在" in item for item in invalid["errors"]))
+
+    def test_preview_detects_wrapper_algorithm_target_and_real_cli(self) -> None:
+        archive = self.zip_payload(
+            {
+                "project/solver.py": (
+                    "import argparse\n"
+                    "from fjsp import solve\n"
+                    "p = argparse.ArgumentParser()\n"
+                    "p.add_argument('instance')\n"
+                    "p.add_argument('--output', required=True)\n"
+                    "p.add_argument('--seed', type=int, default=0)\n"
+                ),
+                "project/fjsp/__init__.py": "from .solver import solve\n",
+                "project/fjsp/solver.py": "def solve(problem, seed=0):\n    return problem\n",
+                "project/instances/dp/07a.fjs": "1 1 1\n1 1 1 1\n",
+                "project/instances/dp/18a.fjs": "1 1 1\n1 1 1 1\n",
+            }
+        )
+
+        preview = preview_starter_project(
+            {
+                "starter_project": archive,
+                "starter_solver_entrypoint": "solver.py",
+                "starter_target_file": "solver.py",
+                "starter_solver_command": (
+                    "python solver.py --input {instance} --output {solution} --seed {seed} "
+                    "--time-limit-sec {solver_time_limit_seconds}"
+                ),
+                "auto_detect_contract": True,
+            }
+        )
+
+        self.assertTrue(preview["can_continue"])
+        self.assertEqual("fjsp/solver.py", preview["contract"]["target_file"])
+        self.assertEqual(
+            "python solver.py {instance} --output {solution} --seed {seed}",
+            preview["contract"]["solver_command"],
+        )
+        detection = preview["contract"]["detection"]
+        self.assertTrue(detection["entrypoint_is_wrapper"])
+        self.assertEqual("fjsp/solver.py", detection["recommended_target_file"])
+        self.assertEqual(
+            ["instances/dp/07a.fjs", "instances/dp/18a.fjs"],
+            [item["path"] for item in preview["project_instances"]],
+        )
+
+        rejected = preview_starter_project(
+            {
+                "starter_project": archive,
+                "starter_solver_entrypoint": "solver.py",
+                "starter_target_file": "solver.py",
+                "starter_solver_command": (
+                    "python solver.py --input {instance} --output {solution} --seed {seed} "
+                    "--time-limit-sec {solver_time_limit_seconds}"
+                ),
+            }
+        )
+        self.assertFalse(rejected["can_continue"])
+        self.assertTrue(any("CLI 包装器" in item for item in rejected["errors"]))
+        self.assertTrue(any("argparse 未声明" in item for item in rejected["errors"]))
+
+    def test_preview_and_profile_recognize_compound_min_time_lag_txt_instance(self) -> None:
+        instance_name = "fjsp.barnes.mt10c1.m11j10c2.mitfjsp.seed20260714.txt"
+        archive = self.zip_payload(
+            {
+                "project/solver.py": "def solve(problem, seed=0):\n    return problem\n",
+                f"project/instances/{instance_name}": (
+                    ROOT / "examples" / "fjsp_min_time_lag_tiny.mitfjsp"
+                ).read_text(encoding="utf-8"),
+            }
+        )
+
+        preview = preview_starter_project(
+            {
+                "starter_project": archive,
+                "starter_solver_entrypoint": "solver.py",
+                "starter_target_file": "solver.py",
+                "starter_solver_command": "python solver.py {instance} --output {solution} --seed {seed}",
+            }
+        )
+        profile = inspect_instance_profile(ROOT / "examples" / "fjsp_min_time_lag_tiny.mitfjsp")
+
+        self.assertEqual(
+            [f"instances/{instance_name}"],
+            [item["path"] for item in preview["project_instances"]],
+        )
+        self.assertTrue(profile["valid"])
+        self.assertEqual("fjsp_min_time_lag", profile["variant"])
+        self.assertTrue(profile["has_minimum_time_lags"])
+        self.assertEqual(1, profile["min_time_lag_constraint_count"])
+        self.assertEqual(["minimum_time_lag"], profile["variant_features"])
+
+    def test_create_job_rejects_wrapper_as_algorithm_target(self) -> None:
+        archive = self.zip_payload(
+            {
+                "project/solver.py": "from fjsp import solve\n",
+                "project/fjsp/__init__.py": "from .solver import solve\n",
+                "project/fjsp/solver.py": "def solve(problem, seed=0):\n    return problem\n",
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "CLI wrapper"):
+                create_job(
+                    self.job_payload(
+                        starter_project=archive,
+                        starter_solver_entrypoint="solver.py",
+                        starter_target_file="solver.py",
+                        starter_solver_command="python solver.py {instance} --output {solution} --seed {seed}",
+                    ),
+                    output_root=Path(tmp),
+                )
+
+    def test_create_job_copies_project_instances_into_fixed_core_inputs(self) -> None:
+        archive = self.zip_payload(
+            {
+                "project/solver.py": "from fjsp.solver import solve\n",
+                "project/fjsp/solver.py": "def solve(problem, seed=0):\n    return problem\n",
+                "project/instances/dp/07a.fjs": "1 1 1\n1 1 1 1\n",
+                "project/instances/dp/18a.fjs": "1 1 1\n1 1 1 2\n",
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            job = create_job(
+                self.job_payload(
+                    starter_project=archive,
+                    starter_solver_entrypoint="solver.py",
+                    starter_target_file="fjsp/solver.py",
+                    starter_solver_command="python solver.py {instance} --output {solution} --seed {seed}",
+                    starter_use_project_instances=True,
+                ),
+                output_root=Path(tmp),
+            )
+
+            copied = [Path(path) for path in job["inputs"]["starter_instances"]]
+            self.assertEqual(2, len(copied))
+            self.assertTrue(all(path.is_file() for path in copied))
+            self.assertTrue(all("provided_instances" in path.parts for path in copied))
+            self.assertTrue(job["config"]["starter_use_project_instances"])
+            self.assertEqual(
+                ["instances/dp/07a.fjs", "instances/dp/18a.fjs"],
+                job["config"]["starter_project_instances"],
+            )
+            self.assertEqual(2, job["config"]["instance_profile"]["instance_count"])
+
+    def test_frontend_exposes_provided_project_contract(self) -> None:
+        static = ROOT / "harness_agent" / "web" / "static"
+        index = (static / "index.html").read_text(encoding="utf-8")
+        import_page = (static / "project_import.html").read_text(encoding="utf-8")
+        review_page = (static / "project_review.html").read_text(encoding="utf-8")
+        setup_page = (static / "project_setup.html").read_text(encoding="utf-8")
+        project_script = (static / "project.js").read_text(encoding="utf-8")
 
         for element_id in (
             "starter-project-file",
             "starter-solver-entrypoint",
             "starter-solver-command",
             "starter-target-file",
+            "starter-use-project-instances",
         ):
-            self.assertIn(f'id="{element_id}"', index)
-            self.assertIn(f'id="{element_id}"', import_view)
-        self.assertIn('data-view-target="import-project"', index[:import_start])
-        self.assertNotIn('id="starter-project-panel"', index)
-        self.assertIn('id="starter-project-summary"', index[setup_start:])
-        self.assertIn("file.arrayBuffer()", app)
-        self.assertIn("payload.starter_project = state.starterProject", app)
-        self.assertIn('"import-project": "导入已有项目"', app)
-        self.assertIn('setActiveView("setup")', app)
+            self.assertIn(f'id="{element_id}"', import_page)
+            self.assertNotIn(f'id="{element_id}"', index)
+        self.assertIn('href="/projects/import"', index)
+        self.assertIn('id="review-file-tree"', review_page)
+        self.assertIn('id="review-entrypoint"', review_page)
+        self.assertIn('id="review-target-file"', review_page)
+        self.assertIn('id="review-detected-target"', review_page)
+        self.assertIn('id="review-project-instances"', review_page)
+        self.assertIn('id="review-command"', review_page)
+        self.assertIn('id="confirm-starter-project-review"', review_page)
+        self.assertNotIn('id="job-form"', review_page)
+        self.assertIn('id="project-job-form"', setup_page)
+        self.assertNotIn('id="job-form"', setup_page)
+        self.assertNotIn('id="requirement-text"', setup_page)
+        self.assertNotIn('id="io-text"', setup_page)
+        self.assertNotIn('id="provided-task-form-host"', setup_page)
+        self.assertEqual(1, index.count('id="job-form"'))
+        instance_field_start = index.index('id="task-instance-field"')
+        instance_field_end = index.index("</label>", instance_field_start)
+        instance_field = index[instance_field_start:instance_field_end]
+        self.assertIn('id="instance-file"', instance_field)
+        self.assertIn('id="instance-text"', instance_field)
+        self.assertNotIn('id="title"', instance_field)
+        self.assertIn("file.arrayBuffer()", project_script)
+        self.assertIn('fetch("/api/starter-projects/preview"', project_script)
+        self.assertIn("starter_project: draft.project", project_script)
+        self.assertIn("starter_use_project_instances", project_script)
+        self.assertIn("indexedDB.open", project_script)
+        self.assertIn('window.location.assign("/projects/import/review")', project_script)
+        self.assertIn('window.location.assign("/projects/import/setup")', project_script)
+
+    def test_project_intake_uses_standalone_browser_routes(self) -> None:
+        static = ROOT / "harness_agent" / "web" / "static"
+        index = (static / "index.html").read_text(encoding="utf-8")
+        pages = {
+            "project_import.html": (static / "project_import.html").read_text(encoding="utf-8"),
+            "project_review.html": (static / "project_review.html").read_text(encoding="utf-8"),
+            "project_setup.html": (static / "project_setup.html").read_text(encoding="utf-8"),
+        }
+
+        self.assertNotIn('id="view-import-project"', index)
+        self.assertNotIn('id="view-import-project-review"', index)
+        self.assertNotIn('id="view-import-project-setup"', index)
+        for filename, page in pages.items():
+            with self.subTest(filename=filename):
+                self.assertIn('class="project-document"', page)
+                self.assertNotIn('class="app-shell"', page)
+                self.assertNotIn('class="side-rail"', page)
+                self.assertNotIn('class="inspector"', page)
+
+    def test_workbench_scopes_audit_and_artifact_components_to_their_views(self) -> None:
+        static = ROOT / "harness_agent" / "web" / "static"
+        index = (static / "index.html").read_text(encoding="utf-8")
+        script = (static / "app.js").read_text(encoding="utf-8")
+        style = (static / "style.css").read_text(encoding="utf-8")
+
+        worker_start = index.index('id="view-worker"')
+        worker_end = index.index('id="view-experiments"', worker_start)
+        worker_view = index[worker_start:worker_end]
+        self.assertIn('aria-label="回合检查器"', worker_view)
+        self.assertIn('id="inspector-title"', worker_view)
+
+        artifacts_start = index.index('id="view-artifacts"')
+        artifacts_end = index.index('id="view-models"', artifacts_start)
+        artifacts_view = index[artifacts_start:artifacts_end]
+        self.assertIn('id="artifact-list"', artifacts_view)
+        self.assertIn('id="artifact-preview"', artifacts_view)
+        self.assertIn('id="artifact-path"', artifacts_view)
+        self.assertEqual(1, index.count('id="artifact-preview"'))
+        self.assertEqual(1, index.count('aria-label="回合检查器"'))
+        self.assertIn('id="mobile-view-select"', index)
+        self.assertIn('artifacts: "报告与产物"', script)
+        self.assertIn('setActiveView("artifacts")', script)
+        self.assertIn("function viewFromUrl()", script)
+        self.assertIn("window.history[method]", script)
+        self.assertIn('window.addEventListener("popstate"', script)
+        self.assertIn("loadReport: initialView === \"artifacts\"", script)
+        self.assertIn("window.scrollTo(0, 0)", script)
+        self.assertIn('$("mobile-view-select").addEventListener("change"', script)
+        self.assertGreaterEqual(style.count("#view-worker .split-view"), 2)
+
+    def test_server_maps_project_routes_to_distinct_html_documents(self) -> None:
+        for path in (
+            "/",
+            "/projects/import",
+            "/projects/import/",
+            "/projects/import/review",
+            "/projects/import/setup",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(is_frontend_route(path))
+        for path in ("/api/jobs", "/static/app.js", "/projects/unknown"):
+            with self.subTest(path=path):
+                self.assertFalse(is_frontend_route(path))
+        self.assertEqual("index.html", frontend_document("/"))
+        self.assertEqual("project_import.html", frontend_document("/projects/import"))
+        self.assertEqual("project_review.html", frontend_document("/projects/import/review"))
+        self.assertEqual("project_setup.html", frontend_document("/projects/import/setup"))
+        self.assertIsNone(frontend_document("/api/jobs"))
 
     def test_stop_job_cancels_active_task_and_preserves_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1171,6 +1482,7 @@ class WebAppTests(unittest.TestCase):
             job = create_job(
                 self.job_payload(
                     max_rounds=3,
+                    pause_between_rounds=False,
                     main_agent_model="openai/gpt-5.4",
                     main_agent_variant="high",
                     coding_worker_model="deepseek/deepseek-v4-pro",
@@ -1198,11 +1510,15 @@ class WebAppTests(unittest.TestCase):
                 capabilities=lambda: SimpleNamespace(supports_code_generation=True)
             )
             fake_main = SimpleNamespace()
+            fake_semantic_reviewer = SimpleNamespace()
             with patch(
                 "harness_agent.web.server.OpenCodeWorker", return_value=fake_worker
             ) as worker_factory, patch(
                 "harness_agent.web.server.OpenCodeMainAgent", return_value=fake_main
             ) as main_factory, patch(
+                "harness_agent.web.server.DeepSeekAlgorithmSemanticReviewer",
+                return_value=fake_semantic_reviewer,
+            ) as semantic_reviewer_factory, patch(
                 "harness_agent.web.server.is_deepseek_configured", return_value=True
             ) as deepseek_status, patch(
                 "harness_agent.web.server.run_standard_worker_loop", return_value=manifest
@@ -1217,7 +1533,11 @@ class WebAppTests(unittest.TestCase):
         self.assertIsInstance(request.round_intervention, WebRoundInterventionGate)
         self.assertIs(fake_worker, request.worker)
         self.assertIs(fake_main, request.main_agent)
-        self.assertIsNone(request.semantic_reviewer)
+        self.assertIs(fake_semantic_reviewer, request.semantic_reviewer)
+        self.assertEqual(
+            job["config"]["deepseek_model"],
+            semantic_reviewer_factory.call_args.kwargs["model"],
+        )
         self.assertEqual("deepseek/deepseek-v4-pro", worker_factory.call_args.kwargs["model"])
         self.assertEqual("low", worker_factory.call_args.kwargs["variant"])
         self.assertEqual(

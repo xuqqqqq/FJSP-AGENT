@@ -452,6 +452,7 @@ def project_research_state(
         method_family=str(method_family or ""),
     )
     activation_evidence_exhausted = activation_inconclusive_count >= 2
+    scale_evidence = scale_activation_evidence(latest, direction=direction)
     effective_action = requested_action
     transition_adjustment = None
     if outcome == "refuted" and requested_action not in {"pivot", "research_tournament"}:
@@ -460,6 +461,9 @@ def project_research_state(
     elif requested_action == "scale" and last_decision != "promoted":
         effective_action = "probe"
         transition_adjustment = "scale_requires_a_promoted_predecessor"
+    elif requested_action == "scale" and not scale_evidence["passed"]:
+        effective_action = "research_tournament"
+        transition_adjustment = f"scale_activation_not_verified:{scale_evidence['reason']}"
 
     selection_reason = "active_method_family_continues"
     selection_required = False
@@ -503,6 +507,7 @@ def project_research_state(
         "transition_adjustment": transition_adjustment,
         "activation_inconclusive_count": activation_inconclusive_count,
         "activation_evidence_exhausted": activation_evidence_exhausted,
+        "scale_activation_evidence": scale_evidence,
         "next_action_rationale": str(next_action.get("rationale") or "")[:1_200],
         "next_round_guidance": next_round_guidance or {},
         "planning_mode": "direction_selection" if selection_required else "direction_continuation",
@@ -518,6 +523,54 @@ def project_research_state(
             ),
         },
     }
+
+
+def scale_activation_evidence(
+    latest_round: dict[str, Any],
+    *,
+    direction: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Require executable mechanism evidence before a family may enter ``scale``."""
+
+    active_direction = direction if isinstance(direction, dict) else _dict(latest_round.get("direction_plan"))
+    if not active_direction.get("activation_checks"):
+        return {"passed": False, "reason": "activation_checks_not_declared"}
+    competition = _dict(latest_round.get("competition_result")) or _dict(
+        active_direction.get("competition_result")
+    )
+    candidates = [item for item in competition.get("candidates") or [] if isinstance(item, dict)]
+    if not candidates:
+        return {"passed": False, "reason": "candidate_evidence_missing"}
+    active_family = str(active_direction.get("method_family") or "").strip()
+    active_package = str(active_direction.get("method_package_id") or "").strip()
+    for candidate in candidates:
+        if candidate.get("activation_required") is not True:
+            continue
+        if _dict(candidate.get("mechanism_activation")).get("passed") is not True:
+            continue
+        candidate_family = str(candidate.get("method_family") or active_family).strip()
+        candidate_package = str(candidate.get("method_package_id") or active_package).strip()
+        if active_family and candidate_family != active_family:
+            continue
+        if active_package and candidate_package != active_package:
+            continue
+        try:
+            event_bytes = int(candidate.get("session_event_stream_bytes") or 0)
+        except (TypeError, ValueError):
+            event_bytes = 0
+        requested = str(candidate.get("requested_session_id") or "").strip()
+        commanded = str(candidate.get("command_session_id") or "").strip()
+        observed = str(candidate.get("observed_session_id") or candidate.get("worker_session_id") or "").strip()
+        if event_bytes <= 0 or not observed:
+            continue
+        if requested and (commanded != requested or observed != requested):
+            continue
+        return {
+            "passed": True,
+            "reason": "activated_candidate_with_continuous_nonzero_session",
+            "candidate_id": candidate.get("candidate_id"),
+        }
+    return {"passed": False, "reason": "no_activated_candidate_with_continuous_nonzero_session"}
 
 
 def consecutive_activation_inconclusive_rounds(

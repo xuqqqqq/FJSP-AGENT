@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
 from harness_agent.domains.io import (
     ScheduleRecord,
+    load_solution,
     parse_standard_fjsp,
     setup_time_between,
     validate_standard_schedule,
@@ -17,6 +20,35 @@ HUDATA_TINY = ROOT / "examples" / "fjsp_sdst_hudata_tiny.txt"
 
 
 class FjspSdstTests(unittest.TestCase):
+    def test_solution_loader_accepts_audited_fjspsolution_v1_field_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "solution.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "FJSPSolutionV1",
+                        "schedule": [
+                            {
+                                "job": 1,
+                                "operation": 2,
+                                "machine": 3,
+                                "start": 4,
+                                "duration": 5,
+                                "end": 9,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            records = load_solution(path)
+
+        self.assertEqual(
+            [ScheduleRecord(job_id=1, op_id=2, machine_id=3, start=4, end=9)],
+            records,
+        )
+
     def test_fattahi_sdst_parser_reads_setup_matrix(self) -> None:
         instance = parse_standard_fjsp(SDST_TINY)
 

@@ -231,7 +231,10 @@ class OpenCodeMainAgent:
         implementation_context["method_package_catalog"] = method_package_catalog(
             problem_family=str(task.get("problem_family") or ""),
             active_features=[str(item) for item in original_catalog.get("active_features") or []],
-            knowledge_query_tags=selection["knowledge_query"],
+            knowledge_query_tags=method_package_query_tags(
+                knowledge_query=selection["knowledge_query"],
+                method_family=selection["method_family"],
+            ),
         )
         implementation_packet = build_implementation_planning_packet(
             context=implementation_context,
@@ -504,19 +507,23 @@ class OpenCodeMainAgent:
         raw_selection = raw.get("direction_selection")
         if not isinstance(raw_selection, dict):
             raw_selection = raw.get("direction_plan")
-        selection = normalize_direction_selection(
-            {"direction_selection": raw_selection} if isinstance(raw_selection, dict) else {},
+        selection = inherited_direction_selection(
             planning_packet=planning_packet,
             round_index=request.round_index,
         )
+        if selection is not None:
+            selection["selection_source"] = "research_state_inheritance"
+        else:
+            selection = normalize_direction_selection(
+                {"direction_selection": raw_selection} if isinstance(raw_selection, dict) else {},
+                planning_packet=planning_packet,
+                round_index=request.round_index,
+            )
         if selection is None:
             return self._fallback(
                 request,
                 reason="Fast Main Agent did not select a compatible method family",
             )
-
-        selection_path = request.output_dir / "direction_selection.json"
-        selection_path.write_text(json_dumps(selection), encoding="utf-8")
 
         implementation_context = dict(context)
         activate_direction_knowledge_context(implementation_context, direction_plan=selection)
@@ -529,8 +536,23 @@ class OpenCodeMainAgent:
         implementation_context["method_package_catalog"] = method_package_catalog(
             problem_family=str(task.get("problem_family") or ""),
             active_features=[str(item) for item in original_catalog.get("active_features") or []],
-            knowledge_query_tags=selection["knowledge_query"],
+            knowledge_query_tags=method_package_query_tags(
+                knowledge_query=selection["knowledge_query"],
+                method_family=selection["method_family"],
+            ),
         )
+        method_package_id, package_selection_source = resolve_fast_method_package(
+            catalog=implementation_context["method_package_catalog"],
+            method_family=selection["method_family"],
+            loop_feedback=request.loop_feedback,
+        )
+        selection["method_package_id"] = method_package_id
+        selection["method_package_resolution"] = {
+            "policy": "fast_harness_resolution",
+            "source": package_selection_source,
+        }
+        selection_path = request.output_dir / "direction_selection.json"
+        selection_path.write_text(json_dumps(selection), encoding="utf-8")
 
         raw_brief = raw.get("direction_brief")
         direction_brief = normalize_fast_direction_brief(
@@ -574,6 +596,7 @@ class OpenCodeMainAgent:
             "method_family": selection["method_family"],
             "method_families": selection["method_families"],
             "knowledge_query": selection["knowledge_query"],
+            "method_package_id": method_package_id,
         }
         plan = bind_direction_plan_to_method_catalog(
             normalize_direction_plan(direction_payload, round_index=request.round_index),
@@ -582,6 +605,8 @@ class OpenCodeMainAgent:
         plan["method_family"] = selection["method_family"]
         plan["method_families"] = selection["method_families"]
         plan["knowledge_query"] = selection["knowledge_query"]
+        plan["method_package_selection"]["selection_source"] = package_selection_source
+        plan["method_package_selection"]["selection_policy"] = "fast_harness_resolution"
         research_state = (
             planning_packet.get("research_state")
             if isinstance(planning_packet.get("research_state"), dict)
@@ -872,6 +897,7 @@ class OpenCodeMainAgent:
             "returncode": str(process.returncode),
             "timed_out": timed_out,
             "stalled": stalled,
+            **opencode_event_stream_health(stdout),
         }
 
     def _runtime_config(
@@ -1016,6 +1042,65 @@ class OpenCodeMainAgent:
                 if selection.get(key) not in (None, "", []):
                     plan[key] = selection[key]
             plan["selection_preserved_after_planning_fallback"] = True
+        if self.planning_mode == "fast" and request.round_index >= 0:
+            context = load_context_dict(request.context_packet_path)
+            task = context.get("task") if isinstance(context.get("task"), dict) else {}
+            original_catalog = (
+                context.get("method_package_catalog")
+                if isinstance(context.get("method_package_catalog"), dict)
+                else {}
+            )
+            tournament = str(plan.get("experiment_stage") or "") == "research_tournament"
+            if tournament:
+                plan = bind_fallback_tournament_variants(
+                    context=context,
+                    plan=plan,
+                    loop_feedback=request.loop_feedback,
+                )
+                plan["method_package_id"] = ""
+            else:
+                package_catalog = method_package_catalog(
+                    problem_family=str(task.get("problem_family") or ""),
+                    active_features=[str(item) for item in original_catalog.get("active_features") or []],
+                    knowledge_query_tags=method_package_query_tags(
+                        knowledge_query=plan.get("knowledge_query"),
+                        method_family=str(plan.get("method_family") or ""),
+                    ),
+                )
+                package_id, package_selection_source = resolve_fast_method_package(
+                    catalog=package_catalog,
+                    method_family=str(plan.get("method_family") or ""),
+                    loop_feedback=request.loop_feedback,
+                )
+                plan["method_package_id"] = package_id
+                package_context = dict(context)
+                package_context["method_package_catalog"] = package_catalog
+                plan = bind_direction_plan_to_method_catalog(plan, context=package_context)
+                plan["method_package_selection"]["selection_source"] = package_selection_source
+                plan["method_package_selection"]["selection_policy"] = "fast_harness_resolution"
+            competition = (
+                request.loop_feedback.get("competition")
+                if isinstance(request.loop_feedback.get("competition"), dict)
+                else {}
+            )
+            max_workers = max(1, min(4, int(competition.get("max_competing_workers") or 1)))
+            plan["worker_lane_policy"] = {
+                "schema_version": 1,
+                "mechanism_selection": (
+                    "family_hypothesis_tournament" if tournament else "delegated_to_worker"
+                ),
+                "lane_count": max_workers,
+                "roles": [
+                    "direct_evidence",
+                    "minimal_risk",
+                    "orthogonal_mechanism",
+                    "diagnostic_value",
+                ][:max_workers],
+            }
+            if not tournament:
+                plan["candidate_variants"] = []
+            plan["activation_checks"] = []
+            plan["activation_contract_version"] = 0
         plan["planner_fallback"] = {
             "source": type(self).__name__,
             "fallback": type(self.fallback).__name__,
@@ -1023,6 +1108,73 @@ class OpenCodeMainAgent:
             "fallback_path": str(fallback_path.resolve()),
         }
         return write_direction_plan(request.output_dir, plan)
+
+
+def bind_fallback_tournament_variants(
+    *,
+    context: dict[str, Any],
+    plan: dict[str, Any],
+    loop_feedback: dict[str, Any],
+) -> dict[str, Any]:
+    """Resolve one independent Method Package contract per fallback family hypothesis."""
+
+    task = context.get("task") if isinstance(context.get("task"), dict) else {}
+    original_catalog = (
+        context.get("method_package_catalog")
+        if isinstance(context.get("method_package_catalog"), dict)
+        else {}
+    )
+    variants = []
+    for raw in plan.get("candidate_variants") or []:
+        if not isinstance(raw, dict):
+            continue
+        variant = dict(raw)
+        family = str(variant.get("method_family") or "")
+        catalog = method_package_catalog(
+            problem_family=str(task.get("problem_family") or ""),
+            active_features=[str(item) for item in original_catalog.get("active_features") or []],
+            knowledge_query_tags=method_package_query_tags(
+                knowledge_query=variant.get("knowledge_query"),
+                method_family=family,
+            ),
+        )
+        package_id, source = resolve_fast_method_package(
+            catalog=catalog,
+            method_family=family,
+            loop_feedback=loop_feedback,
+        )
+        variant["method_package_id"] = package_id
+        package_context = dict(context)
+        package_context["method_package_catalog"] = catalog
+        bound = bind_direction_plan_to_method_catalog(
+            {**plan, **variant, "candidate_variants": []},
+            context=package_context,
+        )
+        for field in (
+            "implementation_order",
+            "deliverables",
+            "knowledge_paths",
+            "implementation_bundle",
+            "method_package_selection",
+            "acceptance_checks",
+            "checkpoint_checks",
+        ):
+            if bound.get(field) not in (None, "", [], {}):
+                variant[field] = bound[field]
+        variant["method_package_selection"] = {
+            **(variant.get("method_package_selection") or {}),
+            "selection_source": source,
+            "selection_policy": "fallback_family_tournament_resolution",
+        }
+        variants.append(variant)
+    result = dict(plan)
+    result["candidate_variants"] = variants
+    result["tournament_contract"] = {
+        "selection_status": "pending_core_evidence",
+        "winner_selected_by_harness": False,
+        "family_hypothesis_count": len(variants),
+    }
+    return result
 
 
 def stream_process_pipe(stream: Any, path: Path, chunks: list[str]) -> None:
@@ -1142,21 +1294,33 @@ def build_fast_planning_packet(planning_packet: dict[str, Any]) -> dict[str, Any
         "schema_version": 1,
         "planning_stage": "fast_direction_plan",
         "direction_id": planning_packet.get("direction_id"),
-        "task_digest": planning_packet.get("task_digest"),
-        "instance_diagnostics": planning_packet.get("instance_diagnostics"),
-        "research_state": planning_packet.get("research_state"),
-        "incumbent_evidence": planning_packet.get("incumbent_evidence"),
-        "incumbent_capability_audit": planning_packet.get("incumbent_capability_audit"),
-        "recent_round_evidence": planning_packet.get("recent_round_evidence"),
-        "latest_evidence": planning_packet.get("latest_evidence"),
-        "latest_attempt_evidence": planning_packet.get("latest_attempt_evidence"),
-        "historical_aggregates": planning_packet.get("historical_aggregates"),
-        "next_round_guidance": planning_packet.get("next_round_guidance"),
-        "user_intervention": planning_packet.get("user_intervention"),
-        "strategy_selection_cards": planning_packet.get("strategy_selection_cards"),
-        "knowledge_query_catalog": planning_packet.get("knowledge_query_catalog"),
-        "method_family_catalog": planning_packet.get("method_family_catalog"),
-        "runtime_limits": planning_packet.get("runtime_limits"),
+        "task_digest": _bounded_fast_value(planning_packet.get("task_digest")),
+        "instance_diagnostics": _bounded_fast_value(planning_packet.get("instance_diagnostics")),
+        "research_state": _bounded_fast_value(planning_packet.get("research_state")),
+        "incumbent_evidence": _bounded_fast_value(planning_packet.get("incumbent_evidence")),
+        "incumbent_capability_audit": _fast_incumbent_audit(
+            planning_packet.get("incumbent_capability_audit")
+        ),
+        "recent_round_evidence": _bounded_fast_value(
+            planning_packet.get("recent_round_evidence"), max_list=3
+        ),
+        "latest_evidence": _bounded_fast_value(planning_packet.get("latest_evidence")),
+        "latest_attempt_evidence": _bounded_fast_value(
+            planning_packet.get("latest_attempt_evidence")
+        ),
+        "historical_aggregates": _bounded_fast_value(planning_packet.get("historical_aggregates")),
+        "next_round_guidance": _bounded_fast_value(planning_packet.get("next_round_guidance")),
+        "user_intervention": _bounded_fast_value(planning_packet.get("user_intervention")),
+        "strategy_selection_cards": _bounded_fast_value(
+            planning_packet.get("strategy_selection_cards"), max_list=4, max_string=300
+        ),
+        "knowledge_query_catalog": _bounded_fast_value(
+            planning_packet.get("knowledge_query_catalog"), max_list=12
+        ),
+        "method_family_catalog": _bounded_fast_value(
+            planning_packet.get("method_family_catalog"), max_list=8
+        ),
+        "runtime_limits": _bounded_fast_value(planning_packet.get("runtime_limits")),
         "planner_output_contract": {
             "top_level_keys": ["direction_selection", "direction_brief"],
             "direction_selection_required_fields": [
@@ -1195,6 +1359,10 @@ def build_fast_planning_packet(planning_packet: dict[str, Any]) -> dict[str, Any
     }
     compacted = compact_json(payload, max_chars=FAST_PLANNING_PACKET_MAX_CHARS)
     result = compacted.payload if isinstance(compacted.payload, dict) else payload
+    if compacted.profile == "root_fallback":
+        result = _fast_packet_fallback(payload)
+        compacted = compact_json(result, max_chars=FAST_PLANNING_PACKET_MAX_CHARS)
+        result = compacted.payload if isinstance(compacted.payload, dict) else result
     result["packet_budget"] = {
         "max_chars": FAST_PLANNING_PACKET_MAX_CHARS,
         "original_chars": compacted.original_chars,
@@ -1202,6 +1370,134 @@ def build_fast_planning_packet(planning_packet: dict[str, Any]) -> dict[str, Any
         "profile": compacted.profile,
     }
     return result
+
+
+def _bounded_fast_value(
+    value: Any,
+    *,
+    max_string: int = 500,
+    max_list: int = 6,
+    max_dict: int = 30,
+    max_depth: int = 5,
+    _depth: int = 0,
+) -> Any:
+    """Project planner evidence before generic compaction can discard root contracts."""
+
+    if _depth >= max_depth:
+        if isinstance(value, dict):
+            return {"_summary": "dict", "keys": [str(key) for key in list(value)[:8]]}
+        if isinstance(value, list):
+            return {"_summary": "list", "item_count": len(value)}
+    if isinstance(value, str):
+        return value if len(value) <= max_string else value[:max_string] + "..."
+    if isinstance(value, list):
+        return [
+            _bounded_fast_value(
+                item,
+                max_string=max_string,
+                max_list=max_list,
+                max_dict=max_dict,
+                max_depth=max_depth,
+                _depth=_depth + 1,
+            )
+            for item in value[:max_list]
+        ]
+    if isinstance(value, dict):
+        return {
+            str(key): _bounded_fast_value(
+                item,
+                max_string=max_string,
+                max_list=max_list,
+                max_dict=max_dict,
+                max_depth=max_depth,
+                _depth=_depth + 1,
+            )
+            for key, item in list(value.items())[:max_dict]
+        }
+    return value
+
+
+def _fast_incumbent_audit(value: Any) -> dict[str, Any]:
+    """Keep search controls and limits; omit full symbol and call-graph inventories."""
+
+    audit = value if isinstance(value, dict) else {}
+    files: list[dict[str, Any]] = []
+    for raw in audit.get("files") or []:
+        if not isinstance(raw, dict):
+            continue
+        files.append(
+            {
+                key: raw.get(key)
+                for key in (
+                    "relative_path",
+                    "path",
+                    "sha256",
+                    "line_count",
+                    "parse_status",
+                    "entrypoints",
+                    "has_main_guard",
+                )
+                if key in raw
+            }
+            | {
+                "configurations": _bounded_fast_value(raw.get("configurations"), max_list=12),
+                "loops": _bounded_fast_value(raw.get("loops"), max_list=8),
+                "function_names": [
+                    str(item.get("name") or item.get("qualified_name") or "")[:160]
+                    for item in raw.get("functions") or []
+                    if isinstance(item, dict) and (item.get("name") or item.get("qualified_name"))
+                ][:12],
+            }
+        )
+    return {
+        key: _bounded_fast_value(audit.get(key), max_list=8)
+        for key in (
+            "schema_version",
+            "source",
+            "summary",
+            "capabilities",
+            "limits",
+            "limitations",
+            "interpretation_rules",
+        )
+        if key in audit
+    } | {"files": files[:4]}
+
+
+def _fast_packet_fallback(payload: dict[str, Any]) -> dict[str, Any]:
+    """Preserve every Fast planning contract even under the hard packet limit."""
+
+    protected = (
+        "schema_version",
+        "planning_stage",
+        "direction_id",
+        "task_digest",
+        "instance_diagnostics",
+        "research_state",
+        "incumbent_evidence",
+        "incumbent_capability_audit",
+        "recent_round_evidence",
+        "latest_evidence",
+        "latest_attempt_evidence",
+        "historical_aggregates",
+        "next_round_guidance",
+        "user_intervention",
+        "strategy_selection_cards",
+        "knowledge_query_catalog",
+        "method_family_catalog",
+        "runtime_limits",
+        "planner_output_contract",
+    )
+    return {
+        key: _bounded_fast_value(
+            payload.get(key),
+            max_string=220,
+            max_list=3,
+            max_dict=16,
+            max_depth=4,
+        )
+        for key in protected
+    } | {"_compacted": {"mode": "fast_contract_fallback"}}
 
 
 def normalize_fast_direction_brief(
@@ -1378,6 +1674,67 @@ def bounded_timeout_seconds(timeout_seconds: int | None, upper_bound: int) -> in
     if timeout_seconds is None:
         return upper_bound
     return min(timeout_seconds, upper_bound)
+
+
+def method_package_query_tags(
+    *,
+    knowledge_query: Any,
+    method_family: str,
+) -> list[str]:
+    """Build package tags from both the query and the selected method family."""
+
+    tags: list[str] = []
+    for value in [*(knowledge_query or []), method_family]:
+        tag = str(value or "").strip()
+        if not tag or tag == "__direction_selection_pending__" or tag in tags:
+            continue
+        tags.append(tag)
+    return tags
+
+
+def resolve_fast_method_package(
+    *,
+    catalog: dict[str, Any],
+    method_family: str,
+    loop_feedback: dict[str, Any],
+) -> tuple[str, str]:
+    """Bind Fast planning to one compatible package before Worker context is built."""
+
+    available = {
+        str(item.get("package_id") or "").strip()
+        for item in catalog.get("packages") or []
+        if isinstance(item, dict) and str(item.get("package_id") or "").strip()
+    }
+    if not available:
+        return "", "no_compatible_package"
+
+    prior_plans: list[dict[str, Any]] = []
+    current = loop_feedback.get("current_direction_plan")
+    if isinstance(current, dict):
+        prior_plans.append(current)
+    for record in reversed(loop_feedback.get("previous_rounds") or []):
+        if not isinstance(record, dict):
+            continue
+        direction = record.get("direction_plan")
+        if isinstance(direction, dict):
+            prior_plans.append(direction)
+
+    for prior in prior_plans:
+        prior_families = prior.get("method_families") or [prior.get("method_family")]
+        family_ids = {
+            str(item.get("id") or "").strip() if isinstance(item, dict) else str(item or "").strip()
+            for item in prior_families
+        }
+        package_id = str(prior.get("method_package_id") or "").strip()
+        if method_family in family_ids and package_id in available:
+            return package_id, "same_direction_inheritance"
+
+    recommended = str(catalog.get("recommended_package_id") or "").strip()
+    if recommended in available:
+        return recommended, "catalog_recommendation"
+    if len(available) == 1:
+        return next(iter(available)), "sole_compatible_package"
+    return "", "ambiguous_compatible_packages"
 
 
 def inherited_direction_selection(
@@ -1771,6 +2128,7 @@ def summarize_opencode_events(events_text: str) -> dict[str, Any]:
         _sum_numeric_usage(event, usage)
     return {
         "event_count": len(events),
+        **opencode_event_stream_health(events_text),
         "called_subagents": called_subagents,
         "usage": usage,
         "compaction": summarize_opencode_compaction_events(events_text),
@@ -1784,6 +2142,9 @@ def merge_event_summaries(first: dict[str, Any], second: dict[str, Any]) -> dict
     return {
         "attempts": int(first.get("attempts") or 0) + int(second.get("attempts") or 0),
         "event_count": int(first.get("event_count") or 0) + int(second.get("event_count") or 0),
+        "meaningful_event_count": int(first.get("meaningful_event_count") or 0)
+        + int(second.get("meaningful_event_count") or 0),
+        "event_stream_status": merged_event_stream_status(first, second),
         "called_subagents": list(
             dict.fromkeys([*(first.get("called_subagents") or []), *(second.get("called_subagents") or [])])
         ),
@@ -1793,6 +2154,49 @@ def merge_event_summaries(first: dict[str, Any], second: dict[str, Any]) -> dict
             second.get("compaction"),
         ),
     }
+
+
+def opencode_event_stream_health(events_text: str) -> dict[str, Any]:
+    """Separate process startup bytes from evidence that Main actually progressed."""
+
+    event_types: list[str] = []
+    meaningful_count = 0
+    for line in events_text.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            if line.strip():
+                meaningful_count += 1
+            continue
+        if not isinstance(event, dict):
+            continue
+        event_type = str(event.get("type") or "").strip().lower()
+        if event_type:
+            event_types.append(event_type)
+        if event_type not in {"", "step_start"}:
+            meaningful_count += 1
+    if meaningful_count > 0:
+        status = "meaningful"
+    elif event_types:
+        status = "startup_only"
+    else:
+        status = "zero"
+    return {
+        "event_stream_status": status,
+        "meaningful_event_count": meaningful_count,
+    }
+
+
+def merged_event_stream_status(first: dict[str, Any], second: dict[str, Any]) -> str:
+    statuses = {
+        str(first.get("event_stream_status") or "zero"),
+        str(second.get("event_stream_status") or "zero"),
+    }
+    if "meaningful" in statuses:
+        return "meaningful"
+    if "startup_only" in statuses:
+        return "startup_only"
+    return "zero"
 
 
 def _write_packet_bundle(

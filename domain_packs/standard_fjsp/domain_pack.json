@@ -10,7 +10,9 @@
     "description": "标准 FJSP 实例，包含工序优先约束、每道工序可选替代机器、机器容量不可重叠约束，并以总工期（makespan）作为默认目标。",
     "supported_variants": [
       "standard_fjsp",
-      "fjsp_with_best_known_gap"
+      "fjsp_with_best_known_gap",
+      "fjsp_sdst",
+      "fjsp_min_time_lag"
     ],
     "canonical_objectives": [
       {
@@ -34,7 +36,8 @@
     "io_contract_notes": [
       "实例使用通用文本格式：job_count machine_count max_candidate_count，后续紧跟各作业定义。",
       "解必须使用 standard_fjsp_schedule_v1 JSON，并为每道工序提供一条记录。",
-      "所有合法性检查均由 Evaluator 负责：优先约束、机器可加工性、加工时长和机器重叠。"
+      "所有合法性检查均由 Evaluator 负责：优先约束、机器可加工性、加工时长和机器重叠。",
+      "Min Time-Lag FJSP 在标准主体后使用 K + K×4 相邻工序约束列表，并要求 successor_start - predecessor_end >= L_min。"
     ],
     "evaluator_invariants": [
       "在演进求解器代码时，不要修改 examples/standard_fjsp_evaluator.py。",
@@ -246,7 +249,8 @@
       ],
       "required_features": [],
       "excluded_features": [
-        "sequence_dependent_setup"
+        "sequence_dependent_setup",
+        "minimum_time_lag"
       ],
       "default_priority": 320,
       "always_include": false,
@@ -309,8 +313,36 @@
       "required_features": [
         "sequence_dependent_setup"
       ],
-      "excluded_features": [],
+      "excluded_features": [
+        "minimum_time_lag"
+      ],
       "default_priority": 500,
+      "always_include": true
+    },
+    {
+      "skill_id": "fjsp-min-time-lag-adapter-worker",
+      "title": "FJSP 最小时间间隔适配执行器",
+      "description": "为已选 FJSP 方法族提供固定相邻 minimum lag 的解析、machine-free 时间传播、关键结构和候选重解码合同。",
+      "source_path": ".codex/skills/fjsp-min-time-lag-adapter-worker",
+      "method_families": [
+        "constructive_search",
+        "coupled_local_search",
+        "exact_hybrid",
+        "population_memetic"
+      ],
+      "activation_tags": [
+        "minimum_time_lag",
+        "time_lag",
+        "lag_aware_decoder",
+        "lag_aware_search"
+      ],
+      "required_features": [
+        "minimum_time_lag"
+      ],
+      "excluded_features": [
+        "sequence_dependent_setup"
+      ],
+      "default_priority": 510,
       "always_include": true
     }
   ],
@@ -319,6 +351,7 @@
       "package_id": "standard_fjsp_awls_hgtsa",
       "title": "标准 FJSP AWLS/HGTSA",
       "description": "标准 FJSP 的完整方法参考，包含主动解码、精确关键块、N7/N8 风格顺序移动、替代机器插入、tabu/aspiration、自适应权重和多样化。",
+      "method_families": ["coupled_local_search"],
       "selection_enabled": true,
       "activation_tags": [
         "assignment_aware_local_search",
@@ -336,12 +369,14 @@
       ],
       "required_features": [],
       "excluded_features": [
-        "sequence_dependent_setup"
+        "sequence_dependent_setup",
+        "minimum_time_lag"
       ],
       "assets": [
         "knowledge/method_packages/standard_fjsp_awls_hgtsa/README.md",
         "knowledge/method_packages/standard_fjsp_awls_hgtsa/behavior_contract.md",
         "knowledge/method_packages/standard_fjsp_awls_hgtsa/reference_solver.py",
+        "knowledge/references/standard_fjsp/standard_fjsp_awls_hgtsa_execution_skeleton.md",
         "knowledge/references/standard_fjsp/standard_fjsp_algorithm_semantic_review_contract.md"
       ],
       "semantic_assets": [
@@ -353,9 +388,80 @@
       "default_priority": 100
     },
     {
+      "package_id": "fjsp_min_time_lag_constructive_adaptation",
+      "title": "Min Time-Lag FJSP 构造搜索适配",
+      "description": "面向固定相邻 minimum lag 的 operation-level ready dispatch、idle-gap、assignment regret 与有界 Beam 构造方法包。",
+      "method_families": ["constructive_search"],
+      "selection_enabled": true,
+      "activation_tags": [
+        "constructive_search",
+        "construction",
+        "beam_search",
+        "idle_gap",
+        "minimum_time_lag",
+        "time_lag",
+        "lag_aware_decoder",
+        "lag_aware_search"
+      ],
+      "strategy_types": [
+        "baseline_constructor",
+        "dispatch_rule",
+        "path_selection"
+      ],
+      "required_features": [
+        "minimum_time_lag"
+      ],
+      "excluded_features": [
+        "sequence_dependent_setup"
+      ],
+      "assets": [
+        "knowledge/references/min_time_lag/min_time_lag_semantics_and_decoder.md",
+        "knowledge/references/min_time_lag/min_time_lag_search_adaptation.md",
+        "knowledge/references/standard_fjsp/idle_critical_beam_implementation_template.md",
+        "knowledge/references/standard_fjsp/constructive_multistart_blueprint.md"
+      ],
+      "semantic_assets": [
+        "knowledge/references/min_time_lag/min_time_lag_semantics_and_decoder.md",
+        "knowledge/references/min_time_lag/min_time_lag_search_adaptation.md"
+      ],
+      "implementation_contract_asset": "knowledge/method_packages/fjsp_min_time_lag_constructive_adaptation/implementation_contract.json",
+      "default_priority": 150
+    },
+    {
+      "package_id": "fjsp_min_time_lag_coupled_local_search",
+      "title": "Min Time-Lag FJSP 耦合局部搜索适配",
+      "description": "为 Main 已选择的 coupled_local_search 提供 lag-aware 关键图、同机/异机事务邻域和有界 Tabu/ILS 合同。",
+      "method_families": ["coupled_local_search"],
+      "selection_enabled": true,
+      "activation_tags": ["coupled_local_search", "assignment_aware_local_search", "critical_path", "critical_block", "machine_reassignment", "local_search", "tabu_search", "ils", "minimum_time_lag", "lag_aware_search"],
+      "strategy_types": ["local_search_operator", "path_selection"],
+      "required_features": ["minimum_time_lag"],
+      "excluded_features": ["sequence_dependent_setup"],
+      "assets": ["knowledge/references/min_time_lag/min_time_lag_semantics_and_decoder.md", "knowledge/references/min_time_lag/min_time_lag_search_adaptation.md"],
+      "semantic_assets": ["knowledge/references/min_time_lag/min_time_lag_semantics_and_decoder.md", "knowledge/references/min_time_lag/min_time_lag_search_adaptation.md"],
+      "implementation_contract_asset": "knowledge/method_packages/fjsp_min_time_lag_coupled_local_search/implementation_contract.json",
+      "default_priority": 145
+    },
+    {
+      "package_id": "fjsp_min_time_lag_exact_hybrid",
+      "title": "Min Time-Lag FJSP 精确混合适配",
+      "description": "为 Main 已选择的 exact_hybrid 提供 lag-aware CP/精确修复、incumbent hint、信赖域和完整提取合同。",
+      "method_families": ["exact_hybrid"],
+      "selection_enabled": true,
+      "activation_tags": ["exact_hybrid", "cp_sat", "exact_method", "trust_region", "hybrid", "minimum_time_lag", "lag_aware_search"],
+      "strategy_types": ["path_selection", "local_search_operator"],
+      "required_features": ["minimum_time_lag"],
+      "excluded_features": ["sequence_dependent_setup"],
+      "assets": ["knowledge/references/min_time_lag/min_time_lag_semantics_and_decoder.md", "knowledge/references/min_time_lag/min_time_lag_search_adaptation.md"],
+      "semantic_assets": ["knowledge/references/min_time_lag/min_time_lag_semantics_and_decoder.md"],
+      "implementation_contract_asset": "knowledge/method_packages/fjsp_min_time_lag_exact_hybrid/implementation_contract.json",
+      "default_priority": 142
+    },
+    {
       "package_id": "fjsp_sdst_awls_adaptation",
       "title": "FJSP-SDST AWLS 适配",
       "description": "围绕同一套完整 AWLS 状态/搜索参考构建的 setup 感知适配包，并补充 SDST 解码与邻域迁移合同。",
+      "method_families": ["coupled_local_search"],
       "selection_enabled": true,
       "activation_tags": [
         "assignment_aware_local_search",
@@ -376,7 +482,9 @@
       "required_features": [
         "sequence_dependent_setup"
       ],
-      "excluded_features": [],
+      "excluded_features": [
+        "minimum_time_lag"
+      ],
       "assets": [
         "knowledge/method_packages/standard_fjsp_awls_hgtsa/README.md",
         "knowledge/method_packages/standard_fjsp_awls_hgtsa/behavior_contract.md",
@@ -452,7 +560,11 @@
         "high_flexibility": "高机器选择度与非平凡加工时间跨度使 assignment 决策主导剩余瓶颈。",
         "assignment_regret": "按工序比较候选分配代价与理论最快加工时间，细化 assignment-first 构造。",
         "assignment_trust_region": "仅在关键或近关键工序池中做小半径换机并严格验收。",
-        "order_preserving_redecode": "局部换机后保留 incumbent 的机器顺序秩进行修复式重解码。"
+        "order_preserving_redecode": "局部换机后保留 incumbent 的机器顺序秩进行修复式重解码。",
+        "minimum_time_lag": "固定相邻工序 minimum lag 的 IO、machine-free 语义与合法性。",
+        "time_lag": "工序间时间滞后约束、差分约束和时间图检索入口。",
+        "lag_aware_decoder": "使用 p+lag job arcs、p machine arcs 和最长路传播的完整解码。",
+        "lag_aware_search": "在构造、关键结构、邻域和接受中显式使用 minimum lag。"
       },
       "exclude_path_markers": [
         "fjsp-awls-sdst-adapter",
@@ -590,6 +702,20 @@
         "knowledge/references/standard_fjsp/standard_fjsp_agent_generated_reference_skeleton.md",
         "knowledge/references/standard_fjsp/operation_machine_reassignment.md",
         "knowledge/references/standard_fjsp/hgtsa_fjsp_n8_k_insertion_blueprint.md"
+      ],
+      "minimum_time_lag": [
+        "knowledge/references/min_time_lag/min_time_lag_semantics_and_decoder.md",
+        "knowledge/references/min_time_lag/min_time_lag_search_adaptation.md"
+      ],
+      "time_lag": [
+        "knowledge/references/min_time_lag/min_time_lag_semantics_and_decoder.md",
+        "knowledge/references/min_time_lag/min_time_lag_search_adaptation.md"
+      ],
+      "lag_aware_decoder": [
+        "knowledge/references/min_time_lag/min_time_lag_semantics_and_decoder.md"
+      ],
+      "lag_aware_search": [
+        "knowledge/references/min_time_lag/min_time_lag_search_adaptation.md"
       ],
       "assignment_search": [
         "knowledge/references/standard_fjsp/operation_machine_reassignment.md",
