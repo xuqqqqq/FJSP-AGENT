@@ -1,0 +1,369 @@
+{
+  "version": "1.0",
+  "equations": {
+    "eq-14134317afd8f7893989aea5ef545cb8-0001": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0001",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "\\min \\left\\{C _ {\\max}, \\mathrm{TEC} \\right\\}\\tag{1}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/65"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0002": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0002",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "\\min C _ {\\max} = \\max \\left\\{C _ {f, i, n _ {i}} \\right\\} (\\forall i \\in I, f \\in F).\\tag{2}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/67"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0003": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0003",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "\\mathrm{TEC} = E _ {W} + E _ {I}\\tag{3}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/69"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0004": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0004",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "E _ {W} = \\sum_ {i \\in I} \\sum_ {j \\in J _ {i}} \\sum_ {f \\in F} \\sum_ {k \\in M} \\sum_ {t \\in P _ {k}} W _ {P} T _ {i, j, f, k} X _ {i, j, f, k, t}\\tag{4}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/70"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0005": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0005",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "\\begin{array}{l} E _ {I} = \\sum_ {f \\in F} \\sum_ {k \\in M} \\sum_ {t \\in P _ {k} ^ {\\prime}} W _ {s} \\bigg (B _ {f, k, t + 1} - B _ {f, k, t} \\\\ \\qquad - \\sum_ {i \\in I} \\sum_ {j \\in J _ {i}} X _ {i, j, f, k, t} T _ {i, j, f, k} \\bigg). \\end{array}\\tag{5}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/71"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0006": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0006",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {f \\in F} Y _ {i, f} = 1 (\\forall i \\in I)\\tag{6}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/73"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0007": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0007",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {k \\in K _ {f, i, j}} \\sum_ {t \\in P _ {k}} X _ {i, j, f, k, t} = Y _ {i, f} (\\forall i \\in I, j \\in J _ {i}, f \\in F)\\tag{7}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/74"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0008": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0008",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "S _ {f, i, n _ {i}} + \\sum_ {k \\in K _ {f, i, j}} \\sum_ {t \\in P _ {k}} T _ {i, n _ {i}, f, k} X _ {i, n _ {i}, f, k, t}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/75"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0009": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0009",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "\\leq C _ {\\max} (\\forall i \\in I, f \\in F)",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/76"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0010": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0010",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "C _ {f, \\max} \\leq C _ {\\max} (\\forall f \\in F)\\tag{8}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/77"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0011": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0011",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "S _ {f, i, j} + \\sum_ {k \\in M} \\sum_ {t \\in P} T _ {i, j, f, k} X _ {i, n _ {i}, f, k, t}\\tag{9}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/78"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0012": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0012",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "\\leq S _ {f, i, j + 1} (i \\in I, j \\in J _ {i} - 1, f \\in F)\\tag{10}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/79"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0013": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0013",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {i \\in I} \\sum_ {j \\in J _ {i}} X _ {i, j, f, k, t} \\leq 1 (\\forall f \\in F, k \\in M, t \\in P _ {f, k})\\tag{11}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/80"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0014": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0014",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {i \\in I} \\sum_ {j \\in J _ {i}} X _ {i, j, f, k, t} \\geq \\sum_ {i \\in I} \\sum_ {j \\in J _ {i}} X _ {i, j, f, k, t + 1},",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/81"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0015": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0015",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "(\\forall f \\in F, k \\in M, t \\in P _ {f, k} ^ {\\prime})\\tag{12}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/82"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0016": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0016",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "B _ {f, k, t + 1} - B _ {f, k, t} \\geq \\sum_ {i \\in I} \\sum_ {j \\in J _ {i}} X _ {i, j, f, k, t} T _ {i, j, f, k}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/83"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0017": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0017",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "(\\forall f \\in F, k \\in M, t \\in P _ {f, k} ^ {\\prime})\\tag{13}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/84"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0018": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0018",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "E _ {I f, k, t} \\geq \\left(B _ {f, k, t + 1} - B _ {f, k, t} - \\sum \\sum X _ {i, j, f, k, t} T _ {i, j, f, k}\\right) W _ {s}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/85"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0019": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0019",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "(\\forall f \\in F, k \\in M, t \\in P _ {f, k} ^ {\\prime})\\tag{14}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/86"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0020": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0020",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "B _ {f, k, t} \\geq S _ {f, i, j} - L \\left(1 - X _ {i, j, f, k, t}\\right)",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/87"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0021": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0021",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "(\\forall i \\in I, j \\in J _ {i}, f \\in F, k \\in M, t \\in P _ {f, k})\\tag{15}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/88"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0022": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0022",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "B _ {f, k, t} \\leq S _ {f, i, j} - L \\left(1 - X _ {i, j, f, k, t}\\right)",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/89"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0023": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0023",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "(\\forall i \\in I, j \\in J _ {i}, f \\in F, k \\in M, t \\in P _ {f, k})\\tag{16}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/90"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0024": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0024",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "0 \\leq B _ {f, k, t} \\leq L (\\forall i \\in I, j \\in J _ {i}, f \\in F, k \\in M, t \\in P _ {f, k})\\tag{17}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/91"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0025": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0025",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "0 \\leq S _ {f, i, j} \\leq L (\\forall i \\in I, j \\in J _ {i}, f \\in F, k \\in M, t \\in P _ {f, k}).\\tag{18}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/92"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0026": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0026",
+      "blockid": "af4d9d05068818630f9dc5c5aa63305a",
+      "heading": "E. Operator Selection Based on D3QN",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "\\begin{array}{c} Y _ {t} ^ {\\mathrm{DQN}} = R _ {t + 1} + \\gamma \\max _ {a} Q \\left(S _ {t + 1}, a; \\theta_ {t} ^ {-}\\right) \\\\ Y _ {t} ^ {\\mathrm{DoubleDQN}} = R _ {t + 1} + \\gamma \\max _ {a} Q \\\\ \\left(S _ {t + 1}, \\underset {a} {\\operatorname{argmax}} Q (S _ {t + 1}, a; \\theta_ {t}); \\theta_ {t} ^ {-}\\right). \\end{array}\\tag{19}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/132"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0027": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0027",
+      "blockid": "af4d9d05068818630f9dc5c5aa63305a",
+      "heading": "E. Operator Selection Based on D3QN",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "\\begin{array}{l} Q (s, a; \\theta , \\alpha , \\beta) = V (s; \\theta , \\beta) \\\\ \\qquad + \\left(A (s, a; \\theta , \\alpha) - \\frac {1}{| A |} \\sum_ {a ^ {\\prime}} A (s, a ^ {\\prime}; \\theta , \\alpha)\\right). \\end{array}\\tag{21}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/136"
+    },
+    "eq-14134317afd8f7893989aea5ef545cb8-0028": {
+      "id": "eq-14134317afd8f7893989aea5ef545cb8-0028",
+      "blockid": "02532edb92072ca9b6f96470f75aadfa",
+      "heading": "C. Component Separation Experiment",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "latex",
+      "content": "\\chi^ {2} = \\frac {1 2 b}{k (k + 1)} \\sum_ {i = 1} ^ {k} \\bar {R} _ {i} ^ {2} - 3 b (k + 1)",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/170"
+    }
+  }
+}

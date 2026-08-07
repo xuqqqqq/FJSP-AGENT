@@ -1,0 +1,166 @@
+{
+  "version": "1.0",
+  "engine": "mineru",
+  "api_mode": "local",
+  "engine_version": "",
+  "endpoint_signature": "",
+  "options_signature": "sha256:277b026335ce61369b2368b0d917ec71191e0e9d3f536344996696b9df7bf877",
+  "source_content_hash": "sha256:02739bd63a2455a25a4ec658d1d6ebbd134815ca921b1192b3783f7efbaa6b77",
+  "source_size_bytes": 3004037,
+  "source_filename_at_parse": "An effective heuristic for flexible job-shop scheduling problem with maintenance activities-3d02380f.pdf",
+  "task_id": "precomputed-mineru",
+  "downloaded_at": "2026-07-29T03:55:42.061435+00:00",
+  "critical_file": {
+    "path": "content_list.json",
+    "size": 132850,
+    "sha256": "sha256:c2fe5cc06732c9e0e6cfe9e0447a5461681f189f60f6ab110ba5afed1b1c4412"
+  },
+  "files": [
+    {
+      "path": "b14aa057-d74e-4e70-b9c5-25b73d68c01f_content_list_v2.json",
+      "size": 214102,
+      "sha256": null
+    },
+    {
+      "path": "block_list.json",
+      "size": 155916,
+      "sha256": null
+    },
+    {
+      "path": "full.md",
+      "size": 87247,
+      "sha256": null
+    },
+    {
+      "path": "images/064bab3e87822ce32ae16b2e18de8a4da40cb224b9842e60bbf089342ab6eb17.jpg",
+      "size": 44657,
+      "sha256": null
+    },
+    {
+      "path": "images/1ad5ec73b885ff6f1c26fc301702e201be853934c33c4457f23a1362f14b70c6.jpg",
+      "size": 40741,
+      "sha256": null
+    },
+    {
+      "path": "images/1d1aa8073e1663dc074ef1cf6595ab157ca66d7e4e35366c78ce9a2c0268014a.jpg",
+      "size": 33042,
+      "sha256": null
+    },
+    {
+      "path": "images/21886d128ef7da8502b303f3d1a5c97435299b4a7206ae8b7ed4f0c8d8fda9f0.jpg",
+      "size": 15603,
+      "sha256": null
+    },
+    {
+      "path": "images/2672fcc8e8739b4aecf184b7ef3ffe2e650d549d0a5d5e1073ef37c569181869.jpg",
+      "size": 36938,
+      "sha256": null
+    },
+    {
+      "path": "images/2e2e611485868dab95795162ccf28f5274d9645e1d67bac3e40cad18a8c73f7e.jpg",
+      "size": 38666,
+      "sha256": null
+    },
+    {
+      "path": "images/5075ff4c2057b91006e59e17e4d530990b85d711cbc1a36576658c2f0fd9d46f.jpg",
+      "size": 37896,
+      "sha256": null
+    },
+    {
+      "path": "images/523ce5fb7dc1aef5d4c820c2fb8640d3ef22167e5ce62a346f7bd061240990d4.jpg",
+      "size": 235466,
+      "sha256": null
+    },
+    {
+      "path": "images/5511cd76271ba2dc8872b105599f7560507aa36aab3b3a62e8fc197ad4235899.jpg",
+      "size": 383766,
+      "sha256": null
+    },
+    {
+      "path": "images/5767156e92a85cee64a2a1290830a010082c28a76cdc034c54d64c820f5c52ef.jpg",
+      "size": 9060,
+      "sha256": null
+    },
+    {
+      "path": "images/6cfc76df2144ddb558493398c9e708b608a8e8abe5785ca4e52d04969e9e235c.jpg",
+      "size": 36316,
+      "sha256": null
+    },
+    {
+      "path": "images/861aff68506444f9f139963987e40ce818714faad50801f34c641b84d18c0f4d.jpg",
+      "size": 37822,
+      "sha256": null
+    },
+    {
+      "path": "images/872a76e2da1eaba33831d0b3415d925e1cdbc459db5bed04bd11951310b133e0.jpg",
+      "size": 43002,
+      "sha256": null
+    },
+    {
+      "path": "images/875e8ec1cc5ce3d878646ab7bf4905dd7c91d0c78ed7d327a9f955e901f401c6.jpg",
+      "size": 194913,
+      "sha256": null
+    },
+    {
+      "path": "images/923af675fccabd553c409a185c2e28f72444efd3ede546003bf56b3542a58cbf.jpg",
+      "size": 19120,
+      "sha256": null
+    },
+    {
+      "path": "images/96630e839e99f1adfafd8e2918b21d7237b46bf35217d4615a941fe5003d6b24.jpg",
+      "size": 28294,
+      "sha256": null
+    },
+    {
+      "path": "images/a728f1aee48811932c5615b049842a9ae92c0006d604dd64c1f0ba665f85af46.jpg",
+      "size": 35230,
+      "sha256": null
+    },
+    {
+      "path": "images/abfccba8ab5d457db96c7dd610c27264eeb693c4070a59c533a222112c7baedc.jpg",
+      "size": 37273,
+      "sha256": null
+    },
+    {
+      "path": "images/ad1db9d27496ed87318d0db4d628fa4273ac1652b5abb6511b093f023e6279b3.jpg",
+      "size": 37680,
+      "sha256": null
+    },
+    {
+      "path": "images/ae2107f19fb477575d4ef204399b84b69cb2e930d839e7d5e683c8dca8ebdf76.jpg",
+      "size": 10749,
+      "sha256": null
+    },
+    {
+      "path": "images/c7d7b8e825c81d267f6e37401783882ad4ef9027bde16860974464819e9106bf.jpg",
+      "size": 76560,
+      "sha256": null
+    },
+    {
+      "path": "images/ccfd419f5323bbd594e9f1b3e7adccfc4738f5dae68d71694783e2524cb202ad.jpg",
+      "size": 15422,
+      "sha256": null
+    },
+    {
+      "path": "images/e1bfc3b04608f32f85ac2bf9b22da4b4221254e530548c82bfa7ec795f9396af.jpg",
+      "size": 20101,
+      "sha256": null
+    },
+    {
+      "path": "images/eb6ef731b3360f58a7b4b3da8f101e77fe6aa34d2cbd71d7b5d36d05798e7253.jpg",
+      "size": 39790,
+      "sha256": null
+    },
+    {
+      "path": "layout.json",
+      "size": 2072509,
+      "sha256": null
+    },
+    {
+      "path": "middle.json",
+      "size": 344717,
+      "sha256": null
+    }
+  ],
+  "total_size_bytes": 4515448
+}

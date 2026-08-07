@@ -1,0 +1,45 @@
+{
+  "version": "1.0",
+  "drawings": {
+    "im-e5d47f23ff2115fdf069ba128946a7e2-0001": {
+      "id": "im-e5d47f23ff2115fdf069ba128946a7e2-0001",
+      "blockid": "e0ad3914244d022ee197d088218f350e",
+      "heading": "An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers",
+      "parent_headings": [],
+      "format": "jpg",
+      "path": "An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers-316215e1.blocks.assets/8deb6a13445022441e075d9603c02f53acf1c70af875bed0eec8862c9ca13ef4.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/1"
+    },
+    "im-e5d47f23ff2115fdf069ba128946a7e2-0002": {
+      "id": "im-e5d47f23ff2115fdf069ba128946a7e2-0002",
+      "blockid": "ff40bf5f45bd72f0b7736b99ac98fa18",
+      "heading": "3.2.4. Crossover operator",
+      "parent_headings": [
+        "An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers"
+      ],
+      "format": "jpg",
+      "path": "An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers-316215e1.blocks.assets/b7f7d55ea99df91acd6581cd76be5416c2f856dfbfda713f4763a2076ebf626b.jpg",
+      "src": "",
+      "caption": "Fig. 4. MOX crossover on OS vector.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/121"
+    },
+    "im-e5d47f23ff2115fdf069ba128946a7e2-0003": {
+      "id": "im-e5d47f23ff2115fdf069ba128946a7e2-0003",
+      "blockid": "be7040e0337a67fbf8dbb4143bdf453a",
+      "heading": "3.2.6. Local search operator (LSO)",
+      "parent_headings": [
+        "An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers"
+      ],
+      "format": "jpg",
+      "path": "An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers-316215e1.blocks.assets/534f1cda342c0166ed600442e382d374ad5c8f764cb4af5682e97031bb8c426e.jpg",
+      "src": "",
+      "caption": "Fig. 6. Instance of RMM.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/138"
+    }
+  }
+}

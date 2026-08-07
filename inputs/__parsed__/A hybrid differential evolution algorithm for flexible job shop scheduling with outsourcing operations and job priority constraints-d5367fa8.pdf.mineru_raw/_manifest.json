@@ -1,0 +1,216 @@
+{
+  "version": "1.0",
+  "engine": "mineru",
+  "api_mode": "local",
+  "engine_version": "",
+  "endpoint_signature": "",
+  "options_signature": "sha256:277b026335ce61369b2368b0d917ec71191e0e9d3f536344996696b9df7bf877",
+  "source_content_hash": "sha256:5d713d72c8d21821f2ac91f105f41f17cd3ea39bb2c550e6c70eb47be107eed1",
+  "source_size_bytes": 3267427,
+  "source_filename_at_parse": "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints-d5367fa8.pdf",
+  "task_id": "precomputed-mineru",
+  "downloaded_at": "2026-08-04T13:46:25.959040+00:00",
+  "critical_file": {
+    "path": "content_list.json",
+    "size": 142396,
+    "sha256": "sha256:6e40fe14fe4d554a8c7ab573bf3aa41be56e662b2eaafe8a503b8fc52484f76a"
+  },
+  "files": [
+    {
+      "path": "0656a4d3-a029-4849-bbd9-72f0564ee869_content_list_v2.json",
+      "size": 248981,
+      "sha256": null
+    },
+    {
+      "path": "full.md",
+      "size": 83433,
+      "sha256": null
+    },
+    {
+      "path": "images/08c58123b5689ae288704546871907376e0d207927765df9cd04a037b0b74814.jpg",
+      "size": 28871,
+      "sha256": null
+    },
+    {
+      "path": "images/2441b950c70d4b12f8085a8bf395e74ceb12fded5e10f624cf2a4233ee26aa68.jpg",
+      "size": 139533,
+      "sha256": null
+    },
+    {
+      "path": "images/27e6624a81f3b41fd2872aef6f667833aa55a5da3e064ef90030688f18ed9f95.jpg",
+      "size": 50459,
+      "sha256": null
+    },
+    {
+      "path": "images/2896b89dd29779a910c3d4cb24e99391a7228133bcc9a33452155d100ec8fd6e.jpg",
+      "size": 5026,
+      "sha256": null
+    },
+    {
+      "path": "images/323e478ccccaf8a97a5c0f223e88a15866693c58df895601d00e879cf6b96f81.jpg",
+      "size": 4882,
+      "sha256": null
+    },
+    {
+      "path": "images/37ca92f9b4daac7819d7bc9425133c79926024628adadca17e57206e2297624a.jpg",
+      "size": 65658,
+      "sha256": null
+    },
+    {
+      "path": "images/49681dfdf51f1118f43fc78b7f91d446adb9ba394675c749bf0118f229740816.jpg",
+      "size": 71929,
+      "sha256": null
+    },
+    {
+      "path": "images/49f9c48425bcbb8923b4699c080319245c57e848d73f44e4f8fd470f4c395893.jpg",
+      "size": 71925,
+      "sha256": null
+    },
+    {
+      "path": "images/543706b7684781f381cd242fec4f05334e6ee69ff85120254cc43dac7527fef7.jpg",
+      "size": 3275,
+      "sha256": null
+    },
+    {
+      "path": "images/624829afc1c747536324d5df82d32b1936ce27eccf95365d70c37386279b0b5a.jpg",
+      "size": 70207,
+      "sha256": null
+    },
+    {
+      "path": "images/69d8d03755ae0119443ad6e52114114b01ab0a47a0d479058cc4975678d45878.jpg",
+      "size": 3481,
+      "sha256": null
+    },
+    {
+      "path": "images/6b0b92b09f96608d247f8495d5e1bdb1c54731f63858c445c18c9e0bd0e19996.jpg",
+      "size": 85169,
+      "sha256": null
+    },
+    {
+      "path": "images/6c7dcc3ee806a3f0acebc523d2bfd9abc83a2dbe5f46c9da193613b548eb654c.jpg",
+      "size": 41349,
+      "sha256": null
+    },
+    {
+      "path": "images/6d3e9569d22e8c97230afe6e499cdc48f3f1499c88768833520fb4f9a7e645a7.jpg",
+      "size": 5982,
+      "sha256": null
+    },
+    {
+      "path": "images/6fdef1a09bc33bae3f10d5e4591d599fd0469cc4338a10f33682394d2a6d6600.jpg",
+      "size": 3952,
+      "sha256": null
+    },
+    {
+      "path": "images/71e564d644813ffc881362a6aa9941f62e5e136cff6a373d3fe992120cc3b730.jpg",
+      "size": 3557,
+      "sha256": null
+    },
+    {
+      "path": "images/82291fc24269d83c2a809fb85951a3f4ee1ee0acfc83696e34ff9c4eea6552c0.jpg",
+      "size": 3414,
+      "sha256": null
+    },
+    {
+      "path": "images/830f2fb02cd5b08b36b8ba6996bbed3a1231f4241298e7db3463045482e728d9.jpg",
+      "size": 3917,
+      "sha256": null
+    },
+    {
+      "path": "images/84a0ed14ceb7ec269c2879ef3df632fa53ed62654836046879412239ab6da4c3.jpg",
+      "size": 2367,
+      "sha256": null
+    },
+    {
+      "path": "images/894645f40eaf2fed0b4375f440880380992a19595c24e80d04e5f215979b1e2a.jpg",
+      "size": 3660,
+      "sha256": null
+    },
+    {
+      "path": "images/8fd03d0f90741a819ce238e03075d658170f96bfe10b03892b5ad389feafc417.jpg",
+      "size": 5253,
+      "sha256": null
+    },
+    {
+      "path": "images/918468cac21e9f4ef4aa6b4a5bac8c88a31045bc337007f0fc42b492e0ce11fd.jpg",
+      "size": 33031,
+      "sha256": null
+    },
+    {
+      "path": "images/9201824dccdd44dc120217b5d559bb6bc497441b11b036be2920b3ba6bfe48aa.jpg",
+      "size": 7431,
+      "sha256": null
+    },
+    {
+      "path": "images/951ae4427761e2772d3788bd56a58186ecf9804e496cce5be0ba7ba58e70b9f0.jpg",
+      "size": 2282,
+      "sha256": null
+    },
+    {
+      "path": "images/9bd8e62c9391e15752f61cee8bb20992a01dcc20b8e06f87ef9b88c866b52883.jpg",
+      "size": 85512,
+      "sha256": null
+    },
+    {
+      "path": "images/9cc1b232e2e5a6e0dffd26a81552cbf238843b51c032df3b58e7f7c748586b67.jpg",
+      "size": 6975,
+      "sha256": null
+    },
+    {
+      "path": "images/a58aa0c384a7ce0053c4ed2030f2e6bfebb4544f709004e5618bcf584f1ff9ad.jpg",
+      "size": 4416,
+      "sha256": null
+    },
+    {
+      "path": "images/aa9239fc01efc19e25ff4a9a6f2a7fccc9017fcd20650cdcc45313a51bd921da.jpg",
+      "size": 51846,
+      "sha256": null
+    },
+    {
+      "path": "images/ac095ebad6b60a5a2c6986e63b598032a3fe48c9c18748ddffdfc820ee594e9c.jpg",
+      "size": 3150,
+      "sha256": null
+    },
+    {
+      "path": "images/acbce4fc56465d8ec4645f040d0457edc8bb892b7a437005a9fadc9db0e60336.jpg",
+      "size": 65073,
+      "sha256": null
+    },
+    {
+      "path": "images/b2dfe655e8403a5971a49601cb83fa534a36fde9df1202fa688e0ff1a34ee2f6.jpg",
+      "size": 26351,
+      "sha256": null
+    },
+    {
+      "path": "images/cb7bcebe9208b25576436213be757041d657755c29c043233453a740e4ef17de.jpg",
+      "size": 71006,
+      "sha256": null
+    },
+    {
+      "path": "images/cd00252424570e3811cd42090690d5d7c1fd8bdd16614d05d9972595c7d58c83.jpg",
+      "size": 87212,
+      "sha256": null
+    },
+    {
+      "path": "images/f05546cbd8c2434212d1c500c96ccf7070d68fe3d46dc7a85f11446544dd7f2c.jpg",
+      "size": 3149,
+      "sha256": null
+    },
+    {
+      "path": "images/fa5191562a5babdd688dac8a22e0a6a8708fa5a8aa1c91c2d3a62f1de67945f0.jpg",
+      "size": 60155,
+      "sha256": null
+    },
+    {
+      "path": "layout.json",
+      "size": 2406044,
+      "sha256": null
+    },
+    {
+      "path": "middle.json",
+      "size": 396482,
+      "sha256": null
+    }
+  ],
+  "total_size_bytes": 4458791
+}

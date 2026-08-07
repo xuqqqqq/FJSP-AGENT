@@ -64,6 +64,13 @@ def build_worker_assignment(
     quality_contract = build_agent_generated_solver_quality_contract(context)
     evaluator_protocol = context.get("evaluator_protocol") if isinstance(context.get("evaluator_protocol"), dict) else {}
     edit_policy = context.get("edit_policy") if isinstance(context.get("edit_policy"), dict) else {}
+    evaluator_script = _evaluator_script_path(evaluator_protocol)
+    forbidden_paths = _unique_strings(
+        [
+            *(str(item) for item in edit_policy.get("forbidden_paths") or []),
+            *([evaluator_script] if evaluator_script else []),
+        ]
+    )
     latest_feedback = _assignment_feedback(loop_feedback, attempt_index=attempt_index)
     incumbent_assessment = (
         direction_plan.get("incumbent_assessment")
@@ -201,7 +208,7 @@ def build_worker_assignment(
         forbidden=_unique_strings(
             [
                 *(_strings(direction_plan.get("avoid"), limit=12)),
-                *(str(item) for item in edit_policy.get("forbidden_paths") or []),
+                *forbidden_paths,
                 "Do not choose a different method package or broaden this assignment.",
                 "The standalone target must not import harness_agent, evaluator modules, or knowledge assets at runtime.",
                 "Do not use previous solution files, fixed schedules, or target scores.",
@@ -234,14 +241,16 @@ def build_worker_assignment(
         },
         runtime_contract={
             "problem_family": (context.get("task") or {}).get("problem_family"),
+            "objectives": (context.get("task") or {}).get("objectives") or [],
             "solver_command_template": evaluator_protocol.get("solver_command_template"),
+            "evaluator_command_template": evaluator_protocol.get("evaluator_command_template"),
             "solution_format": evaluator_protocol.get("solution_format"),
             "solution_contract": evaluator_protocol.get("solution_contract") or {},
             "active_features": quality_contract.get("active_features") or [],
             "required_code_capabilities": quality_contract.get("required_code_capabilities") or [],
             "variant_required_code_capabilities": quality_contract.get("variant_required_code_capabilities") or [],
             "allowed_paths": edit_policy.get("allowed_paths") or [],
-            "forbidden_paths": edit_policy.get("forbidden_paths") or [],
+            "forbidden_paths": forbidden_paths,
             "experiment_contract": {
                 "stage": direction_plan.get("experiment_stage") or "probe",
                 "activation_checks": _compact_activation_checks(direction_plan.get("activation_checks")),
@@ -304,6 +313,17 @@ def write_worker_assignment(path: Path, assignment: WorkerAssignment) -> Path:
 def _solver_target(context: dict[str, Any]) -> str:
     protocol = context.get("evaluator_protocol") if isinstance(context.get("evaluator_protocol"), dict) else {}
     template = str(protocol.get("solver_command_template") or "")
+    script_path = _first_python_script_from_command(template)
+    if script_path:
+        return script_path
+    return "examples/agent_generated_fjsp_solver.py"
+
+
+def _evaluator_script_path(evaluator_protocol: dict[str, Any]) -> str:
+    return _first_python_script_from_command(str(evaluator_protocol.get("evaluator_command_template") or ""))
+
+
+def _first_python_script_from_command(template: str) -> str:
     try:
         tokens = shlex.split(template, posix=False)
     except ValueError:
@@ -312,7 +332,7 @@ def _solver_target(context: dict[str, Any]) -> str:
         candidate = token.strip('"\'').replace("\\", "/")
         if candidate.lower().endswith(".py"):
             return candidate
-    return "examples/agent_generated_fjsp_solver.py"
+    return ""
 
 
 def _selected_method_package(context: dict[str, Any], direction_plan: dict[str, Any]) -> dict[str, Any]:
@@ -405,9 +425,9 @@ def _assignment_read_set(
         else {}
     )
     query = [str(item).strip().lower() for item in direction_plan.get("knowledge_query") or [] if str(item).strip()]
-    direction_paths = list(active_direction_knowledge.get("paths") or [])
+    direction_paths = _unique_strings([str(path) for path in active_direction_knowledge.get("paths") or []])
     if query:
-        direction_paths = [
+        static_direction_paths = [
             str(path)
             for path in select_tagged_knowledge_cards(
                 problem_family=str(task.get("problem_family") or ""),
@@ -420,6 +440,7 @@ def _assignment_read_set(
                 active_features=[str(item) for item in package_catalog.get("active_features") or []],
             ).cards
         ]
+        direction_paths = _unique_strings([*direction_paths, *static_direction_paths])
     if include_implementation_asset:
         implementation_asset = _safe_read_path(active_package.get("implementation_asset"))
         if implementation_asset:

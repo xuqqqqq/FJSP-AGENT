@@ -1,0 +1,110 @@
+{
+  "version": "1.0",
+  "tables": {
+    "tb-c8d4aded27e72d48668c384b0a9eb7ec-0001": {
+      "id": "tb-c8d4aded27e72d48668c384b0a9eb7ec-0001",
+      "blockid": "c8c2707756536a36039e12328c921e9b",
+      "heading": "3.1. Problem description",
+      "parent_headings": [
+        "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints"
+      ],
+      "dimension": [
+        14,
+        8
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Jobs</td><td rowspan=\"2\">Priority</td><td rowspan=\"2\">Operations</td><td colspan=\"2\">This workshop</td><td colspan=\"3\">Another workshop</td></tr><tr><td>Resources</td><td>preparation and processing time of different machines or workers (unit: minute)</td><td>Resources</td><td>outsourcing start and end time</td><td>preparation and processing time (unit: minute)</td></tr><tr><td rowspan=\"3\"> $J_1$ </td><td rowspan=\"3\">1</td><td> $O_{11}$ </td><td> $R_1(M_1,M_2)$ </td><td>{10, 40}, {10, 40}</td><td>—</td><td>—</td><td>—</td></tr><tr><td> $O_{12}$ </td><td> $R_2(M_3,M_4)$ </td><td>{10, 15}, {10, 20}</td><td>—</td><td>—</td><td>—</td></tr><tr><td> $O_{13}$ </td><td> $R_3(W_1,W_2)$ </td><td>{5, 15}, {5, 20}</td><td>—</td><td>—</td><td>—</td></tr><tr><td rowspan=\"2\"> $J_2$ </td><td rowspan=\"2\">2</td><td> $O_{21}$ </td><td>—</td><td>—</td><td> $R_4$ </td><td>[30,90]</td><td>{20, 30}</td></tr><tr><td> $O_{22}$ </td><td> $R_2(M_3,M_4)$ </td><td>{5, 35}, {5, 30}</td><td>—</td><td>—</td><td>—</td></tr><tr><td rowspan=\"4\"> $J_3$ </td><td rowspan=\"4\">3</td><td> $O_{31}$ </td><td> $R_1(M_1,M_2)$ </td><td>{10, 20}, {10, 25}</td><td>—</td><td>—</td><td>—</td></tr><tr><td> $O_{32}$ </td><td> $R_2(M_3,M_4)$ </td><td>{10, 35}, {10, 40}</td><td>—</td><td>—</td><td>—</td></tr><tr><td> $O_{33}$ </td><td>—</td><td>—</td><td> $R_5$ </td><td>[90,145]</td><td>{15, 40}</td></tr><tr><td> $O_{34}$ </td><td> $R_1(M_1,M_2)$ </td><td>{5, 35}, {5, 35}</td><td>—</td><td>—</td><td>—</td></tr><tr><td rowspan=\"3\"> $J_4$ </td><td rowspan=\"3\">1</td><td> $O_{41}$ </td><td> $R_2(M_3,M_4)$ </td><td>{10, 20}, {10, 22}</td><td>—</td><td>—</td><td>—</td></tr><tr><td> $O_{42}$ </td><td> $R_3(W_1,W_2)$ </td><td>{10, 40}, {10, 40}</td><td>—</td><td>—</td><td>—</td></tr><tr><td> $O_{43}$ </td><td> $R_3(W_1,W_2)$ </td><td>{5, 20}, {5, 15}</td><td>—</td><td>—</td><td>—</td></tr></table>",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/55"
+    },
+    "tb-c8d4aded27e72d48668c384b0a9eb7ec-0002": {
+      "id": "tb-c8d4aded27e72d48668c384b0a9eb7ec-0002",
+      "blockid": "2727e84af69a1a13c973c3a266161407",
+      "heading": "4.2. Chromosome encoding and decoding",
+      "parent_headings": [
+        "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints"
+      ],
+      "dimension": [
+        8,
+        13
+      ],
+      "format": "html",
+      "content": "<table><tr><td>Jobs</td><td colspan=\"3\"> $J_1$ </td><td colspan=\"2\"> $J_2$ </td><td colspan=\"4\"> $J_3$ </td><td colspan=\"3\"> $J_4$ </td></tr><tr><td>Operations</td><td> $O_{11}$ </td><td> $O_{12}$ </td><td> $O_{13}$ </td><td> $O_{21}$ </td><td> $O_{22}$ </td><td> $O_{31}$ </td><td> $O_{32}$ </td><td> $O_{33}$ </td><td> $O_{34}$ </td><td> $O_{41}$ </td><td> $O_{42}$ </td><td> $O_{43}$ </td></tr><tr><td> $M_1$ </td><td>0.5</td><td>—</td><td>—</td><td>—</td><td>—</td><td>0.55</td><td>—</td><td>—</td><td>0.5</td><td>—</td><td>—</td><td>—</td></tr><tr><td> $M_2$ </td><td>1</td><td>—</td><td>—</td><td>—</td><td>—</td><td>1</td><td>—</td><td>—</td><td>1</td><td>—</td><td>—</td><td>—</td></tr><tr><td> $M_3$ </td><td>—</td><td>0.45</td><td>—</td><td>—</td><td>0.53</td><td>—</td><td>0.47</td><td>—</td><td>—</td><td>0.48</td><td>—</td><td>—</td></tr><tr><td> $M_4$ </td><td>—</td><td>1</td><td>—</td><td>—</td><td>1</td><td>—</td><td>1</td><td>—</td><td>—</td><td>1</td><td>—</td><td>—</td></tr><tr><td> $W_1$ </td><td>—</td><td>—</td><td>0.44</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>0.5</td><td>0.56</td></tr><tr><td> $W_2$ </td><td>—</td><td>—</td><td>1</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>1</td><td>1</td></tr></table>",
+      "caption": "Table 2",
+      "footnotes": [],
+      "self_ref": "content_list.json#/148"
+    },
+    "tb-c8d4aded27e72d48668c384b0a9eb7ec-0003": {
+      "id": "tb-c8d4aded27e72d48668c384b0a9eb7ec-0003",
+      "blockid": "2727e84af69a1a13c973c3a266161407",
+      "heading": "4.2. Chromosome encoding and decoding",
+      "parent_headings": [
+        "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints"
+      ],
+      "dimension": [
+        7,
+        2
+      ],
+      "format": "html",
+      "content": "<table><tr><td>Strategies</td><td>Equations</td></tr><tr><td>rand/1/bin</td><td> $v_{k}^{G+1} = x_{r1}^{G} + F(x_{r2}^{G} - x_{r3}^{G})$ </td></tr><tr><td>best/1/bin</td><td> $v_{k}^{G+1} = x_{best}^{G} + F(x_{r1}^{G} - x_{r2}^{G})$ </td></tr><tr><td>rand to best/1/bin</td><td> $v_{k}^{G+1} = x_{k}^{G} + F(x_{best}^{G} - x_{k}^{G}) + F(x_{r1}^{G} - x_{r2}^{G})$ </td></tr><tr><td>rand/2/bin</td><td> $v_{k}^{G+1} = x_{r1}^{G} + F(x_{r2}^{G} - x_{r3}^{G}) + F(x_{r4}^{G} - x_{r5}^{G})$ </td></tr><tr><td>best/2/bin</td><td> $v_{k}^{G+1} = x_{best}^{G} + F(x_{r1}^{G} - x_{r2}^{G}) + F(x_{r3}^{G} - x_{r4}^{G})$ </td></tr><tr><td>rand to best/2/bin</td><td> $v_{k}^{G+1} = x_{k}^{G} + F(x_{best}^{G} - x_{k}^{G}) + F(x_{r1}^{G} - x_{r2}^{G}) + F(x_{r3}^{G} - x_{r4}^{G})$ </td></tr></table>",
+      "caption": "Table 3",
+      "footnotes": [],
+      "self_ref": "content_list.json#/165"
+    },
+    "tb-c8d4aded27e72d48668c384b0a9eb7ec-0004": {
+      "id": "tb-c8d4aded27e72d48668c384b0a9eb7ec-0004",
+      "blockid": "72b2893dfb46e8b2bc8b050e95d0505b",
+      "heading": "4.5. Self-adaptive control of the parameters",
+      "parent_headings": [
+        "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints"
+      ],
+      "dimension": [
+        10,
+        2
+      ],
+      "format": "html",
+      "content": "<table><tr><td>1:</td><td>Generate a random integer  $N_{J}$  in the range [J/2, J]</td></tr><tr><td>2:</td><td>For j = 1 to  $N_{J}$ </td></tr><tr><td>3:</td><td>generate the due date  $L_{j}$ , the order quantity  $N_{j}$  and the priority  $P_{j}$ </td></tr><tr><td>4:</td><td>generate an available resource set R including machines and workers</td></tr><tr><td>5:</td><td>generate the number  $N_{r}$  of each resource randomly</td></tr><tr><td>6:</td><td>generate a random integer  $N_{I}$  in the range [I/2, I]</td></tr><tr><td>7:</td><td>For i = 1 to  $N_{I}$ </td></tr><tr><td>8:</td><td>generate the preparing and processing time matrix  $t_{jia}^{rn}$  and  $t_{jib}^{rn}$ </td></tr><tr><td>9:</td><td>End For</td></tr><tr><td>10:</td><td>End For</td></tr></table>",
+      "caption": "Table 4 Instance generation.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/193"
+    },
+    "tb-c8d4aded27e72d48668c384b0a9eb7ec-0005": {
+      "id": "tb-c8d4aded27e72d48668c384b0a9eb7ec-0005",
+      "blockid": "b56e5ee81b11423bb25582dbbf737614",
+      "heading": "5.1. Instance generation",
+      "parent_headings": [
+        "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints"
+      ],
+      "dimension": [
+        22,
+        7
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Instances No.</td><td rowspan=\"2\"></td><td colspan=\"2\">CPLEX</td><td colspan=\"2\">HSDE</td><td rowspan=\"2\">Gap(%)</td></tr><tr><td> $\\Psi^*$ </td><td>Time (second)</td><td> $\\Psi^*$ </td><td>Time (second)</td></tr><tr><td rowspan=\"10\"> $t_{jib}^{m} = t_{jib}^{m}, \\forall j \\in J, i \\in I, r \\in R, n, n' \\in r, n \\neq n'$ </td><td>1 (9 × 10 × 5 × 5)</td><td>12</td><td>8.42</td><td>12</td><td>29.1</td><td>0</td></tr><tr><td>2 (10 × 10 × 5 × 5)</td><td>2</td><td>24.9</td><td>2</td><td>36.7</td><td>0</td></tr><tr><td>3 (11 × 10 × 5 × 5)</td><td>820</td><td>42.4</td><td>820</td><td>27.3</td><td>0</td></tr><tr><td>4 (12 × 10 × 5 × 5)</td><td>1776</td><td>73.4</td><td>1777</td><td>127.3</td><td>0.056</td></tr><tr><td>5 (13 × 10 × 5 × 5)</td><td>23</td><td>90.7</td><td>23</td><td>169.0</td><td>0</td></tr><tr><td>6 (14 × 10 × 5 × 5)</td><td>1100</td><td>50.4</td><td>1100</td><td>178.1</td><td>0</td></tr><tr><td>7 (15 × 10 × 5 × 5)</td><td>3006</td><td>147.7</td><td>3006</td><td>206.9</td><td>0</td></tr><tr><td>8 (16 × 10 × 5 × 5)</td><td>1001</td><td>113.2</td><td>1016</td><td>223.8</td><td>1.50</td></tr><tr><td>9 (18 × 10 × 5 × 5)</td><td>400</td><td>306.1</td><td>411</td><td>215.3</td><td>2.75</td></tr><tr><td>10 (20 × 10 × 5 × 5)</td><td>611</td><td>4830.9</td><td>633</td><td>276.5</td><td>3.60</td></tr><tr><td rowspan=\"10\"> $t_{jib}^{m} \\neq t_{jib}^{m}, \\forall j \\in J, i \\in I, r \\in R, n, n' \\in r, n \\neq n'$ </td><td>11 (9 × 10 × 5 × 5)</td><td>1</td><td>26.2</td><td>1</td><td>41.6</td><td>0</td></tr><tr><td>12 (10 × 10 × 5 × 4)</td><td>2</td><td>21.3</td><td>2</td><td>136.5</td><td>0</td></tr><tr><td>13 (11 × 10 × 5 × 4)</td><td>20</td><td>138.7</td><td>20</td><td>158.8</td><td>0</td></tr><tr><td>14 (12 × 10 × 5 × 5)</td><td>1646</td><td>328.3</td><td>1656</td><td>175.5</td><td>0.61</td></tr><tr><td>15 (13 × 10 × 5 × 5)</td><td>22</td><td>53.8</td><td>22</td><td>170.6</td><td>0</td></tr><tr><td>16 (14 × 10 × 5 × 5)</td><td>210</td><td>248.2</td><td>217</td><td>187.2</td><td>3.33</td></tr><tr><td>17 (15 × 10 × 5 × 5)</td><td>2006</td><td>304.5</td><td>2006</td><td>212.2</td><td>0</td></tr><tr><td>18 (16 × 10 × 5 × 5)</td><td>321</td><td>798.6</td><td>334</td><td>284.3</td><td>4.05</td></tr><tr><td>19 (18 × 10 × 5 × 5)</td><td>201</td><td>2225.4</td><td>211</td><td>309.5</td><td>4.98</td></tr><tr><td>20 (20 × 10 × 5 × 5)</td><td>914</td><td>7200+</td><td>958</td><td>398.4</td><td>4.81</td></tr></table>",
+      "caption": "Table 5",
+      "footnotes": [
+        "① Gap = (objective value from the HSDE − objective value from CPLEX) × 100 / objective value from CPLEX.",
+        "② <sup>+</sup> indicates that the computation time has exceeded the limit."
+      ],
+      "self_ref": "content_list.json#/203"
+    },
+    "tb-c8d4aded27e72d48668c384b0a9eb7ec-0006": {
+      "id": "tb-c8d4aded27e72d48668c384b0a9eb7ec-0006",
+      "blockid": "58e46398be70cd71d1b118683bf16031",
+      "heading": "5.2. Parameter setting",
+      "parent_headings": [
+        "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints"
+      ],
+      "dimension": [
+        22,
+        14
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Instances No.</td><td rowspan=\"2\"></td><td colspan=\"2\">HSDE</td><td colspan=\"2\">DE</td><td colspan=\"2\">SDE</td><td colspan=\"2\">GA</td><td colspan=\"2\">PSO</td><td colspan=\"2\">SA</td></tr><tr><td> $\\Psi^*$ </td><td>Time</td><td> $\\Psi^*$ </td><td>Time</td><td> $\\Psi^*$ </td><td>Time</td><td> $\\Psi^*$ </td><td>Time</td><td> $\\Psi^*$ </td><td>Time</td><td> $\\Psi^*$ </td><td>Time</td></tr><tr><td rowspan=\"10\"> $t_{jib}^{m}=t_{jib}^{m},\\forall j\\in J,i\\in I,r\\in R,n,n'\\in r,n\\neq n'$ </td><td>21</td><td>314</td><td>760.3</td><td>565</td><td>848.2</td><td>726</td><td>731.9</td><td>727</td><td>758.5</td><td>658</td><td>867.8</td><td>681</td><td>941.6</td></tr><tr><td>22</td><td>412</td><td>780.3</td><td>811</td><td>883.1</td><td>923</td><td>778.5</td><td>940</td><td>799.2</td><td>971</td><td>917.7</td><td>800</td><td>989.4</td></tr><tr><td>23</td><td>1037</td><td>853.7</td><td>2679</td><td>913.9</td><td>2754</td><td>803.4</td><td>2426</td><td>850.1</td><td>2196</td><td>1022.0</td><td>2283</td><td>1090.4</td></tr><tr><td>24</td><td>418</td><td>881.2</td><td>4167</td><td>955.1</td><td>3466</td><td>824.9</td><td>3341</td><td>863.0</td><td>3228</td><td>1049.7</td><td>3537</td><td>1121.8</td></tr><tr><td>25</td><td>466</td><td>935.4</td><td>6039</td><td>998.6</td><td>4538</td><td>856.5</td><td>5509</td><td>912.2</td><td>6447</td><td>1107.9</td><td>5666</td><td>1187.8</td></tr><tr><td>26</td><td>84</td><td>1078.1</td><td>4080</td><td>1084.8</td><td>4024</td><td>926.8</td><td>3036</td><td>950.8</td><td>4434</td><td>1174.3</td><td>3135</td><td>1263.5</td></tr><tr><td>27</td><td>1209</td><td>962.8</td><td>8038</td><td>1130.9</td><td>6642</td><td>963.5</td><td>7102</td><td>981.3</td><td>8401</td><td>1234.8</td><td>8410</td><td>1307.9</td></tr><tr><td>28</td><td>411</td><td>1000.4</td><td>5964</td><td>1294.3</td><td>6363</td><td>1000.3</td><td>3930</td><td>1019.4</td><td>7567</td><td>1263.6</td><td>5925</td><td>1358.0</td></tr><tr><td>29</td><td>328</td><td>1032.2</td><td>9213</td><td>1255.5</td><td>6862</td><td>1029.0</td><td>5771</td><td>1047.7</td><td>7109</td><td>1317.1</td><td>7906</td><td>1402.4</td></tr><tr><td>30</td><td>66</td><td>1103.2</td><td>9986</td><td>1297.3</td><td>8819</td><td>1254.6</td><td>9684</td><td>1110.1</td><td>8132</td><td>1417.7</td><td>11,039</td><td>1484.8</td></tr><tr><td rowspan=\"10\"> $t_{jib}^{m}\\neq t_{jib}^{m},\\forall j\\in J,i\\in I,r\\in R,n,n'\\in r,n\\neq n'$ </td><td>31</td><td>216</td><td>836.7</td><td>636</td><td>839.1</td><td>858</td><td>841.4</td><td>719</td><td>721.3</td><td>754</td><td>886.8</td><td>643</td><td>954.5</td></tr><tr><td>32</td><td>214</td><td>863.4</td><td>950</td><td>866.3</td><td>1076</td><td>846.7</td><td>663</td><td>745.5</td><td>851</td><td>942.2</td><td>895</td><td>996.4</td></tr><tr><td>33</td><td>724</td><td>963.9</td><td>2571</td><td>963.5</td><td>2306</td><td>952.0</td><td>2517</td><td>824.3</td><td>2693</td><td>1047.2</td><td>2607</td><td>1104.8</td></tr><tr><td>34</td><td>211</td><td>992.5</td><td>2874</td><td>999.0</td><td>2513</td><td>979.8</td><td>3618</td><td>859.1</td><td>3456</td><td>1082.7</td><td>3131</td><td>1139.5</td></tr><tr><td>35</td><td>117</td><td>1033.7</td><td>6281</td><td>1041.4</td><td>4168</td><td>1035.9</td><td>5757</td><td>898.3</td><td>6971</td><td>1123.8</td><td>5523</td><td>1187.3</td></tr><tr><td>36</td><td>20</td><td>1113.1</td><td>3962</td><td>1115.0</td><td>3258</td><td>1100.3</td><td>3748</td><td>964.1</td><td>2727</td><td>1212.0</td><td>3904</td><td>1277.7</td></tr><tr><td>37</td><td>1</td><td>1150.0</td><td>7353</td><td>1156.7</td><td>5598</td><td>1151.3</td><td>8904</td><td>991.7</td><td>9291</td><td>1259.1</td><td>7978</td><td>1323.3</td></tr><tr><td>38</td><td>138</td><td>1197.2</td><td>6620</td><td>1197.7</td><td>5638</td><td>1190.9</td><td>5230</td><td>1036.0</td><td>4667</td><td>1306.3</td><td>5686</td><td>1368.8</td></tr><tr><td>39</td><td>32</td><td>1247.4</td><td>9437</td><td>1233.2</td><td>6160</td><td>1238.9</td><td>8108</td><td>1069.1</td><td>8960</td><td>1348.7</td><td>8394</td><td>1414.9</td></tr><tr><td>40</td><td>0</td><td>1303.0</td><td>10,326</td><td>1291.4</td><td>8760</td><td>1298.2</td><td>10,025</td><td>1126.0</td><td>7329</td><td>1428.4</td><td>10,067</td><td>1491.1</td></tr></table>",
+      "caption": "Table 6",
+      "footnotes": [],
+      "self_ref": "content_list.json#/209"
+    }
+  }
+}

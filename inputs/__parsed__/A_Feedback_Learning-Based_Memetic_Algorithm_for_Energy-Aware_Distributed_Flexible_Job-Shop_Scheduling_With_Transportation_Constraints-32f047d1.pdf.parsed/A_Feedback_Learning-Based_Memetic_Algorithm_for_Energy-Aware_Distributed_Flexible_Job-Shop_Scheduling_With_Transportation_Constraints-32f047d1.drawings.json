@@ -1,0 +1,145 @@
+{
+  "version": "1.0",
+  "drawings": {
+    "im-3064a959dca3e0581ecf9bc89a1a99fd-0001": {
+      "id": "im-3064a959dca3e0581ecf9bc89a1a99fd-0001",
+      "blockid": "55b6aa67eb2db90de27ca37de93d6814",
+      "heading": "A. Problem Description",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "jpg",
+      "path": "A_Feedback_Learning-Based_Memetic_Algorithm_for_Energy-Aware_Distributed_Flexible_Job-Shop_Scheduling_With_Transportation_Constraints-32f047d1.blocks.assets/cfa535301630b2caefada0a0d87d9f11441ff933e54771e738c0d8649ecc1bd9.jpg",
+      "src": "",
+      "caption": "Fig. 1. Illustration of distributed flexible job-shop with limited AGVs.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/35"
+    },
+    "im-3064a959dca3e0581ecf9bc89a1a99fd-0002": {
+      "id": "im-3064a959dca3e0581ecf9bc89a1a99fd-0002",
+      "blockid": "60768e57310efe317becdce55a007278",
+      "heading": "A. Basic Memetic Algorithm and Description of the FLMA",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "jpg",
+      "path": "A_Feedback_Learning-Based_Memetic_Algorithm_for_Energy-Aware_Distributed_Flexible_Job-Shop_Scheduling_With_Transportation_Constraints-32f047d1.blocks.assets/24da944efdefbb4e71d85be90c453fe0a2c8439a8b0770f31ac8a1ec551cf154.jpg",
+      "src": "",
+      "caption": "Fig. 2. Flowchart of the basic MA.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/121"
+    },
+    "im-3064a959dca3e0581ecf9bc89a1a99fd-0003": {
+      "id": "im-3064a959dca3e0581ecf9bc89a1a99fd-0003",
+      "blockid": "60768e57310efe317becdce55a007278",
+      "heading": "A. Basic Memetic Algorithm and Description of the FLMA",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "jpg",
+      "path": "A_Feedback_Learning-Based_Memetic_Algorithm_for_Energy-Aware_Distributed_Flexible_Job-Shop_Scheduling_With_Transportation_Constraints-32f047d1.blocks.assets/576a0c3f055f205beb4bc847a8c4a029754a73e1373c8d024eddf732ba2d4177.jpg",
+      "src": "",
+      "caption": "Fig. 3. Illustration of the search mechanism of the FLMA.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/122"
+    },
+    "im-3064a959dca3e0581ecf9bc89a1a99fd-0004": {
+      "id": "im-3064a959dca3e0581ecf9bc89a1a99fd-0004",
+      "blockid": "232174676ff975d1e2a8d815b581ddc5",
+      "heading": "C. Encoding and Decoding",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "jpg",
+      "path": "A_Feedback_Learning-Based_Memetic_Algorithm_for_Energy-Aware_Distributed_Flexible_Job-Shop_Scheduling_With_Transportation_Constraints-32f047d1.blocks.assets/8f042e48d4a717c66d37d0ee1e8bac67d8a6aeec2299eac8b2c78fe0068d0eb9.jpg",
+      "src": "",
+      "caption": "Fig. 4. Example of an encoded solution.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/145"
+    },
+    "im-3064a959dca3e0581ecf9bc89a1a99fd-0005": {
+      "id": "im-3064a959dca3e0581ecf9bc89a1a99fd-0005",
+      "blockid": "37c06e8b65513207b22abcda1879884f",
+      "heading": "E. Problem-Specific Operators",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "jpg",
+      "path": "A_Feedback_Learning-Based_Memetic_Algorithm_for_Energy-Aware_Distributed_Flexible_Job-Shop_Scheduling_With_Transportation_Constraints-32f047d1.blocks.assets/dbd655e2d60d77246d5e9c9230001a3e6cff1a26b42432cf510784e0677447b7.jpg",
+      "src": "",
+      "caption": "Fig. 5. Illustration of reencode operator.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/155"
+    },
+    "im-3064a959dca3e0581ecf9bc89a1a99fd-0006": {
+      "id": "im-3064a959dca3e0581ecf9bc89a1a99fd-0006",
+      "blockid": "5a46d05fa3dc9e8f4273b0f1007bea8b",
+      "heading": "F. Memetic Search With Feedback Learning",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "jpg",
+      "path": "A_Feedback_Learning-Based_Memetic_Algorithm_for_Energy-Aware_Distributed_Flexible_Job-Shop_Scheduling_With_Transportation_Constraints-32f047d1.blocks.assets/052c622e5f582ec19e12bb7d4779ef237338277c51218f750fef10b3dafd0ee5.jpg",
+      "src": "",
+      "caption": "Fig. 6. Illustration of subregion in objective space.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/176"
+    },
+    "im-3064a959dca3e0581ecf9bc89a1a99fd-0007": {
+      "id": "im-3064a959dca3e0581ecf9bc89a1a99fd-0007",
+      "blockid": "24a56ab2ca810abf973fa393e4483b24",
+      "heading": "H. Framework and Complexity Analysis of FLMA",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "jpg",
+      "path": "A_Feedback_Learning-Based_Memetic_Algorithm_for_Energy-Aware_Distributed_Flexible_Job-Shop_Scheduling_With_Transportation_Constraints-32f047d1.blocks.assets/047c902002ee0fd81cd03e0f775eaf2a486abc2ff51f0327f75f02a6289546d8.jpg",
+      "src": "",
+      "caption": "Fig. 7. Framework of the FLMA.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/206"
+    },
+    "im-3064a959dca3e0581ecf9bc89a1a99fd-0008": {
+      "id": "im-3064a959dca3e0581ecf9bc89a1a99fd-0008",
+      "blockid": "f01a2cb69acf9c1dcba57cac1ff22f80",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "jpg",
+      "path": "A_Feedback_Learning-Based_Memetic_Algorithm_for_Energy-Aware_Distributed_Flexible_Job-Shop_Scheduling_With_Transportation_Constraints-32f047d1.blocks.assets/bf3bb538d1b5f77e187119f48f9226d3e015e41ff1cd293e48f04765579c84ee.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/310"
+    },
+    "im-3064a959dca3e0581ecf9bc89a1a99fd-0009": {
+      "id": "im-3064a959dca3e0581ecf9bc89a1a99fd-0009",
+      "blockid": "f01a2cb69acf9c1dcba57cac1ff22f80",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "jpg",
+      "path": "A_Feedback_Learning-Based_Memetic_Algorithm_for_Energy-Aware_Distributed_Flexible_Job-Shop_Scheduling_With_Transportation_Constraints-32f047d1.blocks.assets/6ed686592066626f27adb48a2432bf48edbdb0836713a463f296bf5d4ac9b17d.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/313"
+    },
+    "im-3064a959dca3e0581ecf9bc89a1a99fd-0010": {
+      "id": "im-3064a959dca3e0581ecf9bc89a1a99fd-0010",
+      "blockid": "f01a2cb69acf9c1dcba57cac1ff22f80",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "jpg",
+      "path": "A_Feedback_Learning-Based_Memetic_Algorithm_for_Energy-Aware_Distributed_Flexible_Job-Shop_Scheduling_With_Transportation_Constraints-32f047d1.blocks.assets/344e9d31fb21a473827eb369c2bf8ac20477ddf7692d93945fdaecddb78023a3.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/318"
+    }
+  }
+}

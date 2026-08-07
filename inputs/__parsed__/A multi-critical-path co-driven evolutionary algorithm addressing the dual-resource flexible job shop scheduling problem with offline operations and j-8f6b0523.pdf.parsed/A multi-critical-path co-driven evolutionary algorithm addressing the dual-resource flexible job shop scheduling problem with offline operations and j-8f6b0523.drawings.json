@@ -1,0 +1,315 @@
+{
+  "version": "1.0",
+  "drawings": {
+    "im-49755fa14becf5cd2da17cfb1053b33b-0001": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0001",
+      "blockid": "fc1f69126755371bb319db49c5178f86",
+      "heading": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with ofline operations and job priority constraints",
+      "parent_headings": [],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/dc94f426adb4f1a8984fb372aefc2005a2c75b7009464040ca5b84b571995af8.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/4"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0002": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0002",
+      "blockid": "fc1f69126755371bb319db49c5178f86",
+      "heading": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with ofline operations and job priority constraints",
+      "parent_headings": [],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/26cf9f43e844a4fc61e3c3b642d6327816f5e021121ddfb7e1da2983f9125e2b.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/6"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0003": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0003",
+      "blockid": "fc1f69126755371bb319db49c5178f86",
+      "heading": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with ofline operations and job priority constraints",
+      "parent_headings": [],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/a3f8b579cf3e976b9f3a45874eea0531324e1bbc7f1962d73a296c32e5404e2a.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/8"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0004": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0004",
+      "blockid": "fc1f69126755371bb319db49c5178f86",
+      "heading": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with ofline operations and job priority constraints",
+      "parent_headings": [],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/40662a2fad1f622054760f8b254bcd8718bdd8943699cba3a1a2bbd2a3ab449c.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/10"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0005": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0005",
+      "blockid": "fc1f69126755371bb319db49c5178f86",
+      "heading": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with ofline operations and job priority constraints",
+      "parent_headings": [],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/e96d04aea71fbf8acec93a10671a5cdf768924a0094928b971c16c556f0cc354.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/12"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0006": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0006",
+      "blockid": "fc1f69126755371bb319db49c5178f86",
+      "heading": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with ofline operations and job priority constraints",
+      "parent_headings": [],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/c89fe2ef48e06480ef22b6cdf487639fe98f6264b693bc47bb344f0bd0628d95.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/14"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0007": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0007",
+      "blockid": "60fe83778d9dfa13931f429504843a2d",
+      "heading": "4.2. Encoding and decoding",
+      "parent_headings": [
+        "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/75405aeba69885cfdd7c0b75cec4c3409790cf1ef5b02046d182e599caf2e4f0.jpg",
+      "src": "",
+      "caption": "Figure 3 An example of the proposed encoding chromosome.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/130"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0008": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0008",
+      "blockid": "14e6a26588ced2561cd80f6526ba0a9b",
+      "heading": "4.4. Migration operator",
+      "parent_headings": [
+        "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/3297747939d8736d2f1c941fef4f0361c07e25b42fdce7e21795a00c7cebd501.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/177"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0009": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0009",
+      "blockid": "14e6a26588ced2561cd80f6526ba0a9b",
+      "heading": "4.4. Migration operator",
+      "parent_headings": [
+        "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/ac0788d40caf89ab6537f2600b06656745b2ab4bb6bbb30c716fd4dadf738c9a.jpg",
+      "src": "",
+      "caption": "Figure 5 JBM for OS.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/178"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0010": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0010",
+      "blockid": "14e6a26588ced2561cd80f6526ba0a9b",
+      "heading": "4.4. Migration operator",
+      "parent_headings": [
+        "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/67ea7d4d15e8e7c5096e1284940213af04460d6c9247fff93cdaf0ad86a1d83d.jpg",
+      "src": "",
+      "caption": "Fi 7 MPM for MS.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/184"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0011": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0011",
+      "blockid": "1a773cf2af9ac0ebde10ddff0249095e",
+      "heading": "4.6.1. Collaboration ofmulti-critical-path",
+      "parent_headings": [
+        "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/8dd133282c9c260c7d558c4089d74a3c3b1c9733e76e4be062d4c7d5fea3afad.jpg",
+      "src": "",
+      "caption": "Fi 8 Inversion mutation for OS.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/199"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0012": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0012",
+      "blockid": "08e2e3f7f869b7026f314aaea890e27c",
+      "heading": "4.6.2. Neighborhood structure driven by common critical operations",
+      "parent_headings": [
+        "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/5b725a6af3b6457c650ed46a39966d85c7e38960d0e567dfe1a7ca90e8b2d374.jpg",
+      "src": "",
+      "caption": "Figure 9 A diagram of a critical path.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/213"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0013": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0013",
+      "blockid": "70bc60c7f2cf3b5d343f425eb578f2e5",
+      "heading": "6.1. Application ofthe algorithm in a practical case",
+      "parent_headings": [
+        "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/e29175287a3d09640e01e5f2e4dd080daccc2ab9e5a87f8a9f05f4b3f05d0bcb.jpg",
+      "src": "",
+      "caption": "Figure 12 The radar chart of eGA, HDPSO, HSDE, DCGA, KMA and MCPEA on 20 benchmark instances.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/296"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0014": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0014",
+      "blockid": "70bc60c7f2cf3b5d343f425eb578f2e5",
+      "heading": "6.1. Application ofthe algorithm in a practical case",
+      "parent_headings": [
+        "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/8f4f6dce91b63223f48de910fc2d8b5c4929e72fabd41f50b3bf331bcad630bc.jpg",
+      "src": "",
+      "caption": "Figure 13 The gantt chart of the original scheduling scheme of the enterprise $( C _ { \\mathrm { m a x } } = 6 2 3 )$",
+      "footnotes": [],
+      "self_ref": "content_list.json#/311"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0015": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0015",
+      "blockid": "70bc60c7f2cf3b5d343f425eb578f2e5",
+      "heading": "6.1. Application ofthe algorithm in a practical case",
+      "parent_headings": [
+        "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/80b96abcb87e792559439365dc10137f723b65c5b1496cc4a7591b552b497d0c.jpg",
+      "src": "",
+      "caption": "Figure 14 The gantt chart of the optimal scheduling scheme from the proposed algorithm $( C _ { \\mathrm { m a x } } = 3 1 4 )$",
+      "footnotes": [],
+      "self_ref": "content_list.json#/314"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0016": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0016",
+      "blockid": "ce204892094b8e745816b83227230755",
+      "heading": "Notes on contributors",
+      "parent_headings": [
+        "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/683fa60f841a6d219ed2cc246afa248f73964cba3a4f946cc9c32e7c55a9daa8.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/341"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0017": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0017",
+      "blockid": "ce204892094b8e745816b83227230755",
+      "heading": "Notes on contributors",
+      "parent_headings": [
+        "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/adc27598de82927bccc48052db97cd73acc40ef24ba52dbec731653c1cac776a.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/343"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0018": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0018",
+      "blockid": "ce204892094b8e745816b83227230755",
+      "heading": "Notes on contributors",
+      "parent_headings": [
+        "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/1c85de9be404fb3c1a67e4777ce5a8251109bf07024c58682fdc1dc9c28ba719.jpg",
+      "src": "",
+      "caption": "tion processes.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/345"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0019": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0019",
+      "blockid": "ce204892094b8e745816b83227230755",
+      "heading": "Notes on contributors",
+      "parent_headings": [
+        "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/889264c53b6b86b65b593c09a068972ca349b52f605dfd93fa0a4bfe4a9f377d.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/348"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0020": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0020",
+      "blockid": "ce204892094b8e745816b83227230755",
+      "heading": "Notes on contributors",
+      "parent_headings": [
+        "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/f205f791a0add13b66a8079639fc3b22d75f037ff2e5deb50ac44a5fba58c671.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/351"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0021": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0021",
+      "blockid": "ce204892094b8e745816b83227230755",
+      "heading": "Notes on contributors",
+      "parent_headings": [
+        "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/685ab0e34fc6ad82f23cad6ea024a5e967be04f7f7c487ff444e3e25f65e6a77.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/354"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0022": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0022",
+      "blockid": "ce204892094b8e745816b83227230755",
+      "heading": "Notes on contributors",
+      "parent_headings": [
+        "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/bfc07e298e0d463dec62fe63a21430a4f73927fb555a0cb8d7c988de3425fe0d.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/356"
+    },
+    "im-49755fa14becf5cd2da17cfb1053b33b-0023": {
+      "id": "im-49755fa14becf5cd2da17cfb1053b33b-0023",
+      "blockid": "ce204892094b8e745816b83227230755",
+      "heading": "Notes on contributors",
+      "parent_headings": [
+        "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A multi-critical-path co-driven evolutionary algorithm addressing the dual-resource flexible job shop scheduling problem with offline operations and j-8f6b0523.blocks.assets/a79c78932a0741cbd4520d6ab157b3bb9c129c4732fe226a7fee3a0bea0808a3.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/359"
+    }
+  }
+}

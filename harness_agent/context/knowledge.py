@@ -31,6 +31,69 @@ _SDST_PATH_MARKERS = (
     "decoder_neighborhood.md",
 )
 
+_NFA_TAGS = {
+    "fjsp_machine_availability",
+    "machine_availability",
+    "machine_calendar",
+    "maintenance",
+    "maintenance_window",
+    "availability_aware_insertion",
+    "calendar_aware_decoder",
+    "availability_repair",
+    "calendar_aware_move_delta",
+    "nfa",
+    "unavailability",
+}
+
+_NFA_STRONG_TAGS = {
+    "fjsp_machine_availability",
+    "machine_availability",
+    "maintenance_window",
+    "availability_aware_insertion",
+    "calendar_aware_decoder",
+    "availability_repair",
+    "calendar_aware_move_delta",
+    "nfa",
+    "unavailability",
+}
+
+_DISTRIBUTED_TRANSFER_TAGS = {
+    "fjsp_distributed_transfer",
+    "distributed_fjsp",
+    "dfjspt",
+    "distributed_factories",
+    "distributed_transfer",
+    "distributed_fjsp_with_transfers",
+    "factory_assignment",
+    "factory_machine_assignment",
+    "transfer_time",
+    "transportation_constraints",
+    "distributed_decoder",
+    "factory_workload",
+    "workload_balancing",
+    "energy_consumption",
+    "memetic_search",
+}
+
+_JOB_PRIORITY_TAGS = {
+    "fjsp_job_priority",
+    "fjsp_priority",
+    "job_priority",
+    "priority_jobs",
+    "priority_completion_time",
+    "multi_objective",
+    "lexicographic_objective",
+    "weighted_dispatch",
+    "priority_dispatch_rule",
+    "memetic_search",
+}
+
+_JOB_PRIORITY_EXCLUDED_VARIANT_TAGS = (
+    _SDST_TAGS
+    | _NFA_TAGS
+    | (_DISTRIBUTED_TRANSFER_TAGS - {"memetic_search"})
+)
+
 
 @dataclass(frozen=True)
 class KnowledgeSelection:
@@ -370,6 +433,31 @@ def select_knowledge_cards(
         tags.update({"sdst", "setup_time", "sequence_dependent_setup"})
     else:
         tags.difference_update(_SDST_TAGS)
+    nfa_active = _machine_availability_active(
+        tags=tags,
+        instance_diagnostics=instance_diagnostics,
+        active_features=active_features,
+    )
+    if nfa_active:
+        tags.update({"fjsp_machine_availability", "machine_availability", "machine_calendar", "maintenance"})
+    distributed_active = _distributed_transfer_active(
+        tags=tags,
+        instance_diagnostics=instance_diagnostics,
+        active_features=active_features,
+    )
+    if distributed_active:
+        tags.update(_DISTRIBUTED_TRANSFER_TAGS)
+    priority_active = _job_priority_active(
+        tags=tags,
+        instance_diagnostics=instance_diagnostics,
+        active_features=active_features,
+    )
+    if priority_active:
+        sdst_active = False
+        nfa_active = False
+        distributed_active = False
+        tags.difference_update(_JOB_PRIORITY_EXCLUDED_VARIANT_TAGS)
+        tags.update(_JOB_PRIORITY_TAGS)
 
     selected: list[Path] = []
     excluded: list[dict[str, str]] = []
@@ -393,6 +481,18 @@ def select_knowledge_cards(
                 }
             )
             return
+        if _matches_query_excluded_path_marker(
+            path,
+            markers=getattr(pack, "knowledge_query_excluded_path_markers", []),
+        ):
+            excluded.append(
+                {
+                    "path": str(path),
+                    "source": source,
+                    "reason": "domain_pack_query_exclusion",
+                }
+            )
+            return
         selected.append(path)
 
     for path in pack.base_cards:
@@ -406,7 +506,12 @@ def select_knowledge_cards(
         "status": "ok",
         "problem_family": problem_family,
         "domain_pack": pack.family_id,
-        "active_variant": "fjsp_sdst" if sdst_active else "standard_fjsp",
+        "active_variant": _active_variant_name(
+            sdst_active=sdst_active,
+            nfa_active=nfa_active,
+            distributed_active=distributed_active,
+            priority_active=priority_active,
+        ),
         "active_features": sorted(_active_feature_terms(instance_diagnostics, active_features)),
         "requested_tags": requested_tags,
         "effective_tags": sorted(tags),
@@ -451,6 +556,31 @@ def select_tagged_knowledge_cards(
         effective_tags.update({"sdst", "setup_time", "sequence_dependent_setup"})
     else:
         effective_tags.difference_update(_SDST_TAGS)
+    nfa_active = _machine_availability_active(
+        tags=set(effective_tags),
+        instance_diagnostics=instance_diagnostics,
+        active_features=active_features,
+    )
+    if nfa_active:
+        effective_tags.update({"fjsp_machine_availability", "machine_availability", "machine_calendar", "maintenance"})
+    distributed_active = _distributed_transfer_active(
+        tags=set(effective_tags),
+        instance_diagnostics=instance_diagnostics,
+        active_features=active_features,
+    )
+    if distributed_active:
+        effective_tags.update(_DISTRIBUTED_TRANSFER_TAGS)
+    priority_active = _job_priority_active(
+        tags=set(effective_tags),
+        instance_diagnostics=instance_diagnostics,
+        active_features=active_features,
+    )
+    if priority_active:
+        sdst_active = False
+        nfa_active = False
+        distributed_active = False
+        effective_tags.difference_update(_JOB_PRIORITY_EXCLUDED_VARIANT_TAGS)
+        effective_tags.update(_JOB_PRIORITY_TAGS)
 
     selected: list[Path] = []
     excluded: list[dict[str, str]] = []
@@ -485,7 +615,18 @@ def select_tagged_knowledge_cards(
             return
         selected.append(path)
 
-    for tag in requested_tags:
+    for tag in sorted(set(requested_tags) - effective_tags):
+        reason = "inactive_sequence_dependent_setup" if tag in _SDST_TAGS else "inactive_variant_tag"
+        for path in pack.tagged_cards.get(tag, []):
+            excluded.append(
+                {
+                    "path": str(path),
+                    "source": f"tag:{tag}",
+                    "reason": reason,
+                }
+            )
+
+    for tag in sorted(effective_tags):
         for path in pack.tagged_cards.get(tag, []):
             add_candidate(path, source=f"tag:{tag}")
 
@@ -497,7 +638,12 @@ def select_tagged_knowledge_cards(
         "problem_family": problem_family,
         "domain_pack": pack.family_id,
         "selection_mode": "tagged_query",
-        "active_variant": "fjsp_sdst" if sdst_active else "standard_fjsp",
+        "active_variant": _active_variant_name(
+            sdst_active=sdst_active,
+            nfa_active=nfa_active,
+            distributed_active=distributed_active,
+            priority_active=priority_active,
+        ),
         "active_features": sorted(_active_feature_terms(instance_diagnostics, active_features)),
         "requested_tags": requested_tags,
         "effective_tags": sorted(effective_tags),
@@ -541,6 +687,13 @@ def _active_feature_terms(
     terms = {str(value).strip().lower() for value in (active_features or []) if str(value).strip()}
     if _sdst_state_from_diagnostics(instance_diagnostics):
         terms.update({"fjsp_sdst", "sequence_dependent_setup", "setup_time"})
+    if _nfa_state_from_diagnostics(instance_diagnostics):
+        terms.update({"fjsp_machine_availability", "machine_availability", "machine_calendar", "maintenance"})
+    if _distributed_transfer_state_from_diagnostics(instance_diagnostics):
+        terms.update(_DISTRIBUTED_TRANSFER_TAGS)
+    if _job_priority_state_from_diagnostics(instance_diagnostics):
+        terms.difference_update(_JOB_PRIORITY_EXCLUDED_VARIANT_TAGS)
+        terms.update(_JOB_PRIORITY_TAGS)
     return terms
 
 
@@ -581,6 +734,151 @@ def _slot_requests_sdst(slot_manifest: dict[str, Any] | None) -> bool:
         if tags & _SDST_TAGS:
             return True
     return False
+
+
+def _machine_availability_active(
+    *,
+    tags: set[str],
+    instance_diagnostics: dict[str, Any] | None,
+    active_features: list[str] | None,
+) -> bool:
+    """判断当前任务是否真的启用了机器不可用区间约束。"""
+
+    diagnostic_state = _nfa_state_from_diagnostics(instance_diagnostics)
+    if diagnostic_state is not None:
+        return diagnostic_state
+    feature_terms = _active_feature_terms(instance_diagnostics, active_features)
+    if feature_terms & _NFA_TAGS:
+        return True
+    return bool(tags & _NFA_STRONG_TAGS)
+
+
+def _nfa_state_from_diagnostics(instance_diagnostics: dict[str, Any] | None) -> bool | None:
+    if not isinstance(instance_diagnostics, dict):
+        return None
+    summary = instance_diagnostics.get("summary") if isinstance(instance_diagnostics.get("summary"), dict) else {}
+    profiled_count = int(summary.get("profiled_count") or 0)
+    instance_count = int(summary.get("instance_count") or 0)
+    instances = [item for item in instance_diagnostics.get("instances") or [] if isinstance(item, dict)]
+    diagnostics_have_shape = (
+        instance_diagnostics.get("status") in {"available", "partial"}
+        and (profiled_count > 0 or instance_count > 0 or bool(instances))
+    )
+    if not diagnostics_have_shape:
+        return None
+    if int(summary.get("nfa_instance_count") or 0) > 0:
+        return True
+    if int(summary.get("machine_availability_instance_count") or 0) > 0:
+        return True
+    if int(summary.get("total_unavailability_count") or 0) > 0:
+        return True
+    for item in instances:
+        variant = str(item.get("variant") or "").strip().lower()
+        if variant == "fjsp_machine_availability" or bool(item.get("has_machine_availability")):
+            return True
+        if int(item.get("unavailability_count") or 0) > 0:
+            return True
+    return False
+
+
+def _distributed_transfer_active(
+    *,
+    tags: set[str],
+    instance_diagnostics: dict[str, Any] | None,
+    active_features: list[str] | None,
+) -> bool:
+    """判断当前任务是否真的启用了分布式工厂与转移时间约束。"""
+
+    diagnostic_state = _distributed_transfer_state_from_diagnostics(instance_diagnostics)
+    if diagnostic_state is not None:
+        return diagnostic_state
+    feature_terms = _active_feature_terms(instance_diagnostics, active_features)
+    if feature_terms & _DISTRIBUTED_TRANSFER_TAGS:
+        return True
+    return bool(tags & _DISTRIBUTED_TRANSFER_TAGS)
+
+
+def _distributed_transfer_state_from_diagnostics(instance_diagnostics: dict[str, Any] | None) -> bool | None:
+    if not isinstance(instance_diagnostics, dict):
+        return None
+    summary = instance_diagnostics.get("summary") if isinstance(instance_diagnostics.get("summary"), dict) else {}
+    profiled_count = int(summary.get("profiled_count") or 0)
+    instance_count = int(summary.get("instance_count") or 0)
+    instances = [item for item in instance_diagnostics.get("instances") or [] if isinstance(item, dict)]
+    diagnostics_have_shape = (
+        instance_diagnostics.get("status") in {"available", "partial"}
+        and (profiled_count > 0 or instance_count > 0 or bool(instances))
+    )
+    if not diagnostics_have_shape:
+        return None
+    if int(summary.get("distributed_transfer_instance_count") or 0) > 0:
+        return True
+    for item in instances:
+        variant = str(item.get("variant") or "").strip().lower()
+        if variant == "fjsp_distributed_transfer" or bool(item.get("has_distributed_transfer")):
+            return True
+    return False
+
+
+def _job_priority_active(
+    *,
+    tags: set[str],
+    instance_diagnostics: dict[str, Any] | None,
+    active_features: list[str] | None,
+) -> bool:
+    """判断当前任务是否真的启用了工件优先级软目标。"""
+
+    diagnostic_state = _job_priority_state_from_diagnostics(instance_diagnostics)
+    if diagnostic_state is not None:
+        return diagnostic_state
+    feature_terms = _active_feature_terms(instance_diagnostics, active_features)
+    if feature_terms & _JOB_PRIORITY_TAGS:
+        return True
+    return bool(tags & _JOB_PRIORITY_TAGS)
+
+
+def _job_priority_state_from_diagnostics(instance_diagnostics: dict[str, Any] | None) -> bool | None:
+    if not isinstance(instance_diagnostics, dict):
+        return None
+    summary = instance_diagnostics.get("summary") if isinstance(instance_diagnostics.get("summary"), dict) else {}
+    profiled_count = int(summary.get("profiled_count") or 0)
+    instance_count = int(summary.get("instance_count") or 0)
+    instances = [item for item in instance_diagnostics.get("instances") or [] if isinstance(item, dict)]
+    diagnostics_have_shape = (
+        instance_diagnostics.get("status") in {"available", "partial"}
+        and (profiled_count > 0 or instance_count > 0 or bool(instances))
+    )
+    if not diagnostics_have_shape:
+        return None
+    if int(summary.get("priority_job_instance_count") or 0) > 0:
+        return True
+    if int(summary.get("priority_job_count_max") or 0) > 0:
+        return True
+    for item in instances:
+        variant = str(item.get("variant") or "").strip().lower()
+        if variant in {"fjsp_priority", "fjsp_job_priority"} or bool(item.get("has_job_priority")):
+            return True
+        if int(item.get("priority_job_count") or 0) > 0:
+            return True
+    return False
+
+
+def _active_variant_name(
+    *,
+    sdst_active: bool,
+    nfa_active: bool,
+    distributed_active: bool = False,
+    priority_active: bool = False,
+) -> str:
+    if distributed_active:
+        return "fjsp_distributed_transfer"
+    if priority_active:
+        return "fjsp_job_priority"
+    if sdst_active:
+        return "fjsp_sdst"
+    if nfa_active:
+        return "fjsp_machine_availability"
+    return "standard_fjsp"
 
 
 def _is_sdst_specific_path(path: Path) -> bool:

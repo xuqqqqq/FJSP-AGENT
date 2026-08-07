@@ -1,0 +1,117 @@
+{
+  "version": "1.0",
+  "drawings": {
+    "im-3c097ff3685735b34b61c3dd960e3345-0001": {
+      "id": "im-3c097ff3685735b34b61c3dd960e3345-0001",
+      "blockid": "31d0558f5fc24651c2778b339896ace5",
+      "heading": "B. Applications of RL in Production Scheduling",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "jpg",
+      "path": "A_Learning-Assisted_Bi-Population_Evolutionary_Algorithm_for_Distributed_Flexible_Job-Shop_Scheduling_With_Maintenance_Decisions-ef8a1db5.blocks.assets/254c895ffa1d8d22e5292338fa52172f72dc4fcac1154b97598513ae9a21a182.jpg",
+      "src": "",
+      "caption": "Fig. 1. Illustration of the proposed DFJSP/PM.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/38"
+    },
+    "im-3c097ff3685735b34b61c3dd960e3345-0002": {
+      "id": "im-3c097ff3685735b34b61c3dd960e3345-0002",
+      "blockid": "2498891a6f029a18c8aa39f6b5a0c2c1",
+      "heading": "A. Problem Description",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "jpg",
+      "path": "A_Learning-Assisted_Bi-Population_Evolutionary_Algorithm_for_Distributed_Flexible_Job-Shop_Scheduling_With_Maintenance_Decisions-ef8a1db5.blocks.assets/abbdfe1e81c1867de9e4d9f6121868c062c0656cffd3cac55c74e6b173a53542.jpg",
+      "src": "",
+      "caption": "Fig. 2. Illustration of conflicts among objectives. (a) Scenario 1. (b) Scenario 2.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/44"
+    },
+    "im-3c097ff3685735b34b61c3dd960e3345-0003": {
+      "id": "im-3c097ff3685735b34b61c3dd960e3345-0003",
+      "blockid": "8ee49426801349a9e5f77702099affd4",
+      "heading": "D. Environmental Selection",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "jpg",
+      "path": "A_Learning-Assisted_Bi-Population_Evolutionary_Algorithm_for_Distributed_Flexible_Job-Shop_Scheduling_With_Maintenance_Decisions-ef8a1db5.blocks.assets/4d60e604e87284680efcaba656a7f985fa9ddbcb7b4d6b7cf666dc4efd49c80b.jpg",
+      "src": "",
+      "caption": "Fig. 4. Illustration of the full active schedule.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/142"
+    },
+    "im-3c097ff3685735b34b61c3dd960e3345-0004": {
+      "id": "im-3c097ff3685735b34b61c3dd960e3345-0004",
+      "blockid": "16e7e47e5484725463c399355eb9950f",
+      "heading": "F. Learning-Assisted Adaptive LS Strategy",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "jpg",
+      "path": "A_Learning-Assisted_Bi-Population_Evolutionary_Algorithm_for_Distributed_Flexible_Job-Shop_Scheduling_With_Maintenance_Decisions-ef8a1db5.blocks.assets/5aeeb5a488a441c910a04eb47cba7b60b21d2b271e3f81fda2d1d50ec144c4a0.jpg",
+      "src": "",
+      "caption": "Fig. 5. Update of OM in the idle time reduction strategy.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/150"
+    },
+    "im-3c097ff3685735b34b61c3dd960e3345-0005": {
+      "id": "im-3c097ff3685735b34b61c3dd960e3345-0005",
+      "blockid": "16e7e47e5484725463c399355eb9950f",
+      "heading": "F. Learning-Assisted Adaptive LS Strategy",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "jpg",
+      "path": "A_Learning-Assisted_Bi-Population_Evolutionary_Algorithm_for_Distributed_Flexible_Job-Shop_Scheduling_With_Maintenance_Decisions-ef8a1db5.blocks.assets/e05364065704c88650e9e0148cf5777e45af4db589e4e9995e88926c52d48bf4.jpg",
+      "src": "",
+      "caption": "Fig. 6. Illustration of reward updates using different LS operators.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/168"
+    },
+    "im-3c097ff3685735b34b61c3dd960e3345-0006": {
+      "id": "im-3c097ff3685735b34b61c3dd960e3345-0006",
+      "blockid": "a245ffc40a36147a39563909ed080fc5",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "jpg",
+      "path": "A_Learning-Assisted_Bi-Population_Evolutionary_Algorithm_for_Distributed_Flexible_Job-Shop_Scheduling_With_Maintenance_Decisions-ef8a1db5.blocks.assets/4a94b02a6816ac11ae71da2d8841cca8ab4119621c09671913690dc73918f1a2.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/272"
+    },
+    "im-3c097ff3685735b34b61c3dd960e3345-0007": {
+      "id": "im-3c097ff3685735b34b61c3dd960e3345-0007",
+      "blockid": "a245ffc40a36147a39563909ed080fc5",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "jpg",
+      "path": "A_Learning-Assisted_Bi-Population_Evolutionary_Algorithm_for_Distributed_Flexible_Job-Shop_Scheduling_With_Maintenance_Decisions-ef8a1db5.blocks.assets/38d140368fc813bcda7b7e6e4fce0fe999914b0501b384b63098d3f5c4e6d20d.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/275"
+    },
+    "im-3c097ff3685735b34b61c3dd960e3345-0008": {
+      "id": "im-3c097ff3685735b34b61c3dd960e3345-0008",
+      "blockid": "a245ffc40a36147a39563909ed080fc5",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "jpg",
+      "path": "A_Learning-Assisted_Bi-Population_Evolutionary_Algorithm_for_Distributed_Flexible_Job-Shop_Scheduling_With_Maintenance_Decisions-ef8a1db5.blocks.assets/74644651efad6c61d5da7dbfa4f90c086a74896e261d9eb7f028264d326ba1bc.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/278"
+    }
+  }
+}

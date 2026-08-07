@@ -1,0 +1,124 @@
+{
+  "version": "1.0",
+  "tables": {
+    "tb-f86558f312309579bc8dcc17877dd712-0001": {
+      "id": "tb-f86558f312309579bc8dcc17877dd712-0001",
+      "blockid": "5832abe20fc9c42335072a6799c81074",
+      "heading": "2. Literature review",
+      "parent_headings": [
+        "An effective multi-start iterated greedy algorithm to minimize makespan for the distributed permutation flowshop scheduling problem with preventive maintenance"
+      ],
+      "dimension": [
+        5,
+        13
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\"></td><td colspan=\"10\">Jobs</td><td colspan=\"2\">PM</td></tr><tr><td>0</td><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td><td> $T_i$ </td><td> $I_i$ </td></tr><tr><td> $M_0$ </td><td>4</td><td>8</td><td>3</td><td>2</td><td>3</td><td>8</td><td>4</td><td>9</td><td>3</td><td>2</td><td>7</td><td>10</td></tr><tr><td> $M_1$ </td><td>6</td><td>7</td><td>9</td><td>9</td><td>3</td><td>9</td><td>2</td><td>8</td><td>3</td><td>2</td><td>14</td><td>9</td></tr><tr><td> $M_2$ </td><td>3</td><td>4</td><td>7</td><td>5</td><td>7</td><td>5</td><td>9</td><td>6</td><td>9</td><td>5</td><td>10</td><td>12</td></tr></table>",
+      "caption": "Table 1",
+      "footnotes": [],
+      "self_ref": "content_list.json#/35"
+    },
+    "tb-f86558f312309579bc8dcc17877dd712-0002": {
+      "id": "tb-f86558f312309579bc8dcc17877dd712-0002",
+      "blockid": "413c5eea7f62706573925db4364ade81",
+      "heading": "4.6. Acceptance criterion and restart strategy",
+      "parent_headings": [
+        "An effective multi-start iterated greedy algorithm to minimize makespan for the distributed permutation flowshop scheduling problem with preventive maintenance"
+      ],
+      "dimension": [
+        6,
+        3
+      ],
+      "format": "html",
+      "content": "<table><tr><td>Number of jobs</td><td>n</td><td>{100, 200, 300, 400, 500}</td></tr><tr><td>Number of machines</td><td>m</td><td>{5, 8, 10}</td></tr><tr><td>Number of factories</td><td>F</td><td>{2, 4, 6}</td></tr><tr><td>Processing time of a job on each machine</td><td> $P_{job}$ </td><td>[1, 100]</td></tr><tr><td>Processing time of PM operation on each machine</td><td> $T_{PM}$ </td><td>[50, 150]</td></tr><tr><td>Interval time of PM operation on each machine</td><td> $I_{PM}$ </td><td>[25 × n/F, 37.5 × n/F]</td></tr></table>",
+      "caption": "Table 2",
+      "footnotes": [],
+      "self_ref": "content_list.json#/92"
+    },
+    "tb-f86558f312309579bc8dcc17877dd712-0003": {
+      "id": "tb-f86558f312309579bc8dcc17877dd712-0003",
+      "blockid": "24228832c3f84472ce832b71d29823a1",
+      "heading": "5. Experimental results",
+      "parent_headings": [
+        "An effective multi-start iterated greedy algorithm to minimize makespan for the distributed permutation flowshop scheduling problem with preventive maintenance"
+      ],
+      "dimension": [
+        15,
+        9
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">-</td><td rowspan=\"2\"></td><td rowspan=\"2\">NEH2</td><td rowspan=\"2\">NEH2_en</td><td colspan=\"5\">INEH2_dp (classified according to dropout rate)</td></tr><tr><td>0%</td><td>10%</td><td>20%</td><td>30%</td><td>40%</td></tr><tr><td rowspan=\"3\">F</td><td>2</td><td>2.095</td><td>1.95</td><td>1.555</td><td>1.55</td><td>1.596</td><td>1.586</td><td>1.696</td></tr><tr><td>4</td><td>4.566</td><td>4.344</td><td>3.797</td><td>3.759</td><td>3.85</td><td>3.862</td><td>3.998</td></tr><tr><td>6</td><td>6.609</td><td>5.737</td><td>5.246</td><td>5.369</td><td>5.414</td><td>5.455</td><td>5.564</td></tr><tr><td rowspan=\"3\">m</td><td>5</td><td>2.040</td><td>2.017</td><td>1.872</td><td>1.909</td><td>1.944</td><td>1.959</td><td>2.1</td></tr><tr><td>8</td><td>4.875</td><td>4.441</td><td>3.859</td><td>3.922</td><td>4.001</td><td>3.961</td><td>4.131</td></tr><tr><td>10</td><td>5.816</td><td>5.572</td><td>4.867</td><td>4.847</td><td>4.914</td><td>4.984</td><td>5.026</td></tr><tr><td rowspan=\"5\">n</td><td>100</td><td>8.147</td><td>7.887</td><td>7.619</td><td>7.488</td><td>7.723</td><td>7.665</td><td>7.952</td></tr><tr><td>200</td><td>5.29</td><td>4.914</td><td>4.214</td><td>4.36</td><td>4.478</td><td>4.454</td><td>4.57</td></tr><tr><td>300</td><td>3.559</td><td>3.317</td><td>2.743</td><td>2.743</td><td>2.745</td><td>2.831</td><td>2.894</td></tr><tr><td>400</td><td>2.381</td><td>2.235</td><td>1.742</td><td>1.836</td><td>1.796</td><td>1.824</td><td>1.903</td></tr><tr><td>500</td><td>1.839</td><td>1.697</td><td>1.345</td><td>1.369</td><td>1.359</td><td>1.398</td><td>1.443</td></tr><tr><td>Average RPD</td><td></td><td>4.243</td><td>4.01</td><td>3.533</td><td>3.559</td><td>3.62</td><td>3.635</td><td>3.753</td></tr><tr><td>Total CPU time</td><td></td><td>72.9</td><td>99.69</td><td>100.7</td><td>91.87</td><td>83.02</td><td>75.22</td><td>68.1</td></tr></table>",
+      "caption": "Table 3",
+      "footnotes": [],
+      "self_ref": "content_list.json#/105"
+    },
+    "tb-f86558f312309579bc8dcc17877dd712-0004": {
+      "id": "tb-f86558f312309579bc8dcc17877dd712-0004",
+      "blockid": "24228832c3f84472ce832b71d29823a1",
+      "heading": "5. Experimental results",
+      "parent_headings": [
+        "An effective multi-start iterated greedy algorithm to minimize makespan for the distributed permutation flowshop scheduling problem with preventive maintenance"
+      ],
+      "dimension": [
+        8,
+        2
+      ],
+      "format": "html",
+      "content": "<table><tr><td>Algorithms</td><td>Parameter setting</td></tr><tr><td>DDE</td><td>Population: 20; k: 0.1; Crossover rate: 0.1; Lambda: 0.01; Local search times: 40</td></tr><tr><td>HGA</td><td>Population: 10; Crossover rate: 0.1; Mutation rate: 0.01</td></tr><tr><td>IG2S</td><td>Destruction size: 4; Temperature: 0.3</td></tr><tr><td>ICG</td><td>Temperature: 2.5;  $I_{iter}$ : 2500;  $\\lambda$ : 0.9;  $I_{non-improving}$ : 2.0;  $\\alpha_{min}$ : 2;  $\\eta_{min}$ : 2</td></tr><tr><td>IDABC</td><td>Number of food sources: 10; limit: 10</td></tr><tr><td>IG</td><td>Destruction size: 3; Temperature: 0.2</td></tr><tr><td>MSIG</td><td>Dropout rate: 10%, Destruction size: 3; Temperature: 0.5;  $\\alpha$ : 1000</td></tr></table>",
+      "caption": "Table 4",
+      "footnotes": [],
+      "self_ref": "content_list.json#/110"
+    },
+    "tb-f86558f312309579bc8dcc17877dd712-0005": {
+      "id": "tb-f86558f312309579bc8dcc17877dd712-0005",
+      "blockid": "a99191a5107529202e5558018bd1beb0",
+      "heading": "5.1. Comparison of constructive heuristics",
+      "parent_headings": [
+        "An effective multi-start iterated greedy algorithm to minimize makespan for the distributed permutation flowshop scheduling problem with preventive maintenance"
+      ],
+      "dimension": [
+        47,
+        8
+      ],
+      "format": "html",
+      "content": "<table><tr><td>F|m|n</td><td>DDE</td><td>HGA</td><td>IG2S</td><td>ICG</td><td>IDABC</td><td>IG</td><td>MSIG</td></tr><tr><td>2|5|100</td><td>0.218</td><td>0.006</td><td>0.01</td><td>0.191</td><td>0</td><td>0</td><td>0</td></tr><tr><td>2|5|200</td><td>0.312</td><td>0.034</td><td>0.059</td><td>0.349</td><td>0.016</td><td>0.036</td><td>0.03</td></tr><tr><td>2|5|300</td><td>0.07</td><td>0.021</td><td>0.021</td><td>0.134</td><td>0.004</td><td>0.024</td><td>0.005</td></tr><tr><td>2|5|400</td><td>0.119</td><td>0.029</td><td>0.041</td><td>0.131</td><td>0.004</td><td>0.036</td><td>0.019</td></tr><tr><td>2|5|500</td><td>0.025</td><td>0</td><td>0.008</td><td>0.033</td><td>0.001</td><td>0.004</td><td>0</td></tr><tr><td>2|8|100</td><td>5.66</td><td>0.786</td><td>0.877</td><td>4.603</td><td>0.739</td><td>0.352</td><td>0.45</td></tr><tr><td>2|8|200</td><td>1.298</td><td>0.245</td><td>0.214</td><td>1.468</td><td>0.153</td><td>0.164</td><td>0.075</td></tr><tr><td>2|8|300</td><td>0.624</td><td>0.28</td><td>0.183</td><td>0.899</td><td>0.077</td><td>0.138</td><td>0.087</td></tr><tr><td>2|8|400</td><td>0.38</td><td>0.133</td><td>0.065</td><td>0.592</td><td>0.017</td><td>0.04</td><td>0.04</td></tr><tr><td>2|8|500</td><td>0.235</td><td>0.084</td><td>0.075</td><td>0.37</td><td>0.043</td><td>0.087</td><td>0.035</td></tr><tr><td>2|10|100</td><td>5.193</td><td>0.849</td><td>1.046</td><td>4.964</td><td>1.171</td><td>0.56</td><td>0.65</td></tr><tr><td>2|10|200</td><td>3.449</td><td>0.541</td><td>0.695</td><td>3.39</td><td>0.472</td><td>0.433</td><td>0.209</td></tr><tr><td>2|10|300</td><td>1.554</td><td>0.491</td><td>0.5</td><td>1.869</td><td>0.294</td><td>0.435</td><td>0.2</td></tr><tr><td>2|10|400</td><td>0.647</td><td>0.225</td><td>0.138</td><td>0.886</td><td>0.106</td><td>0.156</td><td>0.064</td></tr><tr><td>2|10|500</td><td>0.69</td><td>0.196</td><td>0.233</td><td>0.989</td><td>0.1</td><td>0.145</td><td>0.083</td></tr><tr><td>4|5|100</td><td>4.664</td><td>0.791</td><td>0.572</td><td>4.841</td><td>0.576</td><td>0.22</td><td>0.293</td></tr><tr><td>4|5|200</td><td>2.293</td><td>0.231</td><td>0.276</td><td>2.4</td><td>0.123</td><td>0.172</td><td>0.13</td></tr><tr><td>4|5|300</td><td>0.871</td><td>0.096</td><td>0.11</td><td>1.164</td><td>0.026</td><td>0.086</td><td>0.057</td></tr><tr><td>4|5|400</td><td>0.397</td><td>0.144</td><td>0.152</td><td>0.551</td><td>0.069</td><td>0.121</td><td>0.049</td></tr><tr><td>4|5|500</td><td>0.111</td><td>0.039</td><td>0.049</td><td>0.195</td><td>0.014</td><td>0.034</td><td>0.018</td></tr><tr><td>4|8|100</td><td>7.559</td><td>1.778</td><td>1.109</td><td>7.024</td><td>1.288</td><td>0.498</td><td>0.52</td></tr><tr><td>4|8|200</td><td>6.007</td><td>0.922</td><td>1.165</td><td>5.988</td><td>0.792</td><td>0.654</td><td>0.315</td></tr><tr><td>4|8|300</td><td>3.204</td><td>0.641</td><td>0.674</td><td>3.504</td><td>0.331</td><td>0.393</td><td>0.198</td></tr><tr><td>4|8|400</td><td>2.318</td><td>0.354</td><td>0.531</td><td>2.55</td><td>0.179</td><td>0.339</td><td>0.14</td></tr><tr><td>4|8|500</td><td>1.582</td><td>0.342</td><td>0.516</td><td>1.764</td><td>0.136</td><td>0.257</td><td>0.139</td></tr><tr><td>4|10|100</td><td>8.303</td><td>2.497</td><td>1.157</td><td>8.163</td><td>2.407</td><td>0.603</td><td>0.751</td></tr><tr><td>4|10|200</td><td>6.426</td><td>1.262</td><td>1.399</td><td>6.629</td><td>1.171</td><td>0.741</td><td>0.29</td></tr><tr><td>4|10|300</td><td>5.226</td><td>0.83</td><td>1.288</td><td>5.061</td><td>0.818</td><td>0.857</td><td>0.252</td></tr><tr><td>4|10|400</td><td>3.662</td><td>0.765</td><td>1.141</td><td>4.118</td><td>0.558</td><td>0.684</td><td>0.236</td></tr><tr><td>4|10|500</td><td>2.804</td><td>0.434</td><td>0.932</td><td>2.965</td><td>0.364</td><td>0.626</td><td>0.12</td></tr><tr><td>6|5|100</td><td>6.881</td><td>1.826</td><td>1.081</td><td>7.223</td><td>0.734</td><td>0.478</td><td>0.437</td></tr><tr><td>6|5|200</td><td>3.285</td><td>0.713</td><td>0.795</td><td>3.807</td><td>0.337</td><td>0.346</td><td>0.222</td></tr><tr><td>6|5|300</td><td>1.749</td><td>0.315</td><td>0.412</td><td>2.27</td><td>0.206</td><td>0.33</td><td>0.143</td></tr><tr><td>6|5|400</td><td>0.601</td><td>0.173</td><td>0.201</td><td>0.796</td><td>0.068</td><td>0.146</td><td>0.156</td></tr><tr><td>6|5|500</td><td>0.938</td><td>0.071</td><td>0.257</td><td>1.072</td><td>0.034</td><td>0.12</td><td>0.084</td></tr><tr><td>6|8|100</td><td>9.986</td><td>3.397</td><td>1.364</td><td>9.23</td><td>1.734</td><td>0.875</td><td>0.667</td></tr><tr><td>6|8|200</td><td>6.727</td><td>1.434</td><td>1.277</td><td>7.252</td><td>1.222</td><td>0.654</td><td>0.286</td></tr><tr><td>6|8|300</td><td>5.713</td><td>1.08</td><td>1.29</td><td>5.831</td><td>0.828</td><td>0.716</td><td>0.234</td></tr><tr><td>6|8|400</td><td>4.133</td><td>0.66</td><td>1.015</td><td>4.404</td><td>0.399</td><td>0.584</td><td>0.177</td></tr><tr><td>6|8|500</td><td>3.658</td><td>0.664</td><td>1.209</td><td>3.758</td><td>0.544</td><td>0.77</td><td>0.144</td></tr><tr><td>6|10|100</td><td>9.021</td><td>3.161</td><td>1.245</td><td>8.673</td><td>2.064</td><td>0.634</td><td>0.894</td></tr><tr><td>6|10|200</td><td>8.342</td><td>2.047</td><td>1.481</td><td>8.247</td><td>1.654</td><td>0.931</td><td>0.403</td></tr><tr><td>6|10|300</td><td>6.755</td><td>1.571</td><td>1.634</td><td>6.747</td><td>1.3</td><td>1.148</td><td>0.377</td></tr><tr><td>6|10|400</td><td>5.727</td><td>1.134</td><td>1.795</td><td>5.788</td><td>1.029</td><td>1.079</td><td>0.232</td></tr><tr><td>6|10|500</td><td>3.978</td><td>1.258</td><td>1.559</td><td>4.271</td><td>0.669</td><td>0.927</td><td>0.219</td></tr><tr><td>Average</td><td>3.409</td><td>0.768</td><td>0.708</td><td>3.492</td><td>0.553</td><td>0.414</td><td>0.225</td></tr></table>",
+      "caption": "Table 5",
+      "footnotes": [],
+      "self_ref": "content_list.json#/116"
+    },
+    "tb-f86558f312309579bc8dcc17877dd712-0006": {
+      "id": "tb-f86558f312309579bc8dcc17877dd712-0006",
+      "blockid": "d66dd135701c944d41da3618f87a3e4f",
+      "heading": "Table 6",
+      "parent_headings": [
+        "An effective multi-start iterated greedy algorithm to minimize makespan for the distributed permutation flowshop scheduling problem with preventive maintenance"
+      ],
+      "dimension": [
+        13,
+        9
+      ],
+      "format": "html",
+      "content": "<table><tr><td colspan=\"2\"></td><td>DDE</td><td>HGA</td><td>IG2S</td><td>ICG</td><td>IDABC</td><td>IG</td><td>MSIG</td></tr><tr><td rowspan=\"3\">F</td><td>2</td><td>1.365</td><td>0.261</td><td>0.278</td><td>1.391</td><td>0.213</td><td>0.174</td><td>0.13</td></tr><tr><td>4</td><td>3.695</td><td>0.742</td><td>0.738</td><td>3.794</td><td>0.59</td><td>0.419</td><td>0.234</td></tr><tr><td>6</td><td>5.166</td><td>1.3</td><td>1.108</td><td>5.291</td><td>0.855</td><td>0.649</td><td>0.312</td></tr><tr><td rowspan=\"3\">m</td><td>5</td><td>1.502</td><td>0.299</td><td>0.27</td><td>1.677</td><td>0.147</td><td>0.144</td><td>0.109</td></tr><tr><td>8</td><td>3.939</td><td>0.853</td><td>0.771</td><td>3.949</td><td>0.566</td><td>0.435</td><td>0.234</td></tr><tr><td>10</td><td>4.785</td><td>1.151</td><td>1.083</td><td>4.851</td><td>0.945</td><td>0.664</td><td>0.332</td></tr><tr><td rowspan=\"5\">n</td><td>100</td><td>6.387</td><td>1.677</td><td>0.94</td><td>6.101</td><td>1.19</td><td>0.469</td><td>0.518</td></tr><tr><td>200</td><td>4.238</td><td>0.826</td><td>0.818</td><td>4.392</td><td>0.66</td><td>0.459</td><td>0.218</td></tr><tr><td>300</td><td>2.863</td><td>0.592</td><td>0.679</td><td>3.053</td><td>0.432</td><td>0.459</td><td>0.172</td></tr><tr><td>400</td><td>1.998</td><td>0.402</td><td>0.564</td><td>2.202</td><td>0.27</td><td>0.354</td><td>0.124</td></tr><tr><td>500</td><td>1.558</td><td>0.343</td><td>0.538</td><td>1.713</td><td>0.212</td><td>0.33</td><td>0.093</td></tr><tr><td colspan=\"2\">Global average</td><td>3.409</td><td>0.768</td><td>0.708</td><td>3.492</td><td>0.553</td><td>0.414</td><td>0.225</td></tr></table>",
+      "caption": "Average RPD of the algorithms for comparison grouped according to F, m, and n (best values are in bold).",
+      "footnotes": [],
+      "self_ref": "content_list.json#/118"
+    },
+    "tb-f86558f312309579bc8dcc17877dd712-0007": {
+      "id": "tb-f86558f312309579bc8dcc17877dd712-0007",
+      "blockid": "d66dd135701c944d41da3618f87a3e4f",
+      "heading": "Table 6",
+      "parent_headings": [
+        "An effective multi-start iterated greedy algorithm to minimize makespan for the distributed permutation flowshop scheduling problem with preventive maintenance"
+      ],
+      "dimension": [
+        8,
+        8
+      ],
+      "format": "html",
+      "content": "<table><tr><td>t-test</td><td>DDE</td><td>HGA</td><td>IG2S</td><td>ICG</td><td>IDABC</td><td>IG</td><td>MSIG</td></tr><tr><td>DDE</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>HGA</td><td>1.56E-130</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>IG2S</td><td>3.97E-133</td><td>0.868084</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>ICG</td><td>0.38518</td><td>3.19E-154</td><td>1.10E-157</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>IDABC</td><td>4.90E-160</td><td>2.70E-12</td><td>3.00E-15</td><td>1.27E-187</td><td>-</td><td>-</td><td>-</td></tr><tr><td>IG</td><td>3.30E-172</td><td>1.07E-23</td><td>9.39E-31</td><td>8.97E-202</td><td>0.0054</td><td>-</td><td>-</td></tr><tr><td>MSIG</td><td>1.72E-200</td><td>2.06E-72</td><td>8.80E-96</td><td>3.31E-233</td><td>3.35E-35</td><td>3.34E-33</td><td>-</td></tr></table>",
+      "caption": "Table 7",
+      "footnotes": [],
+      "self_ref": "content_list.json#/124"
+    }
+  }
+}

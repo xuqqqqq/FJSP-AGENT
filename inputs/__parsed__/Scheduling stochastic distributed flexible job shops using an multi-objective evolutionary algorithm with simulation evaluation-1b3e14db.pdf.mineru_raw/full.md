@@ -1,0 +1,717 @@
+# Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation
+
+Yaping Fu, Kaizhou Gao, Ling Wang, Min Huang, Yun-Chia Liang & Hongyu Dong
+
+To cite this article: Yaping Fu, Kaizhou Gao, Ling Wang, Min Huang, Yun-Chia Liang & Hongyu Dong (2025) Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation, International Journal of Production Research, 63:1, 86-103, DOI: 10.1080/00207543.2024.2356628
+
+To link to this article: https://doi.org/10.1080/00207543.2024.2356628
+
+![](images/f052f1437e109cd352e29c12bca394607f3f23cb2288c246e10d594677c432ce.jpg)
+
+\+ View supplementary material
+
+![](images/51f1aef97884a931df1cbccc23c5513f05479dd48d1448279180b3ced3e74920.jpg)
+
+Published online: 04 Jun 2024.
+
+![](images/a21578ad823c7a930e5c2c7dabe7197db4afb88fecda221984456ab51c3deb82.jpg)
+
+Submit your article to this journal
+
+![](images/d552273467fe1b87df82c492fc2a589ac9264f6f97bd8a8410a4da105ae06bcd.jpg)
+
+Article views: 1647
+
+![](images/35c16be79b5bff3f84bba44a6b100a7e95912288dd243919491e8536bd9107b9.jpg)
+
+View related articles
+
+![](images/f255251da124695cc4c80b1d7523750a7df8348d54b90922fe6ada4501dbcf4e.jpg)
+
+View Crossmark data
+
+![](images/6da10cbfcdeb1db70e5101a5d00efdcdcde561af039754ae362e06b29790ad04.jpg)
+
+Citing articles: 56 View citing articles
+
+Check for updates
+
+# Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation
+
+Yaping Fu<sup>a</sup>, Kaizhou Gao<sup>b</sup>, Ling Wang<sup>c</sup>, Min Huang<sup>d</sup>, Yun-Chia Liang<sup>e</sup> and Hongyu Dong<sup>f</sup>
+
+<sup>a</sup>School of Business, Qingdao University, Qingdao, People’s Republic of China; <sup>b</sup>Institute of Systems Engineering, Macau University of Science and Technology, Taipa, Macao; <sup>c</sup>Department of Automation, Tsinghua University, Beijing, People’s Republic of China; <sup>d</sup>College of Information Science and Engineering, Northeastern University, Shenyang, People’s Republic of China; <sup>e</sup>Department of Industrial Engineering and Management, Yuan Ze University, Taiwan; <sup>f</sup>School of E-Business and Logistic, Beijing Technology and Business University, Beijing, People’s Republic of China
+
+## ABSTRACT
+
+The trend of reverse globalisation prompts manufacturing enterprises to adopt distributed structures with multiple factories for improving production efficiency, meeting customer requirements, and responding disturbance events. This study focuses on scheduling a distributed flexible job shop with random job processing time to achieve minimal makespan and minimal total tardiness. First, a stochastic programming model is established to formulate the concerned problems. Second, in accordance with the natures of two objectives and randomness, an evolutionary algorithm incorporating an evaluation method is designed. In it, population-based and external archive-based search processes are developed for searching candidate solutions, and the evaluation method integrates stochastic simulation and discrete event simulation to calculate objective values of acquired solutions. Finally, a mathematical optimisation solver, CPLEX, is employed to validate the developed model and optimisation approach. A set of cases is solved to verify the performance of the proposed method. The comparisons and discussions show the superiority of the proposed method for handling the problems under study.
+
+ARTICLE HISTORY Received 23 June 2023 Accepted 3 April 2024
+
+KEYWORDS Distributed manufacturing; flexible job shop scheduling; multi-objective optimisation; stochastic simulation; discrete event simulation
+
+## SUSTAINABLE
+
+DEVELOPMENT GOALS SDG 9: Industry, innovation and infrastructure
+
+## 1. Introduction
+
+Recently, the world situation greatly changes, which profoundly afects the global supply chains. In the globalisation era, managers prefer to take the lean operation as a main criterion, where much efort is made to choose collaborative members such as suppliers, manufactures and carriers having the lowest cost to enhance the overall profit (Becerra, Mula, and Sanchis 2023). However, the recent years witness the trend of reverse globalisation as a series of global events occur. For instance, the global epidemic of COVID-19 results in the shutdown of factories and increase of transportation cost, etc. Besides, the Russia-Ukraine war unexpectedly breaks out, along with the wide international sanctions and energy price rise. All the global events certainly influence the organisation of supply chains, causing huge uncertainties of manufacturing industries. In the context of such situations, it is very important to provide required products for customers rather than excessively emphasise the diference ofmanufacturing cost among diverse regions. Hence, the global markets will be further segmented (Xu et al. 2022). Unlike the lean supply chains with minimal operation cost, the distributed structures with redundant resource configuration might cope with the reverse globalisation and uncertain events (Badakhshan and Ball 2023; Shi and Mena 2023; Wu et al. 2023). In recent years, manufacturing enterprises gradually establish multiple factories or production shops in diferent geographical locations and assign production tasks to them for reducing the risk incurred by the disturbance and attack of uncertain events (Choi et al. 2022).
+
+To this end, a burgeoning distributed manufacturing is taking the place of the single-factory production process. Meanwhile, the wide use of advanced techniques, e.g. cyber-physical systems and Artificial Intelligence, promotes the implementation ofdistributed manufacturing (Siqin et al. 2022). Recently, many enterprises apply the paradigm of distributed manufacturing to their production processes such as automotive and steal-making industries (Fu et al. 2021a). In such circumstances, the concrete information of factories, such as resource deployment, machine function and production environment, must be known in advance. Meanwhile, the job processing routes and the needed machines should be determined beforehand. Significantly, all the involved factories must share production information to operate in a collaborative manner.
+
+Production scheduling has vital efects on the management operations of manufacturing systems (Fu et al. 2023a; Hou et al. 2023; Neumann et al. 2023). Currently, scheduling distributed manufacturing systems, i.e. distributed scheduling, has captured an amount of concern (Li et al. 2022a; Pan et al. 2023). However, addressing distributed scheduling problems still have great challenges for academia and industry (Lei and Su 2023; Pan, Lei, and Wang 2022; Shao, Shao, and Pi 2021; Wang et al. 2023; Zhao, Ma, and Wang 2022). Job shop scheduling problems (JSPs) have emerged as a key issue in manufacturing and service systems (Carlucci, Renna, and Materi 2023). By extending JSPs with multi-purpose machines, researchers further develop flexible JSPs (FJSPs), in which each operation is permitted to be fabricated by any one of candidate machines. Hence, FJSPs need to determine both machine assignment and operation sequencing (Thenarasu et al. 2023).
+
+Distributed FJSPs (DFJSPs) have extensive applications in various industrial areas (Meng et al. 2020). This research is motivated by a real construction equipment manufacturing system, which can be modelled as a DFJSP. In practice, construction equipment manufacturing enterprises need to produce various machines such as tube mill, rotary kiln, roller mill, stacker-reclaimer and roll squeezer. They are comprised of diverse subassemblies and each of them needs to be performed via a series of operations on drilling, grinding, milling, threading and broaching machines, etc. As usual, customers require personalised customisation on the subassemblies. They thus have multiple processing routes, where each operation can be done on any one of candidate machines. At present, enterprises are developing multiple factories or shops to improve production eficiency. In reality, many factors, such as cutter wear abrasion and worker proficiency, afect the processing time of subassemblies on machines. Hence, it is intractable to precisely know subassemblies’ processing time beforehand. Generally, managers need to concern two criteria: production cost and customer satisfaction, formulated as reaching minimal makespan and total tardiness. To sum up, the above-mentioned industry scenario can be abstracted as a DFJSP with minimising makespan and total tardiness in uncertain environments. The natures of multiple optimisation objectives and uncertainties result in the dificulties of making well-informed and highly reliable scheduling decisions for this problem. Inspired by the above production scenario, this work first time studies the modelling and optimisation methods of the DFJSP with multiple optimisation objectives and uncertainties.
+
+Section 2 sums up the relevant studies and summarises the main contributions. Section 3 formulates the mathematical model and analyzes the dificulties of solving it. Section 4 provides the procedure of solution algorithms. Section 5 makes comparative experiments and dissects acquired results. Finally, Section 6 concludes this paper and prospects new topics.
+
+## 2. Literature review
+
+## 2.1. Related studies
+
+DFJSPs have received much attention in recent years. Jeong and Yim (2009) analysed the decision-making process of a distributed JSP and proposed a cooperation method using Lagrangian relaxation to achieve completion time minimisation. Şahman (2021) devised a spotted hyena method for handling the distributed JSP to achieve minimal makespan. Azab and Naderi (2014) formulated an integer programming to describe a DFJSP and developed a greedy heuristic based on iterative insertion operations. Their another work (Naderi and Azab 2015) considered minimising makespan in a DFJSP and presented a simulated annealing (SA) method. Chaouch, Driss, and Ghedira (2017) designed an enhanced ant colony optimisation (ACO) approach to achieve makespan minimisation for a DFJSP. They also proposed a dynamic assignment rule and an ACO method (Chaouch, Driss, and Ghedira 2019). Wu, Liu, and Zhao (2019) considered assembly operations in DFJSPs. They employed a diferential evolution method aiming at minimising total earliness/tardiness and total cost. Meng et al. (2020) designed a constraint programming according to interval decision variables and domain filtering methods to minimise makespan for handling DFJSPs. Wang et al. (2021b) came up with a DFJSP having timely response requirement and energy eficiency. A game method was provided to cope with it. Noteworthily, researchers used many meta-heuristic approaches, e.g. genetic algorithm (GA) (Chang and Liu 2017; De Giovanni and Pezzella 2010; Lin et al. 2020; Liu, Chen, and Chou 2014; Lu et al. 2018), chemical reaction optimisation (Marzouki, Driss, and Ghédira 2018), teaching-learning-based optimisation (Tang et al. 2022), grey wolf optimisation (Li et al. 2022b), whale optimisation (Zhao et al. 2023) methods, to address DFJSPs with minimising makespan.
+
+In addition to the afore-mentioned studies which focused on single-objective optimisation for DFJSPs, other recent studies have examined multi-objective
+
+DFJSPs. Xie et al. (2019) sought to reach minimal makespan and minimal energy consumption in a DFJSP. An artificial bee colony method was devised to figure out it. Luo et al. (2020) worked out a DFJSP where jobs were allowed to be transferred among factories. They adopted a memetic approach to achieve makespan, maximum workload and energy consumption minimisation. Furthermore, their recent work (Luo et al. 2022) considered a DFJSP with worker arrangement to minimise makespan as well as maximum workload regarding workers and machines. A memetic algorithm was devised to address it. Du et al. (2021) devoted to realising makespan and energy consumption minimisation in settling DFJSPs with crane transportation. They designed an estimation of distribution method for dealing with it. Sang and Tan (2022) proposed a many-objective DFJSP with consideration of economic and green objectives. They designed a many-objective memetic algorithm to work out it. Xu et al. (2021) put forward a DFJSP with outsourcing operations to optimise makespan, quality and carbon emission. A GA incorporating a tabu search method was given. Jiang, Wang, and Peng (2020) considered a DFJSP to find minimal makespan and energy consumption. An evolutionary algorithm (EA) with a decomposition strategy was devised to handle it.
+
+Diferent from the above work, some studies concerned uncertainties in scheduling distributed production processes. However, nearly all of them concentrated on working out distributed flow shop scheduling problems (Fu et al. 2019; Zheng, Wang, and Wang 2020), and little attention was paid on uncertain DFJSPs. Hsu, Kao, and Lai (2016) considered a distributed JSP with fuzzy constraints. They gave a fuzzy constrained negotiation to address it. Mahmoodjanloo et al. (2022) proposed a rescheduling method via machine re-configurability for a distributed JSP with consideration of uncertain events. They designed an equilibrium optimizer algorithm to minimise total weighted lateness.
+
+## 2.2. Discussions
+
+This work makes a concise summarisation regarding the relevant studies on DFJSPs in Tables A1 and A2 in the Appendix. Via analysing the prior research on distributed JSPs, we find that they share the following features:
+
+1) Such problems having single- and multi-objective optimisation attract much concern. Nevertheless, nearly all consider minimising makespan and maximum workload from the view ofmanufacturers, less attention is paid to improving customer satisfaction to win more potential orders, such as minimising tardiness incurred by delivery delay.
+
+2) Most prior studies focus on scheduling distributed job shops in deterministic environments. Nevertheless, there exist some uncertainties in an actual process such as processing time variation and machine failure. It is worth mentioning that the existing work pays no attention to multi-objective optimisation in uncertain circumstances. Well-balanced and highreliable schedules must account for such problems.
+
+3) Meta-heuristic approaches have been extensively used to figure out distributed JSPs, and corresponding results show their strong competitiveness.
+
+## 2.3. Main contributions
+
+By summing up the existing studies, we find that DFJSPs with multiple optimisation objectives and uncertainties receive little attention over the past years. Hence, this article studies the modelling and optimisation of such problems. The diference between our work and existing studies is provided in Table A2 in the Appendix. Via performing comparisons and analysis, we make the next new contributions:
+
+1) This work proposes a DFJSP with uncertainties to reduce production cost and improve customer satisfaction. Therefore, we address a distributed flexible job shop model having random processing time to achieve minimal makespan and minimal total tardiness. Accordingly, we formulate a stochastic programming model to define this issue.
+
+2) Unlike the previous studies on deterministic DFJSPs, in which amount of efort is devoted to searching candidate solutions in a solution domain, we must seek for superior solutions and evaluate their performance since the random features. Thus, we devise a hybridisation of an EA and an evaluation method (MOEA-EM) to cope with this problem.
+
+3) By comparing the developed method with nondominated sorting GA II (NSGA-II) (Deb et al. 2002), multi-objective EA according to decomposition (MOEA/D) (Zhang and Li 2007), bi-objective multi-start SA method (BMSA) (Lin and Ying 2013), improved memetic algorithm (IMA) (Luo et al. 2022) and mathematical programming solver, CPLEX, we verify that MOEA-EM can achieve more outstanding results in resolving the problem under study.
+
+## 2.4. Managerial insights
+
+This work investigates a construction equipment manufacturing process that is modelled as a DFJSP with costawareness and tardiness-aversion criteria in uncertain environments. The results uncover the following implications:
+
+1) This work ofers competitive modelling, optimisation and performance assessment approaches to solve this problem. Simulation experiments and comparisons verify that the developed models and methods can provide excellent solutions. The results can assist managers and decision-makers in making much more informed and more reliable decisions for scheduling a distributed flexible job shop having two optimisation objectives and random processing time. The research findings are ready to be applied in a real-life construction equipment manufacturing process’s scheduling.
+
+2) To implement the designed method, the detailed information of factories in distributed manufacturing systems, e.g. resource allocation and machine flexibility, needs to be acquired. Subsequently, the processing routes of jobs (namely, customer orders) should be made, and the required machines of subassemblies are correspondingly determined. Moreover, the production data must be acquired and analysed in advance, and the fittest stochastic distributions should be mathematically developed. The above-mentioned information is input into the formulated method, and subsequently it ofers a group of alternative decisions to managers for reference.
+
+3) Under the circumstances of reverse globalisation and variable production environments, distributed manufacturing contributes to assisting enterprises in resisting uncertain disturbance such as machine breakdown and processing time variation, and even factory stagnation. The resilience of manufacturing systems is accordingly improved via using such distributed production processes. However, enhancing the resilience brings a new challenge to schedule distributed manufacturing systems since we must make efective strategies to cope with diverse disruptions incurred by disturbance and attack. Hence, it is more complex than this work’s consideration, and we will explore to increase the resilience ofdistributed manufacturing systems based on this research.
+
+## 3. Problem definition
+
+## 3.1. Problem statement
+
+The proposed DFJSP includes multiple factories for processing a group of jobs, and each one is modelled as a flexible job shop having multi-function machines. Each job involves multiple operations, and each of them ought to be fabricated on one out of the candidate machines as given sequence. Job processing time is random and follows known probabilistic distributions. All jobs have delivery requirements, namely, a tardiness occurs in case that a job’s completion time is greater than a specified due date. An executable schedule should satisfy the restrictions: (1) At time 0, all machines at factories are available, and all jobs wait to be processed; (2) Each job must be produced at only one factory; (3) At a time, each machine is permitted to fabricate one job at the utmost, and similarly each job is permitted to be done by one machine at the utmost; and (4) Interruption of machines is prohibited.
+
+![](images/76c495734476f48d928ea85e64df05ae7c5a7a39e2c09e667c1e87ad4d9112a1.jpg)  
+Figure 1. Illustration of the considered distributed flexible job shop.
+
+To find a feasible schedule, we must make three decisions: factory assignment ofjobs, machine assignment of jobs and operation sequence on machines. The objectives focus on reaching minimal makespan and minimal total tardiness. Figure 1 diagrams a solution of an instance having nine jobs, three factories and three machines per factory. Each job owns three operations, and each of which ought to be fabricated by one of three machines at a factory.
+
+For the DFJSP under study, achieving minimal makespan and reaching minimal total tardiness are inconsistent. This work has proved this inference in Section II in the Appendix. Thus, the DFJSP having the two criteria is a multi-objective optimisation problem. Consequently, we have Property 3.1, indicating that this problem has multiple, and even infinite optimal solutions.
+
+Property 3.1: There exists an inconsistent relationship regarding reaching minimal makespan and minimal total tardiness in the DFJSP under consideration.
+
+Notice that the job processing time on machines follows stochastic distributions that are mutually independent and known in advance. Nevertheless, it is unable to derive the concrete distributions of job completion time since the whole production process contains machine stand-by time and job waiting time. Thus, we deduce Property 3.2, implying that it is intractable to reach an optimal schedule.
+
+Property 3.2: Although the stochastic distributions of job processing time on machines are mutually independent and known in advance, the concrete expression regarding their completion time is yet indeterminable.
+
+## 3.2. Stochastic programming model
+
+To formulate the DFJSP under study, this work employs the following symbols:
+
+## Notations:
+
+$F ;$ set of factory index, $F = \{ 1 , 2 , \dots , f \}$ , in whichf indicates the quantity of factories.
+
+$N { : }$ set of job index, $N = \{ 1 , 2 , \dots , n \}$ , in which n is the quantity of jobs.
+
+i: job index, $i \in N .$
+
+$n _ { i } { \mathrm { : } }$ quantity of operations of job i.
+
+$i _ { j } { \mathrm { : } }$ job index associated with operation $j , i _ { j } \in N _ { \ast }$
+
+l: factory index, l ∈ F.
+
+O: operation index set, $O = \left\{ 1 , 2 , \dots , n _ { i } , n _ { i } + 1 _ { : } \right.$
+
+$$
+\left. \dots , \sum_ {i \in N} n _ {i} \right\}.
+$$
+
+$N ^ { \prime } { : }$ index set including both factories and jobs, $N ^ { \prime } =$
+
+$$
+\left\{1, 2, \dots , f, f + 1, \dots , n _ {i}, n _ {i} + 1, \dots , f \right.
+$$
+
+$$
+\left. + \sum_ {i \in N} n _ {i} \right\}.
+$$
+
+${ j , j ^ { \prime } } \colon$ index for $N ^ { \prime } , j , j ^ { \prime } \in N ^ { \prime }$
+
+$M _ { l } \mathbf { : }$ index set of machines at factory l, $M _ { l } =$ $\{ 1 , 2 , \ldots , m _ { l } \}$ , in which m is the quantity of machines at factory l.
+
+$M _ { j l } ^ { \prime } \mathrm { : }$ index set of candidate machines of operationj at factory $l , j \in N ^ { \prime } , l \in F .$
+
+$k \mathrm { : }$ machine index.
+
+${ { p } _ { j k l } } \colon$ processing time of operation j on machine k at factory l.
+
+$d _ { i } \colon$ due date of job i.
+
+$h _ { j j ^ { \prime } } { : }$ indication denoting the priority relationships of two operations of jobs. It equals 1 on condition that operation j must be handled in the front of $j ^ { \prime }$ in the premise of $i _ { j } = i _ { j { ' } }$ , and 0 otherwise.
+
+G: very large number.
+
+Notice that ${ \mathit { P j k l } }$ is random.
+
+Decision variables:
+
+$S _ { j } { \mathrm { : } }$ start time of operation j.
+
+$C _ { i } { : }$ completion time of job i.
+
+$C _ { m a x } \mathrm { : }$ makespan, i.e. maximal completion time of all jobs.
+
+$T _ { i } \colon$ tardiness of job i.
+
+$x _ { j l } \mathrm { : }$ equalling 1 on condition that operation j is allocated to factory l for processing, and 0 otherwise.
+
+$y _ { j j ^ { \prime } k l } .$ equalling 1 on condition that machine k at factory l processes operation j then does $j ^ { \prime } ,$ and 0 otherwise.
+
+Notice that $S _ { j } , C _ { i } , C _ { \operatorname* { m a x } } ,$ , and $T _ { i }$ are random.
+
+Via using the aforesaid notations and definition, this work formulates a stochastic programming model below.
+
+$$
+\min E (C _ {\max}).\tag{1}
+$$
+
+$$
+\min E \left(\sum_ {i = 1} ^ {n} T _ {i}\right).\tag{2}
+$$
+
+s. t.
+
+$$
+\sum_ {l \in F} \sum_ {k \in M _ {j ^ {\prime} l} ^ {\prime} \cap M _ {j l} ^ {\prime}} \sum_ {j ^ {\prime} \in N ^ {\prime}} y _ {j j ^ {\prime} k l} = 1, \forall j \in O.\tag{3}
+$$
+
+$$
+\sum_ {k \in M _ {j l} ^ {\prime}} \sum_ {j \in O} y _ {j ^ {\prime} j k l} = 0, \forall j ^ {\prime} \in F, j ^ {\prime} \neq l.\tag{4}
+$$
+
+$$
+\sum_ {j \in O} y _ {l j k l} \leq 1, \forall k \in M _ {j l} ^ {\prime}, \forall l \in F.\tag{5}
+$$
+
+$$
+\sum_ {j \in N ^ {\prime}} y _ {j j ^ {\prime} k l} = \sum_ {j \in N ^ {\prime}} x _ {j ^ {\prime} j k l}, \forall j ^ {\prime} \in N ^ {\prime}, \forall k \in M _ {j l} ^ {\prime} \cap M _ {j ^ {\prime} l} ^ {\prime}, \forall l \in F.
+$$
+
+$$
+x _ {j l} = \sum_ {k \in M _ {j ^ {\prime} l} ^ {\prime} \cap M _ {j l} ^ {\prime}} \sum_ {j ^ {\prime} \in N ^ {\prime}} y _ {j j ^ {\prime} k l}, \forall j \in O, \forall l \in F.\tag{6}
+$$
+
+$$
+x _ {j l} = x _ {j ^ {\prime} l}, \forall j, j ^ {\prime} \in O ^ {\prime} \subseteq O, O ^ {\prime} = \{j | j \in O \parallel i _ {j} = i \},\tag{7}
+$$
+
+$$
+\forall i \in N, \forall l \in F.\tag{8}
+$$
+
+$$
+E (S _ {j} + p _ {j k l} - S _ {j}) \leq G \cdot (1 - y _ {j j ^ {\prime} k l}), \forall j, j ^ {\prime} \in O,
+$$
+
+$$
+\forall k \in M _ {j l} ^ {\prime} \cap M _ {j ^ {\prime} l} ^ {\prime}, \forall l \in F.\tag{9}
+$$
+
+$$
+E (S _ {j} + p _ {j k l} - S _ {j ^ {\prime}}) \leq G \cdot (1 - h _ {j j ^ {\prime}}), \forall j, j ^ {\prime} \in O, i _ {j} = i _ {j ^ {\prime}},
+$$
+
+$$
+\forall k \in M _ {j l} ^ {\prime}, \forall l \in F.\tag{10}
+$$
+
+$$
+E (S _ {j} + p _ {j k l} - C _ {i}) \leq 0, \forall i \in N, \forall j \in O, \forall k \in M _ {l},
+$$
+
+$$
+\forall l \in F, i \in O ^ {\prime} \subseteq O, O ^ {\prime} = \{j | j \in O \| i _ {j} = i \}.\tag{11}
+$$
+
+$$
+E (C _ {m a x} - C _ {i}) \geq 0, \forall i \in N.\tag{12}
+$$
+
+$$
+E (C _ {i} - T _ {i}) \leq d _ {i}, \forall i \in N.\tag{13}
+$$
+
+$$
+S _ {j} \geq 0, C _ {i} \geq 0, T _ {i} \geq 0,, p _ {j k l} \geq 0, \forall i \in N, \forall j \in N ^ {\prime},
+$$
+
+$$
+\forall k \in M _ {l}, \forall l \in F.\tag{14}
+$$
+
+$$
+x _ {j l} \in \{0, 1 \}, y _ {j j ^ {\prime} k l} \in \{0, 1 \}, \forall j, j ^ {\prime} \in N ^ {\prime}, \forall k \in M _ {l}, \forall l \in F.\tag{15}
+$$
+
+where (1) and (2) mean that reaching minimal expected makespan and minimal expected total tardiness are two objectives. (3) represents that an operation has only one succession operation. In the case that an operation is the last one, its succession is defined as its associated factory index. (4) means that the first operation on machines does not have a precedence operation. (5) indicates that an operation should be fabricated on at most one machine at a time at a factory. (6) gives the relationships of two operations on machines at a factory. (7) defines the relationships of two decision variables. (8) stipulates that a job’s operations ought to be handled within one factory. (9) means that an operation’s completion time should be equal to or smaller than the start time of its succession on machines at a factory. (10) limits the sequence relationships of two operations belonging to a job, i.e. an operation’s completion time must be equal to or smaller than its succession operation. (11) and (12) respectively define the job completion time and makespan. (13) formulates the job tardiness. (14) and (15) regulate the employed decision variables.
+
+In the distributed flexible job shops, there exist a few factories, and each of them is modelled as a flexible job shop. The prior work has proven that scheduling each of them to reach minimal makespan or minimal total tardiness is NP-hard (Tremblet, Thevenin, and Dolgui 2023). For the problem under consideration, we need to determine factory assignment of jobs in addition to machine assignment of jobs and operation sequence on machines like a common FJSP. Hence, the investigated problem is very dificult to be solved since it features with multiple optimisation objectives, stochasticity, and complex process. Thus, we infer Corollary 3.1, indicating that there does not exist a polynomial-time approach for addressing this problem.
+
+Corollary 3.1: The DFJSP with random processing time to minimise makespan and total tardiness is NPhard in ordinary sense.
+
+## 3.3. Challenge ofaddressing the studied DFJSP
+
+The considered problem has multiple optimisation objectives and uncertainties, posing great challenges for efectively handling it. The dificulties of solving this problem are analysed as:
+
+1) According to the afore-mentioned analysis, we must do the following decisions: factory assignment of jobs, machine assignment of jobs and operation sequence on machines. Moreover, it has multiple optimisation objectives, and managers prefer to acquire a great many of non-dominated solutions. Thus, the solution domain is very great in accordance with Property 3.1 and Corollary 3.1, and mathematical programming methods are dificult to address it within an acceptance time. It is necessary to use an efective search method with special strategies by combining the problem’s features. Hence, we must design high-eficiency search approaches to find promising solutions from the solution space.
+
+2) Due to the random nature of the considered problem, it is hard to exactly assess the searched solutions since Property 3.2. Thus, we must decrease the influence of random disturbance in assessing the quality of solutions. In addition, it is dificult to track the job movement in the considered distributed manufacturing system because of the complex production process. Hence, we should mimic the production process better. Consequently, a new approach needs to be devised to reduce the random disturbance and mimic the complex production process.
+
+In accordance with the above analysis, we deem that an integration of multi-objective evolutionary algorithm and simulation method can be treated as a prospective approach for handling the considered problem. Thus, we develop such an MOEA-EM.
+
+## 4. Proposed approach
+
+Considerable attention has focused on meta-heuristics in solving complicated optimisation problems (Fu et al. 2023b; Huang, Pan, and Gao 2023; Ip et al. 2003; Ma et al. 2023a). EAs are seen as an excellent approach to tackle multi-objective optimisation problems on account of the remarkable ability to acquire multiple solutions at each iteration (Fu et al. 2020; Geng and Li 2023). The past few years have witnessed the extensive and successful use of multi-objective EAs (MOEAs) for handling distributed scheduling problems (Wang and Wang 2021a). To our best knowledge, almost all of them address the distributed scheduling models in deterministic environments, and their performance in dealing with uncertain distributed scheduling problems, especially the DFJSPs with uncertainties, should be continuously explored. This article devises an MOEA-EM considering the problem’s natures of multiple objectives, stochasticity, and complex constraints. The developed MOEA and evaluation method interact with each other in a search process. The former is dedicated to searching favourable individuals from a solution domain, and all the generated individuals are given to the developed evaluation method. The latter uses stochastic simulation and discrete event simulation to calculate objective values of the delivered individuals. Then, the objective values are returned to the MOEA. Subsequently, MOEA chooses the better individuals to construct its next population, and then enters the next iteration. The design of MOEA-EM is given below.
+
+<table><tr><td colspan="7">Factory assignment</td><td colspan="7">Job sequence</td></tr><tr><td>3</td><td>3</td><td>1</td><td>2</td><td>1</td><td>2</td><td>2</td><td>3</td><td>2</td><td>4</td><td>5</td><td>1</td><td>6</td><td>7</td></tr></table>
+
+Figure 2. Illustration of solution representation methods.
+
+## 4.1. Solution representation
+
+According to the above statement, we need to determine three decisions, namely factory assignment ofjobs, machine assignment of jobs, and operation sequence on machines. This article adopts a double-link integer string to denote an individual (called a solution as well), i.e. $\pi =$ $\{ \pi ^ { \prime } , \pi ^ { \prime \prime } \}$ , where $\pi ^ { \prime } = \{ \pi _ { 1 } ^ { \prime } , \pi _ { 2 } ^ { \prime } , \ldots , \pi _ { n } ^ { \prime } \}$ is a factory assignment string and $\pi ^ { \prime \prime } = \{ \pi _ { 1 } ^ { \prime \prime } , \pi _ { 2 } ^ { \prime \prime } , . . . , \pi _ { n } ^ { \prime \prime } \}$ is a job sequence string. In $\pi ^ { \prime } { \mathrm { . } }$ , each position $\xi$ is associated with a job index, and $\pi _ { \xi } ^ { \prime }$ denotes a factory index, indicating that job $\xi$ is assigned to it, $\pi _ { \xi } ^ { \prime } \in [ 1 , f ] , \xi = 1 , 2 , \ldots , n .$ In $\pi ^ { \prime \prime } ,$ each element $\pi _ { \boldsymbol { \xi } } ^ { \prime \prime }$ in the ξ-th position denotes a job index, $\pi _ { \boldsymbol { \xi } } ^ { \prime \prime } \in [ 1 , n ] , \boldsymbol { \xi } = 1 , 2 , \ldots , n ,$ and the relative order ofjobs allocated to a factory denotes their processing sequence. Figure 2 gives a solution of an example having three factories and seven jobs. From the factory assignment string, we find that factory 3 processes jobs 1 and 2, and from the job sequence string, their processing sequence is 2→ 1. The decisions of factory assignment and job sequence regarding other jobs can be made by the same method.
+
+## 4.2. Evaluation method
+
+The solution representation approach determines only the factory assignment and job sequence at factories, while we are unable to straightforwardly attain the decisions of machine assignment regarding jobs and operation sequence on machines at factories. Moreover, the stochasticity of job processing time results in dificulties ofevaluating the objective values ofsolutions. Hence, this work designs an evaluation method to decode an individual into a viable schedule, and evaluate its objective values. Because the randomness and complex process of the considered distributed flexible job shop, the evaluation method improves both stochastic simulation and discrete event simulation. The former aims to assess individuals’ objective values, while the latter simulates the movement of jobs at factories via using heuristic rules.
+
+Stochastic simulation has been widely adopted to estimate probabilistic functions (Fu et al. 2020). It averages a great quantity of samples to estimate the true value. All elements in a sample are generated from their random distributions. Suppose that π represents an assessed solution, $\bar { A } ( \pi )$ and $\bar { B } ( \pi )$ are severally the expected makespan and total tardiness. W denotes the total number of samples equalling to 50 in this research, $A _ { w } ( \pi )$ and $B _ { w } ( \pi )$ are respectively the makespan and total tardiness of the w-th sample. The procedure of stochastic simulation in MOEA-EM is provided as:
+
+Step 1: Let $\bar { A } ( \pi ) : = 0 , \bar { B } ( \pi ) : = 0 , w : = 1 , W : = 5 0 .$
+
+Step 2: Create a sample $\rho _ { w } ( \pi )$
+
+Step 3: Compute $A _ { w } ( \pi )$ and $B _ { w } ( \pi ) \operatorname { o f } \rho _ { w } ( \pi ) .$
+
+Step 4: Add $A _ { w } ( \pi )$ and $B _ { w } ( \pi )$ to $\bar { A } ( \pi )$ and $\bar { B } ( \pi )$ Namely,
+
+$$
+\bar {A} (\pi) := \bar {A} (\pi) + A _ {w} (\pi), \quad \bar {B} (\pi) := \bar {B} (\pi) + B _ {w} (\pi).
+$$
+
+Step 5: Let $w : = w + 1$ , and iterate Steps 2–4 until $w >$ $W .$
+
+Step 6: Set the objective values of π as:
+
+$$
+\bar {A} (\pi) := \bar {A} (\pi) / W, \bar {B} (\pi) := \bar {B} (\pi) / W.
+$$
+
+In Step 3, we need to compute the objective values of a given sample. To do such work, we adopt a discrete event-based simulation (DES) method (Choi and Kang 2013). DES is actuated through a sequence of events. According to the parameterise event graph method proposed in the work of Choi and Kang (2013), we illustrate the process of DES regarding a system in Figure A1 in the Appendix. DES returns job completion time that is employed to straightforwardly calculate the makespan and total tardiness of a sample associated with a given solution.
+
+Through using the above evaluation method, the objective values of solutions can be well evaluated.
+
+## 4.3. Population initialisation
+
+Population diversity plays important roles in multiobjective optimisation since an algorithm needs to search multiple optimal solutions in a solution space. To acquire a high-quality individual, this work adopts the earliest due date rule (Pinedo 2016) for producing the job sequence string where all jobs are sequenced in accordance with their due date from small to large, while the factory assignment string is randomly generated. The other individuals are randomly generated as: Each element in the factory assignment string is generated from [1, f] at random, and then a permutation having n job indexes is randomly generated as the job sequence string. Via using this method, Q individuals are produced as a population (recorded as P for convenience). In addition, an external archive (referred to as E for short) is developed to conserve obtained non-dominated individuals. At each iteration, we update E with all newly produced individuals via employing the Pareto rule (Deb et al. 2002).
+
+## 4.4. Population-based search process
+
+MOEA-EM performs a search process via a population to implement exploration and exploitation operations. It consists of an exploring search phase and an exploiting search phase of which detailed designs are given below.
+
+## 4 4 1 Exploring search phase
+
+At this phase, MOEA-EM explores promising regions from the entire search space. This work adopts a genetic operation including crossover and mutation to produce new individuals since it has a significant advantage in improving global search abilities (Fu et al. 2018). Generally, applying promising parents can increase the probability of generating better ofspring individuals, and thus all individuals in P and E are allowed to be chosen as parent individuals. This work respectively names $\mathbb { P }$ and E as clusters 1 and 2, and we use the following method to choose parent individuals: (1) A binary selection approach (Fu et al. 2018) is employed to select a cluster with a smaller index; (2) If the selected cluster is E, an individual is randomly chosen from it as one parent. Otherwise, we use the binary selection approach to choose a better individual from P as one parent. Using this method, we can select two parent individuals recorded as $\pi _ { 1 }$ and $\pi _ { 2 } .$ . To generate an ofspring individual $\pi _ { o } .$ two crossover approaches are respectively used to recombine factory assignment and job sequence strings. They are described as: (1) For the factory assignment string, a binary integer string is randomly generated and the factory indexes corresponding to 1 in $\pi _ { 1 }$ are directly inherited into $\pi _ { o } ,$ and the rest in $\pi _ { o }$ are chosen from $\pi _ { 2 }$ (2) For the job sequence string, an order-based crossover method (Fu et al. 2018) is employed. It randomly chooses two cut points, and the jobs between them in $\pi _ { 1 }$ are directly inherited by $\pi _ { o } .$ Then, the remaining jobs are taken from $\pi _ { 2 }$ as their relative sequence. An example is shown in Figure A2 in the Appendix.
+
+After performing the crossover operation, MOEA-EM carries out a mutation operation on new individuals with probability $\boldsymbol { p _ { m } }$ . This work designs four neighbourhood structures to implement the mutation. For the factory assignment string, we use two methods as: (1) A job is selected, and we assign it to another factory at random; (2) Two positions are chosen at random, and the factory indexes on them are swapped. For the job sequence string, we employ two approaches as: (3) Two positions are chosen at random, and the job indexes on them are swapped; (4) Two positions are chosen at random, and the job index on a position is inserted to the other. By using the genetic operation, we can generate Q new individuals.
+
+## 4 4 2 Exploiting search phase
+
+In this phase, this research develops an iterated local search method (ILSM) to improve favourable individuals. It adopts four neighbourhood structures used in the mutation operation to find new individuals. Like the SA method, ILSM uses five conditions (Lin and Ying 2013), and a neighbourhood individual can substitute the present one on condition that any one ofthem is met. Let $\pi _ { 1 }$ and $\pi _ { 2 }$ be the current and neighbourhood individuals. The five conditions are given as:
+
+<div class="mineru-algorithm" style="white-space: pre-wrap; font-family:monospace;">
+a.  $\Delta O_{1} \leq 0$  and  $\Delta O_{2} \leq 0$ .
+b.  $\Delta O_{1} &gt; 0, \Delta O_{2} \leq 0$  and  $r &lt; \exp(-\Delta O_{1}/L_{e}t_{0})$ .
+c.  $\Delta O_{1} \leq 0, \Delta O_{2} &gt; 0$  and  $r &lt; \exp(-\Delta O_{2}/L_{e}t_{0})$ .
+d.  $\Delta O_{1} &gt; 0, \quad \Delta O_{2} &gt; 0, \quad \Delta O_{1}/O_{1}(\pi_{2}) &lt; \Delta O_{2}/O_{2}(\pi_{2})$  and
+ $r &lt; \exp(-\Delta O_{2}/L_{e}t_{0})$ .
+e.  $\Delta O_{1} &gt; 0, \quad \Delta O_{2} &gt; 0, \quad \Delta O_{1}/O_{1}(\pi_{2}) \geq \Delta O_{2}/O_{2}(\pi_{2})$  and
+ $r &lt; \exp(-\Delta O_{1}/L_{e}t_{0})$ .
+</div>
+
+where $\Delta { \cal O } _ { q } = { \cal O } _ { q } ( \pi _ { 2 } ) - { \cal O } _ { q } ( \pi _ { 1 } ) , { \cal O } _ { q } ( \pi _ { 1 } )$ and $O _ { q } ( \pi _ { 2 } )$ respectively denote the q-th objective values of $\overline { { \pi } } _ { 1 }$ and $\pi _ { 2 } .$ $q \in \{ 1 , 2 \} . L _ { e }$ is the length of a solution equalling to $2 \cdot n$ for the studied problem. r is produced at random from an interval [0, 1], and $t _ { 0 }$ is a temperature coeficient generated from [0.30, 0.75]. Diferent from the SA approach, ILSM does not adopt the annealing method due to the restricted computing resources.
+
+```verilog
+Algorithm 1: Exploiting search phase.
+
+Input: P and E.
+Output: a new E.
+Begin
+choose a non-dominated individual π from P.
+N := ∅, π₁ := π.
+for (i := 0 to I_M) do
+    π₂ := π₁.
+    create a number r from [0, 1] at random.
+    produce a neighbour π₂ using one of four neighbourhood structures.
+    if (one of the five conditions is met) then
+    π₁ := π₂.
+endif
+    N := N ∪ {π₂}.
+endfor
+update E by using all individuals in N.
+End.
+```
+
+Algorithm 1 provides the main procedure of the exploiting search phase. Therein, $I _ { M }$ indicates the quantity of new produced individuals equalling to 2 · τ · n, and τ is a given parameter. All new-generated individuals at the exploring and exploiting stages are combined with the population, and we choose Q individuals for constructing the next population via adopting domination and crowding distance approaches (Deb et al. 2002).
+
+## 4.5. External archive-based search
+
+In MOEA-EM, E is employed to store all the nondominated individuals acquired in the previous search process. Obviously, the individuals in E locate superior domains in the solution space, and it is necessary to search around them to find more better solutions. Thus, an external archive-based search (EABS) is performed to refine these individuals, aiming to further reinforce the exploitation performance of MOEA-EM. This work uses the ILSM to implement EABS. At each iteration, ILSM is used to refine κ · |E| individuals selected from E, where |E| denotes the quantity of individuals in E, and κ is a given coeficient.
+
+## 4.6. Procedure ofMOEA-EM
+
+Having introduced the designed MOEA and simulation methods in MOEA-EM, we summarise the entire procedure in Figure 3. Firstly, all parameters are initialised, and a group ofindividuals is generated as a population. Then, the evaluation approach is called to assess the objective values ofindividuals in the population. Secondly, MOEA-EM enters the following iterations: population-based and external archive-based search processes are performed in turn. The evaluation method needs to be called to assess the objective values of newly generated individuals. Finally, all individuals in the external archive are output if a pre-set termination criterion is met. Through the close cooperation of the designed MOEA and evaluation method, the considered DFJSP can be successfully solved, and all non-dominated solutions are provided for making decisions.
+
+## 5. Experiments and discussions
+
+## 5.1. Experimental setup
+
+To examine the MOEA-EM in handling the DFJSP of interest, we conduct experiments via extending a group of benchmark problems. The prior studies do not deal with the problem under consideration, and a straightforward way to extend the existing benchmark test problems is needed. This work constructs a set of test instances in accordance with the benchmark series (la01-la40) introduced by Hurink, Jurisch, and Thole (1994). Following them, this work sets the average and maximum quantity ofcandidate machines to 3. The cases la01, la05, la10, la15, la20, la25, la30, la35, and la40 are selected and their job counts are duplicated as our test instances. Thus, the quantity of jobs belongs to 20, 30, 40, 60, the quantity of factories is from 2, 4, 6, and the quantity of machines at factories is from 5, 10, 15. Job processing time follows truncated normal distributions. This work takes the mean of job processing time as the same as the benchmark instances, while multiplying them and a coefficient equalling to 0.0001 is taken as their variance. To set job due date, we produce 20 solutions at random, and calculate the average job completion time across them. Then, the job due date equals to a product oftheir respective average completion time and a coeficient value of 2.0.
+
+![](images/97ececd2f9b8060f474f2d6b26e552543c0f43213ca55ce0f76f07f80a0c4542.jpg)  
+Figure 3. Procedure of the MOEA-EM.
+
+This work chooses four extensively noted MOEAs as rival approaches: NSGA-II (Deb et al. 2002), MOEA/D (Zhang and Li 2007), BMSA (Lin and Ying 2013) and IMA (Luo et al. 2022). NSGA-II is a proverbial MOEA via using domination strategies, while MOEA/D is an MOEA according to decomposition approaches. They have been widely adopted as benchmark methods for comparisons in solving a variety ofcomplex optimisation problems (Fu et al. 2021b), and their excellent performance has been fully verified. Thus, we choose them as competitive methods. In addition, the ILSM in MOEA-EM uses five acceptance conditions derived from BMSA, and thereby BMSA is also selected as a peer method. Besides, IMA is a recently published work for solving DFJSPs, and it can be straightforwardly extended to deal with the considered problems. In consequence, we select IMA for comparisons as well. NSGA-II and MOEA/D use the same solution representation, crossover and mutation methods with MOEA-EM, and BMSA also employs the same solution representation and generates neighbourhood solutions with the mutation methods. IMA uses the solution representation and decoding methods as its original work in Luo et al. (2022), and the corresponding genetic operations and local search methods are employed as well. All methods are coded with C++ on VC++ 2019 platform, and conducted using a computer having Intel Core i5-6500 CPU @ 3.20 GHz and 8GB RAM.
+
+The computation complexity of MOEA-EM and its competitive approaches is analysed and reported in the Appendix. It is seen that MOEA-EM’s computation complexity is not very great, and consequently it can be employed for settling the problem under consideration.
+
+## 5.2. Performance metrics
+
+Generally, multi-objective optimisation problems consist ofmany potentially optimal solutions. An MOEA should seek a group of non-dominated solutions having the features ofmore remarkable convergence and diversification to cover optimal solutions as much as possible. Thus, both the convergence and diversification of obtained non-dominated solutions need to be assessed. This work adopts IGD- (Deb et al. 2002) and Hypervolume-metric (Zhang and Li 2007) as evaluation indices. Notice that a smaller IGD implies better, while a larger Hypervolume means better. This article provides the calculation methods of two metrics in the Appendix.
+
+## 5.3. Parameter setting
+
+To investigate the efects of user parameters on MOEA-EM, this work adopts a Taguchi experiment method (Montgomery 2008) to ascertain the settings of pivotal parameters: $Q , p _ { m } ,$ τ and κ. Each of them has four levels: $Q \in \{ 2 0 , 4 0 , 6 0 , 8 0 \} , p _ { m } \in \{ 0 . 0 5 , 0 . 1 0 , 0 . 1 5 , 0 . 2 0 \} , \tau \in$ {0.5, 1.0, 1.5, 2.0} and $\kappa \in \{ 0 . 1 , 0 . 4 , 0 . 7 , 1 . 0 \}$ . Hence, an $L _ { 1 6 } ( 4 ^ { 4 } )$ experiment is carried out, and Table A5 in the Appendix gives 16 parameter combinations. MOEA-EM using each combination solves an instance (namely la25 with 4 factories) 20 times. This article chooses the quantity of fitness evaluations as suspensive criteria set to 400 · n, in which n is the number ofjobs. It indicates that more computation resources are expended as the number ofjobs increases. The IGD is regarded as a response value (RV), while the average IGD across 20 times is treated as an average RV (ARV).
+
+Tables A5 and A6 in the Appendix report the experimental results in regard to MOEA-EM. Besides, Figure 4 diagrams the influence of the four parameters on MOEA-EM. In accordance with the obtained outcome and dissection, we see that $Q = 6 0 , p _ { m } = 0 . 1 5 , \tau = 2 . 0$ and $\kappa = 0 . 4$ are a better combination. They are used in the following experiments.
+
+![](images/28c29e795d14b57598dd7f0b8faa54bdd93ea6edb02cf74f05e575aee88a9ea4.jpg)  
+Figure 4. Influence trend of parameters.
+
+To make fair comparisons between MOEA-EM and its rival approaches, the DOE is also adopted to determine the rivals’ promising parameters. Tables A7–A12 in the Appendix report the experimental results. Through dissecting the results, this work sets the rivals’ parameters as: In regard to NSGA-II, we let its population size and mutation rate be severally equal to 60 and 0.10. With respect to MOEA/D, its population size, mutation rate and neighbourhood size are severally equal to 60, 0.15 and 20. Regarding BMSA, the quantity ofsolutions, initial temperature and annealing coeficient are respectively equal to 9, 7.5 and 0.90. As regards IMA, its population size, crossover probability, mutation probability and local search rate are set to 100, 0.8, 0.3 and 0.1, respectively.
+
+## 5.4. Efectiveness ofexternal archive-based search process
+
+In MOEA-EM, an EABS is used to refine individuals in E to improve MOEA-EM’s exploitation performance. To verify the role played by EABS, we conduct experiments to compare MOEA-EM with and without EABS (MOEA-EM-wø-EABS). Table A13 in the Appendix reports the results regarding IGD and Hypervolume metrics.
+
+It is observed that MOEA-EM beats MOEA-EM-w/o-EABS on solving all the instances. To further verify the efect of EABS in MOEA-EM, we execute the Friedman test and Nemenyi test (Brown and Mues 2012). Table 1 reports the statistical results. We can see that the MOEA-EM bests MOEA-EM-w/o-EABS regarding IGDand Hypervolume-metric. Noteworthily, the diference is equal to 1 that is larger than the critical value 0.3771, implying the significant diference. Furthermore, we employ the Wilcoxon signed rank test (Wang et al. 2020) to dissect their performance as provided in Table 2. The results in column $\dot { \cdot } + / \sim / - \ '$ reveal that MOEA-EM outperforms MOEA-EM-w/o-EABS on 27 instances as regards IGD and Hypervolume metrics, respectively. Moreover, MOEA-EM acquires the bigger $\overrightarrow { R } + \overrightarrow { \mathbfit { \Omega } }$ value compared with the $\ ' { R - } '$ value, and the obtained p values between MOEA-EM and its peer are smaller than 0.05, implying that there exists the obvious gap between MOEA-EM and MOEA-EM-w/o-EABS. Hence, it can be claimed with confidence that MOEA-EM significantly bests MOEA-EM-w/o-EABS. Namely, the EABS plays very essential parts in MOEA-EM.
+
+Table 1. Results of Friedman and Nemenyi test via mean results for IGD- and Hypervolume-metric.
+
+<table><tr><td rowspan="2">Algorithms</td><td colspan="3">IGD-metric</td><td colspan="3">Hypervolume-metric</td></tr><tr><td>Average rank value</td><td>Final rank</td><td>Difference</td><td>Average rank value</td><td>Final rank</td><td>Difference</td></tr><tr><td>MOEA-EM</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td></tr><tr><td>MOEA-EM-wø-EABS</td><td>2</td><td>2</td><td></td><td>2</td><td>2</td><td></td></tr></table>
+
+Table 2. Results of Wilcoxon signed rank test via mean results for IGD- and Hypervolume-metric.
+
+<table><tr><td>MOEA-EM vs. MOEA-EM-wø-EABS</td><td>+/-/-</td><td> $R^{+}$ </td><td> $R^{-}$ </td><td>Z</td><td>p-value</td><td> $\alpha = 0.05$ </td></tr><tr><td>IGD-metric</td><td>27/0/0</td><td>378</td><td>0</td><td>4.54</td><td>0.0000</td><td>Yes</td></tr><tr><td>Hypervolume-metric</td><td>27/0/0</td><td>378</td><td>0</td><td>4.54</td><td>0.0000</td><td>Yes</td></tr></table>
+
+## 5.5. Experimental results and analysis
+
+In the following, this work compares MOEA-EM with four existing algorithms: NSGA-II, MOEA/D, BMSA, and IMA. The outcome as regards IGD and Hypervolume metrics is respectively reported in Tables A14 and A15 in the Appendix. The results indicate that MOEA-EM can obtain well-converged and well-diversified solutions for the considered problem compared with its rivals. Figure 5 draws the boxplot diagrams of MOEA-EM and its competitors regarding IGD on the instances with six factories. It is seen that MOEA-EM is more superior and more stable than the rivals.
+
+To further analyse the performance ofMOEA-EM and its rivals with respect to IGD-metric, we use the Friedman test to obtain the average rank values and final rank values of all methods on solving all the instances. Table 3 reports the results. The average rank values of MOEA-EM and the rivals are severally 1.2963, 2.5185, 4.4074, 4.5926 and 2.2222. MOEA-EM ranks the first, and subsequent methods are IMA, NSGA-II, MOEA/D and BMSA. Thereby, it is declared that the capacity of five approaches has significant diference. Furthermore, the Wilcoxon signed rank test is employed to dissect the results of MOEA-EM and its competitors as regards IGD-metric. Table 4 reports the outcome. The results in column $\mathit { \Omega } ^ { \mathrm { { c } } } + / \sim / - \mathit { \Omega } ^ { \mathrm { { s } } }$ exhibit that MOEA-EM bests NSGA-II, MOEA/D, BMSA, and IMA on 23, 27, 27 and 26 out of 27 instances. Besides, the $^ { \mathfrak { c } } R ^ { + } { } ^ { , }$ values of MOEA-EM are far larger compared with the $^ \circ R ^ { - }$ values, and the obtained $\boldsymbol { p }$ values between MOEA-EM and its peers are smaller than 0.05, indicating that the diference is obviously significant.
+
+![](images/2be988be99be8c1595f5773d3ebe4387121d00efa0b76fc03a882e305c12eac9.jpg)  
+Figure 5. Boxplot graphs offive approaches for solving test problems with six factories regarding IGD-metric.
+
+Table 3. Friedman test results via mean values of IGD-metric.
+
+<table><tr><td rowspan="2">Algorithms</td><td colspan="2">IGD-metric</td></tr><tr><td>Average ranking value</td><td>Final rank</td></tr><tr><td>MOEA-EM</td><td>1.2963</td><td>1</td></tr><tr><td>NSGA-II</td><td>2.5185</td><td>3</td></tr><tr><td>MOEA/D</td><td>4.4074</td><td>4</td></tr><tr><td>BMSA</td><td>4.5926</td><td>5</td></tr><tr><td>IMA</td><td>2.2222</td><td>2</td></tr></table>
+
+To analyse the capacity of MOEA-EM and its competitors regarding Hypervolume metric, we employ the Friedman test to obtain the average rank values and final rank values of all methods for solving the instances. Table 5 reports the results. MOEA-EM and its peers get the average rank values 1.2222, 2.6296, 4.5741, 4.4259, and 2.1481, respectively. MOEA-EM also gets the first rank, followed by IMA, NSGA-II, BMSA, and MOEA/D. Furthermore, the Wilcoxon signed rank test is employed to dissect the outcome of MOEA-EM and its competitors regarding Hypervolume-metric. The results are provided in Table $^ { 6 , }$ in which the ${ } ^ { \mathrm { c } } R ^ { + \gamma } , \ { } ^ { \mathrm { c } } R ^ { - \gamma } ,$ , and p values of all the pairwise comparisons regarding MOEA-EM are shown. As the table states, MOEA-EM significantly defeats NSGA-II, MOEA/D, BMSA, and IMA on 25, 27, 27, and 23 instances. Additionally, the statistical results reveal that the $^ { \mathfrak { c } } R + { } ^ { \mathfrak { , } }$ values ofMOEA-EM are much larger than the $\smile$ values for each pairwise comparison. Besides, the obtainedp values show that MOEA-EM has a significant improvement over its peers with a level of significance $\alpha = 0 . 0 5$ . To sum up, MOEA-EM is superior to its peers with respect to Hypervolume-metric.
+
+Table 4. Wilcoxon signed rank test results via mean values of IGD-metric.
+
+<table><tr><td>MOEA-EM vs.</td><td>+/-</td><td> $R^{+}$ </td><td> $R^{-}$ </td><td>Z</td><td>p-value</td><td> $\alpha = 0.05$ </td></tr><tr><td>NSGA-II</td><td>23/0/4</td><td>334</td><td>44</td><td>3.48</td><td>0.0003</td><td>Yes</td></tr><tr><td>MOEA/D</td><td>27/0/0</td><td>378</td><td>0</td><td>4.54</td><td>0.0000</td><td>Yes</td></tr><tr><td>BMSA</td><td>27/0/0</td><td>378</td><td>0</td><td>4.54</td><td>0.0000</td><td>Yes</td></tr><tr><td>IMA</td><td>24/0/3</td><td>336</td><td>42</td><td>3.53</td><td>0.0004</td><td>Yes</td></tr></table>
+
+Table 5. Friedman test results via mean values of Hypervolumemetric.
+
+<table><tr><td rowspan="2">Algorithms</td><td colspan="2">Hypervolume-metric</td></tr><tr><td>Average ranking value</td><td>Final rank</td></tr><tr><td>MOEA-EM</td><td>1.2222</td><td>1</td></tr><tr><td>NSGA-II</td><td>2.6296</td><td>3</td></tr><tr><td>MOEA/D</td><td>4.5741</td><td>5</td></tr><tr><td>BMSA</td><td>4.4259</td><td>4</td></tr><tr><td>IMA</td><td>2.1481</td><td>2</td></tr></table>
+
+Table 6. Wilcoxon signed rank test results via mean values of Hypervolume-metric.
+
+<table><tr><td>MOEA-EM vs.</td><td>+/-/-</td><td> $R^{+}$ </td><td> $R^{-}$ </td><td>Z</td><td>p-value</td><td> $\alpha = 0.05$ </td></tr><tr><td>NSGA-II</td><td>25/0/2</td><td>363</td><td>15</td><td>4.18</td><td>0.0000</td><td>Yes</td></tr><tr><td>MOEA/D</td><td>27/0/0</td><td>378</td><td>0</td><td>4.54</td><td>0.0000</td><td>Yes</td></tr><tr><td>BMSA</td><td>27/0/0</td><td>378</td><td>0</td><td>4.54</td><td>0.0000</td><td>Yes</td></tr><tr><td>IMA</td><td>23/0/4</td><td>332</td><td>46</td><td>3.44</td><td>0.0006</td><td>Yes</td></tr></table>
+
+In order to exhibit the experimental results clearly, we additionally use the Set Coverage, Spread and Generational Distance metrics (Ma et al. 2023b; Pan, Lei, and Wang 2020) to further analyse the acquired outcome. The results and analysis are provided in the Supplementary File (Fu et al. 2023c). It is noted that MOEA-EM also achieves better performance than its rivals regarding the three metrics in solving the considered problem. To better visualise the experimental results, Figure 6 shows distribution graphs of test instances with diferent factories. We detect that MOEA-EM can gain the nondominated solutions with more excellent convergence and diversification than the rival methods.
+
+Table 7. Comparison results of MOEA-EM and CPLEX.
+
+<table><tr><td rowspan="2">Instances</td><td rowspan="2">weighted vectors</td><td>CPLEX</td><td colspan="2">MOEA-EM</td></tr><tr><td>AOV</td><td>AOV</td><td>Time (sec.)</td></tr><tr><td rowspan="3">5</td><td>(1.0, 0.0)</td><td>53.00*</td><td>70.00</td><td>28.32</td></tr><tr><td>(0.5, 0.5)</td><td>31.00*</td><td>49.20</td><td>29.41</td></tr><tr><td>(0.0, 1.0)</td><td>6.00*</td><td>10.00</td><td>27.21</td></tr><tr><td rowspan="3">7</td><td>(1.0, 0.0)</td><td>60.00</td><td>62.00</td><td>39.52</td></tr><tr><td>(0.5, 0.5)</td><td>60.50</td><td>56.10</td><td>44.52</td></tr><tr><td>(0.0, 1.0)</td><td>131.00</td><td>122.00</td><td>38.28</td></tr><tr><td rowspan="3">10</td><td>(1.0, 0.0)</td><td>-</td><td>95.00</td><td>67.32</td></tr><tr><td>(0.5, 0.5)</td><td>-</td><td>90.50</td><td>74.33</td></tr><tr><td>(0.0, 1.0)</td><td>-</td><td>232.00</td><td>65.67</td></tr></table>
+
+## 5.6. Comparisons ofMOEA-EM and CPLEX
+
+To verify the ability of MOEA-EM in reaching optimal solutions for the considered problem, this work chooses a mathematical optimisation software, CPLEX, for comparisons. The problem under consideration has both multiple optimisation objectives and randomness. Thus, we transform it into three single-objective optimisation problems having deterministic job processing time via employing a weighted sum approach with three weight vectors: (1.0, 0.0), (0.5, 0.5) and (0.0, 1.0). This work chooses a case in a construction equipment manufacturing process for test. In this case, we must allocate 10 jobs to two factories for fabrication. Each factory has three machines, and each job owns three operations. In the Appendix, Table A16 provides the basic data regarding job processing time and due date. Using this case, we respectively construct three instances with the first 5, the first 7, and 10 jobs for each single-objective optimisation problem. Thus, we have 9 instances as given in Table 7.
+
+According to the pilot studies, we can see that CPLEX cannot achieve the optimal solutions of the instance with 7 jobs after 3 h. Thus, we use the running time as CPLEX’s termination condition equalling to 3 h and its maximum memory size is set to 1024M, whereupon CPLEX just reaches an approximated optimal value (AOV) for instances with more than 7 jobs. MOEA-EM addresses each instance 20 times independently, and all non-dominated solutions found across 20 times are collected. Then, the best solution associated with each weighted vector is chosen as the acquired solution of the corresponding instance. Besides, the running time of MOEA-EM in solving each instance over 20 times is recorded.
+
+Table 7 reports the experimental results. The symbol $\boldsymbol { \mathscr { c } } _ { \ast } \boldsymbol { \mathscr { \Sigma } }$ means that the corresponding approach can acquire an optimum for the instance, while ‘–’ indicates that the
+
+![](images/728e3e73e21dfd494e39a34caf2eecd7905597e5e6dd7ec3917f5528210d8aa4.jpg)  
+(a) la30 with 2 factories.
+
+![](images/64fccaee0e663f70928469a42ca0d11333c3a844947e81acbc0e696dc28d8018.jpg)  
+(b) la35 with 2 factories.
+
+![](images/2ae6f4b54790e526d7a9e010202fc8488c57542956ae80017f8aa382aee93b9a.jpg)  
+(c) la30 with 4 factories.
+
+![](images/83e6cf180c560abc3168f7816afd3f5e9df6d60efa10c408c4291263645ae242.jpg)  
+(d) la35 with 4 factories.
+
+![](images/cd82c41383c45766b26a8b814ae921f5e2cc6a3c2371498b3655011736087e25.jpg)  
+(e) la30 with 6 factories
+
+![](images/608ced59bb1b4fe3647203bf5d7109faa8e286847a517ce3fa8fda86180a32e5.jpg)  
+(f) la35 with 6 factories.  
+Figure 6. Distributed diagrams of non-dominated solutions acquired via four methods.
+
+method cannot give a viable solution for the instance. Through observing the results, we see that CPLEX is able to achieve the optimum for the instances with 5 jobs, while it just reaches the approximated value for the instances with 7 jobs. For the instances with 10 jobs, CPLEX cannot find feasible results under the given conditions. MOEA-EM can obtain more excellent results than CPLEX for the instances with more than 7 jobs except for the instance associated with the weighted vector (1.0, 0.0). Notice that MOEA-EM is slightly worse than CPLEX for the instances with 5 jobs. By dissecting the results, it can be inferred that MOEA-EM performs more superiorly in solving the studied problem with more than 7 jobs via using less running time. Hence, the validation results of MOEA-EM in solving industrial cases can gain acceptance.
+
+In accordance with the afore-mentioned results and dissection, we can declare that MOEA-EM can beat its competitive approaches, and thus it is a much more excellent solver for tackling the problem under consideration. MOEA-EM adopts population-based and external archive-based search processes to search a solution space. The former explores the entire solution space to find promising regions, while the latter focuses on exploiting the found promising regions. In addition, MOEA-EM uses an evaluation method including stochastic simulation and discrete event simulation to assess obtained solutions. Analysis of the experimental results suggests that MOEA-EM can successfully and efectively deal with our considered problem via close cooperation of the above methods.
+
+## 6. Conclusions
+
+This work considers scheduling a distributed flexible job shop having random processing time to reach minimal makespan and total tardiness. A stochastic programing model is established to define the problem. To work out it, a multi-objective evolutionary algorithm incorporating an evaluation method is devised. The competitiveness of the designed method is fully validated via performing simulation experiment and comparison analysis. The developed model and approach can give assistance to managers and decision-makers for making more informed and more reliable solutions in real-life environments.
+
+Future work will seek to (1) formulate DFJSPs with both stochasticity and dynamic disruptions for improving processing quality and production resilience; (2) develop efective search algorithms and simulation approaches to settle the investigated problem; and (3) design smart contracts and resource scheduling methods for manufacturing enterprises using blockchain technology to form collaborative production networks.
+
+## Disclosure statement
+
+No potential conflict of interest was reported by the author(s).
+
+## Funding
+
+This work was in part supported by the National Natural Science Foundation of China under grant nos. 62173356, 61703320, Natural Science Foundation of Shandong Province under grant no. ZR202111110025, Innovation Centre for Digital Business and Capital Development of Beijing Technology and Business University under grant no. SZSK202208, Science and Technology Development Fund (FDCT), Macau SAR, under grant no. 0019/2021/A, Guangdong Basic and Applied Basic Research Foundation under grant no. 2023A1515011531, and Zhuhai Industry-University-Research Project with Hongkong and Macao under grant no. H220170022100 14PWC.
+
+## Notes on contributors
+
+![](images/6eee4fc70fc7db445acecf75973399c5236af92917ef756523c79291d3f107e9.jpg)
+
+Y i F received his B.S. degree in Commodity Science from Harbin University of Commerce, Harbin, China, in 2008, M.S. degree in Economics and Management from Northeast Electric Power University, Jilin, China, in 2011, Ph. D. degree in Systems Engineering from Northeastern University, Shenyang, China, in 2015. From
+
+2018 to 2019, he was a Research Fellow with the Department of Systems Engineering and Management, NUS. He is currently a professor with the Management and Science Engineering, Qingdao University. He has published over 70 refereed papers. His research focuses on multi-objective production planning and scheduling, routing optimisation, and evolutionary multiobjective optimisation.
+
+![](images/12c2a5c5aa911248ab058614dd7c0b05c68a46ad58e3c6bb78d5148d99504c2f.jpg)
+
+Kaizhou Gao received the Ph.D. degree from Nanyang Technological University (NTU), Singapore, in 2016. From 2008 to 2012, he was with the School of Computer, Liaocheng University, Liaocheng, China. From 2012 to 2013, he was a Research Associate with the School of Electronic and Electrical Engineering, NTU, where
+
+he was a Research Fellow from 2015 to 2018. He is currently an Assistant Professor with the Macau Institute of Systems Engineering, Macau University of Science and Technology, Macau, China. He has published over 100 refereed papers. His research interests include intelligent computation, optimisation, scheduling, and intelligent transportation. Dr. Gao acts as an Editor/Associate Editor of Expert Systems With Applications, IEEE Transactions on Intelligent Transportation Systems, and Swarm and Evolutionary Computation.
+
+![](images/2a2738834bb2d2d8597de809c30431b5c8780b1d656918836a558cb3a40b5ad2.jpg)
+
+Ling Wang received the B.S. degree in automation and the Ph.D. degree in control theory and control engineering from Tsinghua University, Beijing, China, in 1995 and 1999, respectively. Since 1999, he has been with the Department of Automation, Tsinghua University, where he became a Full Professor in 2008. He has
+
+authored five academic books and over 300 refereed papers. His current research interests include intelligent optimisation and production scheduling. Prof. Wang was a recipient of the National Natural Science Fund for Distinguished Young Scholars of China, the National Natural Science Award (Second Place) in 2014, the Science and Technology Award of Beijing City in 2008, and the Natural Science Award (First Place in 2003 and Second Place in 2007) nominated by the Ministry of Education of China. He is currently the Editor-in-Chief of International Journal of Automation and Control and an Associate Editor of IEEE TRANSACTIONS ON EVOLUTION-ARY COMPUTATION, Expert Systems with Applications, and Swarm & Evolutionary Computation.
+
+![](images/f753887f8ece2c52eaf217d647ee8d24de337f6af9c92c9619a7d8b96a58cc26.jpg)
+
+Mi H received the B.S. degree in automatic instrument, the M.S. degree in systems engineering, and the Ph.D. degree in control theory from Northeastern University, Shenyang, China, in 1990, 1993, and 1999, respectively. She is currently a Professor with the State Key Laboratory of Synthetical Automation for Process Indus-
+
+tries, College of Information Science and Engineering, Northeastern University. Her research interest includes modelling and optimisation for logistics and supply chain systems. She has authored over 120 journal articles, books, and refereed conference papers.
+
+![](images/7944bc06c9663918b916e1ec15cb5e6e230612cd1513304e7f1bcb6e19529f32.jpg)
+
+Yun Chia Liang received his bachelor’s degree in mechanical engineering from Tatung Institute of Technology, Taiwan, in 1992, two master’s degrees in mechanical engineering from Carnegie Mellon University in 1996, and industrial engineering from the University of Pittsburgh in 1999, respectively. Then he obtained the Ph.D.
+
+degree in industrial and systems engineering from Auburn University in 2001. He joined the department of industrial engineering and management, Yuan Ze University, Taiwan in 2002, and is currently a professor at YZU. His research interests include metaheuristic, scheduling, logistics, and machine learning applications. He has published over 40 refereed papers and over 120 conference papers.
+
+![](images/10aab8eb6a0a29e0124cc53d899af2afa8c96c19f92b332eec0d50e471084d82.jpg)
+
+Hongyu Dong received the B.S. in automatic control from Northeast Electric Power University, Jilin, China, in 2004, Ph. D. degree in systems engineering from Northeastern University, Shenyang, China, in 2009. He is currently a Professor with the School of E-Business and Logistics, Beijing Technology and Business Uni-
+
+versity, China. He has authored many high-quality papers on international journals and conference including those published in the Transportation Research Part B: Methodological and International Journal of Production Research. His main research interests include optimisation algorithms and its applications in logistics, supply chain and intelligent industry.
+
+## Data availability statement
+
+The data that support the findings of this study are available from the corresponding author, [Gao, K. Z.], upon reasonable request.
+
+## References
+
+Azab, A., and B. Naderi. 2014. “Greedy Heuristics for Distributed Job Shop Problems.” Procedia CIRP 20: 7–12. https://doi.org/10.1016/j.procir.2014.05.025
+
+Badakhshan, E., and P. Ball. 2023. “Deploying Hybrid Modelling to Support the Development of a Digital Twin for Supply Chain Master Planning Under Disruptions.” International Journal ofProduction Research 62 (10): 3606–3637. https://doi.org/10.1080/00207543.2023.2244604
+
+Becerra, P., J. Mula, and R. Sanchis. 2023. “Optimising Location, Inventory and Transportation in a Sustainable Closed-Loop Supply Chain.” International Journal ofProduction Research 62 (5): 1609–1632. https://doi.org/10.1080/00207543.2023. 2197515
+
+Brown, I., and C. Mues. 2012. “An Experimental Comparison of Classification Algorithms for Imbalanced Credit Scoring Data Sets.” Expert Systems with Applications 39 (3): 3446–3453. https://doi.org/10.1016/j.eswa.2011.09.033
+
+Carlucci, D., P. Renna, and S. Materi. 2023. “A Job-Shop Scheduling Decision-Making Model for Sustainable Production Planning with Power Constraint.” IEEE Transactions on Engineering Management 70 (5): 1923–1932. https://doi.org/10.1109/TEM.2021.3103108
+
+Chang, H. C., and T. K. Liu. 2017. “Optimisation ofDistributed Manufacturing Flexible Job Shop Scheduling by Using Hybrid Genetic Algorithms.” Journal of Intelligent Manu facturing 28 (8): 1973–1986. https://doi.org/10.1007/s10845- 015-1084-y
+
+Chaouch, I., O. B. Driss, and K. Ghedira. 2017. “A Modified Ant Colony Optimization Algorithm for the Distributed Job Shop Scheduling Problem.” Procedia Computer Science 112: 296–305. https://doi.org/10.1016/j.procs.2017.08.267
+
+Chaouch, I., O. B. Driss, and A. Ghedira. 2019. “A Novel Dynamic Assignment Rule for the Distributed Job Shop Scheduling Problem Using a Hybrid Ant-Based Algorithm.” Applied Intelligence 49 (5): 1903–1924. https://doi.org/10.10 07/s10489-018-1343-7
+
+Choi, T. M., A. Dolgui, D. Ivanov, and E. Pesch. 2022. “OR and Analytics for Digital, Resilient, and Sustainable Manufacturing 4.0.” Annals of Operations Research 310 (1): 1–6. https://doi.org/10.1007/s10479-022-04536-3
+
+Choi, B. K., and D. Kang. 2013. Modeling and Simulation of Discrete Event Systems. South Korea: John Wiley & Sons.
+
+Deb, K., A. Pratap, S. Agarwal, and T. Meyarivan. 2002. “A Fast and Elitist Multiobjective Genetic Algorithm: NSGA-II.” IEEE Transactions on Evolutionary Computation 6 (2): 182–197. https://doi.org/10.1109/4235.996017
+
+De Giovanni, L., and F. Pezzella. 2010. “An Improved Genetic Algorithm for the Distributed and Flexible Job-Shop Scheduling Problem.” European Journal ofOperations Research 200 (2): 395–408. https://doi.org/10.1016/j.ejor.20 09.01.008
+
+Du, Y., J. Q. Li, C. Luo, and L. L. Meng. 2021. “A Hybrid Estimation of Distribution Algorithm for Distributed Flexible Job Shop Scheduling with Crane Transportations.” Swarm and Evolutionary Computation 62. https://doi.org/10.1016/j.swevo. 2021.100861
+
+Fu, Y. P., J. L. Ding, H. F. Wang, and J. W. Wang. 2018. “Two-Objective Stochastic Flow-Shop Scheduling with Deteriorating and Learning Efect in Industry 4.0-Based Manu facturing System.” Applied Soft Computing 68: 847–855. https://doi.org/10.1016/j.asoc.2017.12.009
+
+Fu, Y. P., K. Z. Gao, L. Wang, M. Huang, Y. C. Liang, and H. Y. Dong. 2023c. Supplementary File of this Paper Can Be Downloaded from https://www.researchgate.net/publication /374506957\_FYP-SF-IJPR-Oct\_07\_2023.
+
+Fu, Y. P., Y. S. Hou, Z. F. Wang, X. W. Xu, K. Z. Gao, and L. Wang. 2021a. “Distributed Scheduling Problems in Intelligent Manufacturing Systems.” Tsinghua Science and Technology 26 (5): 625–645. https://doi.org/10.26599/TST.2021.9010009
+
+Fu, Y. P., H. B. Li, M. Huang, and H. Xiao. 2023a. “Bi-Objective Modeling and Optimization for Stochastic Two-Stage Open Shop Scheduling Problems in the Sharing Economy.” IEEE Transactions on Engineering Management 70 (10): 3395–3409. https://doi.org/10.1109/TEM.2021.3095954
+
+Fu, Y. P., X. M. Ma, K. Z. Gao, Z. W. Li, and H. Y. Dong. 2023b. “Multi-Objective Home Health Care Routing and Scheduling with Sharing Service via a Problem-Specific Knowledge Based Artificial Bee Colony Algorithm.” IEEE Transactions on Intelligent Transportation Systems 25 (2): 1706–1719. https://doi.org/10.1109/TITS.2023.3315785
+
+Fu, Y. P., G. D. Tian G, A. M. Fathollahi-Fard, A. Ahmadi, and C. Y. Zhang. 2019. “Stochastic Multi-Objective Modelling and
+
+Optimization ofan Energy-Conscious Distributed Permutation Flow Shop Scheduling Problem with the Total Tardiness Constraint.” Journal of Cleaner Production 226: 515–525. https://doi.org/10.1016/j.jclepro.2019.04.046
+
+Fu, Y. P., M. C. Zhou, X. W. Guo, and L. Qi. 2020. “Scheduling Dual-Objective Stochastic Hybrid Flow Shop with Deteriorating Jobs via Bi-Population Evolutionary Algorithm.” IEEE Transactions on Systems, Man, and Cybernetics: Systems 50 (12): 5037–5048. https://doi.org/10.1109/TSMC.2019.290 7575
+
+Fu, Y. P., M. C. Zhou, X. W. Guo, L. Qi, and K. Sedraoui. 2021b. “Multiverse Optimization Algorithm for Stochastic Biobjective Disassembly Sequence Planning Subject to Operation Failures.” IEEE Transactions on Systems, Man, and Cybernetics: Systems 52 (2): 1041–1051. https://doi.org/10.1109/TS MC.2021.3049323
+
+Geng, Y. D., and J. Q. Li. 2023. “A Knowledge-Driven Multiobjective Algorithm for Distributed Hybrid Flowshop with Group and Carryover Setup in Glass Manufacturing Systems.” Computers & Industrial Engineering 181. https://doi.org/10.1016/j.cie.2023.109325
+
+Hou, Y. S., H. F. Wang, Y. P. Fu, K. Z. Gao, and H. Zhang. 2023. “Multi-Objective Brain Storm Optimization for Integrated Scheduling of Distributed Flow Shop and Distribution with Maximal Processing Quality and Minimal Total Weighted Earliness and Tardiness.” Computers & Industrial Engineering 179. https://doi.org/10.1016/j.cie.2023.109217
+
+Hsu, C. Y., B. R. Kao, and K. R. Lai. 2016. “Agent-Based Fuzzy Constraint-Directed Negotiation Mechanism for Distributed Job Shop Scheduling.” Engineering Applications of Artificial Intelligence 53: 140–154. https://doi.org/10.1016/j. engappai.2016.04.005
+
+Huang, Y. Y., Q. K. Pan, and L. Gao. 2023. “An Efective Memetic Algorithm for the Distributed Flowshop Scheduling Problem with an Assemble Machine.” International Journal of Production Research 61 (6): 1755–1770. https://doi.org/10.1080/00207543.2022.2047238
+
+Hurink, J., B. Jurisch, and M. Thole. 1994. “Tabu Search for the Job-Shop Scheduling Problem with Multi-Purpose Machines.” Operations-Research-Spektrum 15 (4): 205–215. https://doi.org/10.1007/BF01719451
+
+Ip, W. H., M. Huang, K. L. Yung, and D. W. Wang. 2003. “Genetic Algorithm Solution for a Risk-Based Partner Selection Problem in a Virtual Enterprise.” Computers & Operations Research 30 (2): 213–231. https://doi.org/10.1016/S030 5-0548(01)00092-2
+
+Jeong, I. J., and S. B. Yim. 2009. “A Job Shop Distributed Scheduling Based on Lagrangian Relaxation to Minimise Total Completion Time.” International Journal ofProduction Research 47 (24): 6783–6805. https://doi.org/10.1080/00207 540701824217
+
+Jiang, E. D., L. Wang, and Z. P. Peng. 2020. “Solving Energy-Eficient Distributed Job Shop Scheduling via Multi-Objective Evolutionary Algorithm with Decomposition. Swarm and Evolutionary Computation 58. https://doi.org/10.10 16/j.swevo.2020.100745
+
+Lei, D. M., and B. Su. 2023. “A Multi-Class Teaching-Learning-Based Optimization for Multi-Objective Distributed Hybrid Flow Shop Scheduling.” Knowledge-Based Systems 263. https://doi.org/10.1016/j.knosys.2023.110252
+
+Li, R., W. Y. Gong, L. Wang, C. Lu, and S. N. Jiang. 2022a. “Two-Stage Knowledge-Driven Evolutionary Algorithm for
+
+Distributed Green Flexible Job Shop Scheduling with Type-2 Fuzzy Processing Time.” Swarm and Evolutionary Computation 74. https://doi.org/10.1016/j.swevo.2022.101 139
+
+Li, X. Y., J. Xie, Q. J. Ma, L. Gao, and P. G. Li. 2022b. “Improved Gray Wolf Optimizer for Distributed Flexible Job Shop Scheduling Problem.” Science China Technological Sciences 65 (9): 2105–2115. https://doi.org/10.1007/s11431-022- 2096-6
+
+Lin, C. S., P. Y. Li, J. M. Wei, and M. C. Wu. 2020. “Integration of Process Planning and Scheduling for Distributed Flexible Job Shops.” Computers & Operations Research 124. https://doi.org/10.1016/j.cor.2020.105053
+
+Lin, S. W., and K. C. Ying. 2013. “Minimizing Makespan and Total Flowtime in Permutation Flowshops by a Bi-Objective Multi-Start Simulated-Annealing Algorithm.” Computers & Operations Research 40 (6): 1625–1647. https://doi.org/10.1016/j.cor.2011.08.009
+
+Liu, T. K., Y. P. Chen, and J. H. Chou. 2014. “Solving Distributed and Flexible Job-Shop Scheduling Problems for a Real-World Fastener Manufacturer.” IEEE Access 2: 1598–1606. https://doi.org/10.1109/ACCESS.2015.2388486
+
+Lu, P. H., M. C. Wu, H. Tan, Y. H. Peng, and C. F. Chen. 2018. “A Genetic Algorithm Embedded with a Concise Chromosome Representation for Distributed and Flexible Job-Shop Scheduling Problems.” Journal ofIntelligent Manufacturing 29 (1): 19–34. https://doi.org/10.1007/s10845-015- 1083-z
+
+Luo, Q., Q. W. Deng, G. L. Gong, X. Guo, and X. H. Liu. 2022. “A Distributed Flexible Job Shop Scheduling Problem Considering Worker Arrangement Using an Improved Memetic Algorithm.” Expert Systems with Applications 207. https://doi.org/10.1016/j.eswa.2022.117984
+
+Luo, Q., Q. W. Deng, G. L. Gong, L. Zhang, W. W. Han, and K. X. Li. 2020. “An Eficient Memetic Algorithm for Distributed Flexible Job Shop Scheduling Problem with Transfers.” Expert Systems with Applications 160. https://doi.org/10.1016/j.eswa.2020.113721
+
+Ma, X. M., Y. P. Fu, K. Z. Gao, H. Zhang, and J. H. Mou. 2023b. “A Knowledge-Based Multi-Objective Evolutionary Algorithm for Solving Home Health Care Routing and Scheduling Problems with Multiple Centers.” Applied Soft Computing 144. https://doi.org/10.1016/j.asoc.2023.110 491
+
+Ma, X. M., Y. P. Fu, K. Z. Gao, L. H. Zhu, and A. Sadollah. 2023a. “A Multi-Objective Scheduling and Routing Problem for Home Health Care Services via Brain Storm Optimization.” Complex System Modeling and Simulation 3 (1): 32–46. https://doi.org/10.23919/CSMS.2022.0025
+
+Mahmoodjanloo, M., R. Tavakkoli-Moghaddama, A. Baboli, and A. Bozorgi-Amiri. 2022. “Distributed Job-Shop Rescheduling Problem Considering Reconfigurability of Machines: A Self-Adaptive Hybrid Equilibrium Optimizer.” International Journal of Production Research 60 (16): 4973–4994. https://doi.org/10.1080/00207543.2021.1946193
+
+Marzouki, B., O. B. Driss, and K. Ghédira. 2018. “Solving Distributed and Flexible Job Shop Scheduling Problem Using a Chemical Reaction Optimization Metaheuristic.” Procedia Computer Science 126: 1424–1433. https://doi.org/10.1016/j. procs.2018.08.114
+
+Meng, L. L., C. Y. Zhang, Y. P. Ren, B. Zhang, and C. Lu. 2020. “Mixed-Integer Linear Programming and Constraint
+
+Programming Formulations for Solving Distributed Flexible Job Shop Scheduling Problem.” Computers & Industrial Engineering 142. https://doi.org/10.1016/j.cie.2020.106347
+
+Montgomery, D. C. 2008. Design and Analysis of Experiments. 7th ed. Hoboken, NJ: Wiley.
+
+Naderi, B., and A. Azab. 2015. “An Improved Model and Novel Simulated Annealing for Distributed Job Shop Problems.” The International Journal ofAdvanced Manufacturing Technology 81 (1-4): 693–703. https://doi.org/10.1007/s00170- 015-7080-8
+
+Neumann, A., A. Hajji, M. Rekik, and R. Pellerin. 2023. “Genetic Algorithms for Planning and Scheduling Engineerto-Order Production: A Systematic Review.” International Journal ofProduction Research 62 (8): 2888–2817. https://doi. org/10.1080/00207543.2023.2237122
+
+Pan, Y. Y., K. Z. Gao, Z. W. Li, and N. Q. Wu. 2023. “Solving Biobjective Distributed Flow-Shop Scheduling Problems with Lot-Streaming Using an Improved Jaya Algorithm.” IEEE Transactions on Cybernetics 53 (6): 3818–3828. https://doi.org/10.1109/TCYB.2022.3164165
+
+Pan, Z. X., D. M. Lei, and L. Wang. 2020. “A Knowledge-Based Two-Population Optimization Algorithm for Distributed Energy-Eficient Parallel Machines Scheduling.” IEEE Transactions on Cybernetics 52 (6): 5051–5063. https://doi.org/10. 1109/TCYB.2020.3026571
+
+Pan, Z. X., D. M. Lei, and L. Wang. 2022. “A Bi-Population Evolutionary Algorithm with Feedback for Energy-Eficient Fuzzy Flexible Job Shop Scheduling.” IEEE Transactions on Systems, Man, and Cybernetics: Systems 52 (8): 5295–5307. https://doi.org/10.1109/TSMC.2021.3120702
+
+Pinedo, M. L. 2016. Scheduling: Theory, Algorithms, and Systems, fifth version. Cham: Springer International Publishing.
+
+Şahman, M. A. 2021. “A Discrete Spotted Hyena Optimizer for Solving Distributed Job Shop Scheduling Problems.” Applied Soft Computing 106. https://doi.org/10.1016/j.asoc.2021. 107349
+
+Sang, Y. W., and J. P. Tan. 2022. “Intelligent Factory Many-Objective Distributed Flexible Job Shop Collaborative Scheduling Method.” Computers & Industrial Engineering 164. https://doi.org/10.1016/j.cie.2021.107884
+
+Shao, W. S., Z. S. Shao, and D. C. Pi. 2021. “Efective Constructive Heuristics for Distributed No-Wait Flexible Flow Shop Scheduling Problem.” Computers & Operations Research 136. https://doi.org/10.1016/j.cor.2021.105482
+
+Shi, W. Y., and C. Mena. 2023. “Supply Chain Resilience Assessment with Financial Considerations: A Bayesian Network-Based Method.” IEEE Transactions on Engineering Management 70 (6): 2241–2256. https://doi.org/10.1109/TEM.2021 .3066600
+
+Siqin, T., T. M. Choi, S. H. Chung, and X. Wen. 2022. “Platform Operations in the Industry 4.0 Era: Recent Advances and the 3As Framework.” IEEE Transactions on Engineering Management 71: 1145 –1162. https://doi.org/10.1109/TEM.2021. 3138745
+
+Tang, H. T., B. Fang, R. Liu, Y. B. Li, and S. S. Guo. 2022. “A Hybrid Teaching and Learning-Based Optimization Algorithm for Distributed Sand Casting Job-Shop Scheduling Problem.” Applied Soft Computing 120. https://doi.org/10.1016/j.asoc.2022.108694
+
+Thenarasu, M., K. Rameshkumar, M. Di Mascolo, and S. P. Anbuudayasankar. 2023. “Multi-criteria Scheduling of
+
+Realistic Flexible Job Shop: A Novel Approach for Integrating Simulation Modelling and Multi-Criteria Decision Making.” International Journal of Production Research 62 (1-2): 336–358. https://doi.org/10.1080/00207543.2023.223 8084
+
+Tremblet, D., S. Thevenin, and A. Dolgui. 2023. “Makespan Estimation in a Flexible Job-Shop Scheduling Environment Using Machine Learning.” International Journal of Production Research 62 (10): 3654–3670. https://doi.org/10.1080/ 00207543.2023.2245918
+
+Wang, Y. H., Y. Y. Han, Y. T. Wang, M. F. Tasgetiren, J. Q. Li, and K. Z. Gao. 2023. “Intelligent Optimization Under the Makespan Constraint: Rapid Evaluation Mechanisms Based on the Critical Machine for the Distributed Flowshop Group Scheduling Problem.” European Journal of Operational Research 311 (3): 816–832. https://doi.org/10.1016/j.ejor.2023.05.010
+
+Wang, J., Y. Liu, S. Ren, C. Wang, and W. B. Wang. 2021b. “Evolutionary Game Based Real-Time Scheduling for Energy-Eficient Distributed and Flexible job Shop.” Journal of Cleaner Production 293. https://doi.org/10.1016/j.jclepro.2021 126093
+
+Wang, J. H., Y. Y. Sun, Z. Z. Zhang, and S. C. Gao. 2020. “Solving Multitrip Pickup and Delivery Problem with Time Windows and Manpower Planning Using Multiobjective Algorithms.” IEEE/CAA Journal of Automatica Sinica 7 (4): 1134–1153. https://doi.org/10.1109/JAS.2020.1003204
+
+Wang, J. J., and L. Wang. 2021a. “A Cooperative Memetic Algorithm with Learning-Based Agent for Energy-Aware Distributed Hybrid Flow-Shop Scheduling.” IEEE Transactions on Evolutionary Computation 26 (3): 461–475. https://doi.org/10.1109 TEVC.2021.3106168
+
+Wu, X. L., X. J. Liu, and N. Zhao. 2019. “An Improved Diferential Evolution Algorithm for Solving a Distributed Assembly Flexible Job Shop Scheduling Problem.” Memetic Computing 11 (4): 335–355. https://doi.org/10.1007/s12293-018-00 278-7
+
+Wu, Z. Y., R. Zhou, M. Goh, Y. Wang, Z. T. Xu, and W. Y. Song. 2023. “A Digital Twin-Based Modularized Design Approach for Smart Warehouses.” International Journal of Computer Integrated Manufacturing. https://doi.org/10.1080/0951192 X.2023.2278100.
+
+Xie, J., L. Gao, Q. K. Pan, and M. F. Tasgetiren. 2019. “An Efective Multi-Objective Artificial bee Colony Algorithm for Energy Eficient Distributed Job Shop Scheduling.” Procedia Manufacturing 39: 1194–1203. https://doi.org/10.1016/j.pro mfg.2020.01.350
+
+Xu, W. X., Y. W. Hu, W. Luo, L. Wang, and R. Wu. 2021. “A Multi-Objective Scheduling Method for Distributed and Flexible Job Shop Based on Hybrid Genetic Algorithm and Tabu Search Considering Operation Outsourcing and Carbon Emission.” Computers & Industrial Engineering 157. https://doi.org/10.1016/j.cie.2021.107318
+
+Xu, X. Y., S. P. Sethi, S. H. Chung, and T. M. Choi. 2022. “Reforming Global Supply Chain Management Under Pandemics: The GREAT-3Rs Framework.” Production and Operations Management 32 (2): 524–546. https://doi.org/ 10.1111/poms.13885
+
+Zhang, Q. F., and H. Li. 2007. “MOEA/D: A Multiobjective Evolutionary Algorithm Based on Decomposition.” IEEE
+
+Transactions on Evolutionary Computation 11 (6): 712–731. https://doi.org/10.1109/TEVC.2007.892759
+
+Zhao, F. Q., R. Ma, and L. Wang. 2022. “A Self-Learning Discrete Jaya Algorithm for Multiobjective Energy-Eficient Distributed No-Idle Flow-Shop Scheduling Problem in Heterogeneous Factory System.” IEEE Transactions on Cybernetics 52 (12): 12675–12686. https://doi.org/10.1109/TCYB.20 21.3086181
+
+Zhao, F. Q., Z. S. Xu, H. Z. Bao, T. P. Xu, N. N. Zhu, and Jonrinaldi. 2023. “A Cooperative Whale Optimization
+
+Algorithm for Energy-Eficient Scheduling of the Distributed Blocking Flow-Shop with Sequence-Dependent Setup Time.” Computers & Industrial Engineering 178. https://doi.org/10.1016/j.cie.2023.109082
+
+Zheng, J., L. Wang, and J. J. Wang. 2020. “A Cooperative Coevolution Algorithm for Multi-Objective Fuzzy Distributed Hybrid Flow Shop.” Knowledge-Based Systems 194. https://doi.org/10.1016/j.knosys.2020.105536

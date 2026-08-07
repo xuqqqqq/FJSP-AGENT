@@ -1,0 +1,31 @@
+{
+  "version": "1.0",
+  "drawings": {
+    "im-f86558f312309579bc8dcc17877dd712-0001": {
+      "id": "im-f86558f312309579bc8dcc17877dd712-0001",
+      "blockid": "30752fb04eb8b3000cdf6f7870ee728a",
+      "heading": "An effective multi-start iterated greedy algorithm to minimize makespan for the distributed permutation flowshop scheduling problem with preventive maintenance",
+      "parent_headings": [],
+      "format": "jpg",
+      "path": "An effective multi-start iterated greedy algorithm to minimize makespan for the distributed permutation flowshop scheduling problem with preventive ma-e4fc2e6d.blocks.assets/e9f9ac764b20db93d3bc81237053dd035f8530c0d66bc1ef7b59f6e026509005.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/1"
+    },
+    "im-f86558f312309579bc8dcc17877dd712-0002": {
+      "id": "im-f86558f312309579bc8dcc17877dd712-0002",
+      "blockid": "7b3252ce6d52f9ef8cd4e018d0ba080f",
+      "heading": "4.4. Construction phase",
+      "parent_headings": [
+        "An effective multi-start iterated greedy algorithm to minimize makespan for the distributed permutation flowshop scheduling problem with preventive maintenance"
+      ],
+      "format": "jpg",
+      "path": "An effective multi-start iterated greedy algorithm to minimize makespan for the distributed permutation flowshop scheduling problem with preventive ma-e4fc2e6d.blocks.assets/707e13e50771ab4c2cc209ef3af8d3fbb5072f568104d8ec249e06c0711af0d4.jpg",
+      "src": "",
+      "caption": "Fig 10. Procedure of the complete local search.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/78"
+    }
+  }
+}

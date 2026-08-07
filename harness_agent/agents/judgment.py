@@ -537,6 +537,20 @@ def _detect_agent_generated_solver_quality_risks(
         setup_missing = _missing_setup_aware_capabilities(combined_text)
         if setup_missing:
             risks.append(f"agent_generated_solver: missing setup-aware capabilities: {', '.join(setup_missing)}")
+    if "fjsp_distributed_transfer" in active_features:
+        distributed_missing = _missing_distributed_transfer_capabilities(combined_text)
+        if distributed_missing:
+            risks.append(
+                "agent_generated_solver: missing distributed-transfer capabilities: "
+                + ", ".join(distributed_missing)
+            )
+    if "fjsp_job_priority" in active_features or "job_priority" in active_features:
+        priority_missing = _missing_job_priority_capabilities(combined_text)
+        if priority_missing:
+            risks.append(
+                "agent_generated_solver: missing job-priority capabilities: "
+                + ", ".join(priority_missing)
+            )
 
     sequence_move_terms = (
         "local_search",
@@ -690,6 +704,16 @@ def _detect_agent_generated_source_self_check_risks(
         ("no_wait_start_time_guard", _has_no_wait_source_self_check_guard),
         ("time_lag_precedence_guard", _has_time_lag_source_self_check_guard),
         ("machine_calendar_availability_guard", _has_machine_calendar_source_self_check_guard),
+        ("factory_assignment_guard", _has_factory_assignment_source_self_check_guard),
+        ("transfer_time_precedence_guard", _has_transfer_time_precedence_source_self_check_guard),
+        ("factory_machine_eligibility_guard", _has_factory_machine_eligibility_source_self_check_guard),
+        ("distributed_machine_non_overlap_guard", _has_distributed_machine_non_overlap_source_self_check_guard),
+        ("energy_and_workload_metric_guard", _has_energy_and_workload_metric_source_self_check_guard),
+        ("priority_tail_parser_guard", _has_priority_tail_parser_source_self_check_guard),
+        ("priority_job_identity_guard", _has_priority_job_identity_source_self_check_guard),
+        ("priority_completion_metric_guard", _has_priority_completion_metric_source_self_check_guard),
+        ("lexicographic_priority_objective_guard", _has_lexicographic_priority_objective_source_self_check_guard),
+        ("priority_aware_dispatch_guard", _has_priority_aware_dispatch_source_self_check_guard),
         ("batch_capacity_guard", _has_batch_capacity_source_self_check_guard),
         ("transport_time_guard", _has_transport_time_source_self_check_guard),
         ("release_date_guard", _has_release_date_source_self_check_guard),
@@ -824,6 +848,182 @@ def _has_machine_calendar_source_self_check_guard(text: str) -> bool:
         and "start" in lowered
         and "end" in lowered
     )
+
+
+def _has_factory_assignment_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    return (
+        "factory_id" in lowered
+        and ("schedule" in lowered or "record" in lowered or "output" in lowered)
+        and any(term in lowered for term in ["job_id", "op_id", "operation"])
+        and any(term in lowered for term in ["append", "json", "record", "emit"])
+    )
+
+
+def _has_transfer_time_precedence_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    transfer_terms = [
+        "transfer_time",
+        "same_factory_transfer",
+        "cross_factory_transfer",
+        "same_factory_transfer_time",
+        "cross_factory_transfer_time",
+        "prev_end + 30",
+        "prev_end + 60",
+        "+ 30",
+        "+ 60",
+    ]
+    return (
+        any(term in lowered for term in transfer_terms)
+        and "factory" in lowered
+        and any(term in lowered for term in ["prev", "predecessor", "job_ready", "previous"])
+        and "start" in lowered
+        and "end" in lowered
+    )
+
+
+def _has_factory_machine_eligibility_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    pair_terms = [
+        "(factory_id, machine_id)",
+        "(factory, machine)",
+        "factory_machine",
+        "factory_id, machine_id",
+        "machine_options",
+        "candidates",
+    ]
+    rejection_terms = ["not in", "return false", "return none", "raise", "infeasible", "errors.append"]
+    return (
+        "factory_id" in lowered
+        and "machine_id" in lowered
+        and any(term in lowered for term in pair_terms)
+        and any(term in lowered for term in rejection_terms)
+    )
+
+
+def _has_distributed_machine_non_overlap_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    keyed_machine_terms = [
+        "(factory_id, machine_id)",
+        "(factory, machine)",
+        "factory_machine",
+        "by_machine",
+        "machine_intervals",
+        "machine_usage",
+    ]
+    overlap_terms = ["overlap", "prev[1] > curr[0]", "left[1] > right[0]", "start < prev_end", "intervals.sort"]
+    return (
+        "factory" in lowered
+        and "machine" in lowered
+        and "start" in lowered
+        and "end" in lowered
+        and any(term in lowered for term in keyed_machine_terms)
+        and any(term in lowered for term in overlap_terms)
+    )
+
+
+def _has_energy_and_workload_metric_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    energy_terms = [
+        "total_energy",
+        "total_energy_consumption",
+        "energy_consumption",
+        "unit_energy",
+        "transfer_unit_energy",
+    ]
+    workload_terms = [
+        "max_factory_workload",
+        "factory_workload",
+        "factory_load",
+        "workload_by_factory",
+    ]
+    return (
+        any(term in lowered for term in energy_terms)
+        and any(term in lowered for term in workload_terms)
+        and any(term in lowered for term in ["duration", "processing", "transfer"])
+    )
+
+
+def _has_priority_tail_parser_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    tail_terms = [
+        "priority_tail",
+        "priority_job_ids",
+        "priority_jobs",
+        "remaining_tokens",
+        "remaining tokens",
+        "tail",
+    ]
+    count_terms = ["ceil(job_count / 4", "ceil(job_count/4", "(job_count + 3) // 4", "priority_count", " k "]
+    return (
+        any(term in lowered for term in tail_terms)
+        and any(term in lowered for term in count_terms)
+        and any(term in lowered for term in ["job_count", "num_jobs", "n_jobs"])
+        and any(term in lowered for term in ["tokens", "parts", "data", "ints"])
+    )
+
+
+def _has_priority_job_identity_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    id_terms = ["priority_job_ids", "priority_jobs", "priority_job_set"]
+    zero_based_terms = ["- 1", "0-based", "zero-based", "zero_based", "job_id"]
+    reject_terms = ["out of range", "not in", "raise", "errors.append", "return false", "invalid"]
+    return (
+        any(term in lowered for term in id_terms)
+        and any(term in lowered for term in zero_based_terms)
+        and any(term in lowered for term in reject_terms)
+    )
+
+
+def _has_priority_completion_metric_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    return (
+        "priority_completion_time" in lowered
+        and any(term in lowered for term in ["priority_job_ids", "priority_jobs", "priority_job_set"])
+        and any(term in lowered for term in ["max(", "completion", "end"])
+    )
+
+
+def _has_lexicographic_priority_objective_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    tuple_terms = [
+        "(makespan, priority_completion_time)",
+        "objective_tuple",
+        "score_tuple",
+        "lexicographic",
+        "lex_key",
+    ]
+    weighted_terms = ["priority_weight", "weighted_objective", "weighted score", "weight_priority"]
+    return (
+        any(term in lowered for term in tuple_terms)
+        or (
+            "makespan" in lowered
+            and "priority_completion_time" in lowered
+            and any(term in lowered for term in weighted_terms)
+        )
+    )
+
+
+def _has_priority_aware_dispatch_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    priority_terms = [
+        "priority_job_ids",
+        "priority_jobs",
+        "priority_job_set",
+        "priority_score",
+        "priority_weight",
+    ]
+    scheduling_terms = [
+        "dispatch",
+        "ready",
+        "score",
+        "candidate",
+        "critical_path",
+        "local_search",
+        "neighborhood",
+        "sort",
+    ]
+    return any(term in lowered for term in priority_terms) and any(term in lowered for term in scheduling_terms)
 
 
 def _has_batch_capacity_source_self_check_guard(text: str) -> bool:
@@ -1046,6 +1246,34 @@ def _missing_agent_generated_base_capabilities(text: str) -> list[str]:
             ("machine_non_overlap_guard", _has_machine_non_overlap_guard),
             ("bounded_runtime_or_iteration_guard", _has_bounded_runtime_or_iteration_guard),
             ("incumbent_preservation_on_failed_candidate", _has_incumbent_preservation_guard),
+        ]
+        if not detector(text)
+    ]
+
+
+def _missing_distributed_transfer_capabilities(text: str) -> list[str]:
+    return [
+        name
+        for name, detector in [
+            ("factory_assignment_guard", _has_factory_assignment_source_self_check_guard),
+            ("transfer_time_precedence_guard", _has_transfer_time_precedence_source_self_check_guard),
+            ("factory_machine_eligibility_guard", _has_factory_machine_eligibility_source_self_check_guard),
+            ("distributed_machine_non_overlap_guard", _has_distributed_machine_non_overlap_source_self_check_guard),
+            ("energy_and_workload_metric_guard", _has_energy_and_workload_metric_source_self_check_guard),
+        ]
+        if not detector(text)
+    ]
+
+
+def _missing_job_priority_capabilities(text: str) -> list[str]:
+    return [
+        name
+        for name, detector in [
+            ("priority_tail_parser_guard", _has_priority_tail_parser_source_self_check_guard),
+            ("priority_job_identity_guard", _has_priority_job_identity_source_self_check_guard),
+            ("priority_completion_metric_guard", _has_priority_completion_metric_source_self_check_guard),
+            ("lexicographic_priority_objective_guard", _has_lexicographic_priority_objective_source_self_check_guard),
+            ("priority_aware_dispatch_guard", _has_priority_aware_dispatch_source_self_check_guard),
         ]
         if not detector(text)
     ]
@@ -1968,6 +2196,16 @@ def _has_incumbent_preservation_guard(text: str) -> bool:
 
 
 _VARIANT_FEATURE_CODE_TERMS = {
+    "fjsp_distributed_transfer": ["factory_id", "transfer_time", "same_factory_transfer", "cross_factory_transfer"],
+    "factory_assignment": ["factory_id", "factory_assignment", "factory"],
+    "transfer_time": ["transfer_time", "same_factory_transfer", "cross_factory_transfer"],
+    "energy_consumption": ["total_energy", "energy_consumption", "unit_energy"],
+    "factory_workload": ["max_factory_workload", "factory_workload", "factory_load"],
+    "fjsp_job_priority": ["priority_job_ids", "priority_completion_time", "priority_jobs"],
+    "job_priority": ["priority_job_ids", "priority_completion_time", "priority_jobs"],
+    "priority_jobs": ["priority_job_ids", "priority_jobs", "priority_job_set"],
+    "priority_completion_time": ["priority_completion_time", "priority completion"],
+    "lexicographic_objective": ["lexicographic", "objective_tuple", "(makespan, priority_completion_time)"],
     "no_wait": ["no_wait", "no-wait"],
     "time_lag": ["time_lag", "time lag", "lag_min", "lag_max"],
     "machine_calendar": ["calendar", "availability", "unavailable"],

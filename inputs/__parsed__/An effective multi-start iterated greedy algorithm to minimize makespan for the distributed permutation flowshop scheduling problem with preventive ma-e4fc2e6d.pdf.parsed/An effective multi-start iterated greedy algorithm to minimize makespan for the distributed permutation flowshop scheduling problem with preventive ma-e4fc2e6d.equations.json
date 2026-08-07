@@ -1,0 +1,44 @@
+{
+  "version": "1.0",
+  "equations": {
+    "eq-f86558f312309579bc8dcc17877dd712-0001": {
+      "id": "eq-f86558f312309579bc8dcc17877dd712-0001",
+      "blockid": "413c5eea7f62706573925db4364ade81",
+      "heading": "4.6. Acceptance criterion and restart strategy",
+      "parent_headings": [
+        "An effective multi-start iterated greedy algorithm to minimize makespan for the distributed permutation flowshop scheduling problem with preventive maintenance"
+      ],
+      "format": "latex",
+      "content": "p = \\exp \\left(\\frac {C _ {\\text { max }} (\\Pi^ {*}) - C _ {\\text { max }} (\\Pi)}{\\text { Temperature }}\\right)\\tag{1}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/94"
+    },
+    "eq-f86558f312309579bc8dcc17877dd712-0002": {
+      "id": "eq-f86558f312309579bc8dcc17877dd712-0002",
+      "blockid": "413c5eea7f62706573925db4364ade81",
+      "heading": "4.6. Acceptance criterion and restart strategy",
+      "parent_headings": [
+        "An effective multi-start iterated greedy algorithm to minimize makespan for the distributed permutation flowshop scheduling problem with preventive maintenance"
+      ],
+      "format": "latex",
+      "content": "\\text { Temperature } = T \\times \\frac {\\sum_ {i = 1} ^ {m} \\sum_ {j = 1} ^ {n} P _ {i , j}}{m \\times n \\times 1 0}\\tag{2}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/95"
+    },
+    "eq-f86558f312309579bc8dcc17877dd712-0003": {
+      "id": "eq-f86558f312309579bc8dcc17877dd712-0003",
+      "blockid": "24228832c3f84472ce832b71d29823a1",
+      "heading": "5. Experimental results",
+      "parent_headings": [
+        "An effective multi-start iterated greedy algorithm to minimize makespan for the distributed permutation flowshop scheduling problem with preventive maintenance"
+      ],
+      "format": "latex",
+      "content": "RPD = 100 \\% \\times \\frac{Some_{sol} - Best_{sol}}{Best_{sol}}\\tag{3}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/103"
+    }
+  }
+}

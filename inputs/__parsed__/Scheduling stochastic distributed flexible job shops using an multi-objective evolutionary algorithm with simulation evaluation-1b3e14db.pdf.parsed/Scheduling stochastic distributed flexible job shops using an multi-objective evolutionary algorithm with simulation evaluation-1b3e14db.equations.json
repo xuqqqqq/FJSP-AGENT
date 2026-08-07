@@ -1,0 +1,330 @@
+{
+  "version": "1.0",
+  "equations": {
+    "eq-458859b0b2943b04036593edf0f47c6d-0001": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0001",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "\\left. \\dots , \\sum_ {i \\in N} n _ {i} \\right\\}.",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/98"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0002": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0002",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "\\left\\{1, 2, \\dots , f, f + 1, \\dots , n _ {i}, n _ {i} + 1, \\dots , f \\right.",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/100"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0003": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0003",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "\\left. + \\sum_ {i \\in N} n _ {i} \\right\\}.",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/101"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0004": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0004",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "\\min E (C _ {\\max}).\\tag{1}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/120"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0005": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0005",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "\\min E \\left(\\sum_ {i = 1} ^ {n} T _ {i}\\right).\\tag{2}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/121"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0006": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0006",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {l \\in F} \\sum_ {k \\in M _ {j ^ {\\prime} l} ^ {\\prime} \\cap M _ {j l} ^ {\\prime}} \\sum_ {j ^ {\\prime} \\in N ^ {\\prime}} y _ {j j ^ {\\prime} k l} = 1, \\forall j \\in O.\\tag{3}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/123"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0007": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0007",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {k \\in M _ {j l} ^ {\\prime}} \\sum_ {j \\in O} y _ {j ^ {\\prime} j k l} = 0, \\forall j ^ {\\prime} \\in F, j ^ {\\prime} \\neq l.\\tag{4}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/124"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0008": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0008",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {j \\in O} y _ {l j k l} \\leq 1, \\forall k \\in M _ {j l} ^ {\\prime}, \\forall l \\in F.\\tag{5}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/125"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0009": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0009",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {j \\in N ^ {\\prime}} y _ {j j ^ {\\prime} k l} = \\sum_ {j \\in N ^ {\\prime}} x _ {j ^ {\\prime} j k l}, \\forall j ^ {\\prime} \\in N ^ {\\prime}, \\forall k \\in M _ {j l} ^ {\\prime} \\cap M _ {j ^ {\\prime} l} ^ {\\prime}, \\forall l \\in F.",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/126"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0010": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0010",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "x _ {j l} = \\sum_ {k \\in M _ {j ^ {\\prime} l} ^ {\\prime} \\cap M _ {j l} ^ {\\prime}} \\sum_ {j ^ {\\prime} \\in N ^ {\\prime}} y _ {j j ^ {\\prime} k l}, \\forall j \\in O, \\forall l \\in F.\\tag{6}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/127"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0011": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0011",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "x _ {j l} = x _ {j ^ {\\prime} l}, \\forall j, j ^ {\\prime} \\in O ^ {\\prime} \\subseteq O, O ^ {\\prime} = \\{j | j \\in O \\parallel i _ {j} = i \\},\\tag{7}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/128"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0012": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0012",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "\\forall i \\in N, \\forall l \\in F.\\tag{8}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/129"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0013": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0013",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "E (S _ {j} + p _ {j k l} - S _ {j}) \\leq G \\cdot (1 - y _ {j j ^ {\\prime} k l}), \\forall j, j ^ {\\prime} \\in O,",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/130"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0014": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0014",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "\\forall k \\in M _ {j l} ^ {\\prime} \\cap M _ {j ^ {\\prime} l} ^ {\\prime}, \\forall l \\in F.\\tag{9}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/131"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0015": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0015",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "E (S _ {j} + p _ {j k l} - S _ {j ^ {\\prime}}) \\leq G \\cdot (1 - h _ {j j ^ {\\prime}}), \\forall j, j ^ {\\prime} \\in O, i _ {j} = i _ {j ^ {\\prime}},",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/132"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0016": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0016",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "\\forall k \\in M _ {j l} ^ {\\prime}, \\forall l \\in F.\\tag{10}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/133"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0017": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0017",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "E (S _ {j} + p _ {j k l} - C _ {i}) \\leq 0, \\forall i \\in N, \\forall j \\in O, \\forall k \\in M _ {l},",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/134"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0018": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0018",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "\\forall l \\in F, i \\in O ^ {\\prime} \\subseteq O, O ^ {\\prime} = \\{j | j \\in O \\| i _ {j} = i \\}.\\tag{11}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/135"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0019": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0019",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "E (C _ {m a x} - C _ {i}) \\geq 0, \\forall i \\in N.\\tag{12}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/136"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0020": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0020",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "E (C _ {i} - T _ {i}) \\leq d _ {i}, \\forall i \\in N.\\tag{13}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/137"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0021": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0021",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "S _ {j} \\geq 0, C _ {i} \\geq 0, T _ {i} \\geq 0,, p _ {j k l} \\geq 0, \\forall i \\in N, \\forall j \\in N ^ {\\prime},",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/138"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0022": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0022",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "\\forall k \\in M _ {l}, \\forall l \\in F.\\tag{14}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/139"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0023": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0023",
+      "blockid": "aef0ec8804cf1baa0e9ee3a311b2ab3f",
+      "heading": "Notations:",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "x _ {j l} \\in \\{0, 1 \\}, y _ {j j ^ {\\prime} k l} \\in \\{0, 1 \\}, \\forall j, j ^ {\\prime} \\in N ^ {\\prime}, \\forall k \\in M _ {l}, \\forall l \\in F.\\tag{15}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/140"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0024": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0024",
+      "blockid": "7964153cfe7ad3405376a9cdc20a6c31",
+      "heading": "4.2. Evaluation method",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "\\bar {A} (\\pi) := \\bar {A} (\\pi) + A _ {w} (\\pi), \\quad \\bar {B} (\\pi) := \\bar {B} (\\pi) + B _ {w} (\\pi).",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/170"
+    },
+    "eq-458859b0b2943b04036593edf0f47c6d-0025": {
+      "id": "eq-458859b0b2943b04036593edf0f47c6d-0025",
+      "blockid": "7964153cfe7ad3405376a9cdc20a6c31",
+      "heading": "4.2. Evaluation method",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "latex",
+      "content": "\\bar {A} (\\pi) := \\bar {A} (\\pi) / W, \\bar {B} (\\pi) := \\bar {B} (\\pi) / W.",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/173"
+    }
+  }
+}

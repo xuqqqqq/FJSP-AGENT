@@ -6,7 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from harness_agent.domains.standard_fjsp import StandardFjspContextProvider
+from harness_agent.domains.standard_fjsp import (
+    DistributedFjspContextProvider,
+    PriorityFjspContextProvider,
+    StandardFjspContextProvider,
+)
 from harness_agent.core.models import TaskContract
 
 
@@ -68,6 +72,21 @@ class GenericContextProvider:
 _PROVIDERS: dict[str, DomainContextProvider] = {
     "standard_fjsp": StandardFjspContextProvider(),
     "fjsp": StandardFjspContextProvider(),
+    "fjsp_sdst": StandardFjspContextProvider(),
+    "sdst": StandardFjspContextProvider(),
+    "fjsp_machine_availability": StandardFjspContextProvider(),
+    "fjsp_nfa": StandardFjspContextProvider(),
+    "nfa_fjsp": StandardFjspContextProvider(),
+    "machine_availability_fjsp": StandardFjspContextProvider(),
+    "fjsp_distributed_transfer": DistributedFjspContextProvider(),
+    "distributed_fjsp": DistributedFjspContextProvider(),
+    "dfjspt": DistributedFjspContextProvider(),
+    "distributed_fjsp_with_transfers": DistributedFjspContextProvider(),
+    "fjsp_job_priority": PriorityFjspContextProvider(),
+    "fjsp_priority": PriorityFjspContextProvider(),
+    "priority_fjsp": PriorityFjspContextProvider(),
+    "fjspjp": PriorityFjspContextProvider(),
+    "job_priority_fjsp": PriorityFjspContextProvider(),
 }
 _GENERIC_PROVIDER = GenericContextProvider()
 

@@ -1,0 +1,382 @@
+{
+  "version": "1.0",
+  "equations": {
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0001": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0001",
+      "blockid": "e1174e4970f1f5ed13e06089919d8430",
+      "heading": "3.3. Energy consumption model",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "E P = \\sum_ {i \\in I} \\sum_ {j \\in Z _ {i}} \\sum_ {f \\in F _ {i}} \\sum_ {w \\in W _ {f}} \\sum_ {m \\in M _ {i j f w}} \\sum_ {p \\in P _ {f w m}} P T _ {i j f w m} * X _ {i j f w m p} * P E _ {f w m}\\tag{1}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/88"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0002": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0002",
+      "blockid": "e1174e4970f1f5ed13e06089919d8430",
+      "heading": "3.3. Energy consumption model",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "\\begin{array}{l} E T = E F + E W + E M = \\sum_ {i \\in I} \\sum_ {j \\in Z _ {i}} T _ {f} * T F _ {i j} * E U \\\\ + \\sum_ {i \\in I} \\sum_ {j \\in Z _ {i}} T _ {w} * T W _ {i j} * E U + \\sum_ {i \\in I} \\sum_ {j \\in Z _ {i}} T _ {m} * T M _ {i j} * E U \\end{array}\\tag{2}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/90"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0003": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0003",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "f 1 = \\min C _ {\\max}\\tag{3}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/95"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0004": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0004",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "f 2 = \\min E = \\min (E P + E T)\\tag{4}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/97"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0005": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0005",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "f 3 = \\sum_ {i = 1} ^ {n} T _ {i} * a _ {i}\\tag{5}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/99"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0006": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0006",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {f \\in F _ {i}} \\sum_ {w \\in W _ {f}} \\sum_ {m \\in M _ {i j f w}} \\sum_ {p \\in P _ {f w m}} X _ {i j f w m p} = 1, \\forall i \\in I, j \\in Z _ {i}\\tag{6}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/101"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0007": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0007",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {i \\in I} \\sum_ {j \\in Z _ {i}} \\sum_ {f \\in F _ {i}} \\sum_ {w \\in W _ {f}} X _ {i j f w m p} \\geq \\sum_ {i \\in I} \\sum_ {j \\in Z _ {i}} \\sum_ {f \\in F _ {i}} \\sum_ {w \\in W _ {f}} X _ {i j f w m (p + 1)}, \\forall m \\in M _ {i j f w}, p \\in P P _ {f w m}\\tag{7}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/102"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0008": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0008",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "\\begin{array}{l} S T _ {i (j + 1)} \\geq S T _ {i j} \\\\ \\quad + \\sum_ {f \\in F _ {i}} \\sum_ {w \\in W _ {f}} \\sum_ {m \\in M _ {i j f w}} \\sum_ {p \\in P _ {f w m}} \\left(P T _ {i j f w m} + T _ {f} * T F _ {i j} + T _ {w} * T W _ {i j} + T _ {m} * T M _ {i j}\\right) \\\\ \\quad * X _ {i j f w m p}, \\end{array}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/103"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0009": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0009",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "\\forall i \\in I, j \\in Z Z _ {i}, f \\in F _ {i}, w \\in W _ {f}, m \\in M _ {i j f w}, p \\in P _ {f w m}\\tag{8}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/104"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0010": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0010",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {i \\in I} \\sum_ {j \\in Z _ {i}} X _ {i j f w m p} \\leq 1, \\forall f \\in F _ {i}, w \\in W _ {f}, \\forall m \\in M _ {i j f w}, p \\in P P _ {f w m}\\tag{9}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/105"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0011": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0011",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "S T _ {i j} + P T _ {i j f w m} * X _ {i j f w m} \\leq S T _ {u v} + M \\left(3 - Y _ {i j u v} - X _ {i j f w m} - X _ {u v f w m}\\right),",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/106"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0012": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0012",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "\\forall i \\in I, u \\in I, i <   u, j \\in Z _ {i}, v \\in Z _ {v}, f \\in F, m \\in M _ {i j f w} \\cap M _ {u v f w}\\tag{10}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/107"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0013": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0013",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "S T _ {u v} + P T _ {i j f w m} * X _ {u v f w m} \\leq S T _ {i j} + M \\left(2 + Y _ {i j u v} - X _ {i j f w m} - X _ {u v f w m}\\right),",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/108"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0014": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0014",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "\\forall i \\in I, u \\in I, i <   u, j \\in Z _ {i}, v \\in Z _ {v}, f \\in F, m \\in M _ {i j f w} \\cap M _ {u v f w}\\tag{11}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/109"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0015": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0015",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "S _ {f w m p} \\geq S T _ {i j} - \\left(1 - X _ {i j f w m p}\\right) * M, \\forall i \\in I, j \\in Z _ {i}, f \\in F _ {i}, w \\in W _ {f}, m \\in M _ {i j f w}, p \\in P _ {f w m}\\tag{12}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/112"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0016": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0016",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "S _ {f w m p} \\leq S T _ {i j} + \\left(1 - X _ {i j f w m p}\\right) * M, \\forall i \\in I, j \\in Z _ {i}, f \\in F _ {i}, w \\in W _ {f}, m \\in M _ {i j f w}, p \\in P _ {f w m}\\tag{13}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/113"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0017": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0017",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "C T _ {i j} \\geq S T _ {i j} + \\sum_ {f \\in F _ {i}} \\sum_ {w \\in W _ {f}} \\sum_ {m \\in M _ {i j f w}} \\sum_ {p \\in P _ {f w m}} \\left(P T _ {i j f w m} + T _ {f} * T F _ {i j} + T _ {w} * T W _ {i j} + T _ {m} * T M _ {i j}\\right)",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/114"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0018": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0018",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "\\forall i \\in I, j \\in Z _ {i}, f \\in F _ {i}, w \\in W _ {f}, m \\in M _ {i j f w}, p \\in P _ {f w m}\\tag{14}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/115"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0019": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0019",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "S T _ {i (j + 1)} \\geq C T _ {i j}, \\forall i \\in I, j \\in Z Z _ {i}\\tag{15}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/116"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0020": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0020",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "\\begin{array}{l} C _ {m a x} \\geq S T _ {i n _ {i}} \\\\ \\quad + \\sum_ {f \\in F _ {i}} \\sum_ {w \\in W _ {f}} \\sum_ {m \\in M _ {i j f w}} \\sum_ {p \\in P _ {f w m}} \\left(P T _ {i n _ {i} f w m} + T _ {f} * T F _ {i n _ {i}} + T _ {w} * T W _ {i n _ {i}} + T _ {m} * T M _ {i n _ {i}}\\right) \\\\ \\quad * X _ {i n _ {i} f w m p}, \\end{array}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/117"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0021": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0021",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "\\forall i \\in I, j \\in Z _ {i}, f \\in F _ {i}, w \\in W _ {f}, m \\in M _ {i j f w}, p \\in P _ {f w m}\\tag{16}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/118"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0022": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0022",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "0 \\leq \\left(T F _ {i j} + T W _ {i j} + T M _ {i j}\\right) \\leq 1, \\forall i \\in I, j \\in Z _ {i}\\tag{17}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/119"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0023": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0023",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "S T _ {i j} \\geq 0, \\forall i \\in I, j \\in Z _ {i} \\#\\tag{18}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/120"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0024": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0024",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "C T _ {i j} \\geq 0, \\forall i \\in I, j \\in Z _ {i} \\#\\tag{19}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/121"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0025": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0025",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "S _ {f w m p} \\geq 0, \\forall f \\in F _ {i}, w \\in W _ {f}, m \\in M _ {i j f w. p \\in P _ {f w m}}\\tag{20}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/122"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0026": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0026",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "C T _ {i j} - S T _ {i j} = P T _ {i j f w m}, \\forall i \\in I, j \\in Z _ {i}, f \\in F _ {i}, w \\in W _ {f}, m \\in M _ {i j f w}\\tag{21}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/123"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0027": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0027",
+      "blockid": "9328b9c5bb0c6d906d014cc4e2a07133",
+      "heading": "4.1. Encoding and decoding",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "T _ {p} = \\max \\left\\{C T _ {i (j - 1)} + T _ {t f}, T S \\right\\}\\tag{24}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/156"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0028": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0028",
+      "blockid": "9328b9c5bb0c6d906d014cc4e2a07133",
+      "heading": "4.1. Encoding and decoding",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "T _ {p} + P T _ {i j f w m} \\leq T E\\tag{25}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/158"
+    },
+    "eq-b4a2ee09a275fc5e20453805c0167e0d-0029": {
+      "id": "eq-b4a2ee09a275fc5e20453805c0167e0d-0029",
+      "blockid": "9328b9c5bb0c6d906d014cc4e2a07133",
+      "heading": "4.1. Encoding and decoding",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "T _ {b} = \\max \\left\\{C T _ {i (j - 1)} + T _ {t f}, T _ {l m} \\right\\}\\tag{26}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/159"
+    }
+  }
+}

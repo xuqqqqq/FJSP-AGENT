@@ -1,0 +1,291 @@
+{
+  "version": "1.0",
+  "equations": {
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0001": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0001",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "\\min C _ {m a x}\\tag{1}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/34"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0002": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0002",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "C _ {m a x} \\geq c _ {i j},",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/35"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0003": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0003",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "\\forall i \\in I, j \\in O _ {i}\\tag{2}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/36"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0004": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0004",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "\\sum x _ {i j k} = 1,",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/37"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0005": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0005",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "\\forall i \\in I, j \\in O _ {i}\\tag{3}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/38"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0006": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0006",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "k \\in A _ {i _ {j}}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/39"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0007": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0007",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "c _ {i j} - c _ {i _ {(j - 1)}} \\geq \\sum_ {k \\in A _ {i _ {j}}} x _ {i j k} p _ {i j k},",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/40"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0008": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0008",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "\\forall i \\in I, j \\in O _ {i}\\tag{4}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/41"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0009": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0009",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "y _ {k, l} - \\tilde {p} _ {k l} \\geq t _ {k l} ^ {E},",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/42"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0010": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0010",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "\\forall k \\in K, l \\in L _ {k}\\tag{5}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/43"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0011": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0011",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "y _ {k, l} \\leq t _ {k l} ^ {L},",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/44"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0012": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0012",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "\\forall k \\in K, l \\in L _ {k}\\tag{6}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/45"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0013": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0013",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "c _ {i ^ {\\prime} j ^ {\\prime}} \\geq c _ {i j} + \\sum_ {k \\in A _ {i ^ {\\prime} j ^ {\\prime}}} p _ {i ^ {\\prime} j ^ {\\prime} k} x _ {i ^ {\\prime} j ^ {\\prime} k} - M (1 - v _ {i j i ^ {\\prime} j ^ {\\prime}}),\\tag{7}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/46"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0014": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0014",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "\\forall i \\in I, j \\in O _ {i}, i ^ {\\prime} \\in I, j ^ {\\prime} \\in O _ {i ^ {\\prime}}, i \\neq i ^ {\\prime}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/47"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0015": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0015",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "c _ {i j} \\geq y _ {k l} + p _ {i j k} - M (1 + w _ {i j k l} - x _ {i j k}),",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/48"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0016": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0016",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "\\forall i \\in I, j \\in O _ {i}, k \\in K, l \\in L _ {k}\\tag{8}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/49"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0017": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0017",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "c _ {i j} \\leq y _ {k l} - \\tilde {p} _ {k l} + M (2 - w _ {i j k l} - x _ {i j k}),\\tag{9}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/50"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0018": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0018",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "\\forall i \\in I, j \\in O _ {i}, k \\in K, l \\in L _ {k}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/51"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0019": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0019",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "v _ {i j i ^ {\\prime} j ^ {\\prime}} + v _ {i ^ {\\prime} j ^ {\\prime} i j} \\geq x _ {i j k} + x _ {i ^ {\\prime} j ^ {\\prime} k} - 1,",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/52"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0020": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0020",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "\\forall i \\in I, j \\in O _ {i}, i ^ {\\prime} \\in I, j ^ {\\prime} \\in O _ {i ^ {\\prime}}, i \\neq i ^ {\\prime}, k \\in K\\tag{10}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/53"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0021": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0021",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "v _ {i j i ^ {\\prime} j ^ {\\prime}} + v _ {i ^ {\\prime} j ^ {\\prime} i j} \\leq 1,",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/54"
+    },
+    "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0022": {
+      "id": "eq-280a2bbe5a4ddcb1cceaa7130f5769df-0022",
+      "blockid": "745765fe7c9e9a7206906fe3383a299c",
+      "heading": "2.2 The Proposed Formulation",
+      "parent_headings": [
+        "<sup>A</sup> <sup>Mathematical</sup> <sup>Model</sup> <sup>for</sup> <sup>the</sup> <sup>Flexible</sup> <sup>Job</sup><sub>Shop Scheduling Problem With Availability</sub>Shop Scheduling Problem With AvailabilityA Mathematical Model for the Flexible Job <sup>Shop</sup> <sup>Scheduling</sup> <sup>Problem</sup> <sup>With</sup> <sup>Availability</sup><sub>Constraints</sub>ConstraintsShop Scheduling Problem With Availability <sup>Constraints</sup>a Arbaoui, Leila<sub>Constraints</sub>"
+      ],
+      "format": "latex",
+      "content": "\\forall i \\in I, j \\in O _ {i}, i ^ {\\prime} \\in I, j \\in O _ {i ^ {\\prime}}, i \\neq i ^ {\\prime}, k \\in K\\tag{11}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/55"
+    }
+  }
+}

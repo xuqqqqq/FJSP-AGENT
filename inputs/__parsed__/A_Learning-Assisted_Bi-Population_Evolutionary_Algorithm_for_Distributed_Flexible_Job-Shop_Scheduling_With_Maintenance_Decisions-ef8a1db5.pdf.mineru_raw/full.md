@@ -1,0 +1,659 @@
+# A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions
+
+Qi Yan , Hongfeng Wang , and Shengxiang Yang , Senior Member, IEEE
+
+Abstract—In the post-pandemic era, more manufacturers have expedited the shift from centralized to distributed manufacturing to enhance supply chain resilience. Along with this, the distributed shop floor scheduling problem has attracted much attention from academia, one of which is the distributed flexible job-shop scheduling problem (DFJSP). Nonetheless, the majority of research on DFJSPs overlooks crucial real-world necessities, such as multiobjective decision making and preventive maintenance (PM). Thus, this article suggests a multiobjective DFJSP with PM (DFJSP/PM) as a new variant of the DFJSP. The aim is to achieve a tradeoff between production and maintenance to minimize the makespan, maintenance cost, and energy consumption. To this end, we establish a mathematical model and then customize a learning-assisted bi-population evolutionary algorithm (LBPEA) to solve it. In LBPEA, a novel encoding mechanism is proposed to initialize the population randomly. Then, a neighborhood search heuristic is designed to enhance the population’s quality. To balance the convergence and diversity of the population, a bi-population evolution idea is introduced during the environmental selection. Besides, a two-stage local search (LS) process is adaptively triggered to balance the allocation of computational resources between exploration and exploitation. At the first stage, a reinforcement learning mechanism is employed to intelligently select LS operators to adjust either the operations’ sequence or assignment to different factories and machines, while the second stage is to adjust the number and placement of maintenance decisions. Experimental results show that LBPEA has excellent performance in terms of convergence and diversity when solving the proposed multiobjective DFJSP/PM.
+
+Index Terms—Distributed manufacturing, joint optimization, multiobjective evolutionary algorithm (MOEA), preventive maintenance (PM), reinforcement learning (RL).
+
+## I. INTRODUCTION
+
+D <sup>URING</sup> <sup>the</sup> <sup>COVID-19</sup> <sup>pandemic,</sup> <sup>the</sup> <sup>global</sup> <sup>supply</sup>chain suffered severe disruptions, with many manufactur- chain suffered severe disruptions, with many manufacturers facing raw material shortages, production disruptions, and transportation uncertainties [1]. As a result, the manufacturing industry has hastened its move from centralized to distributed manufacturing. One key feature of distributed manufacturing is that it disperses production capabilities across multiple locations [2]. On the one hand, it can improve production efficiency and enhance supply chain resilience, enabling better responses to rapidly changing market demands [3]. On the other hand, it can reduce transportation and carbon emissions, thereby promoting sustainable manufacturing [4].
+
+To advance the development of distributed manufacturing, distributed shop floor scheduling problems have garnered increasing attention in recent years [5], one of which is the distributed flexible job-shop scheduling problem (DFJSP) [6], [7]. Compared with the flexible job-shop scheduling problem (FJSP) in centralized manufacturing [8], the DFJSP introduces an additional subproblem, i.e., the distribution of orders among factories in a distributed production network. An efficient assignment scheme can achieve a balanced workload across the entire network, thereby enhancing efficiency in distributed manufacturing.
+
+Despite previous efforts on the DFJSP, limitations still exist. Most variants of the DFJSP assume that the machine is always available, overlooking the imperative need for preventive maintenance (PM) in real-world scenarios. The significance of PM has been extensively demonstrated in centralized manufacturing scenarios, such as the single machine [9], parallel machines [10], flow shops [11], and job shops [12]. Therefore, advancing research on the DFJSP with PM (DFJSP/PM) holds considerable scientific and practical significance. Considering that existing research on the DFJSP/PM primarily focuses on single-objective optimization, particularly in minimizing the makespan [13], [14], [15], [16], this article presents a multiobjective DFJSP/PM. Our aim is to strike a balance between production and PM to minimize the makespan, maintenance cost, and total energy consumption. This not only aligns more closely with real-world requirements but also fills the gap in research concerning multiobjective decision making of production and maintenance within the domain of the DFJSP.
+
+Developing an efficient multiobjective evolutionary algorithm (MOEA) tailored to the characteristics of the proposed multiobjective DFJSP/PM is a significant challenge to be addressed in this article. The mainstream algorithm frameworks for solving multiobjective shop floor scheduling problems are dominance-based MOEAs [6], [17] and decomposition-based MOEAs [18], [19]. Both types of MOEAs have their own advantages, but most of them are based on the “convergence first and diversity second” principle. In fact, convergence and diversity are equally important [20]. For the tradeoff, we integrate the two algorithm frameworks during the environmental selection, borrowing the bi-population evolution idea from [21] and [22]. When the evolutionary process becomes trapped in local optima, implementing local search (LS) strategies may find more promising solutions by improving the neighborhood structure of solutions, thereby avoiding premature convergence of the algorithm. Consequently, we design a learning-assisted adaptive LS strategy, and the frequency of LS is adaptively adjusted based on variations in the Pareto front, aiming to balance the allocation of computational resources between exploration and exploitation. Furthermore, there are two stages to adjust production and maintenance decisions, respectively. At the first stage, a reinforcement learning (RL) algorithm is employed to intelligently select respective LS operators based on the positional relationship between the nondominated solutions and ideal point, which can enhance the algorithm’s overall performance without increasing its complexity. At the second stage, a maintenance adjustment strategy is proposed to effectively tackle the huge maintenance decisions.
+
+On the basis of the above statement, the primary contributions of this article are summarized below.
+
+1) We establish a mixed-integer programming model for the proposed multiobjective DFJSP/PM.
+
+2) We tailor a bi-population MOEA that can balance convergence and diversity to efficiently solve the model.
+
+3) We design an RL-assisted LS selection strategy, in which the definitions of state, action, and reward can be further extended and applied to higher-dimensional MOEAs.
+
+The remainder of this article is organized as follows. Section II presents related works. Section III describes the studied multiobjective DFJSP/PM and establishes the corresponding mathematical model, followed by the developed learning-assisted bi-population evolutionary algorithm (LBPEA) in Section IV. Next, the performance of LBPEA is tested on a series of instances in Section V. Finally, Section VI summarizes the contributions and gives some potential research directions.
+
+## II. LITERATURE REVIEW
+
+This section reviews and summarizes the relevant studies of the DFJSP/PM and applications of RL in production scheduling to highlight the research gaps between this article and related works.
+
+## A. Relevant Studies of the DFJSP/PM
+
+Previous research on the DFJSP has depicted a variety of constraints as well as optimization objectives and developed optimization approaches accordingly [23], [24], [25].
+
+TABLE I  
+REPRESENTATIVE RESEARCH ON THE DFJSP/PM
+
+<table><tr><td>Reference</td><td>Role of PMs</td><td>Objective</td><td>Approach</td></tr><tr><td>[13]</td><td>Constraint</td><td>Makespan</td><td>Modified GA</td></tr><tr><td>[14]</td><td>Decision variable</td><td>Makespan</td><td>Modified GA</td></tr><tr><td>[15]</td><td>Decision variable</td><td>Makespan</td><td>Modified GA</td></tr><tr><td>[16]</td><td>Decision variable</td><td>Makespan</td><td>Modified GA</td></tr></table>
+
+However, only very sparse studies have considered machine unavailability due to PM in the DFJSP. Some representative research on the DFJSP/PM is presented in Table I, where GA denotes the genetic algorithm.
+
+In terms of the integration way of the DFJSP and PM, Chan et al. [13] treated the predefined PM strategy as fixed constraints in the distributed production process, which fails to fully consider the mutual influence between PM and production scheduling. In contrast, [14], [15], and [16] made joint decisions of the DFJSP and PM, and developed respective GAs to effectively solve the studied DFJSP/PM. Due to significantly expanding the decision space, this integration approach has the potential to explore better solutions. However, current research on DFJSP/PM only focuses on minimizing the makespan using customized evolutionary algorithms with specific chromosome representations.
+
+In real-world manufacturing scenarios, it is necessary to consider multiple indicators, such as time, cost, and energy consumption. Therefore, multiobjective optimization has become an inevitable trend in the research of the DFJSP/PM. In this article, we propose a multiobjective DFJSP/PM aimed at simultaneously optimizing the makespan, maintenance cost, and energy consumption, in which PM is treated as a virtual job involved in the decision-making process of distributed flexible job-shop scheduling. The studied multiobjective integrated decisions of distributed flexible jobshop scheduling and PM will cover a research gap within the domain of the DFJSP as well as the integrated optimization of production scheduling and PM planning.
+
+## B. Applications of RL in Production Scheduling
+
+RL is a machine learning method that enables the agent to make optimal decisions by learning through interaction with the environment. It has been increasingly used in the field of production scheduling in recent years [26]. On the one hand, RL can be treated as an independent optimization approach to solve production scheduling problems. Common RL methods include, value-based RL, e.g., Q-learning [9] and SARSA [27], policy-based RL, e.g., proximal policy optimization [28], and combinations of the above methods, e.g., asynchronous advantage actor–critic [29] and deep deterministic policy gradient [30]. On the other hand, RL can assist evolutionary algorithms to learn either key parameters [31] or search strategies [32] to improve the solution performance.
+
+This work comes within the second category of RL applications discussed above. We first customize a knowledgedriven bi-population MOEA for the proposed multiobjective DFJSP/PM and then introduce the Q-learning algorithm to help select LS strategies in the MOEA. Previous RL designs for multiobjective optimization problems have mostly used metrics, such as convergence and diversity [19] to measure the state and reward, while this article proposes a new metric aimed at encouraging the solution to move toward the dimension furthest from the ideal point.
+
+![](images/254c895ffa1d8d22e5292338fa52172f72dc4fcac1154b97598513ae9a21a182.jpg)  
+Fig. 1. Illustration of the proposed DFJSP/PM.
+
+## III. PROBLEM DESCRIPTION AND MODEL FORMULATION
+
+## A. Problem Description
+
+A total of N orders are given to F geographically distributed factories for collaborative manufacturing. All factories are homogeneous, and each factory can be abstracted as a flexible job shop with M machines. Each order is completed in multiple steps, each of which can be processed by multiple available machines with respective normal processing times. Due to machine deterioration, the actual processing time of an operation is usually longer than its normal processing time, as defined in [33]. To alleviate the above deteriorating effects, PM is introduced to improve the running condition of aging machines. In this article, PM strategies are not predetermined, but are objective-driven and need to be decided in parallel with the production process. Considering the scenario where untimely PM may result in machine failures, a corrective maintenance (CM) strategy will be triggered once the machine’s age exceeds a given threshold T. The duration of PM varies across the machine’s age. As the machine deterioration becomes more severe, the time required to perform a PM will increase, but it must not exceed the duration for CM. An illustration of the proposed DFJSP/PM is shown in Fig. 1.
+
+Regarding the optimization objectives, the first one is to minimize the maximum completion time of all factories (i.e., makepan), which is frequently used in related production scheduling problems. The second objective is to minimize the total maintenance cost, aiming to tradeoff PM and CM. The last one is to minimize the total energy consumption during production, standby and maintenance periods for energy-efficient scheduling. Overall, the aim of the proposed DFJSP/PM is to determine proper factory assignment (FA), machine selection (MS) for each operation, joint sequence of operations and PM on each machine, and ultimately to obtain high-quality nondominated solutions that can minimize the makespan, total maintenance cost and total energy consumption.
+
+![](images/abbdfe1e81c1867de9e4d9f6121868c062c0656cffd3cac55c74e6b173a53542.jpg)  
+Fig. 2. Illustration of conflicts among objectives. (a) Scenario 1. (b) Scenario 2.
+
+## B. Conflicts Among Objectives
+
+Prior to modeling, the analysis of the conflicting nature of the optimization objectives is important, which can ensure the soundness of the proposed multiobjective DFJSP/PM.
+
+First, there is not necessarily a positive correlation between the makespan and total energy consumption. The makespan reflects the completion time of the last operation in all factories, while the total energy consumption covers the energy consumption of actual production, machine idling, and maintenance. As a simple example in Fig. 2(a), due to the flexibility of the machine, when the last operation is assigned to another machine with a longer processing time, the makespan may become shorter, but the longer processing time means an increase in energy consumption and may even trigger the CM mechanism and increase the total maintenance cost.
+
+Second, an increase in the number of PMs may result in higher total maintenance cost, but may also improve the makespan and total energy consumption. This is because the execution of PMs can improve the machine deterioration and consequently reduce the actual production time. When the reduction in production time is greater than the increase in maintenance time, the total energy consumption can be reduced since the energy consumption of production is more than that of maintenance. If this scenario occurs on the machine with the longest completion time, the makespan can also be improved, as shown in Fig. 2(b).
+
+The above description reflects the conflicts among the three optimization objectives only through obvious examples. Indeed, in the proposed DFJSP/PM, there are a high amount of implicit conflicts, which can be intuitively seen from the illustrative example in Section V-E.
+
+## C. Proposed Model
+
+Some modeling assumptions are given and then the symbols to be used in the model are defined.
+
+1) The setup time before the start of each operation is ignored.
+
+2) The buffer space between different machines is large enough.
+
+3) The transportation time of the operations on different machines is negligible.
+
+4) The implementation of CM can avoid machine failures.
+
+f : Factory index, $f = 1 , \ldots , F .$
+
+m, m<sup></sup>: Machine index, $n , m ^ { \prime } = 1 , \ldots , M .$
+
+i, g: Order index, $i , g = 1 , \ldots , N .$
+
+J : Operation set of order i.
+
+j, h: Operation index of order $i \ \forall j , h \in J _ { i }$
+
+k, k<sup></sup>: Sequential index of operations of the same machine.
+
+$O _ { i j } \mathrm { : }$ Operation j of order i.
+
+$E _ { i j } \mathrm { : }$ Earliest start time of $O _ { i j } , E _ { i j } \geq 0 .$
+
+$P _ { i j m }$ : Normal processing time of $O _ { i j }$ on machine m.
+
+$d \colon$ Linear deterioration rate.
+
+$a _ { i j } { \mathrm { : } }$ Machine’s age prior to $O _ { i j } , a _ { i j } \ge 0 .$
+
+$P _ { i j } ^ { \prime } \mathrm { . }$ Actual processing time of $O _ { i j }$ .
+
+$I _ { i j } \dot { \bf { : } }$ Idle time prior to $O _ { i j } , I _ { i j } \ge 0 .$
+
+t<sub>CM</sub>: Duration of a CM.
+
+$t _ { i j } \colon$ Duration of the PM that is performed after $O _ { i j } , t _ { i j } \ge 0$ T: Threshold for triggering the CM.
+
+L: Large positive number.
+
+c: Maintenance cost per unit time.
+
+$\mu _ { 1 } , \mu _ { 2 } , \mu _ { 3 } { \mathrm { : } }$ Energy consumption per unit time in production, maintenance, and standby mode.
+
+$\eta _ { i j } \colon$ 1 if PM is performed after $O _ { i j }$ and 0 otherwise.
+
+$q _ { i j } \mathrm { : }$ 1 if CM is performed after $O _ { i j }$ and 0 otherwise.
+
+$\xi _ { i j m } : 1$ if $O _ { i j }$ can be operated by machine m and 0 otherwise.
+
+$x _ { i j f m k } \colon 1$ if $O _ { i j }$ is processed in the kth position on machine m in factory f and 0 otherwise.
+
+Hence, we can establish the following mixed-integer programming model to describe optimization objectives and constraints:
+
+$$
+\min f _ {1} = \max \left(E _ {i j} + P _ {i j} ^ {\prime}\right) \forall i, j\tag{1}
+$$
+
+$$
+\min f _ {2} = c \left(\sum_ {i, j} \eta_ {i j} t _ {i j} + t _ {\mathrm{CM}} \sum_ {i, j} q _ {i j}\right)\tag{2}
+$$
+
+$$
+\min f _ {3} = \mu_ {1} \sum_ {i, j} P _ {i j} ^ {\prime} + \mu_ {2} \frac {f _ {2}}{c} + \mu_ {3} \sum_ {i, j} I _ {i j}\tag{3}
+$$
+
+s.t.
+
+$$
+P _ {i j} ^ {\prime} = \sum_ {f, m, k} P _ {i j m} x _ {i j f m k} + d a _ {i j} \forall i, j\tag{4}
+$$
+
+$$
+t _ {i j} = \min \left(t _ {\mathrm{CM}} \frac {a _ {i j} + P _ {i j} ^ {\prime}}{T}, t _ {\mathrm{CM}}\right) \forall i, j\tag{5}
+$$
+
+$$
+E _ {i j} \geq E _ {i, j - 1} + P _ {i, j - 1} ^ {\prime} \forall i, j \geq 2\tag{6}
+$$
+
+$$
+E _ {i j} \geq E _ {\mathrm{gh}} + P _ {\mathrm{gh}} ^ {\prime} + t _ {\mathrm{gh}} \left(\eta_ {\mathrm{gh}} + q _ {\mathrm{gh}}\right) - L (2 -
+$$
+
+$$
+\left. x _ {g h f m, k - 1} - x _ {i j f m k}\right) \forall i, j, g, h, f, m, k \geq 2\tag{7}
+$$
+
+$$
+I _ {i j} = E _ {i j} - \Big [ E _ {\mathrm{gh}} + P _ {\mathrm{gh}} ^ {\prime} + t _ {\mathrm{gh}} \big (\eta_ {\mathrm{gh}} + q _ {\mathrm{gh}} \big) \Big ],
+$$
+
+$$
+\text { if } x _ {g h f m, k - 1} + x _ {i j f m k} = 2 \forall i, j, g, h, f, m, k \geq 2\tag{8}
+$$
+
+$$
+a _ {i j} \geq a _ {\mathrm{gh}} + P _ {\mathrm{gh}} ^ {\prime} - L \big (2 - x _ {g h f m, k - 1} - x _ {i j f m k} +
+$$
+
+$$
+\eta_ {\mathrm{gh}} + q _ {\mathrm{gh}} \big) \forall i, j, g, h, f, m, k \geq 2\tag{9}
+$$
+
+$$
+\begin{array}{c} q _ {i j} \leq 1 + \frac {1}{L} \Big (a _ {i j} + P _ {i j} ^ {\prime} - T \Big) + L \big (1 - x _ {i j f m k} \big) \\ \forall i, j, f, m, k \end{array}\tag{10}
+$$
+
+$$
+q _ {i j} \geq \frac {1}{L} \Big (a _ {i j} + P _ {i j} ^ {\prime} - T \Big) - L \big (1 - x _ {i j f m k} \big)
+$$
+
+$$
+\forall i, j, f, m, k
+$$
+
+$$
+\eta_ {i j} + q _ {i j} \leq 1 \forall i, j\tag{11}
+$$
+
+(12)
+
+$$
+\sum_ {f, k} x _ {i j f m k} \leq \xi_ {i j m} \forall i, j, m\tag{13}
+$$
+
+$$
+\sum_ {f, m, k} x _ {i j f m k} = 1 \forall i, j\tag{14}
+$$
+
+$$
+\sum_ {i, j} x _ {i j f m k} \leq 1 \forall f, m, k\tag{15}
+$$
+
+$$
+\sum_ {i, j} x _ {i j f m k} \leq \sum_ {i, j} x _ {i j f m, k - 1} \forall f, m, k \geq 2\tag{16}
+$$
+
+$$
+\sum_ {m, k} x _ {i j f m k} = \sum_ {m ^ {\prime}, k ^ {\prime}} x _ {i h f m ^ {\prime} k ^ {\prime}} \forall i, j, h, f.\tag{17}
+$$
+
+Equations (1)–(3) represent three conflicting optimization objectives, i.e., the makespan, total maintenance cost, and total energy consumption. Equation (4) specifies the relationship between actual processing time and normal processing time of each operation under deterioration effects. Equation (5) calculates the duration of PM at machine’s age $a _ { i j } .$ . Equation (6) ensures the sequencing between different operations for the same order, and (7) ensures the sequencing between tasks on the same machine. There may be a certain amount of idle time between two consecutively processed operations on a machine, as shown in (8). Equation (9) represents the update of the machine’s age without any maintenance prior to $O _ { i j } .$ Equations (10) and (11) give the conditions for determining whether CM is executed or not. Equation (12) ensures that only one maintenance activity (either PM or CM) can be carried out behind $O _ { i j }$ at most. Equations (13)–(16) give some restrictions of the decision variable $x _ { i j f m k }$ to ensure the uniqueness of the assignment of an operation to a processing position of an available machine in a factory. Equation (17) ensures that all operations of an order are assigned to the same factory.
+
+To validate the accuracy of our proposed model, we first linearize it in the supplementary document. Subsequently, we utilize the IBM ILOG CPLEX 22.1 solver to tackle a smallscale instance. Besides the substantial constraints and decision variables, our experimental results reveal that the DFJSP/PM exhibits the characteristic of multimodal optimization. This complexity poses a challenge for the CPLEX solver to efficiently explore optimal solutions for each individual singleobjective optimization within the given time constraints. To overcome these obstacles, we introduce a customized MOEA named LBPEA in the next section.
+
+## IV. OUR APPROACH: LBPEA
+
+## A. Framework of LBPEA
+
+We tailor an $\mathrm { L B P E A } ^ { 1 }$ that considers the Pareto dominancebased and decomposition-based frameworks to solve the investigated DFJSP/PM. The framework of our LBPEA is presented in Algorithm 1. First, a three-level encoding mechanism is designed to produce the initial population at random, followed by a neighborhood search heuristic to increase the population’s quality by modifying the codes. Then, a mating pool is created through a binary tournament and evolutionary operators including crossover and mutation are used to generate offspring. Afterward, the parents and offspring are merged, and the population is randomly divided into two subpopulations for respective environmental selection. In this way, diversity and convergence can be accommodated.
+
+<div class="mineru-algorithm" style="white-space: pre-wrap; font-family:monospace;">
+Algorithm 1: Framework of LBPEA
+1 Input: Total number of fitness evaluations (TNFEs), population size (ps), crossover rate ( $P_{c}$ ), mutation rate ( $P_{m}$ ), threshold for LS ( $\Delta$ ), greedy factor ( $\varepsilon$ ), discount factor ( $\gamma$ ), learning rate ( $\alpha$ )
+2 Output: Non-dominated solution set  $\Omega$ 
+3 NFEs ← 0
+4  $P_{0} \leftarrow$  Initialization(ps) (Section IV-B)
+5 NFEs ← NFEs + ps, PF $_{1}$  ← ∅,  $\Omega \leftarrow \emptyset$ , t ← 1
+6 Q(6, 5) ← 0, A ← {LS $_{1}$ , LS $_{2}$ , LS $_{3}$ , LS $_{4}$ , LS $_{5}$ }
+7 while NFEs ≤ TNFEs do
+8    $P_{t} \leftarrow$  Tournament selection( $P_{t}$ , ps)
+9    for i $_{1}$  = 1 to ps do
+10    $R_{t}(i_{1}) \leftarrow$  Evolution operator( $P_{t}(i_{1})$ ,  $P_{c}$ ,  $P_{m}$ )
+11    (Section IV-C)
+12    NFEs ← NFEs + 2
+13    end
+14    $P_{t} \leftarrow P_{t} \cup R_{t}$ 
+15    $P_{t+1} \leftarrow$  Environmental Selection( $P_{t}$ ) (Section IV-D)
+16    $P_{t+1} \leftarrow$  Idle time reduction strategy( $P_{t+1}$ )
+17    (Section IV-E)
+18    NFEs ← NFEs + ps,  $\Omega' \leftarrow \Omega$ 
+19    PF $_{t+1}$  ← Fast non-dominated sort( $P_{t+1}$ )
+20    $\Omega \leftarrow \Omega \cup PF_{t+1}$ ,  $\Omega \leftarrow$  Delete duplicates( $\Omega$ )
+21    $\Omega \leftarrow$  Fast non-dominated sort( $\Omega$ )
+22    if | $\Omega' \cap \Omega|/|\Omega'| &gt; \Delta$  then
+23    $\Omega, Q \leftarrow$  Learning-assisted adaptive local search( $\Omega, Q, A, \varepsilon, \gamma, \alpha$ ) (Section IV-F)
+24    NFEs ← NFEs + 2 | $\Omega|$ 
+25    $\Omega \leftarrow$  Delete duplicates( $\Omega$ )
+26    $\Omega \leftarrow$  Fast non-dominated sort( $\Omega$ )
+27 end
+28    t ← t + 1
+29 end
+</div>
+
+Due to the complexity of the DFJSP/PM, the above evolutionary process can easily bring the algorithm to a local optimum. To cope with this shortcoming, we develop two knowledge-driven improvement strategies. The first one is an idle time reduction strategy for improving the whole population’s quality after environmental selection. The second one is a learning-assisted adaptive LS strategy to balance the computational resources between exploration and exploitation as well as adjust the neighborhood structure effectively based on the characteristic of the solution. The complexity analysis of the developed LBPEA can be found in the supplementary document.
+
+```csv
+Algorithm 2: OM-Level Encoding
+
+1 Input: OS, MS, FA
+2 Output: OM
+3 OM ← OS, β ~ [0, length(OM)]
+4 if β ≠ 0 then
+5    Nf×m ← 0
+6    Evaluate the load Lf×m of machine m in factory f
+7    Pf×m ← Lf×m/∑f,m Lfm, P1×fm ← Pf×m
+8    for i2 = 1 to fm do
+9    | P1i2 ← ∑i' = 1 P1i'
+10    end
+11    P(f, m) ← P1,(f-1)|M|+m, Tfm ← [βP(f, m)]
+12    for i3 = 1 to β do
+13    f*, m* ← arg minf,m{P(f, m)|P(f, m) ≥ rand()}
+14    if Nf*,m* > Tf*,m* then
+15    | Lf*,m* ← 0, update P, Pfm, Tfm
+16    else
+17    | Nf*,m* ← Nf*,m* + 1
+18    Randomly select an operation O that is assigned to machine m* in factory f*
+19    Find the position p of O in OM
+20    if OM(p+1) = 0 ∨ OM(p) = 0 then
+21    | Skip to 18
+22    else
+23    | Insert 0 after the position p in OM
+24    end
+25    end
+26    end
+27 end
+```
+
+## B. Initialization
+
+A natural idea for the representation of the solution of a DFJSP is a three-level encoding consisting of the operation sequence (OS), MS, and FA, as described in [17]. We add maintenance information to the OS level using Algorithm 2 to conform to the characteristics of the studied DFJSP/PM, which is called the operations and maintenance (OM) level in this article. At the OM level, a value of 0 after an operation means that a PM is to be performed. The number and location of PMs are unknown and need to be optimized during the evolutionary process. Algorithm 2 aims to determine a random total number $\beta$ of PMs and balance the distribution of PMs based on the load capacity of the machines. Specifically, as the load increases, the probability of a machine being assigned a PM also increases. However, the number $\mathbf { N } _ { f m }$ of PMs assigned to machine m in factory f should not exceed the threshold ${ \mathcal { T } } _ { f m } .$
+
+An illustration of the proposed three-level codes, including OM, MS, and FA, is given in Fig. 3. To evaluate the objective functions $f _ { 1 } , f _ { 2 } , f _ { 3 } ,$ , it is necessary to traverse each operation code at the OM level from left to right. By determining the assigned factory and machine of each operation based on the FA and MS levels, we can update the start time and completion time of each operation. Besides, if there is a maintenance code (i.e., 0) after the operation at the OM level, a PM needs to be performed; Otherwise, we also need to determine whether the machine’s age reaches T to decide whether to execute a CM. The decoded scheduling sequence is shown in Fig. 1. Using the encoding and decoding methods described above, an initial population can be generated at random.
+
+```csv
+OM 6 5 2 0 7 7 1 4 3 6 2 0 5 1 0 3 4 7 1 2
+O61 O51 O21 PM O71 O72 O11 O41 O31 O62 O22 PM O52 O12 PM O32 O42 O73 O13 O23
+MS 1 2 3 2 1 3 2 3 3 2 1 2 3 1 3 2 1
+O11 O12 O13 O21 O22 O23 O31 O32 O41 O42 O51 O52 O61 O62 O71 O72 O73 Assignment
+Order 1 Order 2 Order 3 Order 4 Order 5 Order 6 Order 7 Assignment
+FA 1 2 1 1 2 1 2
+```  
+Fig. 3. Illustration of the three-level encoding.
+
+<div class="mineru-algorithm" style="white-space: pre-wrap; font-family:monospace;">
+Algorithm 3: Neighborhood Search Heuristic
+
+1 Input: OM, MS, FA
+2 Output: OM, $f_1$, $f_2$, $f_3$
+3 $p \leftarrow 1$, $C_{1 \times |N|} \leftarrow 0 \%$ Count the number of operations that have been decoded for each order.
+4 while $p \leq length(OM)$ do
+5    $i \leftarrow OM(p)$, identify $j, f, m$
+6    Calculate $E_{ij}$ based on (6)-(7)
+7    if $p \neq length(OM)$ then
+8    for $i_4 = p + 1$ to length (OM) do
+9    $i' \leftarrow OM(i_4)$
+10    if $i' \neq 0$ then
+11    Identify $j', f', m'$
+12    if $f = f' \wedge m = m' \wedge j' - C_{1i'} = 1$ then
+13    Calculate $E_{i'j'}$ based on (6)-(7)
+14    end
+15    end
+16    end
+17    Determine the optimal operation $O_{i*j*}$ and its position $p^*$ in OM based on Steps I-IV
+18    if $p^* &lt; length(OM) \wedge OM(p^* + 1) = 0$ then
+19    $p \leftarrow p + 2$
+20    else
+21    $p \leftarrow p + 1$
+22    end
+23    Update OM, let $C_{1i^*} \leftarrow C_{1i^*} + 1$
+24    end
+25    Update $I_{ij}, a_{ij}, P_{ij}', \eta_{ij}, q_{ij}$
+26 end
+27 Calculate $f_1, f_2, f_3$
+</div>
+
+To enhance the quality of the initial population, we designed Algorithm 3 to perform a large-scale neighborhood search for the OM level, aiming to optimize the objective functions by reducing idle time. Based on the original decoding process, we propose a comparison mechanism between the current operation being considered for decoding and each subsequent operation to be decoded with the same machine and FAs. The optimal operation code determined by the following four steps will be moved before the current operation code, which is treated as a neighborhood adjustment. It should be noted that if there is a maintenance code after the optimal operation code, the two codes need to be moved together.
+
+Step I: Find the operation $\mathcal { O } _ { 1 }$ with the earliest start time. If more than one operation is found, go to step II; otherwise, $\mathcal { O } _ { 1 }$ is the optimal operation code.
+
+Step II: Find the order $\mathcal { O } _ { 2 }$ with the highest number of remaining operations. If more than one operation is found, go to step III; otherwise, $\mathcal { O } _ { 2 }$ is the optimal operation code.
+
+Step III: Find the operation $\mathcal { O } _ { 3 }$ with the minimal normal processing time. If more than one operation is found, go to step IV; otherwise, $\mathcal { O } _ { 3 }$ is the optimal operation code.
+
+Step IV: Find the operation $\mathcal { O } _ { 4 }$ with a more advanced coding position, which is noted as the optimal operation code.
+
+## C. Evolutionary Operators
+
+In this section, a binary tournament approach is used to construct a mating pool from which two individuals are randomly selected for crossover and mutation. The crossover and mutation rates are $P _ { c }$ and $P _ { m } ,$ , respectively. The specific description of the evolutionary operators is given below. In this way, the offspring population can be obtained.
+
+Crossover Operators: The uniform crossover (UX) [19] is applied to the MS and FA levels. For the OM level, the encoding length may be different due to the varying number of PMs. For this reason, we first temporarily delete all 0 values in the OM, perform the precedence operation crossover (POX) [19] only for operation codes (i.e., OS), and then fill in the 0 values for the newly generated OS with reference to the insertion positions of PMs in the OM.
+
+Mutation Operators: First, two different factory codes are randomly selected from the FS and swapped positions to adjust the distribution of orders among the factories. Next, a machine code is randomly selected from the MS and mutated to one of the other available machines for the corresponding operation. Finally, all 0 values in the OM are removed and two operation codes are randomly chosen and exchanged, followed by regenerating the positions of PMs using Algorithm 2 to update the OM.
+
+## D. Environmental Selection
+
+After merging the parent and offspring populations, a population with the size of 2ps can be obtained. It will be shuffled and evenly distributed to the two subpopulations, including Population1 and Population2. Two environmental selection strategies driven by convergence and diversity are applied to Population1 and Population2, respectively [22].
+
+To be specific, solutions in Population1 are divided into different nondominated levels using a fast nondominated sorting approach [34]. Based on the dominance relation and crowding distance of the solutions, ps/2 solutions are selected. Regarding the selection of solutions in Population2, we first generate $p s / 2$ weight vectors uniformly based on the distribution of solutions, and the objective space is immediately divided into $p s / 2$ regions that do not overlap each other. The solutions in each region are ranked in the ascending order of the weighted objective values, and the most highly ranked solution is selected to enter into the next generation [21]. When there is no solution in a region, a solution that has not been selected in other regions is randomly chosen. Eventually, the next generation population with the size of $p s$ is obtained by combining the solutions selected from Population1 and Population2.
+
+![](images/4d60e604e87284680efcaba656a7f985fa9ddbcb7b4d6b7cf666dc4efd49c80b.jpg)  
+Fig. 4. Illustration of the full active schedule.
+
+## E. Idle Time Reduction Strategy
+
+In the optimization objectives, both $f _ { 1 }$ and $f _ { 3 }$ are affected by idle time. Designing an effective idle time reduction strategy can optimize $f _ { 1 }$ and $f _ { 3 }$ . The developed Algorithm 3 in the population initialization can greatly shorten idle time, but it is not suitable to be employed in the evolutionary process because the large-scale neighborhood search occupies excessive computational resources. In contrast, the full active schedule that is commonly used in FJSP-related research [17] can reduce idle time while saving computing time. Fig. 4 illustrates the full active schedule without considering deterioration and maintenance. There are two main phases, i.e., moving the operation to the left and right to the earliest idle time slot. It is evident that the key to adjusting the position of an operation is that the normal processing time of the operation is shorter than a certain idle time slot.
+
+Accordingly, when considering deterioration and maintenance, a natural idea is to decide whether an operation can be moved or not by comparing the actual processing time of the operation with the idle time. In this case, the requirements for adjusting the position of the operation become more stringent. When the normal processing time of an operation is less than a certain idle time while the actual processing time of the operation is greater than the idle time, the operation cannot be inserted into the idle time slot. This may result in a large amount of wasted idle time.
+
+To this end, an idle time reduction strategy based on the decomposition idea is proposed, in which the update process of the OM level is illustrated in Fig. 5. First, all 0 values in the OM are temporarily deleted, and the full active schedule illustrated in Fig. 4 is executed in each factory. Then, the deleted 0 values are filled in after the corresponding operation codes, and the decoding process presented in Section IV-B is conducted.
+
+## F. Learning-Assisted Adaptive LS Strategy
+
+In complex combinatorial optimization problems, solutions generated solely by using evolutionary operators for global search are usually simple to find and only reach local optima. Incorporating suitable LS techniques can aid in adjusting the neighborhood structure of solutions and exploring a more promising solution space. Furthermore, it is necessary to balance the allocation of computational resources between local and global search. For this reason, this work proposes a learning-assisted adaptive LS strategy, which is triggered when the proportion of solutions in the t-th generation Pareto solution set that are inherited to the t+1th generation is larger than a set threshold . As shown in Algorithm 4, each solution in  undergoes a two-stage LS process.
+
+![](images/5aeeb5a488a441c910a04eb47cba7b60b21d2b271e3f81fda2d1d50ec144c4a0.jpg)  
+Fig. 5. Update of OM in the idle time reduction strategy.
+
+```txt
+Algorithm 4: Learning-Assisted Adaptive LS
+1 Input: Ω, Q, A, ε, γ, α
+2 Output: Ω, Q
+3 Ω° ← ∅
+4 for i₅ = 1 to |Ω| do
+5    // Stage one
+6    Evaluate the state σ of the solution Ω(i₅)
+7    if rand() > ε ∨ Q(σ, :) = 0 then
+8    | a' ← random choice(A)
+9    else
+10    | a' ← arg maxₐ''∈A Q(σ, a'')
+11    end
+12    Execute the local search corresponding to a'
+13    if new solution < Ω(i₅) then
+14    | Ω(i₅) ← new solution
+15    else if new solution ≠ Ω(i₅) then
+16    | Ω° ← Ω° ∪ new solution
+17    end
+18    Update the reward r and new state σ'
+19    Q(σ, a') ← (1 - α)Q(σ, a') + α[r+
+γ maxₐ''∈A Q(σ', a'')]
+20    // Stage two
+21    Execute the maintenance cost saving strategy for Ω(i₅), and update Ω or Ω° based on steps 13-17
+22 end
+23 Ω ← Ω ∪ Ω°, Delete duplicates(Ω)
+24 Ω ← Fast nondominated sort(Ω)
+```
+
+At the first stage, we propose five LS operators, including $L S _ { 1 } , L S _ { 2 } , L S _ { 3 } , L S _ { 4 } ,$ and $L S _ { 5 }$ to adjust the operations’ sequence or the assignment of operations across different factories and machines.
+
+1) LS : All 0 values in the OM-level encoding are temporarily deleted, and the classical N6 structure is introduced to adjust the operations’ sequence on the critical path [17]. Subsequently, the deleted 0 values are filled in after the corresponding operation codes.
+
+2) LS<sub>2</sub>: An order is randomly selected from the factory with the longest completion time and assigned to other factories.
+
+3) $L S _ { 3 } \colon$ An operation is randomly selected from the critical path and assigned to other available machines.
+
+4) $L S _ { 4 } \mathrm { { : } }$ : Randomly select an operation from each order and disrupt their positions in the OM-level encoding.
+
+5) $L S _ { 5 } \mathrm { : }$ : Randomly select some operations and assign them to the machine with the shortest processing time.
+
+Considering the finiteness of the computation time, it is inappropriate to perform all the LS operators for each solution. Although the random selection method is simple, it may result in the chosen LS operator not being more effective due to ignoring the feature information of the solution. Q-learning as a model-free RL method has been elucidated the ability to adaptively select parameters or operators [19], [24], [35]. Another important advantage is that it enables online learning without increasing the algorithm’s complexity. Consequently, we introduce the Q-learning algorithm to select LS operators based on the characteristic of multiobjective optimization, which is distinct from previous research. The state, action and reward are defined as follows.
+
+The state is measured by the ordering of the normalized objective values $( f _ { 1 } ^ { * } , f _ { 2 } ^ { * } , f _ { 3 } ^ { * } )$ in different coordinate dimensions. In the studied three-objective optimization, there are six permutations, including $f _ { 1 } ^ { * } \geq f _ { 2 } ^ { * } \geq f _ { 3 } ^ { * } , f _ { 1 } ^ { * } \geq f _ { 3 } ^ { * } \geq f _ { 2 } ^ { * } , f _ { 2 } ^ { * } \geq$ $f _ { 1 } ^ { * } \geq f _ { 3 } ^ { * } , f _ { 2 } ^ { * } \geq f _ { 3 } ^ { * } \geq f _ { 1 } ^ { * } , f _ { 3 } ^ { * } \geq f _ { 1 } ^ { * } \geq f _ { 2 } ^ { * }$ , and $f _ { 3 } ^ { * } \geq f _ { 2 } ^ { * } \geq f _ { 1 } ^ { * }$ , which constitute the state space. A state is chosen randomly when the occurrence of an equality relationship causes some states to be the same. In the action space, there are five actions, including $L S _ { 1 } , L S _ { 2 } , L S _ { 3 } , L S _ { 4 }$ , and $L S _ { 5 }$ . After executing a specific action, a new solution $( f _ { 1 } ^ { \circ } , f _ { 2 } ^ { \circ } , f _ { 3 } ^ { \circ } )$ will be generated and the reward will be updated according to
+
+$$
+r = - 1, \left\{ \begin{array}{l} \text {if \forall w\in 1,2,3,f_{w} ^{*} -f_{w} ^{\circ}\leq 0} \\ \sum_ {w = 1} ^ {3} r _ {w} \max f _ {w} ^ {*} - f _ {w} ^ {\circ}, 0, \text {otherwise} \end{array} \right.\tag{18}
+$$
+
+where $( r _ { 1 } , r _ { 2 } , r _ { 3 } )$ is an arrangement of (0.1, 0.2, 0.3), determined by the descending order of $f _ { 1 } ^ { * } , f _ { 2 } ^ { * } , f _ { 3 } ^ { * }$
+
+The setting of the reward is to encourage the normalized solutions to preferentially move in the dimension of the farthest deviation from the ideal point (0, 0, 0). Therefore, we give the maximum reward weight of 0.3 if there is an improvement in the dimension of the farthest deviation after the execution of LS, and give the reward weights of 0.2 and 0.1 if there is an improvement in the last two dimensions, respectively. Finally, we calculate the weighted sum of the magnitude of improvement in each objective dimension as the cumulative reward. If there is no improvement in each dimension, a penalty of -1 is given. An illustration of reward updates using different LS operators is shown in Fig. 6.
+
+The magnitude relationship of coordinate values of the black point (0.35, 0.85, 0.7) is $0 . 8 5 > 0 . 7 > 0 . 3 5$ , and thus the corresponding reward weights for the improvement in the x, y, and z dimensions are 0.1, 0.3, and 0.2, respectively. Assuming that the black point is guided by $L S _ { 1 } , L S _ { 2 } , L S _ { 3 } , L S _ { 4 }$ and $L S _ { 5 }$ to move to positions (0.45, 0.9, 0.8), (0.75, 0.95, 0.3), (0.65, 0.55, 0.6), (0.3, 0.75, 0.65), and (0.15, 0.8, 0.8), the corresponding rewards can be calculated as −1, 0.08, 0.11, 0.045, and 0.035 based on (18).
+
+![](images/e05364065704c88650e9e0148cf5777e45af4db589e4e9995e88926c52d48bf4.jpg)  
+Fig. 6. Illustration of reward updates using different LS operators.
+
+The next is the second stage of the learning-assisted adaptive LS strategy, primarily adjusting the number and placement of maintenance decisions, which is treated as the maintenance adjustment strategy. The first step is to determine whether PM is assigned after the last operation of each machine, and if so, the corresponding maintenance code is removed from the OM-level encoding. Second, it is necessary to determine whether CM is required on each machine. If CM occurs after a certain operation, it means that PM is not timely, and we choose to execute PM before this operation to improve the machine’s status in advance while reducing the maintenance cost; Otherwise, the current number of PM may be moderate or excessive, and thus we need to adjust the number or position of PMs based on the following judgment. If the number of PMs assigned to a machine is greater than half of the number of operations, we randomly decrease a PM or randomly move a PM after another operation with a greater probability, and randomly increase a PM with a smaller probability; Otherwise, one of the following steps is taken with equal probability: randomly adding a PM, randomly subtracting a PM, or keeping the number and position of PMs constant.
+
+## V. EXPERIMENTAL RESULTS
+
+In this section, we first perform orthogonal tests on the key parameters of LBPEA, and then compare LBPEA with its peers and five state-of-the-art MOEAs on 20 extended benchmarks. All algorithms were coded in MATLAB R2023a and were run ten times independently under each benchmark on a personal computer with Intel Core i7-14700KF and 64.0- GB RAM.
+
+## A. Test Instances
+
+Due to the inadequacy of DFJSP benchmarks, we selected the FJSP benchmarks MK01-10 and DP01-10 with reference to [17]. To fit the characteristics of the proposed DFJSP/PM, we added the number of factories in each benchmark, where three homogeneous factories were set in benchmarks MK07- 10 and DP09-10, and two homogeneous factories were considered in other benchmarks. Furthermore, we assumed that each machine has the same deterioration rate d of 0.1.
+
+The threshold T for triggering a CM was set to 60, and the duration t<sub>CM</sub> as well as maintenance cost c per unit time of a CM were 5 and 10. The energy consumptions $\mu _ { 1 } , \mu _ { 2 }$ , and $\mu _ { 3 }$ per unit time in production, maintenance, and standby modes were set to 8, 2, and 1, respectively. Following the above, a total of 20 extended benchmarks were obtained, denoted as EMk01-10 and EDP01-10 in this article.
+
+## B. Evaluation Metrics
+
+The overall performance of MOEAs is typically evaluated in terms of both convergence and diversity, and the most frequently used evaluation metrics are inverted generational distance (IGD) and hypervolume (HV), respectively [36], [37]. To eliminate the difference in magnitude among multiple objectives $f _ { w } ( x ) , ( w \in \mathbb { N } ^ { + } , x \in \Omega )$ , the nondominated solutions are usually normalized before calculating the above evaluation metrics, as presented in
+
+$$
+f _ {w} ^ {*} (x) = \frac {f _ {w} (x) - f _ {w} ^ {\mathrm{min}}}{f _ {w} ^ {\mathrm{max}} - f _ {w} ^ {\mathrm{min}}}\tag{19}
+$$
+
+where $f _ { w } ^ { \mathrm { m i n } }$ and $f _ { w } ^ { \mathrm { m a x } }$ are the minimum and maximum values of $f _ { w } ( x )$ among the nondominated solutions, and $f _ { w } ^ { * } ( x )$ represents the normalized solutions.
+
+The IGD metric reflects the average distance between a set  of nondominated solutions and the true Pareto front PF, as shown in (20). A smaller IGD value means that the nondominated solutions are closer to the true Pareto front and the algorithm converges better. Since the true Pareto front of the proposed DFJSP/PM is unknown in advance, we ran each competing algorithm ten times on each benchmark separately and merged all the nondominated solutions to approximate the Pareto front
+
+$$
+\mathrm{IGD} = \frac {1}{| \mathrm{PF} |} \sum_ {\omega^ {2} \in \mathrm{PF}} \min _ {\omega^ {1} \in \Omega} \left\| \omega^ {1} - \omega^ {2} \right\|.\tag{20}
+$$
+
+The HV metric is the volume of the hypercube enclosed between a set  of nondominated solutions and the corresponding nadir point π, as calculated in (21). Unlike the IGD metric, this metric does not depend on the true Pareto front. The closer the HV value is to 1, the better the MOEA performs
+
+$$
+\mathrm{HV} = \lambda_ {w} (\cup_ {x \in \Omega} [ x, \pi ])\tag{21}
+$$
+
+where $\lambda _ { w }$ denotes the w-dimensional Lebesgue measure.
+
+To ensure the accuracy of calculating the above metrics, we called the source codes for the IGD and HV metrics provided in the PlatEMO [38] after running all the algorithms to obtain nondominated solutions.
+
+## C. Parameter Settings
+
+Through a series of preliminary experiments, we set the total number of fitness evaluations of 70 000 as the termination condition to ensure that the algorithm reaches convergence under each benchmark. In addition, there are seven key parameters that may influence the overall performance of the developed LBPEA, i.e., the population size (ps), threshold for triggering LS (), crossover rate $( P _ { c } )$ , mutation rate $( P _ { m } )$ , greedy factor (ε), discount factor $( \gamma )$ , and learning rate (α). We adopted the widely used Taguchi-based design of experiments to avoid enumerating all possible parameters’ combinations while selecting a promising configuration of key parameters [17], [19], [22]. We assumed that each key parameter has four levels: $p s \in \{ 4 0 , 6 0 , 8 0 ,$ 100}, $\Delta \in \{ 0 . 8 , 0 . 8 5 , 0 . 9 , 0 . 9 5 \}$ $\begin{array} { r c l } { P _ { c } } & { \in } & { \{ 0 . 7 , 0 . 8 , 0 . 9 , 1 \} , \ P _ { m } } & { \in } & { \{ 0 . 1 , 0 . 1 5 , 0 . 2 , 0 . 2 5 \} , \ \varepsilon } \end{array} \in \begin{array} { r c l } { \{ 0 . 1 , 0 . 1 5 , 0 . 2 , 0 . 2 5 \} , \ \varepsilon } \end{array} \in \begin{array} { r c l } { \{ 0 . 1 , 0 . 1 5 , 0 . 2 , 0 . 2 5 \} , \ \varepsilon } \end{array}$ {0.6, 0.7, 0.8, 0.9}, $\begin{array} { r l r } { \gamma } & { { } \in } & { \{ 0 . 6 , 0 . 7 , 0 . 8 , 0 . 9 \} } \end{array}$ and α ∈ {0.1, 0.2, 0.3, 0.4}. An orthogonal array was generated, and benchmarks EMk02 and EMk07 were selected as test instances. To reduce the variance coming from the algorithm’s randomness and attain reliable results, we conducted ten independent experiments under each set of parameters and calculated the average IGD value to evaluate the performance. Based on the detailed analysis of the factor level trend of key parameters in the supplementary document, we finally set the following combination: $p s = 1 0 0 , \Delta = 0 . 9 , P _ { c } = 1 , P _ { m } =$ 0.25, $\varepsilon = 0 . 6 , \gamma = 0 . 9$ , and $\alpha = 0 . 2$
+
+![](images/a341c3188e2aa18c2be7ba0a93208a259f5b813283b6e376ce10b3480da1f894.jpg)  
+(a)
+
+![](images/f776c9f5110f4ea38a5e6e55266935d0c3b66a182a0b7014e9784d31f8bcfc25.jpg)  
+(b)  
+Fig. 7. Number of wins of each variant in pairwise comparisons against other variants across 20 benchmarks. (a) Under the IGD metric. (b) Under the HV metric.
+
+## D. Evaluation of Each Improvement in LBPEA
+
+To assess the effectiveness of each improvement in LBPEA, we designed six variants of LBPEA, denoted as LBPEA1, LBPEA2, LBPEA3, LBPEA4, LBPEA5, and LBPEA6. In LBPEA1 and LBPEA2, convergence-driven and diversitydriven environmental selection strategies are, respectively, used to replace the bi-population environmental selection strategy. LBPEA3 removes the neighborhood search heuristic in the initialization process. LBPEA4 deletes the idle time reduction strategy. LBPEA5 randomly selects LS operators to replace the Q-learning process. LBPEA6 removes the maintenance adjustment strategy from LBPEA. We evaluated LBPEA as well as its six variants on 20 benchmarks in terms of IGD and HV metrics. For each benchmark, all algorithms were run independently ten times. The mean value and standard deviation of IGD and HV values are presented in the supplementary document. Here, Fig. 7 intuitively shows the number of wins of each variant in pairwise comparisons against other variants. The main observations from comparative results are summarized as follows.
+
+First, LBPEA has a clear advantage over LBPEA1 and LBPEA2, winning 15, 13 times under the IGD metric, and 14, 14 times under the HV metric. This demonstrates the positive effect using the bi-population environmental selection strategy on the convergence and diversity of LBPEA. Second, when comparing LBPEA with LBPEA3, we can find that the neighborhood search heuristic make LBPEA play more consistently than LBPEA3 on different benchmarks. Third, LBPEA outperforms LBPEA4 in 16 out of 20 comparisons under the IGV and HV metrics. This indicates that performing the idle time strategy is crucial to enhance the algorithm’s performance. Besides, LBPEA is slightly better than LBPEA5, winning 13 and 11 times, respectively, under the IGD and HV metrics. Meanwhile, LBPEA shows an absolute advantage over LBPEA6, winning 20 and 17 times, respectively, under the IGD and HV metrics. This suggests that the learningassisted LS strategy can improve the stability and convergence speed of the algorithm.
+
+TABLE II  
+RANKING RESULTS OF LBPEA AND ITS SIX VARIANTS BY THE FRIEDMAN TEST AT A 0.05 SIGNIFICANT LEVEL, WHERE THE BEST AVERAGE RANKING IS IN BOLD
+
+<table><tr><td rowspan="2">MOEAs</td><td colspan="2">IGD</td><td colspan="2">HV</td></tr><tr><td>rank</td><td>p-value</td><td>rank</td><td>p-value</td></tr><tr><td>LBPEA1</td><td>4.700</td><td></td><td>3.300</td><td></td></tr><tr><td>LBPEA2</td><td>3.575</td><td></td><td>4.350</td><td></td></tr><tr><td>LBPEA3</td><td>3.375</td><td></td><td>4.650</td><td></td></tr><tr><td>LBPEA4</td><td>4.500</td><td>2.683E-08</td><td>3.250</td><td>3.563E-04</td></tr><tr><td>LBPEA5</td><td>2.900</td><td></td><td>4.800</td><td></td></tr><tr><td>LBPEA6</td><td>6.450</td><td></td><td>2.500</td><td></td></tr><tr><td>LBPEA</td><td>2.500</td><td></td><td>5.150</td><td></td></tr></table>
+
+Table II presents the ranking results of LBPEA and its six variants using the Friedman test at a 0.05 significant level. It can be seen that LBPEA has the best average ranking of 2.500 under the IGD metric and 5.150 under the HV metric. In contrast, LBPEA6 obtains the worst average ranking of 6.450 under the IGD metric and 2.500 under the HV metric. This demonstrates that each improvement in the developed LBPEA is effective, with the maintenance adjustment strategy playing the most crucial role. Meanwhile, the p-values under the IGD and HV metrics are far less than 0.05, indicating significant differences between LBPEA and its six variants.
+
+## E. Comparisons With Other MOEAs
+
+The effectiveness of LBPEA in solving the multiobjective DFJSP/PM has been initially verified in Section V-D. To further evaluate the performance of LBPEA, we selected five state-of-the-art MOEAs, including the SPAMA [17], LRVMA [19], BPBMO [22], TS-KEA [39], and KBEA [40] as rivals. Specific reasons for the selection are presented below.
+
+1) SPAMA, TS-KEA, and KBEA were developed based on the NSGA-II [34] to solve energy-efficient bi-objective DFJSPs. In SPAMA, the surprisingly popular algorithm was used to select the promising LS operator with low selection probability. In TS-KEA, the evolutionary process is divided into two stages, aiming at efficiently approaching to the Pareto front and exploring a broader range of nondominated solutions. In KBEA, the population is categorized into two subpopulations, with each subpopulation tailored to pursue its own evolutionary strategies to search solutions from different directions.
+
+2) LRVMA was proposed based on the MOEA/D [41] to tackle an energy-efficient bi-objective FJSP, in which the Q-learning algorithm was employed to adaptively determine the neighborhood’s size by measuring the change of nondominated solutions in terms of convergence and diversity.
+
+![](images/a94c54dd850e497776013b4e2c34cf3d1f8edcbf0cdb012f724336d2714a8c7d.jpg)  
+(a)
+
+![](images/f79665fbab942b0790e8bf07402282fb9e48a798ea80c846a55c2cba801cfa9a.jpg)  
+(b)  
+Fig. 8. Number of wins of each algorithm in pairwise comparisons against other algorithms across 20 benchmarks. (a) Under the IGD metric. (b) Under the HV metric.
+
+TABLE III  
+RANKING RESULTS OF LBPEA AND ITS FIVE COMPETITORS BY THE FRIEDMAN TEST AT A 0.05 SIGNIFICANT LEVEL, WHERE THE BEST AVERAGE RANKING IS IN BOLD
+
+<table><tr><td rowspan="2">MOEAs</td><td colspan="2">IGD</td><td colspan="2">HV</td></tr><tr><td>rank</td><td>p-value</td><td>rank</td><td>p-value</td></tr><tr><td>SPAMA</td><td>2.350</td><td></td><td>4.900</td><td></td></tr><tr><td>LRVMA</td><td>3.950</td><td></td><td>2.150</td><td></td></tr><tr><td>BPBMO</td><td>5.500</td><td rowspan="2">3.674E-16</td><td>1.500</td><td rowspan="2">1.184E-17</td></tr><tr><td>TS-KEA</td><td>3.150</td><td>4.050</td></tr><tr><td>KBEA</td><td>5.050</td><td></td><td>2.400</td><td></td></tr><tr><td>LBPEA</td><td>1.000</td><td></td><td>6.000</td><td></td></tr></table>
+
+3) BPBMO was designed based on the c-DPEA [21] to deal with a DFJSP considering crane transportation. The balancing crossover heuristic, cooperative environmental selection mechanism, and adaptive adjustment of the PS were proposed to balance convergence and diversity.
+
+To enable the above five competing algorithms to solve the proposed multiobjective DFJSP/PM while ensuring a fair comparison, we adopted the same encoding and decoding mechanism, PS, and termination condition for all the algorithms. The other parameter settings and operator designs of the algorithm rivals were configured as recommended in their original literature. All algorithms were conducted ten runs under each benchmark, and the mean and standard deviation values of IGD and HV metrics were obtained as shown in the supplementary document. Here, we display the number of wins of each algorithm in pairwise comparisons against other algorithms across 20 benchmarks. From the last row of the matrix in Fig. 8(a) and (b), it is obvious that LBPEA beats SPAMA, LRVMA, BPBMO, TS-KEA, and KBEA on all benchmarks under the IGD and HV metrics. This means that the nondominated solutions obtained by LBPEA have better convergence and diversity.
+
+To further analyze the difference between LBPEA and its competitors, ranking results of six algorithms using the Friedman test at a 0.05 significant level are given in Table III. Obviously, LBPEA obtains a better average ranking than other algorithms under the IGD and HV metrics. Meanwhile, the p-values are far less than 0.05, indicating significant differences between LBPEA and five competing algorithms.
+
+The success of LBPEA is attributed to the synergistic effect of the following components. First, the neighborhood search heuristic can enhance the quality of the initial population.
+
+![](images/922873d50e3abbfd7b70c4ffc7e983b1f8263f90b814b7cd0a972edc91ea46f6.jpg)  
+Fig. 9. Algorithms’ comparison on EMk07 in terms of the Pareto front.
+
+![](images/bf7041cd04d02a42600cbb17ef4a5e3f28d9ccdbbc475cd5f27d5fe9280bb46d.jpg)  
+Fig. 10. Box plots of CPU time spent on EMk07 by the six algorithms.
+
+Second, the implementation of bi-population-based environment selection can strike a balance between the convergence and diversity of nondominated solutions. Next, the idle time reduction strategy can accelerate the search in the $f _ { 1 }$ and $f _ { 3 }$ directions, while the execution of the maintenance adjustment strategy increases the exploration in the $f _ { 2 }$ direction. Besides, two-stage LS process can assist LBPEA in escaping local optima and fostering rapid convergence of nondominated solutions.
+
+Furthermore, we visualize the Pareto fronts obtained after ten independent runs of all algorithms on EMk07, as shown in Fig. 9. It is clear that LBPEA dominates five algorithm competitors. Meanwhile, the average running time of all algorithms on EMk07 is given in Fig. 10. We can find that the running time of LBPEA is not much different from five algorithm competitors. This indicates that LBPEA can effectively provide closer approximations to the true Pareto front in solving the studied multiobjective DFJSP/PM.
+
+## VI. CONCLUSION
+
+This article investigated a multiobjective integrated decision model of the DFJSP and PM. Compared to a predetermined PM strategy, the proposed model covers a larger solution space and can provide more potential solutions for decision makers. This poses a high challenge to the design of the optimization algorithm. To jump out of this dilemma caused by huge maintenance decisions, we allocated PMs in the coding in a balanced way according to the load capacity of each machine and proposed a maintenance adjustment strategy in the LS.
+
+Another major contribution of the developed LBPEA is the selection of LS operators based on $Q \cdot$ -learning. In this way, the solution is encouraged to move in the dimension of the farthest deviation from the ideal point, which can speed up convergence. Computational experiments demonstrate that LBPEA exhibits outstanding performance over five state-of-the-art MOEAs for solving the studied multiobjective DFJSP/PM.
+
+In our future research, the developed LBPEA will be further optimized in combination with actual scenarios such as furniture customization and automobile assembly. More investigations on evolutionary multiobjective optimization algorithms help to solve other large-scale combinational optimization problems. Furthermore, the definitions of state, action, and reward in the learning process can be extended and applied to higher-dimensional MOEAs, providing a generalized and effective approach to select LS strategies.
+
+## REFERENCES
+
+[1] P. Chowdhury, S. K. Paul, S. Kaisar, and M. A. Moktadir, “COVID-19 pandemic related supply chain studies: A systematic review,” Transp. Res. Part-E: Logist. Transp. Rev., vol. 148, Apr. 2021, Art. no. 102271.
+
+[2] J. S. Srai et al., “Distributed manufacturing: Scope, challenges and opportunities,” Int. J. Prod. Res., vol. 54, no. 23, pp. 6917–6935, 2016.
+
+[3] N. Bagheri Rad and J. Behnamian, “Recent trends in distributed production network scheduling problem,” Artif. Intell. Rev., vol. 55, pp. 2945–2995, Apr. 2022.
+
+[4] E. Rauch, P. Dallasega, and D. T. Matt, “Sustainable production in emerging markets through distributed manufacturing systems (DMS),” J. Clean. Prod., vol. 135, pp. 127–138, Nov. 2016.
+
+[5] Y. Fu, Y. Hou, Z. Wang, X. Wu, K. Gao, and L. Wang, “Distributed scheduling problems in intelligent manufacturing systems,” Tsinghua Sci. Technol., vol. 26, no. 5, pp. 625–645, Oct. 2021.
+
+[6] Q. Luo, Q. Deng, G. Gong, L. Zhang, W. Han, and K. Li, “An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers,” Expert Syst. Appl., vol. 160, Dec. 2020, Art. no. 113721.
+
+[7] Y. Du, J. Li, C. Luo, and L. Meng, “A hybrid estimation of distribution algorithm for distributed flexible job shop scheduling with crane transportations,” Swarm Evol. Comput., vol. 62, Apr. 2021, Art. no. 100861.
+
+[8] S. Dauzère-Pérès, J. Ding, L. Shen, and K. Tamssaouet, “The flexible job shop scheduling problem: A review,” Eur. J. Oper. Res., vol. 314, no. 2, pp. 409–432, 2023.
+
+[9] H. Wang, Q. Yan, and S. Zhang, “Integrated scheduling and flexible maintenance in deteriorating multi-state single machine system using a reinforcement learning approach,” Adv. Eng. Inform., vol. 49, Aug. 2021, Art. no. 101339.
+
+[10] M. C. Santoro and L. Junqueira, “Unrelated parallel machine scheduling models with machine availability and eligibility constraints,” Comput. Ind. Eng., vol. 179, May 2023, Art. no. 109219.
+
+[11] H. Ye, X. Wang, and K. Liu, “Adaptive preventive maintenance for flow shop scheduling with resumable processing,” IEEE Trans. Autom. Sci. Eng., vol. 18, no. 1, pp. 106–113, Jan. 2021.
+
+[12] Y. An, X. Chen, K. Gao, Y. Li, and L. Zhang, “Multiobjective flexible job-shop rescheduling with new job insertion and machine preventive maintenance,” IEEE Trans. Cybern., vol. 53, no. 5, pp. 3101–3113, May 2023.
+
+[13] F. T. Chan, S. Chung, L. Chan, G. Finke, and M. Tiwari, “Solving distributed FMS scheduling problems subject to maintenance: Genetic algorithms approach,” Robot. Comput.-Integr. Manuf., vol. 22, no. 5, pp. 493–504, Dec. 2006.
+
+[14] S. Chung, F. T. Chan, and H. Chan, “A modified genetic algorithm approach for scheduling of perfect maintenance in distributed production scheduling,” Eng. Appl. Artif. Intell., vol. 22, no. 7, pp. 1005–1014, 2009.
+
+[15] S. Chung, H. Lau, G. Ho, and W. Ip, “Optimization of system reliability in multi-factory production networks by maintenance approach,” Expert Syst. Appl., vol. 36, no. 6, pp. 10188–10196, 2009.
+
+[16] C.-S. Lin, I.-L. Lee, and M.-C. Wu, “Merits of using chromosome representations and shadow chromosomes in genetic algorithms for solving scheduling problems,” Robot. Comput.-Integr. Manuf., vol. 58, pp. 196–207, Aug. 2019.
+
+[17] R. Li, W. Gong, L. Wang, C. Lu, and X. Zhuang, “Surprisingly popular-based adaptive memetic algorithm for energy-efficient distributed flexible job shop scheduling,” IEEE Trans. Cybern., vol. 53, no. 12, pp. 8013–8023, Dec. 2023.
+
+[18] E. Jiang, L. Wang, and Z. Peng, “Solving energy-efficient distributed job shop scheduling via multi-objective evolutionary algorithm with decomposition,” Swarm Evol. Comput., vol. 58, Nov. 2020, Art. no. 100745.
+
+[19] R. Li, W. Gong, C. Lu, and L. Wang, “A learning-based memetic algorithm for energy-efficient flexible job-shop scheduling with type-2 fuzzy processing time,” IEEE Trans. Evol. Comput., vol. 27, no. 3, pp. 610–620, Jun. 2023.
+
+[20] H.-L. Liu, L. Chen, K. Deb, and E. D. Goodman, “Investigating the effect of imbalance between convergence and diversity in evolutionary multiobjective algorithms,” IEEE Trans. Evol. Comput., vol. 21, no. 3, pp. 408–425, Jun. 2017.
+
+[21] M. Ming, A. Trivedi, R. Wang, D. Srinivasan, and T. Zhang, “A dualpopulation-based evolutionary algorithm for constrained multiobjective optimization,” IEEE Trans. Evol. Comput., vol. 25, no. 4, pp. 739–753, Aug. 2021.
+
+[22] J. Li, Y. Han, K. Gao, X. Xiao, and P. Duan, “Bi-population balancing multi-objective algorithm for fuzzy flexible job shop with energy and transportation,” IEEE Trans. Autom. Sci. Eng., early access, Aug. 7, 2023, doi: 10.1109/TASE.2023.3300922.
+
+[23] J. Xie, X. Li, L. Gao, and L. Gui, “A hybrid genetic tabu search algorithm for distributed flexible job shop scheduling problems,” J. Manuf. Syst., vol. 71, pp. 82–94, Dec. 2023.
+
+[24] Z.-Q. Zhang, F.-C. Wu, B. Qian, R. Hu, L. Wang, and H.-P. Jin, “A Qlearning-based hyper-heuristic evolutionary algorithm for the distributed flexible job-shop scheduling problem with crane transportation,” Expert Syst. Appl., vol. 234, Dec. 2023, Art. no. 121050.
+
+[25] N. Zhu, G. Gong, D. Lu, D. Huang, N. Peng, and H. Qi, “An effective reformative memetic algorithm for distributed flexible jobshop scheduling problem with order cancellation,” Expert Syst. Appl., vol. 237, Mar. 2024, Art. no. 121205.
+
+[26] L. Wang, Z. Pan, and J. Wang, “A review of reinforcement learning based intelligent optimization for manufacturing scheduling,” Complex Syst. Model. Simul., vol. 1, no. 4, pp. 257–270, 2021.
+
+[27] Z. Zhang, L. Zheng, F. Hou, and N. Li, “Semiconductor final test scheduling with Sarsa(λ,k) algorithm,” Eur. J. Oper. Res., vol. 215, no. 2, pp. 446–458, 2011.
+
+[28] S. Luo, L. Zhang, and Y. Fan, “Real-time scheduling for dynamic partial-no-wait multiobjective flexible job shop by deep reinforcement learning,” IEEE Trans. Autom. Sci. Eng., vol. 19, no. 4, pp. 3020–3038, Oct. 2022.
+
+[29] Z. Zeng, X. Li, and C. Bai, “A deep reinforcement learning approach to flexible job shop scheduling,” in Proc. IEEE Int. Conf. Syst., Man, Cybern. (SMC), 2022, pp. 884–890.
+
+[30] I.-B. Park and J. Park, “Scalable scheduling of semiconductor packaging facilities using deep reinforcement learning,” IEEE Trans. Cybern., vol. 53, no. 6, pp. 3518–3531, Jun. 2023.
+
+[31] Z. Cao, C. Lin, M. Zhou, and R. Huang, “Scheduling semiconductor testing facility by using cuckoo search algorithm with reinforcement learning and surrogate modeling,” IEEE Trans. Autom. Sci. Eng., vol. 16, no. 2, pp. 825–837, Apr. 2019.
+
+[32] Y. Du, J. Li, X. Chen, P. Duan, and Q. Pan, “Knowledgebased reinforcement learning and estimation of distribution algorithm for flexible job shop scheduling problem,” IEEE Trans. Emerg. Topics Comput. Intell., vol. 7, no. 4, pp. 1036–1050, Aug. 2023.
+
+[33] Q. Yan, H. Wang, and F. Wu, “Digital twin-enabled dynamic scheduling with preventive maintenance using a double-layer Q-learning algorithm,” Comput. Oper. Res., vol. 144, Aug. 2022, Art. no. 105823.
+
+[34] K. Deb, A. Pratap, S. Agarwal, and T. Meyarivan, “A fast and elitist multiobjective genetic algorithm: NSGA-II,” IEEE Trans. Evol. Comput., vol. 6, no. 2, pp. 182–197, Apr. 2002.
+
+[35] Q. Yan and H. Wang, “Double-layer Q-learning-based joint decisionmaking of dual resource-constrained aircraft assembly scheduling and flexible preventive maintenance,” IEEE Trans. Aerosp. Electron. Syst., vol. 58, no. 6, pp. 4938–4952, Dec. 2022.
+
+[36] C. Audet, J. Bigeon, D. Cartier, S. Le Digabel, and L. Salomon, “Performance indicators in multiobjective optimization,” Eur. J. Oper. Res., vol. 292, no. 2, pp. 397–422, 2021.
+
+[37] Y. Li, Q. Zhao, S. Yang, and Y. Guo, “Tailoring evolutionary algorithms to solve the multi-objective location-routing problem for biomass waste collection,” IEEE Trans. Evol. Comput., vol. 28, no. 2, pp. 489–500, Apr. 2024.
+
+[38] Y. Tian, R. Cheng, X. Zhang, and Y. Jin, “PlatEMO: A MATLAB platform for evolutionary multi-objective optimization [educational forum],” IEEE Comput. Intell. Mag., vol. 12, no. 4, pp. 73–87, Nov. 2017.
+
+[39] R. Li, W. Gong, L. Wang, C. Lu, and S. Jiang, “Two-stage knowledgedriven evolutionary algorithm for distributed green flexible job shop scheduling with type-2 fuzzy processing time,” Swarm Evol. Comput., vol. 74, Oct. 2022, Art. no. 101139.
+
+[40] F. Yu, C. Lu, J. Zhou, L. Yin, and K. Wang, “A knowledge-guided bi-population evolutionary algorithm for energy-efficient scheduling of distributed flexible job shop problem,” Eng. Appl. Artif. Intell., vol. 128, Feb. 2024, Art. no. 107458.
+
+[41] Q. Zhang and H. Li, “MOEA/D: A multiobjective evolutionary algorithm based on decomposition,” IEEE Trans. Evol. Comput., vol. 11, no. 6, pp. 712–731, Dec. 2007.
+
+![](images/4a94b02a6816ac11ae71da2d8841cca8ab4119621c09671913690dc73918f1a2.jpg)
+
+Qi Yan received the B.Sc. degree in mathematics and applied mathematics from Shenyang Normal University, Shenyang, China, in 2018. He is currently pursuing the Ph.D. degree with the College of Information Science and Engineering, Northeastern University, Shenyang.
+
+He has published eight research papers in journals and conferences. His research focuses on production scheduling and preventive maintenance, evolutionary algorithms, reinforcement learning, and intelligent manufacturing.
+
+![](images/38d140368fc813bcda7b7e6e4fce0fe999914b0501b384b63098d3f5c4e6d20d.jpg)
+
+Hongfeng Wang received the B.Sc. degree in industrial engineering and the M.Sc. and Ph.D. degrees in system engineering from Northeastern University, Shenyang, China, in 2001, 2004, and 2007, respectively.
+
+He is currently a Professor with the Institute of System Engineering, Northeastern University. He has authored or coauthored more than 80 refereed journal papers. His current research interests include model and optimization for complex system, manufacturing system engineering, and production operation management.
+
+![](images/74644651efad6c61d5da7dbfa4f90c086a74896e261d9eb7f028264d326ba1bc.jpg)
+
+Shengxiang Yang (Senior Member, IEEE) received the Ph.D. degree from Northeastern University, Shenyang, China, in 1999.
+
+He is currently a Professor of Computational Intelligence and the Deputy Director of the Institute of Artificial Intelligence, School of Computer Science and Informatics, De Montfort University, Leicester, U.K. He has over 430 publications with an H-index of 73 according to Google Scholar. His current research interests include evolutionary computation, swarm intelligence, artificial neural networks, data mining and data stream mining, and relevant real-world applications.
+
+Prof. Yang serves as an Associate Editor/Editorial Board Member for a number of international journals, such as the IEEE TRANSACTIONS ON EVOLUTIONARY COMPUTATION, IEEE TRANSACTIONS ON CYBERNETICS, Information Sciences, Enterprise Information Systems, and CAAI Transactions on Intelligence Technology.

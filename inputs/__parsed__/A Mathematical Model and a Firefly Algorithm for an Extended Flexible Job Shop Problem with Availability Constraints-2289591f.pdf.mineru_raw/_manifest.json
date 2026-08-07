@@ -1,0 +1,216 @@
+{
+  "version": "1.0",
+  "engine": "mineru",
+  "api_mode": "local",
+  "engine_version": "",
+  "endpoint_signature": "",
+  "options_signature": "sha256:277b026335ce61369b2368b0d917ec71191e0e9d3f536344996696b9df7bf877",
+  "source_content_hash": "sha256:c0a01fca8a8ec9ce3cabe8e9a91f0f7933fc32c8d47bb5029557566db465915c",
+  "source_size_bytes": 279639,
+  "source_filename_at_parse": "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints-2289591f.pdf",
+  "task_id": "precomputed-mineru",
+  "downloaded_at": "2026-07-28T15:31:40.982104+00:00",
+  "critical_file": {
+    "path": "content_list.json",
+    "size": 67034,
+    "sha256": "sha256:6715464f9e2f4074f8cfa6de5ffa18a6a9b17b3902bda3f9c6d90da973d91b3d"
+  },
+  "files": [
+    {
+      "path": "bb3d5db2-1707-40e8-be63-dca9ff5ba95f_content_list_v2.json",
+      "size": 132334,
+      "sha256": null
+    },
+    {
+      "path": "block_list.json",
+      "size": 79011,
+      "sha256": null
+    },
+    {
+      "path": "full.md",
+      "size": 38285,
+      "sha256": null
+    },
+    {
+      "path": "images/1314a8385a2ec5d5a3316ab73c3201746aa79b1f73d1123559715f41a2629055.jpg",
+      "size": 2121,
+      "sha256": null
+    },
+    {
+      "path": "images/16e4d138d245db65475825a82f8ca242aa6b68d41f3367a9f135f44f9459f7c1.jpg",
+      "size": 94689,
+      "sha256": null
+    },
+    {
+      "path": "images/17cb807593ed293226bae23f3827ff5b5a0ad0ac73c494c3bdaa68b5dd5048a9.jpg",
+      "size": 81785,
+      "sha256": null
+    },
+    {
+      "path": "images/1d77926fa90c992fad4287eef0a07d9c0052921185d88b0886d550dd12de41e1.jpg",
+      "size": 3611,
+      "sha256": null
+    },
+    {
+      "path": "images/255042f11db1ba79adc15f77e80ca7f96fd255d0827a36fdbb220fe3f2b33bda.jpg",
+      "size": 2890,
+      "sha256": null
+    },
+    {
+      "path": "images/2af0024f2b4f12556a97640878578b0ba075c725c9f706f8788a5d0d1e4d5b0c.jpg",
+      "size": 70585,
+      "sha256": null
+    },
+    {
+      "path": "images/2c5743016cb46972ae2216acddd507e64f5026231341b0ca0e2fe682182e8492.jpg",
+      "size": 1017,
+      "sha256": null
+    },
+    {
+      "path": "images/34a82a8867b9453d1038839e8fd2a741bc85b637901bc7e087d4117756267165.jpg",
+      "size": 2152,
+      "sha256": null
+    },
+    {
+      "path": "images/3a586738bb957d0929b2b659c9bdaafcb817414c6ab1b1fe28c1e32d0364f678.jpg",
+      "size": 3366,
+      "sha256": null
+    },
+    {
+      "path": "images/4102ffc1980ebcb99864496d5b88e0c1f82c209686e718e79b11ca0352988463.jpg",
+      "size": 66612,
+      "sha256": null
+    },
+    {
+      "path": "images/4a0a7a51797bf2c57a95da75dc099829ed934b0f33a7d872bf98e401269af334.jpg",
+      "size": 2348,
+      "sha256": null
+    },
+    {
+      "path": "images/515ae529272d161917a49454bd6bb6358d9d5ba1d4e626d4f2992148adfc129d.jpg",
+      "size": 2648,
+      "sha256": null
+    },
+    {
+      "path": "images/5297453389e8b9a6bb06fb2847b4f784264c310f6d5222c30795d3bccf4f06c9.jpg",
+      "size": 2347,
+      "sha256": null
+    },
+    {
+      "path": "images/557345eb4cee65a3994cd38eb6a23a0cd15fff417186cd3a995cc73601c61c85.jpg",
+      "size": 3258,
+      "sha256": null
+    },
+    {
+      "path": "images/57b6c49bd1f50ccbb6b6cbdf5bb9820c0e36bcae5d9a07b9b43a62d0ba12410a.jpg",
+      "size": 4471,
+      "sha256": null
+    },
+    {
+      "path": "images/66ac788b4bd3f4e7e1989d7f183614ee273f33df1ee69ab8ce21408f45305782.jpg",
+      "size": 2070,
+      "sha256": null
+    },
+    {
+      "path": "images/6efdd7a0a1f63860c8b5d85a4fd33da83cd735ffcd857c545696b9b1ac6041ec.jpg",
+      "size": 2133,
+      "sha256": null
+    },
+    {
+      "path": "images/6f0c0773a86dd2b42d69fac0c5ed50b17fdeaa06a03732ceeca787c636c3d79f.jpg",
+      "size": 2766,
+      "sha256": null
+    },
+    {
+      "path": "images/80c18bda9c40d4c4c84f1841efd3e81dad98dff0ca1285463b8a2599d7d0cc2e.jpg",
+      "size": 4777,
+      "sha256": null
+    },
+    {
+      "path": "images/81b2b40ac6d3c2b754ce51ffcb944b75e64d3a235e6c11671ca23407d38d59bb.jpg",
+      "size": 7100,
+      "sha256": null
+    },
+    {
+      "path": "images/83d3ba69c0a46332aaae22591459f88ead4fdc37f9b7c695d518c80b975431dc.jpg",
+      "size": 3969,
+      "sha256": null
+    },
+    {
+      "path": "images/8b1a259b5fc33642f3134c5405967c7343d52c8f8792f113db74fce599a23b16.jpg",
+      "size": 20690,
+      "sha256": null
+    },
+    {
+      "path": "images/8bcf8f64461e9e27dbb9dde033a3488846cc9a2a07b0790f0b501bf4be8f4510.jpg",
+      "size": 3796,
+      "sha256": null
+    },
+    {
+      "path": "images/9f8b3d0bbe6aa7f12b9e72daef97f9aaf009079a3fec11f6ca1b9b809d392ddd.jpg",
+      "size": 3709,
+      "sha256": null
+    },
+    {
+      "path": "images/b0c751e353d79688f4b504654bac00eec291656583d70dbe794033730ab0454f.jpg",
+      "size": 1577,
+      "sha256": null
+    },
+    {
+      "path": "images/bab410353dc702e5753d625d02476a3e09696757856cf41370770ae2f039c8e4.jpg",
+      "size": 2838,
+      "sha256": null
+    },
+    {
+      "path": "images/bfcd9ddfbb5ac2dd5980b32da6aeb7fbacd8c33b413fc2be3fdb53b942ab6cae.jpg",
+      "size": 8698,
+      "sha256": null
+    },
+    {
+      "path": "images/d39b2fa77aa0730c24903a7752281cf4c0eed381f18e4e5b1c51f916bb2221d7.jpg",
+      "size": 2115,
+      "sha256": null
+    },
+    {
+      "path": "images/dccfcf3a995f50707b026edd4c115a1e6b51df725bb7ef9049541661a33433bb.jpg",
+      "size": 3180,
+      "sha256": null
+    },
+    {
+      "path": "images/df7270e3998353d9f007b8acc3cdcaf08c7bd9d294f234684057ea94f57514b7.jpg",
+      "size": 5513,
+      "sha256": null
+    },
+    {
+      "path": "images/e9aedead56bf2b3056497a3f14a0571d3d3319037566d6a36d64a738e8683187.jpg",
+      "size": 2196,
+      "sha256": null
+    },
+    {
+      "path": "images/ec5a0552dca4d6733ff97d4487d09964500e6e6f04906aeaa10d24474beec0fc.jpg",
+      "size": 1213,
+      "sha256": null
+    },
+    {
+      "path": "images/f055b4474487ad4a723b4ca8528e3be58de704c1c52d48d3f9eebdf207907dd1.jpg",
+      "size": 3595,
+      "sha256": null
+    },
+    {
+      "path": "images/f62c45900a89937847f50c6e649d12672e4978e1af8720463bf6af688953c588.jpg",
+      "size": 93931,
+      "sha256": null
+    },
+    {
+      "path": "layout.json",
+      "size": 1074646,
+      "sha256": null
+    },
+    {
+      "path": "middle.json",
+      "size": 181579,
+      "sha256": null
+    }
+  ],
+  "total_size_bytes": 2092655
+}

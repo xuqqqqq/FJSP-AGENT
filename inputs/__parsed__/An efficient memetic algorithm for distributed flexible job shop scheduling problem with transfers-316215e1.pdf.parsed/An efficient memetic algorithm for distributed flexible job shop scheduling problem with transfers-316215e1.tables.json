@@ -1,0 +1,192 @@
+{
+  "version": "1.0",
+  "tables": {
+    "tb-e5d47f23ff2115fdf069ba128946a7e2-0001": {
+      "id": "tb-e5d47f23ff2115fdf069ba128946a7e2-0001",
+      "blockid": "e0ae8a22d70053805efac41e22524f68",
+      "heading": "2.1. Problem description and mathematical mode",
+      "parent_headings": [
+        "An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers"
+      ],
+      "dimension": [
+        28,
+        2
+      ],
+      "format": "html",
+      "content": "<table><tr><td colspan=\"2\">Indices</td></tr><tr><td>j,u</td><td>Index of jobs, j, u = 1, 2, . . , J</td></tr><tr><td>o,v</td><td>Index of operations, o, v = 1, 2, . . , O[j]</td></tr><tr><td>f</td><td>Index of factories, f = 1, 2, . . , F</td></tr><tr><td>m</td><td>Index of machines, m = 1, 2, . . , M[f]</td></tr><tr><td colspan=\"2\">Parameters</td></tr><tr><td>J</td><td>Total number of jobs</td></tr><tr><td>O[j]</td><td>Total number of operations for job j</td></tr><tr><td>F</td><td>Total number of factories</td></tr><tr><td>M[f]</td><td>Total number of machines in factory f</td></tr><tr><td>Wf</td><td>Workload of factory f</td></tr><tr><td>Ojo (Ouv)</td><td>oth(vth)operation of job j(u)</td></tr><tr><td>Pjofm (Puvfm)</td><td>Processing time of Ojo (Ouv) on machine m of factory f</td></tr><tr><td>T_M</td><td>Transfer time between machines</td></tr><tr><td>T_F</td><td>Transfer time between factories</td></tr><tr><td>Cj</td><td>Completion time of job j</td></tr><tr><td>Cjo (Cuv)</td><td>Completion time of operation Ojo (Ouv)</td></tr><tr><td>Ejofm</td><td>Unit energy consumption of machine m of factory f to deal with the operation Ojo</td></tr><tr><td>E_U</td><td>Unit energy consumption of transfer between machines or factories</td></tr><tr><td>S</td><td>A large positive number</td></tr><tr><td colspan=\"2\">Variables</td></tr><tr><td>Xjofm (Xuvfm)</td><td>Binary variable that is equal to 1 if machine m of factory f is selected for Ojo (Ouv) and 0 otherwise</td></tr><tr><td>Yuvjofm</td><td>Binary variable that is equal to 1 if Ouv is processed directly after Ojo on machine m in factory f and 0 otherwise</td></tr><tr><td>ZjM</td><td>Binary variable that is equal to 1 if transfer between machines in a factory for Ojo is needed and 0 otherwise</td></tr><tr><td>ZF</td><td>Binary variable that is equal to 1 if transfer between factories for Ojo is needed and 0 otherwise</td></tr><tr><td>E_P</td><td>Processing energy consumption of all jobs</td></tr><tr><td>E_M</td><td>Energy consumption of transfer between machines</td></tr><tr><td>E_F</td><td>Energy consumption of transfer between factories</td></tr></table>",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/41"
+    },
+    "tb-e5d47f23ff2115fdf069ba128946a7e2-0002": {
+      "id": "tb-e5d47f23ff2115fdf069ba128946a7e2-0002",
+      "blockid": "1d8eed676e76f9971aa2047ec3a97544",
+      "heading": "3.1. Brief introduction to NSGA-II",
+      "parent_headings": [
+        "An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers"
+      ],
+      "dimension": [
+        14,
+        7
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Jobs</td><td rowspan=\"2\">Operations</td><td colspan=\"3\"> $F_1$ </td><td colspan=\"2\"> $F_2$ </td></tr><tr><td> $M_1$ </td><td> $M_2$ </td><td> $M_3$ </td><td> $M_4$ </td><td> $M_5$ </td></tr><tr><td rowspan=\"3\"> $J_1$ </td><td> $O_{11}$ </td><td>3,7</td><td>-</td><td>-</td><td>5,4</td><td>6,5</td></tr><tr><td> $O_{12}$ </td><td>5,3</td><td>-</td><td>2,4</td><td>4,3</td><td>-</td></tr><tr><td> $O_{13}$ </td><td>5,5</td><td>-</td><td>4,5</td><td>3,7</td><td>-</td></tr><tr><td rowspan=\"4\"> $J_2$ </td><td> $O_{21}$ </td><td>4,2</td><td>6,6</td><td>-</td><td>5,8</td><td>5,3</td></tr><tr><td> $O_{22}$ </td><td>2,4</td><td>-</td><td>-</td><td>2,5</td><td>-</td></tr><tr><td> $O_{23}$ </td><td>-</td><td>3,4</td><td>4,2</td><td>4,6</td><td>3,4</td></tr><tr><td> $O_{24}$ </td><td>-</td><td>2,3</td><td>-</td><td>5,2</td><td>-</td></tr><tr><td rowspan=\"2\"> $J_3$ </td><td> $O_{31}$ </td><td>6,5</td><td>-</td><td>5,7</td><td>-</td><td>2,7</td></tr><tr><td> $O_{32}$ </td><td>-</td><td>4,3</td><td>3,8</td><td>4,4</td><td>6,3</td></tr><tr><td rowspan=\"3\"> $J_4$ </td><td> $O_{41}$ </td><td>3,6</td><td>6,8</td><td>-</td><td>7,3</td><td>9,5</td></tr><tr><td> $O_{42}$ </td><td>-</td><td>2,4</td><td>-</td><td>-</td><td>6,2</td></tr><tr><td> $O_{43}$ </td><td>1,4</td><td>-</td><td>2,5</td><td>4,6</td><td>2,4</td></tr></table>",
+      "caption": "Table 2 Example of DFJSPT.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/74"
+    },
+    "tb-e5d47f23ff2115fdf069ba128946a7e2-0003": {
+      "id": "tb-e5d47f23ff2115fdf069ba128946a7e2-0003",
+      "blockid": "be7040e0337a67fbf8dbb4143bdf453a",
+      "heading": "3.2.6. Local search operator (LSO)",
+      "parent_headings": [
+        "An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers"
+      ],
+      "dimension": [
+        3,
+        11
+      ],
+      "format": "html",
+      "content": "<table><tr><td></td><td colspan=\"5\">Position 1=3</td><td colspan=\"5\">Position 2=5</td></tr><tr><td>P3</td><td>2</td><td>4</td><td>4</td><td>3</td><td>2</td><td>1</td><td>1</td><td>1</td><td>2</td><td>2</td></tr><tr><td>C3</td><td>2</td><td>4</td><td>2</td><td>3</td><td>4</td><td>1</td><td>1</td><td>1</td><td>2</td><td>2</td></tr></table>",
+      "caption": "Fig. 5. ISM on OS vector.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/135"
+    },
+    "tb-e5d47f23ff2115fdf069ba128946a7e2-0004": {
+      "id": "tb-e5d47f23ff2115fdf069ba128946a7e2-0004",
+      "blockid": "be7040e0337a67fbf8dbb4143bdf453a",
+      "heading": "3.2.6. Local search operator (LSO)",
+      "parent_headings": [
+        "An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers"
+      ],
+      "dimension": [
+        4,
+        2
+      ],
+      "format": "html",
+      "content": "<table><tr><td colspan=\"2\">Algorithm 4: localsearchMA ( $R_1$ ,  $Chrom\\_all$ ,  $C_b$ )</td></tr><tr><td>24:</td><td>decode  $Chrom\\_one$  to form  $R\\_new$ ;</td></tr><tr><td>25:</td><td>If  $R\\_new$  dominates  $R_1$  Then  $R_2 \\leftarrow R\\_new$ ; Else  $R_2 \\leftarrow R_1$ ; End If</td></tr><tr><td>26:</td><td>Return ( $R_2$ )</td></tr></table>",
+      "caption": "(continued)",
+      "footnotes": [],
+      "self_ref": "content_list.json#/146"
+    },
+    "tb-e5d47f23ff2115fdf069ba128946a7e2-0005": {
+      "id": "tb-e5d47f23ff2115fdf069ba128946a7e2-0005",
+      "blockid": "d6da59892e9515c89fd39d282ea3d606",
+      "heading": "4.4. Effectiveness of GLR initialization method",
+      "parent_headings": [
+        "An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers"
+      ],
+      "dimension": [
+        18,
+        6
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Trial #</td><td colspan=\"4\">Parameter levels</td><td rowspan=\"2\">ODS</td></tr><tr><td>POP_size</td><td>CR_rate</td><td>MU_rate</td><td>NS_rate</td></tr><tr><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>43.297</td></tr><tr><td>2</td><td>1</td><td>2</td><td>4</td><td>3</td><td>21.739</td></tr><tr><td>3</td><td>1</td><td>3</td><td>2</td><td>4</td><td>24.291</td></tr><tr><td>4</td><td>1</td><td>4</td><td>3</td><td>2</td><td>21.027</td></tr><tr><td>5</td><td>2</td><td>1</td><td>2</td><td>2</td><td>41.766</td></tr><tr><td>6</td><td>2</td><td>2</td><td>3</td><td>4</td><td>26.919</td></tr><tr><td>7</td><td>2</td><td>3</td><td>1</td><td>3</td><td>25.160</td></tr><tr><td>8</td><td>2</td><td>4</td><td>4</td><td>1</td><td>20.800</td></tr><tr><td>9</td><td>3</td><td>1</td><td>3</td><td>3</td><td>20.761</td></tr><tr><td>10</td><td>3</td><td>2</td><td>2</td><td>1</td><td>4.626</td></tr><tr><td>11</td><td>3</td><td>3</td><td>4</td><td>2</td><td>15.611</td></tr><tr><td>12</td><td>3</td><td>4</td><td>1</td><td>4</td><td>47.795</td></tr><tr><td>13</td><td>4</td><td>1</td><td>4</td><td>4</td><td>21.448</td></tr><tr><td>14</td><td>4</td><td>2</td><td>1</td><td>2</td><td>31.727</td></tr><tr><td>15</td><td>4</td><td>3</td><td>3</td><td>1</td><td>26.329</td></tr><tr><td>16</td><td>4</td><td>4</td><td>2</td><td>3</td><td>26.795</td></tr></table>",
+      "caption": "Table 3 Factor levels of the four key parameters.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/180"
+    },
+    "tb-e5d47f23ff2115fdf069ba128946a7e2-0006": {
+      "id": "tb-e5d47f23ff2115fdf069ba128946a7e2-0006",
+      "blockid": "d6da59892e9515c89fd39d282ea3d606",
+      "heading": "4.4. Effectiveness of GLR initialization method",
+      "parent_headings": [
+        "An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers"
+      ],
+      "dimension": [
+        5,
+        3
+      ],
+      "format": "html",
+      "content": "<table><tr><td>Algorithms</td><td>Initialization methods</td><td>Using local search operator</td></tr><tr><td>EMA</td><td>GLR method</td><td>Yes</td></tr><tr><td> $EMA_1$ </td><td>OJA method</td><td>Yes</td></tr><tr><td> $EMA_2$ </td><td>Random method</td><td>Yes</td></tr><tr><td> $EMA_3$ </td><td>GLR method</td><td>No</td></tr></table>",
+      "caption": "Table 4",
+      "footnotes": [],
+      "self_ref": "content_list.json#/186"
+    },
+    "tb-e5d47f23ff2115fdf069ba128946a7e2-0007": {
+      "id": "tb-e5d47f23ff2115fdf069ba128946a7e2-0007",
+      "blockid": "88229619f8c2aff3c241330fbb2f753a",
+      "heading": "4.5. Effectiveness of the LSO",
+      "parent_headings": [
+        "An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers"
+      ],
+      "dimension": [
+        20,
+        5
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Instances</td><td colspan=\"2\">A: EMA B:  $EMA_3$ </td><td colspan=\"2\">IGD</td></tr><tr><td>C(A,B)</td><td>C(B,A)</td><td>EMA</td><td> $EMA_3$ </td></tr><tr><td>DFM01</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.589</td></tr><tr><td>DFM02</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.320</td></tr><tr><td>DFM03</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.656</td></tr><tr><td>DFM04</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.643</td></tr><tr><td>DFM05</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.428</td></tr><tr><td>DFM06</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.578</td></tr><tr><td>DFM16</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.625</td></tr><tr><td>DFM17</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.369</td></tr><tr><td>DFM18</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.727</td></tr><tr><td>DFM19</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.495</td></tr><tr><td>DFM20</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.607</td></tr><tr><td>DFM21</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.506</td></tr><tr><td>DFM31</td><td>0.785</td><td>0.202</td><td>0.031</td><td>0.129</td></tr><tr><td>DFM32</td><td>0.720</td><td>0.082</td><td>0.018</td><td>0.081</td></tr><tr><td>DFM33</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.278</td></tr><tr><td>DFM34</td><td>0.931</td><td>0.012</td><td>0.026</td><td>0.195</td></tr><tr><td>DFM35</td><td>0.996</td><td>0.000</td><td>0.001</td><td>0.199</td></tr><tr><td>DFM36</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.347</td></tr></table>",
+      "caption": "Table 6",
+      "footnotes": [],
+      "self_ref": "content_list.json#/190"
+    },
+    "tb-e5d47f23ff2115fdf069ba128946a7e2-0008": {
+      "id": "tb-e5d47f23ff2115fdf069ba128946a7e2-0008",
+      "blockid": "88229619f8c2aff3c241330fbb2f753a",
+      "heading": "4.5. Effectiveness of the LSO",
+      "parent_headings": [
+        "An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers"
+      ],
+      "dimension": [
+        20,
+        9
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Instances</td><td>Size</td><td colspan=\"2\">A:EMA B: EMA1</td><td colspan=\"2\">A: EMA D: EMA2</td><td colspan=\"3\">IGD</td></tr><tr><td>n × f × m</td><td>C(A,B)</td><td>C(B,A)</td><td>C(A,D)</td><td>C(D,A)</td><td>EMA</td><td>EMA1</td><td>EMA2</td></tr><tr><td>DFM01</td><td>10 × 2 × 6</td><td>0.808</td><td>0.000</td><td>1.000</td><td>0.000</td><td>0.025</td><td>0.260</td><td>0.271</td></tr><tr><td>DFM02</td><td>10 × 2 × 6</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.941</td><td>0.435</td></tr><tr><td>DFM03</td><td>10 × 2 × 6</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.645</td><td>0.699</td></tr><tr><td>DFM04</td><td>10 × 2 × 6</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>0.000</td><td>1.060</td><td>0.582</td></tr><tr><td>DFM05</td><td>10 × 2 × 6</td><td>1.000</td><td>0.000</td><td>0.500</td><td>0.000</td><td>0.033</td><td>0.629</td><td>0.330</td></tr><tr><td>DFM06</td><td>15 × 2 × 6</td><td>0.308</td><td>0.000</td><td>0.667</td><td>0.000</td><td>0.309</td><td>0.291</td><td>0.430</td></tr><tr><td>DFM16</td><td>10 × 4 × 8</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.782</td><td>1.105</td></tr><tr><td>DFM17</td><td>10 × 4 × 8</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.669</td><td>1.007</td></tr><tr><td>DFM18</td><td>10 × 4 × 8</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.747</td><td>0.942</td></tr><tr><td>DFM19</td><td>10 × 4 × 8</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.701</td><td>0.930</td></tr><tr><td>DFM20</td><td>10 × 4 × 8</td><td>0.000</td><td>0.040</td><td>1.000</td><td>0.000</td><td>0.064</td><td>0.391</td><td>0.806</td></tr><tr><td>DFM21</td><td>15 × 4 × 8</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.842</td><td>1.026</td></tr><tr><td>DFM31</td><td>30 × 6 × 10</td><td>0.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>0.017</td><td>0.322</td><td>0.684</td></tr><tr><td>DFM32</td><td>30 × 6 × 10</td><td>0.381</td><td>0.000</td><td>1.000</td><td>0.000</td><td>0.012</td><td>0.412</td><td>0.836</td></tr><tr><td>DFM33</td><td>30 × 6 × 10</td><td>0.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>0.023</td><td>0.461</td><td>0.792</td></tr><tr><td>DFM34</td><td>30 × 6 × 10</td><td>0.083</td><td>0.000</td><td>1.000</td><td>0.000</td><td>0.081</td><td>0.207</td><td>0.674</td></tr><tr><td>DFM35</td><td>30 × 6 × 10</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>0.000</td><td>0.450</td><td>0.886</td></tr><tr><td>DFM36</td><td>15 × 6 × 10</td><td>0.412</td><td>0.000</td><td>1.000</td><td>0.000</td><td>0.012</td><td>0.153</td><td>0.659</td></tr></table>",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/191"
+    },
+    "tb-e5d47f23ff2115fdf069ba128946a7e2-0009": {
+      "id": "tb-e5d47f23ff2115fdf069ba128946a7e2-0009",
+      "blockid": "4a191296c40395c2f5f6b85ff1f426ad",
+      "heading": "4.6. Comparison with other algorithms",
+      "parent_headings": [
+        "An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers"
+      ],
+      "dimension": [
+        22,
+        12
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Instances</td><td rowspan=\"2\">Size $n \\times f \\times m$ </td><td colspan=\"4\">Runtime</td><td rowspan=\"2\">Instances</td><td rowspan=\"2\">Size $n \\times f \\times m$ </td><td colspan=\"4\">Runtime</td></tr><tr><td>EMA</td><td>NNIA</td><td>NSGA-II</td><td>NSGA-III</td><td>EMA</td><td>NNIA</td><td>NSGA-II</td><td>NSGA-III</td></tr><tr><td>DFM01</td><td> $10 \\times 2 \\times 6$ </td><td>470</td><td>481</td><td>492</td><td>371</td><td>DFM21</td><td> $15 \\times 4 \\times 8$ </td><td>2128</td><td>1273</td><td>1102</td><td>1108</td></tr><tr><td>DFM02</td><td> $10 \\times 2 \\times 6$ </td><td>545</td><td>485</td><td>496</td><td>377</td><td>DFM22</td><td> $15 \\times 4 \\times 8$ </td><td>1768</td><td>1232</td><td>1213</td><td>1123</td></tr><tr><td>DFM03</td><td> $10 \\times 2 \\times 6$ </td><td>511</td><td>484</td><td>484</td><td>376</td><td>DFM23</td><td> $15 \\times 4 \\times 8$ </td><td>2318</td><td>1269</td><td>1249</td><td>1131</td></tr><tr><td>DFM04</td><td> $10 \\times 2 \\times 6$ </td><td>493</td><td>484</td><td>489</td><td>380</td><td>DFM24</td><td> $15 \\times 4 \\times 8$ </td><td>2061</td><td>1248</td><td>1135</td><td>1128</td></tr><tr><td>DFM05</td><td> $10 \\times 2 \\times 6$ </td><td>416</td><td>487</td><td>494</td><td>383</td><td>DFM25</td><td> $15 \\times 4 \\times 8$ </td><td>2020</td><td>1262</td><td>1174</td><td>1125</td></tr><tr><td>DFM06</td><td> $15 \\times 2 \\times 6$ </td><td>724</td><td>751</td><td>693</td><td>561</td><td>DFM26</td><td> $20 \\times 4 \\times 8$ </td><td>2062</td><td>1651</td><td>1531</td><td>1384</td></tr><tr><td>DFM07</td><td> $15 \\times 2 \\times 6$ </td><td>771</td><td>760</td><td>695</td><td>563</td><td>DFM27</td><td> $20 \\times 4 \\times 8$ </td><td>2596</td><td>1667</td><td>1561</td><td>1416</td></tr><tr><td>DFM08</td><td> $15 \\times 2 \\times 6$ </td><td>767</td><td>759</td><td>692</td><td>561</td><td>DFM28</td><td> $20 \\times 4 \\times 8$ </td><td>2281</td><td>1664</td><td>1516</td><td>1431</td></tr><tr><td>DFM09</td><td> $15 \\times 2 \\times 6$ </td><td>794</td><td>760</td><td>702</td><td>570</td><td>DFM29</td><td> $20 \\times 4 \\times 8$ </td><td>3186</td><td>1684</td><td>1500</td><td>1423</td></tr><tr><td>DFM10</td><td> $15 \\times 2 \\times 6$ </td><td>926</td><td>768</td><td>691</td><td>572</td><td>DFM30</td><td> $20 \\times 4 \\times 8$ </td><td>3043</td><td>1691</td><td>1517</td><td>1438</td></tr><tr><td>DFM11</td><td> $20 \\times 2 \\times 6$ </td><td>1137</td><td>1042</td><td>903</td><td>768</td><td>DFM31</td><td> $30 \\times 6 \\times 10$ </td><td>3257</td><td>2793</td><td>2710</td><td>2144</td></tr><tr><td>DFM12</td><td> $20 \\times 2 \\times 6$ </td><td>1106</td><td>1042</td><td>817</td><td>769</td><td>DFM32</td><td> $30 \\times 6 \\times 10$ </td><td>3781</td><td>2862</td><td>2791</td><td>2176</td></tr><tr><td>DFM13</td><td> $20 \\times 2 \\times 6$ </td><td>1288</td><td>1047</td><td>763</td><td>772</td><td>DFM33</td><td> $30 \\times 6 \\times 10$ </td><td>3583</td><td>2841</td><td>2585</td><td>2171</td></tr><tr><td>DFM14</td><td> $20 \\times 2 \\times 6$ </td><td>1033</td><td>1054</td><td>789</td><td>768</td><td>DFM34</td><td> $30 \\times 6 \\times 10$ </td><td>3857</td><td>2860</td><td>2272</td><td>2177</td></tr><tr><td>DFM15</td><td> $20 \\times 2 \\times 6$ </td><td>1377</td><td>1066</td><td>862</td><td>776</td><td>DFM35</td><td> $30 \\times 6 \\times 10$ </td><td>4041</td><td>2850</td><td>2282</td><td>2165</td></tr><tr><td>DFM16</td><td> $10 \\times 4 \\times 8$ </td><td>1054</td><td>875</td><td>745</td><td>717</td><td>DFM36</td><td> $15 \\times 6 \\times 10$ </td><td>2412</td><td>1887</td><td>1678</td><td>1522</td></tr><tr><td>DFM17</td><td> $10 \\times 4 \\times 8$ </td><td>1049</td><td>854</td><td>741</td><td>706</td><td>DFM37</td><td> $15 \\times 6 \\times 10$ </td><td>2706</td><td>1921</td><td>1724</td><td>1581</td></tr><tr><td>DFM18</td><td> $10 \\times 4 \\times 8$ </td><td>967</td><td>861</td><td>727</td><td>713</td><td>DFM38</td><td> $15 \\times 6 \\times 10$ </td><td>3176</td><td>1903</td><td>1752</td><td>1579</td></tr><tr><td>DFM19</td><td> $10 \\times 4 \\times 8$ </td><td>1001</td><td>870</td><td>733</td><td>716</td><td>DFM39</td><td> $15 \\times 6 \\times 10$ </td><td>3698</td><td>1914</td><td>1780</td><td>1613</td></tr><tr><td>DFM20</td><td> $10 \\times 4 \\times 8$ </td><td>930</td><td>856</td><td>736</td><td>714</td><td>DFM40</td><td> $15 \\times 6 \\times 10$ </td><td>2392</td><td>1946</td><td>1766</td><td>1565</td></tr></table>",
+      "caption": "Runtimes of the four algorithms under the iteration criterion.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/202"
+    },
+    "tb-e5d47f23ff2115fdf069ba128946a7e2-0010": {
+      "id": "tb-e5d47f23ff2115fdf069ba128946a7e2-0010",
+      "blockid": "4a191296c40395c2f5f6b85ff1f426ad",
+      "heading": "4.6. Comparison with other algorithms",
+      "parent_headings": [
+        "An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers"
+      ],
+      "dimension": [
+        42,
+        7
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Instances</td><td colspan=\"2\">A:EMA B:NNIA</td><td colspan=\"2\">A:EMA D:NSGA-II</td><td colspan=\"2\">A:EMA E:NSGA-III</td></tr><tr><td>C(A,B)</td><td>C(B,A)</td><td>C(A,D)</td><td>C(D,A)</td><td>C(A,E)</td><td>C(E,A)</td></tr><tr><td>DFM01</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM02</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM03</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM04</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM05</td><td>0.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM06</td><td>0.250</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM07</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM08</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM09</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM10</td><td>0.250</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM11</td><td>0.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM12</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM13</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM14</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM15</td><td>0.833</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM16</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM17</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM18</td><td>0.500</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM19</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM20</td><td>0.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM21</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM22</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM23</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM24</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM25</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM26</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM27</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM28</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM29</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM30</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM31</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM32</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM33</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM34</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM35</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM36</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM37</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM38</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM39</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr><tr><td>DFM40</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr></table>",
+      "caption": "Table 8",
+      "footnotes": [],
+      "self_ref": "content_list.json#/205"
+    },
+    "tb-e5d47f23ff2115fdf069ba128946a7e2-0011": {
+      "id": "tb-e5d47f23ff2115fdf069ba128946a7e2-0011",
+      "blockid": "4a191296c40395c2f5f6b85ff1f426ad",
+      "heading": "4.6. Comparison with other algorithms",
+      "parent_headings": [
+        "An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers"
+      ],
+      "dimension": [
+        22,
+        10
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Instances</td><td colspan=\"4\">IGD</td><td rowspan=\"2\">Instances</td><td colspan=\"4\">IGD</td></tr><tr><td>EMA</td><td>NNIA</td><td>NSGA-II</td><td>NSGA-III</td><td>EMA</td><td>NNIA</td><td>NSGA-II</td><td>NSGA-III</td></tr><tr><td>DFM01</td><td>0.000</td><td>0.512</td><td>0.568</td><td>0.580</td><td>DFM21</td><td>0.000</td><td>0.577</td><td>0.874</td><td>0.857</td></tr><tr><td>DFM02</td><td>0.000</td><td>0.980</td><td>0.923</td><td>0.885</td><td>DFM22</td><td>0.000</td><td>0.583</td><td>0.926</td><td>0.841</td></tr><tr><td>DFM03</td><td>0.000</td><td>0.907</td><td>0.637</td><td>0.587</td><td>DFM23</td><td>0.000</td><td>0.725</td><td>1.036</td><td>0.919</td></tr><tr><td>DFM04</td><td>0.000</td><td>1.160</td><td>1.097</td><td>0.999</td><td>DFM24</td><td>0.000</td><td>0.895</td><td>0.971</td><td>1.009</td></tr><tr><td>DFM05</td><td>0.008</td><td>0.894</td><td>0.483</td><td>0.522</td><td>DFM25</td><td>0.000</td><td>0.728</td><td>0.975</td><td>0.964</td></tr><tr><td>DFM06</td><td>0.053</td><td>0.546</td><td>0.483</td><td>0.560</td><td>DFM26</td><td>0.000</td><td>0.679</td><td>1.005</td><td>0.986</td></tr><tr><td>DFM07</td><td>0.000</td><td>0.800</td><td>0.736</td><td>0.745</td><td>DFM27</td><td>0.000</td><td>0.522</td><td>0.730</td><td>0.756</td></tr><tr><td>DFM08</td><td>0.000</td><td>0.683</td><td>0.879</td><td>0.834</td><td>DFM28</td><td>0.000</td><td>0.522</td><td>0.824</td><td>0.920</td></tr><tr><td>DFM09</td><td>0.000</td><td>0.719</td><td>0.809</td><td>0.786</td><td>DFM29</td><td>0.000</td><td>0.754</td><td>1.084</td><td>1.026</td></tr><tr><td>DFM10</td><td>0.086</td><td>0.591</td><td>0.488</td><td>0.667</td><td>DFM30</td><td>0.000</td><td>0.438</td><td>0.864</td><td>0.817</td></tr><tr><td>DFM11</td><td>0.212</td><td>0.933</td><td>0.605</td><td>0.558</td><td>DFM31</td><td>0.000</td><td>0.408</td><td>0.898</td><td>0.862</td></tr><tr><td>DFM12</td><td>0.000</td><td>0.807</td><td>0.807</td><td>0.888</td><td>DFM32</td><td>0.000</td><td>0.597</td><td>0.833</td><td>0.799</td></tr><tr><td>DFM13</td><td>0.000</td><td>0.748</td><td>0.906</td><td>0.990</td><td>DFM33</td><td>0.000</td><td>0.354</td><td>0.799</td><td>0.747</td></tr><tr><td>DFM14</td><td>0.000</td><td>0.517</td><td>0.659</td><td>0.731</td><td>DFM34</td><td>0.000</td><td>0.616</td><td>0.855</td><td>0.785</td></tr><tr><td>DFM15</td><td>0.041</td><td>0.671</td><td>0.721</td><td>0.631</td><td>DFM35</td><td>0.000</td><td>0.647</td><td>0.871</td><td>0.883</td></tr><tr><td>DFM16</td><td>0.000</td><td>0.720</td><td>0.752</td><td>0.770</td><td>DFM36</td><td>0.000</td><td>0.640</td><td>1.044</td><td>0.954</td></tr><tr><td>DFM17</td><td>0.000</td><td>0.910</td><td>1.096</td><td>1.116</td><td>DFM37</td><td>0.000</td><td>0.552</td><td>0.944</td><td>0.812</td></tr><tr><td>DFM18</td><td>0.073</td><td>0.516</td><td>0.762</td><td>0.798</td><td>DFM38</td><td>0.000</td><td>0.565</td><td>0.977</td><td>0.955</td></tr><tr><td>DFM19</td><td>0.000</td><td>0.691</td><td>0.947</td><td>0.924</td><td>DFM39</td><td>0.000</td><td>0.686</td><td>0.958</td><td>0.945</td></tr><tr><td>DFM20</td><td>0.252</td><td>0.410</td><td>0.680</td><td>0.680</td><td>DFM40</td><td>0.000</td><td>0.656</td><td>0.844</td><td>0.904</td></tr></table>",
+      "caption": "Table 9",
+      "footnotes": [],
+      "self_ref": "content_list.json#/206"
+    }
+  }
+}

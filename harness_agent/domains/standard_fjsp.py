@@ -1,4 +1,4 @@
-"""标准 FJSP/FJSP-SDST 算例诊断，只提取规模与约束特征。"""
+"""标准 FJSP/FJSP-SDST/FJSPJP 算例诊断，只提取规模与约束特征。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from harness_agent.core.models import TaskContract
-from harness_agent.domains.io import parse_standard_fjsp
+from harness_agent.domains.io import parse_distributed_fjsp, parse_standard_fjsp
 
 
 @dataclass(frozen=True)
@@ -58,12 +58,32 @@ class StandardFjspContextProvider:
         )
         sdst_instances = [item for item in profiled if item.get("variant") == "fjsp_sdst"]
         nfa_instances = [item for item in profiled if item.get("variant") == "fjsp_machine_availability"]
+        distributed_instances = [item for item in profiled if item.get("variant") == "fjsp_distributed_transfer"]
+        priority_instances = [item for item in profiled if item.get("variant") == "fjsp_priority"]
         best_known_count = sum(1 for item in profiled if item.get("best_known_makespan") is not None)
         summary = {
             "instance_count": len(contract.instances),
             "profiled_count": len(profiled),
             "sdst_instance_count": len(sdst_instances),
             "nfa_instance_count": len(nfa_instances),
+            "machine_availability_instance_count": len(nfa_instances),
+            "distributed_transfer_instance_count": len(distributed_instances),
+            "priority_job_instance_count": len(priority_instances),
+            "priority_job_count_max": max(
+                (int(item.get("priority_job_count", 0) or 0) for item in profiled),
+                default=0,
+            ),
+            "priority_job_ratio_avg": _rounded_average(
+                float(item.get("priority_job_ratio", 0.0) or 0.0) for item in priority_instances
+            ),
+            "factory_count_max": max((int(item.get("factory_count", 0) or 0) for item in profiled), default=0),
+            "machines_per_factory_max": max(
+                (int(item.get("machines_per_factory", 0) or 0) for item in profiled),
+                default=0,
+            ),
+            "total_unavailability_count": sum(
+                int(item.get("unavailability_count") or 0) for item in profiled
+            ),
             "shape_group_count": len(_instance_shape_groups(profiled)),
             "setup_time_kinds": sorted(
                 {str(item.get("setup_time_kind")) for item in profiled if item.get("setup_time_kind")}
@@ -131,8 +151,64 @@ class StandardFjspContextProvider:
             int(summary.get("sdst_instance_count") or 0) > 0
             or any(kind not in {"", "none", "null"} for kind in setup_kinds)
         )
+        diagnostics_show_priority = (
+            int(summary.get("priority_job_instance_count") or 0) > 0
+            or int(summary.get("priority_job_count_max") or 0) > 0
+            or any(
+                bool(item.get("has_job_priority"))
+                or str(item.get("variant") or "").strip().lower() == "fjsp_priority"
+                for item in instance_diagnostics.get("instances") or []
+                if isinstance(item, dict)
+            )
+        )
+        diagnostics_show_distributed = (
+            int(summary.get("distributed_transfer_instance_count") or 0) > 0
+            or any(
+                bool(item.get("has_distributed_transfer"))
+                or str(item.get("variant") or "").strip().lower() == "fjsp_distributed_transfer"
+                for item in instance_diagnostics.get("instances") or []
+                if isinstance(item, dict)
+            )
+        )
+        if diagnostics_show_distributed:
+            return [
+                "fjsp_distributed_transfer",
+                "distributed_fjsp",
+                "dfjspt",
+                "distributed_factories",
+                "factory_assignment",
+                "factory_machine_assignment",
+                "transfer_time",
+                "transportation_constraints",
+                "distributed_decoder",
+                "factory_workload",
+                "energy_consumption",
+            ]
         if diagnostics_show_sdst:
             return ["fjsp_sdst", "sequence_dependent_setup", "setup_time"]
+        if diagnostics_show_priority:
+            return [
+                "fjsp_job_priority",
+                "fjsp_priority",
+                "job_priority",
+                "priority_jobs",
+                "priority_completion_time",
+                "multi_objective",
+                "lexicographic_objective",
+            ]
+        diagnostics_show_nfa = (
+            int(summary.get("nfa_instance_count") or 0) > 0
+            or int(summary.get("machine_availability_instance_count") or 0) > 0
+            or int(summary.get("total_unavailability_count") or 0) > 0
+            or any(
+                bool(item.get("has_machine_availability"))
+                or str(item.get("variant") or "").strip().lower() == "fjsp_machine_availability"
+                for item in instance_diagnostics.get("instances") or []
+                if isinstance(item, dict)
+            )
+        )
+        if diagnostics_show_nfa:
+            return ["fjsp_machine_availability", "machine_calendar", "maintenance"]
         if diagnostics_have_shape:
             return []
 
@@ -145,6 +221,42 @@ class StandardFjspContextProvider:
         ).lower()
         if re.search(r"\bfjsp[-_]?sdst\b|\bsequence[-_\s]?dependent[-_\s]?setup\b|\bsetup[-_\s]?matrix\b", text):
             return ["fjsp_sdst", "sequence_dependent_setup", "setup_time"]
+        if re.search(
+            r"\bfjsp[-_]?nfa\b|\bmachine[-_\s]?availability\b|\bmaintenance[-_\s]?window\b|"
+            r"\bunavailability\b|\bunavailable[-_\s]?window\b|\bmachine[-_\s]?calendar\b",
+            text,
+        ):
+            return ["fjsp_machine_availability", "machine_calendar", "maintenance"]
+        if re.search(
+            r"\bdfjspt\b|\bdistributed[-_\s]?fjsp\b|\bfjsp[-_\s]?distributed[-_\s]?transfer\b|"
+            r"\bfactory[-_\s]?assignment\b|\btransfer[-_\s]?time\b|\btransportation[-_\s]?constraints\b|"
+            r"\bdistributed[-_\s]?flexible[-_\s]?job[-_\s]?shop\b|分布式|工厂|转移时间|运输约束|能耗",
+            text,
+        ):
+            return [
+                "fjsp_distributed_transfer",
+                "distributed_fjsp",
+                "dfjspt",
+                "distributed_factories",
+                "factory_assignment",
+                "transfer_time",
+                "transportation_constraints",
+                "energy_consumption",
+            ]
+        if re.search(
+            r"\bfjspjp\b|\bfjsp[-_\s]?priority\b|\bjob[-_\s]?priority\b|\bpriority[-_\s]?jobs?\b|"
+            r"\bpriority[-_\s]?completion[-_\s]?time\b|优先级工件|工件优先级|优先工件",
+            text,
+        ):
+            return [
+                "fjsp_job_priority",
+                "fjsp_priority",
+                "job_priority",
+                "priority_jobs",
+                "priority_completion_time",
+                "multi_objective",
+                "lexicographic_objective",
+            ]
         return []
 
     def solution_contract(self) -> dict[str, Any]:
@@ -156,6 +268,43 @@ class StandardFjspContextProvider:
             "schedule_record_fields": ["job_id", "op_id", "machine_id", "start", "end"],
             "indexing": "job_id, op_id, and machine_id are 0-based integers",
             "legality_owner": "AlgoForge Core evaluator",
+        }
+
+
+@dataclass(frozen=True)
+class DistributedFjspContextProvider(StandardFjspContextProvider):
+    """DFJSPT 复用 FJSP 实例诊断，但暴露带 factory_id 的固定输出契约。"""
+
+    def solution_contract(self) -> dict[str, Any]:
+        return {
+            "format": "distributed_fjsp_schedule_v1",
+            "required_top_level_fields": ["format", "schedule"],
+            "schedule_record_fields": ["job_id", "op_id", "factory_id", "machine_id", "start", "end"],
+            "optional_top_level_fields": ["metrics", "metadata"],
+            "indexing": "job_id, op_id, factory_id, and machine_id are 0-based integers",
+            "legality_owner": "AlgoForge Core distributed-transfer evaluator",
+            "fixed_transfer_model": {
+                "same_factory_different_machine": 30,
+                "cross_factory": 60,
+                "same_factory_same_machine": 0,
+                "transfer_unit_energy": 6,
+            },
+        }
+
+
+@dataclass(frozen=True)
+class PriorityFjspContextProvider(StandardFjspContextProvider):
+    """FJSPJP 复用标准 FJSP 合法性，但暴露 priority metrics 输出契约。"""
+
+    def solution_contract(self) -> dict[str, Any]:
+        return {
+            "format": "standard_fjsp_schedule_v1",
+            "required_top_level_fields": ["format", "schedule"],
+            "schedule_record_fields": ["job_id", "op_id", "machine_id", "start", "end"],
+            "optional_top_level_fields": ["makespan", "priority_completion_time", "metrics"],
+            "indexing": "job_id, op_id, and machine_id are 0-based integers",
+            "legality_owner": "AlgoForge Core job-priority evaluator",
+            "objective_metrics": ["makespan", "priority_completion_time"],
         }
 
 
@@ -178,9 +327,21 @@ def _single_instance_diagnostics(
         "parsed": False,
     }
     try:
+        distributed = parse_distributed_fjsp(path)
+    except Exception as distributed_exc:  # noqa: BLE001 - fall back to the standard parser below.
+        distributed_error = str(distributed_exc)
+    else:
+        return _distributed_instance_diagnostics(
+            payload=payload,
+            instance=distributed,
+            best_known_csv=best_known_csv,
+        )
+    try:
         instance = parse_standard_fjsp(path)
     except Exception as exc:  # noqa: BLE001 - diagnostics must not fail context generation.
         payload["error"] = str(exc)
+        if distributed_error:
+            payload["distributed_parse_error"] = distributed_error
         return payload
 
     operations = [op for job in instance.jobs for op in job.operations]
@@ -225,7 +386,15 @@ def _single_instance_diagnostics(
         {
             "parsed": True,
             "name": instance.name,
-            "variant": "fjsp_sdst" if instance.has_sequence_dependent_setup else "standard_fjsp",
+            "variant": (
+                "fjsp_sdst"
+                if instance.has_sequence_dependent_setup
+                else "fjsp_machine_availability"
+                if instance.has_machine_availability
+                else "fjsp_priority"
+                if instance.has_job_priority
+                else "standard_fjsp"
+            ),
             "job_count": instance.job_count,
             "machine_count": instance.machine_count,
             "operation_count": instance.operation_count,
@@ -264,6 +433,99 @@ def _single_instance_diagnostics(
             "setup_time_avg_nonzero": setup_stats["avg_nonzero"],
             "setup_time_avg_all": setup_stats["avg_all"],
             "setup_to_processing_avg_ratio": setup_ratio,
+            "has_machine_availability": instance.has_machine_availability,
+            "unavailability_count": instance.unavailability_count,
+            "has_job_priority": instance.has_job_priority,
+            "priority_job_ids": list(instance.priority_job_ids),
+            "priority_job_count": len(instance.priority_job_ids),
+            "priority_job_ratio": _round_float(len(instance.priority_job_ids) / max(1, instance.job_count)),
+            "best_known_makespan": best_known,
+            "best_known_diagnostic_only": best_known is not None,
+        }
+    )
+    return payload
+
+
+def _distributed_instance_diagnostics(
+    *,
+    payload: dict[str, Any],
+    instance: Any,
+    best_known_csv: Path | None,
+) -> dict[str, Any]:
+    operations = [op for job in instance.jobs for op in job.operations]
+    candidate_counts = [len(op.candidates) for op in operations]
+    durations = [candidate.duration for op in operations for candidate in op.candidates]
+    unit_energies = [candidate.unit_energy for op in operations for candidate in op.candidates]
+    duration_spreads = [
+        max(candidate.duration for candidate in op.candidates)
+        - min(candidate.duration for candidate in op.candidates)
+        for op in operations
+    ]
+    duration_spread_ratios = [
+        _round_float(
+            (max(candidate.duration for candidate in op.candidates) - min(candidate.duration for candidate in op.candidates))
+            / max(1, min(candidate.duration for candidate in op.candidates))
+        )
+        for op in operations
+    ]
+    machine_eligibility_counts = [0.0 for _ in range(instance.machine_count)]
+    factory_eligibility_counts = [0.0 for _ in range(instance.factory_count)]
+    fractional_min_loads = [0.0 for _ in range(instance.machine_count)]
+    for op in operations:
+        minimum_duration = min(candidate.duration for candidate in op.candidates)
+        share = minimum_duration / max(1, len(op.candidates))
+        for candidate in op.candidates:
+            machine_eligibility_counts[candidate.machine_id] += 1.0
+            factory_eligibility_counts[candidate.factory_id] += 1.0
+            fractional_min_loads[candidate.machine_id] += share
+    best_known = _load_best_known_diagnostic(best_known_csv, instance.name)
+    payload.update(
+        {
+            "parsed": True,
+            "name": instance.name,
+            "variant": "fjsp_distributed_transfer",
+            "job_count": instance.job_count,
+            "factory_count": instance.factory_count,
+            "machines_per_factory": instance.machines_per_factory,
+            "machine_count": instance.machine_count,
+            "operation_count": instance.operation_count,
+            "max_candidate_count": instance.max_candidate_count,
+            "scale": instance.job_count * instance.machine_count * instance.operation_count,
+            "jobs_per_factory": _round_float(instance.job_count / max(1, instance.factory_count)),
+            "jobs_per_machine": _round_float(instance.job_count / max(1, instance.machine_count)),
+            "operations_per_machine": _round_float(instance.operation_count / max(1, instance.machine_count)),
+            "avg_candidate_count": _rounded_average(float(value) for value in candidate_counts),
+            "min_candidate_count": min(candidate_counts, default=0),
+            "max_observed_candidate_count": max(candidate_counts, default=0),
+            "candidate_count_cv": _coefficient_of_variation(candidate_counts),
+            "flexible_operation_ratio": _round_float(
+                sum(1 for value in candidate_counts if value > 1) / max(1, len(candidate_counts))
+            ),
+            "processing_time_min": min(durations, default=0),
+            "processing_time_max": max(durations, default=0),
+            "processing_time_avg": _rounded_average(float(value) for value in durations),
+            "processing_time_cv": _coefficient_of_variation(durations),
+            "duration_spread_avg": _rounded_average(duration_spreads),
+            "duration_spread_ratio_avg": _rounded_average(duration_spread_ratios),
+            "duration_spread_ratio_max": max(duration_spread_ratios, default=0.0),
+            "unit_energy_min": min(unit_energies, default=0),
+            "unit_energy_max": max(unit_energies, default=0),
+            "unit_energy_avg": _rounded_average(float(value) for value in unit_energies),
+            "machine_eligibility_cv": _coefficient_of_variation(machine_eligibility_counts),
+            "factory_eligibility_cv": _coefficient_of_variation(factory_eligibility_counts),
+            "fractional_min_load_cv": _coefficient_of_variation(fractional_min_loads),
+            "setup_time_kind": "none",
+            "setup_to_processing_avg_ratio": 0.0,
+            "has_machine_availability": False,
+            "unavailability_count": 0,
+            "has_distributed_transfer": True,
+            "transfer_time_model": {
+                "same_factory_different_machine": instance.same_factory_transfer_time,
+                "cross_factory": instance.cross_factory_transfer_time,
+                "same_factory_same_machine": 0,
+            },
+            "transfer_unit_energy": instance.transfer_unit_energy,
+            "energy_enabled": True,
             "best_known_makespan": best_known,
             "best_known_diagnostic_only": best_known is not None,
         }
@@ -308,7 +570,9 @@ def _instance_shape_groups(profiled: list[dict[str, Any]]) -> dict[str, list[dic
 
 
 def _instance_shape_key(item: dict[str, Any]) -> str:
+    variant_prefix = "distributed_" if item.get("variant") == "fjsp_distributed_transfer" else ""
     return (
+        f"{variant_prefix}"
         f"j{int(item.get('job_count', 0) or 0)}_"
         f"m{int(item.get('machine_count', 0) or 0)}_"
         f"ops{int(item.get('operation_count', 0) or 0)}_"
@@ -440,6 +704,14 @@ def _instance_direction_hints(summary: dict[str, Any], profiled: list[dict[str, 
         hints.append("No sequence-dependent setup matrix was detected in the parsed instances.")
     if int(summary.get("nfa_instance_count", 0) or 0) > 0:
         hints.append("Machine availability constraints are active; dispatch and insertion must check intervals before committing a start time.")
+    if int(summary.get("distributed_transfer_instance_count", 0) or 0) > 0:
+        hints.append(
+            "Distributed transfer constraints are active; the solver must assign factory and machine together, "
+            "then enforce same-factory and cross-factory transfer delays between consecutive operations."
+        )
+        hints.append(
+            "Energy is part of the fixed validation metrics for this variant; report processing energy and transfer energy consistently."
+        )
     hints.append(
         "Measured assignment structure: "
         f"avg_candidates={summary.get('avg_candidate_count', 0.0)}, "

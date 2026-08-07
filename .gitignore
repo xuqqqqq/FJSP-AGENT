@@ -13,3 +13,5 @@ outputs/
 !.env.example
 knowledge/local_papers/raw/
 notes_change/
+ALL-Input-Information/
+inputs/

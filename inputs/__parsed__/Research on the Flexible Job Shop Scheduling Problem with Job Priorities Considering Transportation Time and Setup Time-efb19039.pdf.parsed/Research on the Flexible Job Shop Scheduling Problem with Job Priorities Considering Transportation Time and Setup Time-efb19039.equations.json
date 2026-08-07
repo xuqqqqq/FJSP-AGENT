@@ -1,0 +1,512 @@
+{
+  "version": "1.0",
+  "equations": {
+    "eq-4e81bd487dda5925119fd6cffd61c849-0001": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0001",
+      "blockid": "bc27f3826601e006c6454fd43c6fe1c8",
+      "heading": "3.2. Mathematical Model",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "f = \\min (C _ {m a x}) = \\min (\\max _ {1 \\leq i \\leq n} c _ {i})\\tag{1}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/70"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0002": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0002",
+      "blockid": "bc27f3826601e006c6454fd43c6fe1c8",
+      "heading": "3.2. Mathematical Model",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "s _ {i, j} \\geq 0, \\forall i = 1, \\ldots , j n, j = 1, \\ldots , o _ {i}\\tag{2}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/73"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0003": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0003",
+      "blockid": "bc27f3826601e006c6454fd43c6fe1c8",
+      "heading": "3.2. Mathematical Model",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "c _ {i, j} = s _ {i, j} + \\sum_ {k \\in M} T _ {i, j, k} ^ {\\text { proc }} x _ {i, j, k}, \\forall i = 1, \\dots , j n, j = 1, \\dots , o _ {i}\\tag{3}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/74"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0004": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0004",
+      "blockid": "bc27f3826601e006c6454fd43c6fe1c8",
+      "heading": "3.2. Mathematical Model",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "c _ {i} = c _ {i, J _ {i}}, \\forall i = 1, \\ldots , j n\\tag{4}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/75"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0005": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0005",
+      "blockid": "bc27f3826601e006c6454fd43c6fe1c8",
+      "heading": "3.2. Mathematical Model",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {k \\in M} x _ {i, j, k} = 1, \\forall i = 1, \\dots , j n, j = 1, \\dots , o _ {i}\\tag{5}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/77"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0006": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0006",
+      "blockid": "bc27f3826601e006c6454fd43c6fe1c8",
+      "heading": "3.2. Mathematical Model",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "x _ {i, j, k} \\leq a _ {i, j, k}, \\forall i = 1, \\dots , j n, j = 1, \\dots , o _ {i}, k \\in M\\tag{6}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/78"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0007": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0007",
+      "blockid": "bc27f3826601e006c6454fd43c6fe1c8",
+      "heading": "3.2. Mathematical Model",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "s _ {i, j} \\geq c _ {i, j - 1} + \\sum_ {k ^ {\\prime} \\in M} \\sum_ {k \\in M} T _ {k ^ {\\prime}, k} ^ {t r a n s} \\cdot z _ {i, j, k ^ {\\prime}, k}, \\forall i = 1, \\ldots , j n, j = 2, \\ldots , n _ {i}\\tag{7}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/80"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0008": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0008",
+      "blockid": "bc27f3826601e006c6454fd43c6fe1c8",
+      "heading": "3.2. Mathematical Model",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "z _ {i, j, k ^ {\\prime}, k} \\leq x _ {i, j - 1, k ^ {\\prime}}, \\forall i = 1, \\ldots , j n, j = 2, \\ldots , o _ {i}, k ^ {\\prime}, k \\in M\\tag{8}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/81"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0009": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0009",
+      "blockid": "bc27f3826601e006c6454fd43c6fe1c8",
+      "heading": "3.2. Mathematical Model",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "z _ {i, j, k ^ {\\prime}, k} \\leq x _ {i, j, k}, \\forall i = 1, \\ldots , j n, j = 2, \\ldots , o _ {i}, k ^ {\\prime}, k \\in M\\tag{9}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/82"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0010": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0010",
+      "blockid": "bc27f3826601e006c6454fd43c6fe1c8",
+      "heading": "3.2. Mathematical Model",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "z _ {i, j, k ^ {\\prime}, k} \\geq x _ {i, j - 1, k ^ {\\prime}} + x _ {i, j, k} - 1, \\forall i = 1, \\dots , j n, j = 2, \\dots , o _ {i}, k ^ {\\prime}, k \\in M\\tag{10}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/83"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0011": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0011",
+      "blockid": "bc27f3826601e006c6454fd43c6fe1c8",
+      "heading": "3.2. Mathematical Model",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "s _ {i, 1} \\geq c _ {i ^ {\\prime}, J _ {i ^ {\\prime}}} + \\sum_ {k ^ {\\prime} \\in M} \\sum_ {k \\in M} T _ {k ^ {\\prime} k} ^ {t r a n s} \\cdot v _ {i, i ^ {\\prime}, k ^ {\\prime}, k}, \\forall i = 1, \\ldots , j n: P _ {i} \\neq \\varnothing , J _ {i ^ {\\prime}} \\in P _ {i}\\tag{11}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/85"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0012": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0012",
+      "blockid": "bc27f3826601e006c6454fd43c6fe1c8",
+      "heading": "3.2. Mathematical Model",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "v _ {i, i ^ {\\prime}, k ^ {\\prime}, k} \\leq x _ {i ^ {\\prime}, J _ {i ^ {\\prime}}, k ^ {\\prime}}, \\forall i = 1, \\dots , j n: P _ {i} \\neq \\varnothing , J _ {i ^ {\\prime}} \\in P _ {i}, k ^ {\\prime}, k \\in M\\tag{12}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/86"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0013": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0013",
+      "blockid": "bc27f3826601e006c6454fd43c6fe1c8",
+      "heading": "3.2. Mathematical Model",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "v _ {i, i ^ {\\prime}, k ^ {\\prime}, k} \\leq x _ {i, 1, k}, \\forall i = 1, \\dots , j n: P _ {i} \\neq \\varnothing , J _ {i ^ {\\prime}} \\in P _ {i}, k ^ {\\prime}, k \\in M\\tag{13}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/87"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0014": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0014",
+      "blockid": "bc27f3826601e006c6454fd43c6fe1c8",
+      "heading": "3.2. Mathematical Model",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "v _ {i, i ^ {\\prime}, k ^ {\\prime}, k} \\geq x _ {i ^ {\\prime}, J _ {i ^ {\\prime}}, k ^ {\\prime}} + x _ {i, 1, k} - 1, \\forall i = 1, \\dots , j n: P _ {i} \\neq \\varnothing , J _ {i ^ {\\prime}} \\in P _ {i}, k ^ {\\prime}, k \\in M\\tag{14}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/88"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0015": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0015",
+      "blockid": "bc27f3826601e006c6454fd43c6fe1c8",
+      "heading": "3.2. Mathematical Model",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "y _ {i, j, i ^ {\\prime}, j ^ {\\prime}, k} + y _ {i ^ {\\prime}, j ^ {\\prime}, i, j, k} \\geq x _ {i, j, k} + x _ {i ^ {\\prime}, j ^ {\\prime}, k} - 1, \\forall k \\in M, \\forall (i, j, i ^ {\\prime}, j ^ {\\prime}): (i, j) \\neq (i ^ {\\prime}, j ^ {\\prime})\\tag{15}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/90"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0016": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0016",
+      "blockid": "bc27f3826601e006c6454fd43c6fe1c8",
+      "heading": "3.2. Mathematical Model",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "s _ {i ^ {\\prime}, j ^ {\\prime}} \\geq c _ {i, j} + T _ {i ^ {\\prime}, j ^ {\\prime}, k} ^ {s e t u p} - \\mathcal {M} (1 - y _ {i, j, i ^ {\\prime}, j ^ {\\prime}, k}), \\forall k \\in M, \\forall (i, j, i ^ {\\prime}, j ^ {\\prime}): i (i, j) \\neq (i ^ {\\prime}, j ^ {\\prime})\\tag{16}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/91"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0017": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0017",
+      "blockid": "bc27f3826601e006c6454fd43c6fe1c8",
+      "heading": "3.2. Mathematical Model",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "s _ {i, j} \\geq c _ {i ^ {\\prime}, j ^ {\\prime}} + T _ {i, j, k} ^ {s e t u p} - \\mathcal {M} (1 - y _ {i ^ {\\prime}, j ^ {\\prime}, i, j, k}), \\forall k \\in M, \\forall (i, j, i ^ {\\prime}, j ^ {\\prime}): (i, j) \\neq (i ^ {\\prime}, j ^ {\\prime})\\tag{17}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/92"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0018": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0018",
+      "blockid": "6646fead3b16c95e4a924d3f47e2753c",
+      "heading": "4.1.1. Encoding",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "u (e) = \\operatorname{round} \\left(\\frac {x (e) + \\epsilon}{2 \\epsilon} \\cdot (s (e) - 1) + 1\\right), 1 \\leq e \\leq I\\tag{18}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/106"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0019": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0019",
+      "blockid": "e9ac8e4f8da2b6f651f59f351dd539f2",
+      "heading": "4.1.2. Decoding",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "E S T _ {i, j} = m a x (c _ {i, j - 1} + T _ {p, k} ^ {t r a n s}, F _ {k} + T _ {i, j, k} ^ {s e t u p})\\tag{19}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/124"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0020": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0020",
+      "blockid": "e9ac8e4f8da2b6f651f59f351dd539f2",
+      "heading": "4.1.2. Decoding",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "E S T _ {i, 1} = \\max (\\max _ {i ^ {\\prime} \\in P _ {i}} (c _ {i ^ {\\prime}} + T _ {m _ {i ^ {\\prime}}, k} ^ {t r a n s}), F _ {k} + T _ {i, 1, k} ^ {s e t u p})\\tag{20}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/127"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0021": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0021",
+      "blockid": "e9ac8e4f8da2b6f651f59f351dd539f2",
+      "heading": "4.1.2. Decoding",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "E S T _ {i, 1} = F _ {k} + T _ {i, 1, k} ^ {s e t u p}\\tag{21}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/129"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0022": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0022",
+      "blockid": "e9ac8e4f8da2b6f651f59f351dd539f2",
+      "heading": "4.1.2. Decoding",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "A + T _ {i, j, k} ^ {p r o c} \\leq B a n d A \\geq E S T _ {i, j}\\tag{22}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/131"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0023": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0023",
+      "blockid": "e9ac8e4f8da2b6f651f59f351dd539f2",
+      "heading": "4.1.2. Decoding",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "W _ {k} = W _ {k} \\cup \\left\\{\\left(s _ {i, j}, c _ {i, j}\\right) \\right\\}\\tag{23}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/133"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0024": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0024",
+      "blockid": "38449b5683b6c1938b41ff3224122923",
+      "heading": "4.2. Traditional WOA",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "\\stackrel {\\rightarrow} {X _ {i}} ^ {t + 1} = \\stackrel {\\rightharpoonup} {X _ {b e s t}} ^ {t} - \\stackrel {\\rightarrow} {A} \\cdot \\stackrel {\\rightarrow} {D _ {1}}\\tag{24}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/143"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0025": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0025",
+      "blockid": "38449b5683b6c1938b41ff3224122923",
+      "heading": "4.2. Traditional WOA",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "\\stackrel {\\rightarrow} {D} _ {1} = | \\stackrel {\\rightarrow} {C} \\cdot \\stackrel {\\rightarrow^ {t}} {X} _ {b e s t} - \\stackrel {\\rightarrow^ {t}} {X} _ {i} |\\tag{25}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/144"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0026": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0026",
+      "blockid": "38449b5683b6c1938b41ff3224122923",
+      "heading": "4.2. Traditional WOA",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "\\vec {A} = 2 a \\vec {r} _ {1} - a\\tag{26}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/145"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0027": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0027",
+      "blockid": "38449b5683b6c1938b41ff3224122923",
+      "heading": "4.2. Traditional WOA",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "\\vec {C} = 2 \\vec {r _ {2}}\\tag{27}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/146"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0028": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0028",
+      "blockid": "38449b5683b6c1938b41ff3224122923",
+      "heading": "4.2. Traditional WOA",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "a = 2 - 2 t / T _ {\\mathrm{max}}\\tag{28}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/147"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0029": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0029",
+      "blockid": "38449b5683b6c1938b41ff3224122923",
+      "heading": "4.2. Traditional WOA",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "\\stackrel {\\rightharpoonup} {X _ {i}} ^ {t + 1} = \\stackrel {\\rightharpoonup} {X _ {b e s t}} ^ {t} + e ^ {b l} c o s (2 \\pi l) \\stackrel {\\rightharpoonup} {D _ {2}}\\tag{29}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/150"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0030": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0030",
+      "blockid": "38449b5683b6c1938b41ff3224122923",
+      "heading": "4.2. Traditional WOA",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "\\stackrel {\\rightarrow} {D _ {2}} = | \\stackrel {\\rightarrow t} {X _ {b e s t}} - \\stackrel {\\rightarrow t} {X _ {i}} |\\tag{30}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/151"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0031": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0031",
+      "blockid": "38449b5683b6c1938b41ff3224122923",
+      "heading": "4.2. Traditional WOA",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "\\stackrel {\\rightarrow} {X _ {i}} ^ {t + 1} = \\stackrel {\\rightarrow} {X _ {r a n d}} ^ {t} - \\stackrel {\\rightarrow} {A} \\cdot \\stackrel {\\rightarrow} {D _ {3}}\\tag{31}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/154"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0032": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0032",
+      "blockid": "38449b5683b6c1938b41ff3224122923",
+      "heading": "4.2. Traditional WOA",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "\\stackrel {\\rightarrow} {D _ {3}} = | \\stackrel {\\rightarrow} {C} \\cdot \\stackrel {\\rightarrow t} {X _ {r a n d}} - \\stackrel {\\rightarrow t} {X _ {i}} |\\tag{32}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/155"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0033": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0033",
+      "blockid": "3072888baed44725923ee380e06f2e51",
+      "heading": "4.3.2. Adaptive Inertia Weight",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "w (t) = w _ {\\mathrm{min}} + \\left(w _ {\\mathrm{max}} - w _ {\\mathrm{min}}\\right) \\times \\frac {1 + \\cos \\left(\\pi \\times \\frac {t}{T}\\right)}{2}\\tag{33}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/170"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0034": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0034",
+      "blockid": "3072888baed44725923ee380e06f2e51",
+      "heading": "4.3.2. Adaptive Inertia Weight",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "v (t) = w _ {\\mathrm{max}} \\times \\left(\\frac {w _ {\\mathrm{min}}}{w _ {\\mathrm{max}}}\\right) ^ {\\left(\\frac {t}{T}\\right) ^ {k}}\\tag{34}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/171"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0035": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0035",
+      "blockid": "3072888baed44725923ee380e06f2e51",
+      "heading": "4.3.2. Adaptive Inertia Weight",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "\\stackrel {{\\rightarrow}} {X} _ {i} ^ {t + 1} = \\left\\{\\begin{array}{l l}w (t) \\cdot \\stackrel {{\\rightarrow}} {X} _ {b e s t} ^ {t} - \\stackrel {{\\rightarrow}} {A} \\cdot \\stackrel {{\\rightarrow}} {D} _ {1}&\\text { if } p <   0. 5 \\text { and } | \\stackrel {{\\rightarrow}} {A} | <   1\\\\w (t) \\cdot \\stackrel {{\\rightarrow}} {X} _ {b e s t} ^ {t} + e ^ {b l} c o s (2 \\pi l) \\stackrel {{\\rightarrow}} {D} _ {2}&\\text { if } p <   0. 5 \\text { and } | \\stackrel {{\\rightarrow}} {A} | \\geq 1\\\\v (t) \\cdot \\stackrel {{\\rightarrow}} {X} _ {r a n d} ^ {t} - \\stackrel {{\\rightarrow}} {A} \\cdot \\stackrel {{\\rightarrow}} {D} _ {3}&\\text { if } p \\geq 0. 5\\end{array}\\right.\\tag{35}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/173"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0036": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0036",
+      "blockid": "c27d0c8bbbeeac58df04d4f0b8fc66f0",
+      "heading": "4.3.3. Cross-Population Differential Evolution Strategy",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "\\stackrel {{\\rightarrow}} {{X}} _ {a, c u r r} ^ {t + 1} = \\left\\{\\begin{array}{l}\\stackrel {{\\rightarrow}} {{X}} _ {a, c u r r} ^ {t} + F \\cdot (\\stackrel {{\\rightarrow}} {{X}} _ {a, \\text {best}} ^ {t} - \\stackrel {{\\rightarrow}} {{X}} _ {a, c u r r} ^ {t}) + F \\cdot (\\stackrel {{\\rightarrow}} {{X}} _ {a, r 1} ^ {t} - \\stackrel {{\\rightarrow}} {{X}} _ {a, r 2} ^ {t}), \\text {rand} \\leq 0\\\\\\stackrel {{\\rightarrow}} {{X}} _ {a, c u r r} ^ {t} + F \\cdot \\left(\\stackrel {{\\rightarrow}} {{X}} _ {a, \\text {best}} ^ {t} - \\stackrel {{\\rightarrow}} {{X}} _ {a, c u r r} ^ {t}\\right) + F \\cdot \\left(\\stackrel {{\\rightarrow}} {{X}} _ {b, e l i t e} ^ {t} - \\stackrel {{\\rightarrow}} {{X}} _ {b, r 3} ^ {t}\\right), \\text {rand} > 0\\end{array}\\right.\\tag{36}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/180"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0037": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0037",
+      "blockid": "c27d0c8bbbeeac58df04d4f0b8fc66f0",
+      "heading": "4.3.3. Cross-Population Differential Evolution Strategy",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "\\mathcal {N} (x \\mid \\mu , \\sigma^ {2}) = \\frac {1}{\\sigma \\sqrt {2 \\pi}} \\exp \\left(- \\frac {(x - \\mu) ^ {2}}{2 \\sigma^ {2}}\\right)\\tag{37}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/183"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0038": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0038",
+      "blockid": "c27d0c8bbbeeac58df04d4f0b8fc66f0",
+      "heading": "4.3.3. Cross-Population Differential Evolution Strategy",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "\\stackrel {\\rightarrow t + 1} {X _ {a, c u r r}} = \\stackrel {\\rightarrow t + 1} {X _ {a, c u r r}} + \\mathcal {N} (0, \\sigma^ {2}) \\cdot (\\stackrel {\\rightarrow} {U} - \\stackrel {\\rightarrow} {L})\\tag{38}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/185"
+    },
+    "eq-4e81bd487dda5925119fd6cffd61c849-0039": {
+      "id": "eq-4e81bd487dda5925119fd6cffd61c849-0039",
+      "blockid": "c27d0c8bbbeeac58df04d4f0b8fc66f0",
+      "heading": "4.3.3. Cross-Population Differential Evolution Strategy",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "format": "latex",
+      "content": "x ^ {\\prime \\prime} = \\left\\{ \\begin{array}{l l} 2 \\varepsilon - x ^ {\\prime} & \\text { if } x ^ {\\prime} > \\varepsilon , \\\\ - 2 \\varepsilon - x ^ {\\prime} & \\text { if } x ^ {\\prime} <   - \\varepsilon , \\\\ x ^ {\\prime} & \\text { otherwise }. \\end{array} \\right.\\tag{39}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/187"
+    }
+  }
+}

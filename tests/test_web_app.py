@@ -441,6 +441,110 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(3, job["config"]["main_max_subagents"])
         self.assertEqual(4, job["config"]["max_competing_workers"])
 
+    def test_create_job_selects_nfa_evaluator_from_instance_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job = create_job(
+                self.job_payload(
+                    instance={
+                        "name": "FFCR01.txt",
+                        "text": (ROOT / "examples" / "nfa_ffcr01.txt").read_text(encoding="utf-8"),
+                    },
+                ),
+                output_root=Path(tmp),
+            )
+
+        self.assertTrue(job["config"]["instance_profile"]["has_machine_availability"])
+        self.assertEqual(
+            "examples/nfa_machine_availability_evaluator.py",
+            job["config"]["evaluator_path"],
+        )
+
+    def test_create_job_selects_distributed_transfer_evaluator_from_instance_profile(self) -> None:
+        instance_path = (
+            ROOT
+            / "ALL-Input-Information"
+            / "10-distributed-FJSP"
+            / "10-Instance"
+            / "small size"
+            / "DFM01_10x2x6.txt"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            job = create_job(
+                self.job_payload(
+                    requirement={
+                        "name": "requirement.md",
+                        "text": "Solve distributed FJSP with transfer time and energy.",
+                    },
+                    io={
+                        "name": "io.md",
+                        "text": "Output distributed_fjsp_schedule_v1 records with factory_id.",
+                    },
+                    instance={
+                        "name": "DFM01_10x2x6.txt",
+                        "text": instance_path.read_text(encoding="utf-8"),
+                    },
+                ),
+                output_root=Path(tmp),
+            )
+
+        profile = job["config"]["instance_profile"]
+        self.assertTrue(profile["valid"])
+        self.assertEqual("distributed_fjsp", profile["format"])
+        self.assertEqual("fjsp_distributed_transfer", profile["variant"])
+        self.assertTrue(profile["has_distributed_transfer"])
+        self.assertEqual(2, profile["factory_count"])
+        self.assertEqual(6, profile["machines_per_factory"])
+        self.assertEqual(10, profile["job_count"])
+        self.assertEqual(50, profile["operation_count"])
+        self.assertEqual(30, profile["transfer_time_model"]["same_factory_different_machine"])
+        self.assertEqual(60, profile["transfer_time_model"]["cross_factory"])
+        self.assertTrue(profile["energy_enabled"])
+        self.assertIn("factory_assignment", profile["variant_features"])
+        self.assertEqual(
+            "examples/fjsp_distributed_transfer_evaluator.py",
+            job["config"]["evaluator_path"],
+        )
+
+    def test_create_job_selects_priority_evaluator_from_instance_profile(self) -> None:
+        root = ROOT / "ALL-Input-Information" / "11-priority-FJSP"
+        instance_path = root / "11-Instances" / "fjsp.barnes.mt10c1.m11j10c2.priority.seed20260722.txt"
+        with tempfile.TemporaryDirectory() as tmp:
+            job = create_job(
+                self.job_payload(
+                    requirement={
+                        "name": "fjsp_priority_requirement.md",
+                        "text": (root / "docs" / "fjsp_priority_requirement.md").read_text(encoding="utf-8"),
+                    },
+                    io={
+                        "name": "fjsp_priority_io.md",
+                        "text": (root / "docs" / "fjsp_priority_io.md").read_text(encoding="utf-8"),
+                    },
+                    instance={
+                        "name": instance_path.name,
+                        "text": instance_path.read_text(encoding="utf-8"),
+                    },
+                ),
+                output_root=Path(tmp),
+            )
+
+        profile = job["config"]["instance_profile"]
+        self.assertTrue(profile["valid"])
+        self.assertEqual("standard_fjsp", profile["format"])
+        self.assertEqual("fjsp_priority", profile["variant"])
+        self.assertTrue(profile["has_job_priority"])
+        self.assertEqual(3, profile["priority_job_count"])
+        self.assertEqual([1, 6, 8], profile["priority_job_ids"])
+        self.assertAlmostEqual(0.3, profile["priority_job_ratio"])
+        self.assertFalse(profile["has_sequence_dependent_setup"])
+        self.assertFalse(profile["has_machine_availability"])
+        self.assertFalse(profile["has_distributed_transfer"])
+        self.assertIn("priority_completion_time", profile["variant_features"])
+        self.assertIn("lexicographic_objective", profile["variant_features"])
+        self.assertEqual(
+            "examples/fjsp_job_priority_evaluator.py",
+            job["config"]["evaluator_path"],
+        )
+
     def test_frontend_submits_model_without_accepting_api_keys(self) -> None:
         index = (ROOT / "harness_agent" / "web" / "static" / "index.html").read_text(encoding="utf-8")
         app = (ROOT / "harness_agent" / "web" / "static" / "app.js").read_text(encoding="utf-8")

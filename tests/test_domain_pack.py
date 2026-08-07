@@ -474,6 +474,134 @@ class DomainPackTests(unittest.TestCase):
             selection.audit["excluded_cards"][0]["reason"],
         )
 
+    def test_distributed_selection_excludes_sdst_nfa_and_maintenance_cards(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stable = root / "knowledge" / "principles" / "fjsp_variant_domain_pack_rag.md"
+            sdst_card = root / "knowledge" / "references" / "sdst" / "awls_sdst_notes.md"
+            nfa_card = root / "knowledge" / "references" / "nfa" / "machine_availability_notes.md"
+            maintenance_card = root / "knowledge" / "references" / "nfa" / "maintenance_window_notes.md"
+            for path in (stable, sdst_card, nfa_card, maintenance_card):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"# {path.stem}\n", encoding="utf-8")
+            pack = SimpleNamespace(
+                family_id="fjsp_distributed_transfer",
+                base_cards=[stable, sdst_card, nfa_card, maintenance_card],
+                tagged_cards={
+                    "factory_assignment": [stable],
+                    "machine_availability": [nfa_card],
+                    "maintenance_window": [maintenance_card],
+                },
+                knowledge_query_excluded_path_markers=[
+                    "sdst",
+                    "machine_availability",
+                    "maintenance_window",
+                ],
+            )
+
+            with patch("harness_agent.context.knowledge.get_domain_pack", return_value=pack):
+                selection = select_knowledge_cards(
+                    problem_family="fjsp_distributed_transfer",
+                    active_features=[
+                        "fjsp_distributed_transfer",
+                        "factory_assignment",
+                        "transfer_time",
+                        "energy_consumption",
+                    ],
+                )
+
+        self.assertEqual([stable], selection.cards)
+        self.assertEqual("fjsp_distributed_transfer", selection.audit["active_variant"])
+        self.assertIn("factory_assignment", selection.audit["effective_tags"])
+        excluded_names = {Path(item["path"]).name for item in selection.audit["excluded_cards"]}
+        self.assertTrue(
+            {"awls_sdst_notes.md", "machine_availability_notes.md", "maintenance_window_notes.md"}
+            <= excluded_names
+        )
+
+    def test_priority_selection_excludes_other_variant_tags_and_cards(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stable = root / "knowledge" / "principles" / "fjsp_priority_rag.md"
+            priority_card = root / "knowledge" / "references" / "priority" / "priority_dispatch.md"
+            sdst_card = root / "knowledge" / "references" / "sdst" / "awls_sdst_notes.md"
+            nfa_card = root / "knowledge" / "references" / "nfa" / "maintenance_window_notes.md"
+            distributed_card = root / "knowledge" / "references" / "distributed" / "factory_transfer_notes.md"
+            for path in (stable, priority_card, sdst_card, nfa_card, distributed_card):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"# {path.stem}\n", encoding="utf-8")
+            pack = SimpleNamespace(
+                family_id="fjsp_job_priority",
+                base_cards=[stable, sdst_card, nfa_card, distributed_card],
+                tagged_cards={
+                    "priority_dispatch_rule": [priority_card],
+                    "sequence_dependent_setup": [sdst_card],
+                    "maintenance_window": [nfa_card],
+                    "factory_assignment": [distributed_card],
+                    "transfer_time": [distributed_card],
+                },
+                knowledge_query_excluded_path_markers=[
+                    "sdst",
+                    "maintenance_window",
+                    "factory_transfer",
+                    "distributed",
+                ],
+                knowledge_query_default_limit=6,
+            )
+            diagnostics = {
+                "status": "available",
+                "summary": {
+                    "profiled_count": 1,
+                    "priority_job_instance_count": 1,
+                    "priority_job_count_max": 3,
+                },
+                "instances": [
+                    {
+                        "variant": "fjsp_priority",
+                        "has_job_priority": True,
+                        "priority_job_count": 3,
+                    }
+                ],
+            }
+
+            with patch("harness_agent.context.knowledge.get_domain_pack", return_value=pack):
+                selection = select_knowledge_cards(
+                    problem_family="fjsp_job_priority",
+                    problem_family_tags=[
+                        "job_priority",
+                        "priority_completion_time",
+                        "sequence_dependent_setup",
+                        "maintenance_window",
+                        "factory_assignment",
+                        "transfer_time",
+                    ],
+                    instance_diagnostics=diagnostics,
+                )
+                detailed = select_tagged_knowledge_cards(
+                    problem_family="fjsp_job_priority",
+                    knowledge_query_tags=[
+                        "priority_dispatch_rule",
+                        "sequence_dependent_setup",
+                        "maintenance_window",
+                        "factory_assignment",
+                        "transfer_time",
+                    ],
+                    instance_diagnostics=diagnostics,
+                )
+
+        self.assertEqual("fjsp_job_priority", selection.audit["active_variant"])
+        self.assertEqual("fjsp_job_priority", selection.audit["domain_pack"])
+        self.assertEqual([stable, priority_card], selection.cards)
+        self.assertEqual([priority_card], detailed.cards)
+        for audit in (selection.audit, detailed.audit):
+            self.assertIn("priority_completion_time", audit["effective_tags"])
+            self.assertIn("priority_dispatch_rule", audit["effective_tags"])
+            self.assertIn("memetic_search", audit["effective_tags"])
+            self.assertNotIn("sequence_dependent_setup", audit["effective_tags"])
+            self.assertNotIn("maintenance_window", audit["effective_tags"])
+            self.assertNotIn("factory_assignment", audit["effective_tags"])
+            self.assertNotIn("transfer_time", audit["effective_tags"])
+
     def test_unknown_problem_family_does_not_get_standard_fjsp_slot_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "slots.json"

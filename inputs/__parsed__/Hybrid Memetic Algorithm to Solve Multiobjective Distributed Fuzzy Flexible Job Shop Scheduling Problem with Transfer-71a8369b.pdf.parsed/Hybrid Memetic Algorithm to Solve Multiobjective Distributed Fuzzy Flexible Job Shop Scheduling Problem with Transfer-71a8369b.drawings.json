@@ -1,0 +1,99 @@
+{
+  "version": "1.0",
+  "drawings": {
+    "im-e630becb450dcca79375a56384053225-0001": {
+      "id": "im-e630becb450dcca79375a56384053225-0001",
+      "blockid": "cfde641f9557a5cfe596b3e4305ee6c9",
+      "heading": "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer",
+      "parent_headings": [],
+      "format": "jpg",
+      "path": "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer-71a8369b.blocks.assets/fca6de75f11122b8bf02d8fea1c6b0791878cbabf4c79fb3f6f6a9ad52fff54e.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/5"
+    },
+    "im-e630becb450dcca79375a56384053225-0002": {
+      "id": "im-e630becb450dcca79375a56384053225-0002",
+      "blockid": "cfde641f9557a5cfe596b3e4305ee6c9",
+      "heading": "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer",
+      "parent_headings": [],
+      "format": "jpg",
+      "path": "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer-71a8369b.blocks.assets/48b3850703cc80241e66f837e0439981c41be5de778767719a881e33086011f2.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/10"
+    },
+    "im-e630becb450dcca79375a56384053225-0003": {
+      "id": "im-e630becb450dcca79375a56384053225-0003",
+      "blockid": "9542dfd3fa9523e01012a2002e43b8c8",
+      "heading": "3.1. Fuzzy Number",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "jpg",
+      "path": "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer-71a8369b.blocks.assets/f2f312d30ef8e744c658a0644833b9c05832452288c6ddbdfad1097edaa8bd52.jpg",
+      "src": "",
+      "caption": "Figure 1. Fuzzy Number.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/41"
+    },
+    "im-e630becb450dcca79375a56384053225-0004": {
+      "id": "im-e630becb450dcca79375a56384053225-0004",
+      "blockid": "ca66819b3a63310e3ad8db63e602cc39",
+      "heading": "5.2. Encoding and Decoding Method",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "jpg",
+      "path": "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer-71a8369b.blocks.assets/01c3da00de327cdb7f64070f53e805bb831fc6a7cc545dac53c616aadad4400e.jpg",
+      "src": "",
+      "caption": "Figure 2. Solution representation.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/122"
+    },
+    "im-e630becb450dcca79375a56384053225-0005": {
+      "id": "im-e630becb450dcca79375a56384053225-0005",
+      "blockid": "54199fdb9eee434c1e8d9037a00b1934",
+      "heading": "5.4. Crossover",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "jpg",
+      "path": "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer-71a8369b.blocks.assets/dc838c2e58f80f9889cc17e94f8d6d345b881829af875adc231eee1b8809b136.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/157"
+    },
+    "im-e630becb450dcca79375a56384053225-0006": {
+      "id": "im-e630becb450dcca79375a56384053225-0006",
+      "blockid": "54199fdb9eee434c1e8d9037a00b1934",
+      "heading": "5.4. Crossover",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "jpg",
+      "path": "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer-71a8369b.blocks.assets/cc87f0e6e3a33751619594680d7b46230c07b30ce3d2cbd359b924e56c2235b8.jpg",
+      "src": "",
+      "caption": "Figure 4. POX crossover.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/158"
+    },
+    "im-e630becb450dcca79375a56384053225-0007": {
+      "id": "im-e630becb450dcca79375a56384053225-0007",
+      "blockid": "e2c15846ee753f8668c57113da006f2d",
+      "heading": "5.6.2. VNS Method",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "jpg",
+      "path": "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer-71a8369b.blocks.assets/b36878bab3d0da2ae69f3d3463626bde7ece74eeca497bcd602c1e71a69bfad1.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/193"
+    }
+  }
+}

@@ -1,0 +1,2945 @@
+[
+    {
+        "type": "text",
+        "text": "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops",
+        "text_level": 1,
+        "bbox": [
+            156,
+            73,
+            833,
+            175
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Lijun Wang , Chengguang Wang , Xiangyang Li , Ruixue Cheng , Xiao Ma, and Dong Liu",
+        "bbox": [
+            117,
+            184,
+            868,
+            203
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Abstract—To address the issues of insufficient population diversity and the tendency to fall into local convergence in the NSGA-II algorithm for distributed heterogeneous flexible job shop scheduling, a dual-population improved algorithm, D3QN-NSGA-II, based on D3QN is proposed. By introducing a dual-population evolution strategy, the breeding population and the regular population are divided using a reproductive capacity assessment mechanism, with differentiated crossover and mutation operators designed for each. A hybrid strategy, consisting of 12 types of local search operators across 3 categories, is constructed, and the innovative application of D3QN deep reinforcement learning for dynamic operator selection is introduced. Additionally, an energy-efficient scheduling strategy is applied to optimize machine idle time. Finally, the effectiveness of the D3QN-NSGA-II algorithm is evaluated using 20 instances, with experimental results demonstrating its superiority over several other advanced algorithms in solving the DHFJS problem.",
+        "bbox": [
+            57,
+            239,
+            489,
+            455
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Index Terms—Distributed manufacturing, D3QN, metaheuristic algorithms, modeling simulation, optimal scheduling.",
+        "bbox": [
+            57,
+            459,
+            486,
+            488
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "I. INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            210,
+            503,
+            336,
+            517
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "W <sup>ITH</sup> <sup>the</sup> <sup>increasing</sup> <sup>globalization</sup> <sup>and</sup> <sup>diversification</sup>of market demands, the manufacturing industry faces of market demands, the manufacturing industry faces mounting challenges. These challenges, particularly in production scheduling and energy efficiency, have driven the development of advanced manufacturing technologies and systems. In this context, distributed flexible job shops have emerged as a promising production system model, demonstrating significant potential in enhancing production flexibility and efficiency. However, the scheduling problem in distributed heterogeneous flexible job shops is both complex and challenging. It not only involves the allocation of jobs, the determination of production sequences, and machine selection, but also requires the mini mization of energy consumption while maintaining production efficiency. The complexity of these issues renders traditional scheduling methods inadequate to meet the evolving demands of modern manufacturing, particularly in the face of rising energy costs and stricter environmental regulations. Therefore, researching and developing new scheduling algorithms to achieve dual optimization of production efficiency and energy utilization is of paramount theoretical and practical significance for the sustainable development of the manufacturing industry.",
+        "bbox": [
+            57,
+            525,
+            489,
+            618
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            498,
+            239,
+            932,
+            465
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "The distributed heterogeneous flexible job shop (DHFJS) represents a significant and intricate extension of the traditional flexible job shop (FJS) model. The system can be divided into several principal components, as follows. The three key processes that must be considered are the allocation of jobs to various factories, the determination of production sequences within each factory, and the selection of suitable machines for each operation. Given its inherent complexity, the DHFJS is classified as an NP-hard problem. In addressing this challenge, metaheuristic algorithms, including grey wolf optimization, particle swarm optimization, and genetic algorithms, are frequently utilized. Despite traditional assumptions that each factory has identical machine types and processing capabilities, practical scenarios often feature heterogeneity among factories due to constraints such as cost, space, and worker skills. In practical distributed manufacturing scenarios, factories often display heterogeneity, characterized by variations in the number, quality and processing times of machines.",
+        "bbox": [
+            498,
+            465,
+            932,
+            737
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "The scheduling problem of distributed job shops has attracted considerable interest from scholars at home and abroad, given the widespread application of flexible manufacturing systems in distributed manufacturing plants. Luo et al. [1] proposed an efficient memetic algorithm for DFJSS with transfers, emphasizing the importance of efficient algorithms in solving such problems. Meng et al. [2] focused on energy-efficient DFJSS and introduced a hybrid shuffled frog-leaping algorithm for largesized problems. Chen et al. [3] proposed a multiobjective mathematical model to minimize the total weighted delay and total energy consumption in low-carbon heterogeneous distributed flexible job shops, where dynamic intelligent scheduling can significantly improve production efficiency. Jia et al. [4] introduced a multiobjective brainstorming optimization method to solve the integrated problem of distributed flexible job shop and delivery. Wang et al. [5] developed a multiobjective whale optimization algorithm that optimizes both energy consumption and makespan in distributed welding shop scheduling. Tang et al. [6] developed a hybrid optimization algorithm based on teaching and learning to solve the problem of distributed sand mold casting shop scheduling. Zhu et al. [7], [8] tackled the dynamic distributed flexible job shop scheduling problem by considering operation inspection and order cancellation. Pan et al. [9] proposed a knowledge-based two-population optimization (KTPO) algorithm to solve the distributed energy-efficient parallel machine scheduling problem (DEPMSP) with the objective of minimizing the total energy consumption and total delay. However, these studies, primarily relying on traditiona heuristics or metaheuristics, generally exhibit limited adaptability to dynamic production environments and lack the end-to-end decision-making capabilities required for complex scheduling scenarios, failing to effectively balance global exploration and local exploitation in multiobjective optimization.",
+        "bbox": [
+            498,
+            737,
+            932,
+            888
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:36:04 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            942,
+            974
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "Lijun Wang, Xiao Ma, and Dong Liu are with the School of Mechanical Engineering, North China University of Water Resources and Electric Power, Zhengzhou 450045, China (e-mail: wljbm@163.com; Maxiao@ncwu.edu.cn; 2501699414@qq.com).",
+        "bbox": [
+            57,
+            762,
+            486,
+            809
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "Digital Object Identifier 10.1109/TCSS.2025.3601624",
+        "bbox": [
+            70,
+            875,
+            377,
+            888
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "Chengguang Wang and Xiangyang Li are with the School of Management and Economics, North China University of Water Resources and Electric Power, Zhengzhou 450045, China (e-mail: 201709502@stu.ncwu.edu.cn; lxylxy1231@163.com).",
+        "bbox": [
+            57,
+            808,
+            488,
+            853
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "Ruixue Cheng is with the Centre for Sustainable Engineering, Teesside University, TS1 3BA Middlesbrough, U.K. (e-mail: r.cheng@tees.ac.uk).",
+        "bbox": [
+            58,
+            852,
+            486,
+            875
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "Received 23 March 2025; revised 29 June 2025; accepted 18 August 2025. Date of publication 11 September 2025; date of current version 3 April 2026. This work was supported in part by the Foreign Expert Project of Ministry of Science and Technology of the People’s Republic of China under Grant G2023026004L, in part by the Graduate Education Reform Project of Henan Province under Grant 2023SJGLX021Y, and in part by the Fund of Innovative Education Program for Ph.D. Graduate Students with the North China University of Water Resources and Electric Power under Grant NCWUBC202326. (Corresponding author: Lijun Wang.)",
+        "bbox": [
+            57,
+            659,
+            488,
+            763
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "header",
+        "text": "IEEE TRANSACTIONS ON COMPUTATIONAL SOCIAL SYSTEMS, VOL. 13, NO. 2, APRIL 2026",
+        "bbox": [
+            58,
+            37,
+            567,
+            51
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1267",
+        "bbox": [
+            902,
+            39,
+            930,
+            50
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "2329-924X © 2025 IEEE. All rights reserved, including rights for text and data mining, and training of artificial intelligence and similar technologies. Personal use is permitted, but republication/redistribution requires IEEE permission. See https://www.ieee.org/publications/rights/index.html for more information.",
+        "bbox": [
+            55,
+            914,
+            932,
+            939
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            63,
+            80,
+            496,
+            426
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Deep reinforcement learning represents a fusion of the feature extraction capabilities of deep learning with the decision-making abilities of reinforcement learning. It employs environmental data as input to obtain experiences of success or failure, which are then utilized to update the parameters of the decision network, thereby facilitating optimal decision-making [10], [11], [12], [13]. Wang et al. [14] proposed a double-Q learning (D-Q) method for the uncertainty of the production environment in the assembly job shop, combined with the realtime characteristics of reinforcement learning. Zhao et al. [15] proposed a coevolutionary algorithm with a duel reinforcement learning mechanism for the distributed heterogeneous flexible flow shop scheduling problem. Huang et al. [16] proposed an end-to-end deep reinforcement learning approach based on graph neural networks for the distributed job shop scheduling problem, demonstrating the application of advanced technologies in solving this complex optimization challenge. D3QN, an abbreviation for dueling double deep Q-network, represents an advancement over DQN. It incorporates the advantages of the dueling DQN and double DQN algorithms. The fundamental premise of D3QN is to address the issue of overestimation of Q-values during training in DQN, with the objective of enhancing the algorithm’s overall performance and stability. In light of the considerable state space inherent to DHFJS, the deployment of D3QN proves instrumental in enabling the learning and selection of optimal operators.",
+        "bbox": [
+            63,
+            426,
+            496,
+            819
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "In consideration of the existing research, this article proposes the D3QN-based dual-population NSGA-II (D3QN-NSGA-II) algorithm as a potential solution to the energy-efficient scheduling optimization problem of DHFJS. The objective is to identify the solution that minimizes both the maximum completion time and total energy consumption. Compared with existing studies, the main contributions of this algorithm are: 1) designing a two-population evolutionary strategy to enhance the global and local optimization capabilities by differentially assigning search targets through a reproductive capacity evaluation mechanism; 2) constructing an operator dynamic selection framework that incorporates deep reinforcement learning, and adaptively matching the optimal strategy from 12 loca search operators by using D3QN; and 3) introducing an energyefficient scheduling strategy to achieve energy-efficiency and energy-saving optimization by optimizing the machine idle time to achieve the synergistic optimization of energy efficiency and efficiency. The superiority of the D3QN-NSGA-II in solving the multiobjective heterogeneous flexible job shop scheduling problem is validated through simulation experiments on case studies, which demonstrate its capacity to obtain superior Pareto solutions.",
+        "bbox": [
+            63,
+            819,
+            496,
+            941
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            506,
+            79,
+            939,
+            290
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "The remainder of this article is structured as follows. Section II formulates the DHFJS problem, defines relevant symbols, and presents the objective function with constraints. Section III details the proposed D3QN-NSGA-II algorithm, including encoding strategies, dual-population evolution, local search operators, energy-saving strategies, and D3QN-based operator selection. Section IV describes the experimental setup, parameter validation, component separation experiments, and comparative results. Finally, Section V concludes the article and outlines future research directions.",
+        "bbox": [
+            506,
+            291,
+            939,
+            443
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "II. PROBLEM STATEMENT AND METHOD FRAMEWORK",
+        "text_level": 2,
+        "bbox": [
+            535,
+            458,
+            910,
+            473
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "A. Problem Description",
+        "text_level": 2,
+        "bbox": [
+            506,
+            481,
+            681,
+            496
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "In the scheduling of distributed heterogeneous flexible job shops, there are several jobs $I = \\{ 1 , 2 , \\dots , i , \\dots , n \\}$ each job consists of multiple operations $J _ { i } =$ $\\{ O _ { i , 1 } , O _ { i , 2 } , \\ldots , O _ { i , j } , \\ldots , O _ { i , n i } \\}$ which are assigned to various factories $F = \\{ 1 , 2 , \\dots , f , \\dots , n _ { f } \\}$ , each factory contains a set of $M = \\{ 1 , \\ 2 \\dots \\ k \\dots \\ m \\}$ . Each operation $J _ { i }$ can be executed by a subset of machines from the machine set M in factory $F .$ Each machine is capable of processing multiple operations from different jobs. Once an operation is assigned to a specific factory, the machines within that factory will complete all processing tasks for that operation. The processing time $T _ { i , j , f , k }$ varies on different machines within the same factory, depending on the job i, operation $j ,$ factory $f ,$ and machine $k .$",
+        "bbox": [
+            506,
+            502,
+            939,
+            714
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Furthermore, the following constraints must be observed during the processing phase.",
+        "bbox": [
+            506,
+            714,
+            937,
+            744
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "1) Each job can be allocated to a single factory, and al operations must be executed within that factory.",
+        "bbox": [
+            523,
+            744,
+            937,
+            773
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2) The set of available machines for each operation is consistent across factories, yet the processing times may vary between factories.",
+        "bbox": [
+            523,
+            773,
+            937,
+            818
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "3) Each operation of a job can be processed by a single machine at any given time.",
+        "bbox": [
+            523,
+            819,
+            937,
+            849
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "4) Once an operation has commenced, it must be completed before another operation may be initiated.",
+        "bbox": [
+            525,
+            849,
+            937,
+            878
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "5) Jobs are of equal priority.",
+        "bbox": [
+            526,
+            880,
+            730,
+            893
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "6) No precedence constraints exist between operations of different jobs; however, precedence constraints are observed among operations of the same job.",
+        "bbox": [
+            523,
+            893,
+            939,
+            941
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "1268",
+        "bbox": [
+            69,
+            39,
+            95,
+            50
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "IEEE TRANSACTIONS ON COMPUTATIONAL SOCIAL SYSTEMS, VOL. 13, NO. 2, APRIL 2026",
+        "bbox": [
+            430,
+            37,
+            939,
+            51
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:36:04 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "7) All jobs and machines are permitted to commence processing at time zero.",
+        "bbox": [
+            72,
+            79,
+            486,
+            109
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "B. Symbol Definition",
+        "text_level": 2,
+        "bbox": [
+            58,
+            131,
+            210,
+            146
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Sets:",
+        "bbox": [
+            58,
+            152,
+            99,
+            166
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "I: Set of jobs $I = \\{ 1 , 2 , \\dots , i , \\dots , n \\}$",
+        "bbox": [
+            58,
+            167,
+            333,
+            183
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "$J _ { i } { \\mathrm { : } }$ Set of operations for each Job $J _ { i } =$ $\\{ O _ { i , 1 } , O _ { i , 2 } , \\ldots , O _ { i , j } , \\ldots , O _ { i , n _ { i } } \\}$",
+        "bbox": [
+            58,
+            183,
+            486,
+            214
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "F: Set of factories $F = \\{ 1 , 2 , \\dots , f , \\dots , n _ { f } \\}$",
+        "bbox": [
+            60,
+            213,
+            383,
+            228
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "M: Set of machines $M = \\ \\{ 1 , \\ 2 \\dots \\ k \\dots m \\}$",
+        "bbox": [
+            58,
+            228,
+            385,
+            243
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "$K _ { f , i , j } \\colon$ Set of optional machines for operation $O _ { i , j }$ in factory f",
+        "bbox": [
+            58,
+            243,
+            486,
+            273
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "$P _ { f , k } \\colon$ Set of positions where machine k operates in factory f $T _ { i , j , f , k } \\colon$ Processing time of operation $O _ { i , j }$ on machine k in factory",
+        "bbox": [
+            57,
+            273,
+            488,
+            318
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Parameters:",
+        "bbox": [
+            58,
+            319,
+            144,
+            333
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "i: Job index",
+        "bbox": [
+            58,
+            334,
+            158,
+            348
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "j: Operation index",
+        "bbox": [
+            58,
+            349,
+            203,
+            363
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "k: Machine index",
+        "bbox": [
+            58,
+            364,
+            198,
+            378
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "F: Factory index",
+        "bbox": [
+            58,
+            378,
+            196,
+            393
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "n: Total number of jobs",
+        "bbox": [
+            58,
+            393,
+            240,
+            407
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "m: Total number of machines",
+        "bbox": [
+            58,
+            410,
+            279,
+            424
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "$n _ { f } \\colon$ Total number of factories",
+        "bbox": [
+            58,
+            425,
+            279,
+            439
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "n<sub>i</sub>: Number of operations for each job",
+        "bbox": [
+            58,
+            440,
+            338,
+            454
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "$E _ { W } \\colon$ Total energy consumption during working time",
+        "bbox": [
+            58,
+            454,
+            434,
+            469
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "$E _ { I } \\colon$ Total energy consumption during idle time",
+        "bbox": [
+            58,
+            470,
+            398,
+            484
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "$W _ { P } { \\bf : \\Psi }$ : Machine processing power",
+        "bbox": [
+            58,
+            484,
+            297,
+            500
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "$W _ { s } \\colon$ Machine idle power",
+        "bbox": [
+            58,
+            500,
+            245,
+            513
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Variables:",
+        "bbox": [
+            58,
+            515,
+            132,
+            529
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "$S _ { f , i , j } \\colon$ Start time of operation $O _ { i , j }$ for job i in factory f",
+        "bbox": [
+            58,
+            529,
+            456,
+            546
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "$C _ { f , i , j } \\colon$ End time of operation $O _ { i , j }$ for job i in factory f",
+        "bbox": [
+            58,
+            545,
+            454,
+            561
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "$B _ { f , k , t } \\colon$ Start time of machine k in factory f at position t $X _ { i , j , f , k , t } \\mathrm { : }$ A binary variable indicating whether operation $O _ { i , j }$ is processed on machine k at position t in factory $f \\colon 1$ for processing, 0 otherwise.",
+        "bbox": [
+            57,
+            561,
+            486,
+            619
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "$Y _ { i , f } \\colon$ A binary variable indicating whether job i is assigned to factory f for processing: 1 if assigned, 0 otherwise.",
+        "bbox": [
+            57,
+            619,
+            486,
+            652
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "C. Objective Function",
+        "text_level": 2,
+        "bbox": [
+            58,
+            672,
+            220,
+            686
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "In this article, DHFJS’s objective function comprises minimizing the maximum completion time $C _ { \\mathrm { m a x } }$ and total energy consumption TEC as two objectives, and its modeling follows the manufacturing energy assessment standards and production scheduling specifications:",
+        "bbox": [
+            55,
+            693,
+            486,
+            768
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\min \\left\\{C _ {\\max}, \\mathrm{TEC} \\right\\}\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            205,
+            777,
+            338,
+            795
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "1) Minimization of the maximum completion time $C _ { \\mathrm { m a x } }$",
+        "bbox": [
+            74,
+            804,
+            471,
+            819
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\min C _ {\\max} = \\max \\left\\{C _ {f, i, n _ {i}} \\right\\} (\\forall i \\in I, f \\in F).\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            141,
+            827,
+            442,
+            844
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2) Total energy consumption TEC",
+        "bbox": [
+            74,
+            853,
+            319,
+            869
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathrm{TEC} = E _ {W} + E _ {I}\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            107,
+            877,
+            237,
+            893
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nE _ {W} = \\sum_ {i \\in I} \\sum_ {j \\in J _ {i}} \\sum_ {f \\in F} \\sum_ {k \\in M} \\sum_ {t \\in P _ {k}} W _ {P} T _ {i, j, f, k} X _ {i, j, f, k, t}\\tag{4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            114,
+            895,
+            471,
+            929
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\begin{array}{l} E _ {I} = \\sum_ {f \\in F} \\sum_ {k \\in M} \\sum_ {t \\in P _ {k} ^ {\\prime}} W _ {s} \\bigg (B _ {f, k, t + 1} - B _ {f, k, t} \\\\ \\qquad - \\sum_ {i \\in I} \\sum_ {j \\in J _ {i}} X _ {i, j, f, k, t} T _ {i, j, f, k} \\bigg). \\end{array}\\tag{5}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            565,
+            80,
+            873,
+            160
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "The constraints are as follows:",
+        "bbox": [
+            516,
+            166,
+            734,
+            181
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\sum_ {f \\in F} Y _ {i, f} = 1 (\\forall i \\in I)\\tag{6}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            580,
+            186,
+            737,
+            220
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\sum_ {k \\in K _ {f, i, j}} \\sum_ {t \\in P _ {k}} X _ {i, j, f, k, t} = Y _ {i, f} (\\forall i \\in I, j \\in J _ {i}, f \\in F)\\tag{7}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            515,
+            222,
+            880,
+            256
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nS _ {f, i, n _ {i}} + \\sum_ {k \\in K _ {f, i, j}} \\sum_ {t \\in P _ {k}} T _ {i, n _ {i}, f, k} X _ {i, n _ {i}, f, k, t}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            511,
+            257,
+            801,
+            292
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\leq C _ {\\max} (\\forall i \\in I, f \\in F)\n$$",
+        "text_format": "latex",
+        "bbox": [
+            531,
+            294,
+            698,
+            310
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nC _ {f, \\max} \\leq C _ {\\max} (\\forall f \\in F)\\tag{8}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            577,
+            313,
+            760,
+            329
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nS _ {f, i, j} + \\sum_ {k \\in M} \\sum_ {t \\in P} T _ {i, j, f, k} X _ {i, n _ {i}, f, k, t}\\tag{9}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            511,
+            330,
+            759,
+            364
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\leq S _ {f, i, j + 1} (i \\in I, j \\in J _ {i} - 1, f \\in F)\\tag{10}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            531,
+            364,
+            782,
+            383
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\sum_ {i \\in I} \\sum_ {j \\in J _ {i}} X _ {i, j, f, k, t} \\leq 1 (\\forall f \\in F, k \\in M, t \\in P _ {f, k})\\tag{11}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            513,
+            385,
+            855,
+            417
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\sum_ {i \\in I} \\sum_ {j \\in J _ {i}} X _ {i, j, f, k, t} \\geq \\sum_ {i \\in I} \\sum_ {j \\in J _ {i}} X _ {i, j, f, k, t + 1},\n$$",
+        "text_format": "latex",
+        "bbox": [
+            513,
+            419,
+            811,
+            453
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n(\\forall f \\in F, k \\in M, t \\in P _ {f, k} ^ {\\prime})\\tag{12}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            528,
+            455,
+            712,
+            474
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nB _ {f, k, t + 1} - B _ {f, k, t} \\geq \\sum_ {i \\in I} \\sum_ {j \\in J _ {i}} X _ {i, j, f, k, t} T _ {i, j, f, k}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            513,
+            476,
+            829,
+            508
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n(\\forall f \\in F, k \\in M, t \\in P _ {f, k} ^ {\\prime})\\tag{13}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            528,
+            511,
+            712,
+            530
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nE _ {I f, k, t} \\geq \\left(B _ {f, k, t + 1} - B _ {f, k, t} - \\sum \\sum X _ {i, j, f, k, t} T _ {i, j, f, k}\\right) W _ {s}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            511,
+            532,
+            922,
+            556
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n(\\forall f \\in F, k \\in M, t \\in P _ {f, k} ^ {\\prime})\\tag{14}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            528,
+            558,
+            712,
+            578
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nB _ {f, k, t} \\geq S _ {f, i, j} - L \\left(1 - X _ {i, j, f, k, t}\\right)\n$$",
+        "text_format": "latex",
+        "bbox": [
+            511,
+            579,
+            755,
+            597
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n(\\forall i \\in I, j \\in J _ {i}, f \\in F, k \\in M, t \\in P _ {f, k})\\tag{15}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            528,
+            598,
+            801,
+            614
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nB _ {f, k, t} \\leq S _ {f, i, j} - L \\left(1 - X _ {i, j, f, k, t}\\right)\n$$",
+        "text_format": "latex",
+        "bbox": [
+            511,
+            617,
+            755,
+            633
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n(\\forall i \\in I, j \\in J _ {i}, f \\in F, k \\in M, t \\in P _ {f, k})\\tag{16}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            528,
+            636,
+            801,
+            652
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n0 \\leq B _ {f, k, t} \\leq L (\\forall i \\in I, j \\in J _ {i}, f \\in F, k \\in M, t \\in P _ {f, k})\\tag{17}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            511,
+            654,
+            890,
+            672
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n0 \\leq S _ {f, i, j} \\leq L (\\forall i \\in I, j \\in J _ {i}, f \\in F, k \\in M, t \\in P _ {f, k}).\\tag{18}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            510,
+            674,
+            888,
+            690
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Constraint (6) guarantees that each job is assigned exclusively to a single factory for processing. Constraint (7) ensures that once a job has been allocated to a factory, all operations associated with that job will be completed within that factory. Constraint (8) defines the optimization objective, establishing a link between the maximum completion time and the completion times of individual operations. Constraint (9) establishes a connection between the maximum completion times across factories and the overall maximum completion time. Constraint (10) ensures the same workpiece process order constraint through the recursive relationship of process start–end time, and combined with the machine single process constraint of Constraint (11), this set of constraints can be proved to be noncontradictory in the integer programming model by using the topological sorting algorithm. Constraint (12) establishes the condition that the commencement of a subsequent operation on a machine is contingent upon the conclusion of the preceding operation. Constraint (13) provides a comprehensive description of the relationship between the commencement and conclusion times of operations on each machine. Constraint (14) is employed for the calculation of idle energy consumption of machines. Constraints (15) and (16) relax equality constraints in order to enhance the MILP model’s applicability for the branch-andbound algorithm. This is accomplished by establishing that the commencement time of a machine operation is equivalent to the operation’s own commencement time. Constraints (17) and (18) delineate the permissible range of decision variables.",
+        "bbox": [
+            498,
+            698,
+            932,
+            941
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "WANG et al.: HYBRID METAHEURISTIC ALGORITHM FOR MULTIOBJECTIVE SCHEDULING IN DHFJS",
+        "bbox": [
+            58,
+            37,
+            617,
+            51
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "1269",
+        "bbox": [
+            902,
+            39,
+            930,
+            50
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:36:04 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "image",
+        "img_path": "images/7bbc244377b9411f0091bab3356a27fffe85d6a673ff65d1fcefdbb8b5c85fa2.jpg",
+        "image_caption": [
+            "Fig. 1. Coding structure."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            104,
+            79,
+            454,
+            222
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            63,
+            273,
+            496,
+            441
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "III. D3QN-NSGA-II ALGORITHM",
+        "text_level": 2,
+        "bbox": [
+            163,
+            450,
+            398,
+            465
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "A. Encoding and Population Initialization",
+        "text_level": 2,
+        "bbox": [
+            63,
+            474,
+            363,
+            489
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "The encoding pattern in this study employs a three-tiered approach, as illustrated in Fig. 1, which represents the encoding method for a solution. In this context, OS denotes operation selection, MS denotes machine selection for each operation, and FS denotes the sequence of factories assigned to each job. The length of the OS and MS vectors is proportional to the total number of operations, whereas the FS vector aligns with the total number of jobs. In the decoding phase, the FS vector is utilized to assign each job to the corresponding heterogeneous factories. Subsequently, in accordance with the MS vector, each operation selects an optimal machine from the available options, thereby facilitating the processing of $O _ { i , j }$ . Finally, this yields the start and completion times for each operation, thereby determining the overall job shop makespan and TEC. For detailed encoding and decoding mechanisms, please refer to the literature [17].",
+        "bbox": [
+            63,
+            496,
+            496,
+            737
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "In the context of D3QN training, the use of random initialization is a key strategy for achieving enhanced diversity. This entails randomly ordering the sequences of jobs and operations, thereby generating an ordering code, OS. Subsequently, within the operation code, the machines that are capable of processing each operation are selected from their respective sets, thereby creating the machine sequence MS. Subsequently, operations are randomly assigned to processing factories based on the operation code, thereby generating the factory sequence, FS.",
+        "bbox": [
+            63,
+            737,
+            496,
+            875
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "B. Dual Population Evolutionary Strategy",
+        "text_level": 2,
+        "bbox": [
+            65,
+            888,
+            363,
+            904
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "In the domain of multiobjective optimization, conventional evolutionary algorithms typically adhere to a single evolutionary trajectory, which can impede their capacity to explore extensively and accelerate convergence, thereby increasing outcome uncertainty. To surmount these obstacles, the incorporation of a dual-population evolutionary methodology seeks to augment the directional search capabilities and environmental adaptability of the NSGA-II algorithm. This expansion broadens the search horizon, thereby reducing the probability of becoming trapped in a local optimum. Throughout the iterative course of the algorithm, the primary population is divided into two subsets, each undergoing distinct genetic strategies, guided by designated population ratio parameters and a sex-based partitioning mechanism [18]. In the context of multiobjective optimization, the procedural specifics of population partitioning via the sex-based mechanism are delineated by Algorithm 1.",
+        "bbox": [
+            63,
+            909,
+            496,
+            941
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "code",
+        "sub_type": "code",
+        "code_caption": [],
+        "code_body": "```txt\nAlgorithm 1: Reproductive Capacity Assessment Mechanism.\n1: Input: Chromosome population size N, test population size S, population division ratio parameter β\n2: Output: Reproductive subpopulation pop1, ordinary subpopulation pop2\n3: Generate a test population of size S randomly\n4: For i=1 To N\n5: For j=1 to S do\n6: a) Perform crossover between individual i and individual j to produce offspring\n7: b) If the offspring dominates individual i, replace individual i with the offspring and increment the reproductive capability of individual i by 1\n8: End\n9: End\n10: For i=1 To N do\n11: If (reproductive capability of individual i > average reproductive capability)\n12: Individual i belongs to the reproductive subpopulation pop1\n13: Else\n14: Individual i belongs to the ordinary subpopulation pop2\n15: End for\n```",
+        "bbox": [
+            508,
+            80,
+            937,
+            491
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            506,
+            532,
+            939,
+            758
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "To form subpopulation 1, which is composed of $N \\ \\times \\ \\beta$ individuals with robust reproductive capabilities, a selection process is first employed to identify the individuals who will comprise this subpopulation. In the event that the requisite number is not available, individuals exhibiting strong reproductive abilities from the general population may be included as a supplement. The remaining individuals constitute subpopulation 2. Individuals in subpopulation 1, due to their robust reproductive capabilities, undergo standard POX crossover and random two-point exchange mutation for process sequence ordering. The machine selection process employs UX crossover and random machine replacement mutation, whereas the factory allocation method utilizes standard UX crossover to maintain a global population advantage. In the case of subpopulation 2, the use of traditional genetic algorithms is unable to generate new individuals in a satisfactory manner, which in turn limits the efficiency of local search. Therefore, we employ an improved POX crossover method and genetic sequence inversion mutation strategy for process sequence ordering [as shown in Fig. 2(a) and (b)]. Machine selection utilizes uniform crossover and mutation by randomly selecting machines with shorter processing times to enhance algorithm convergence.",
+        "bbox": [
+            506,
+            758,
+            939,
+            941
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "1270",
+        "bbox": [
+            69,
+            39,
+            97,
+            50
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "IEEE TRANSACTIONS ON COMPUTATIONAL SOCIAL SYSTEMS, VOL. 13, NO. 2, APRIL 2026",
+        "bbox": [
+            430,
+            37,
+            939,
+            51
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:36:04 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "image",
+        "img_path": "images/d940eb2b45e185df5e9ce8188ee2c81d665c34b79e3446b2e48cf35d238401d3.jpg",
+        "image_caption": [
+            "Fig. 2. Population 2 process selection, crossover, and mutation operations. (a) Improve POX crossover. (b) Reverse mutation."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            75,
+            78,
+            469,
+            332
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            57,
+            397,
+            488,
+            550
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "C. Local Search Operators",
+        "text_level": 2,
+        "bbox": [
+            58,
+            564,
+            254,
+            579
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "In addressing the energy-efficient scheduling problem of DHFJS, a number of efficient and widely accepted local search strategies have been employed, including positional exchange, posterior insertion, and anterior insertion. During the search process, the application of operators related to critical paths has the potential to significantly enhance the quality of solutions generated in each iteration. When the algorithm encounters a local optimum, the utilization of disruptive reconstruction operators markedly increases the probability of the algorithm escaping from local optima.",
+        "bbox": [
+            57,
+            585,
+            489,
+            737
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "This article introduces three categories of local search operators, each with distinct properties. The first category comprises classical operators, the second includes disruptive and reconstructive operators, and the third is comprised of critical path operators. These categories and their respective properties are outlined in Table I.",
+        "bbox": [
+            57,
+            737,
+            488,
+            828
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "D. Energy Saving Strategy",
+        "text_level": 2,
+        "bbox": [
+            58,
+            844,
+            250,
+            859
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "In the context of scheduling problems with consideration of energy consumption, the total energy consumption is a critical metric that significantly impacts the achievement of green scheduling. One principal method for reducing energy consumption during the production of jobs is to minimize both machine processing time and idle time. In accordance with this principle, an energy-saving strategy has been devised which places an emphasis on local optimization and the modification of production sequences with a view to reducing idle time on machines and, consequently, lowering overall energy consumption throughout the production process.",
+        "bbox": [
+            57,
+            864,
+            489,
+            941
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            498,
+            79,
+            930,
+            170
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "The strategy is based on the following principles: 1) local optimization: the application of local search techniques is utilized for the optimization of operational sequencing on machinery, with the objective of minimizing downtime and enhancing machine utilization; 2) adjusting production sequences: the reordering of operations or the adjustment of their start times may be employed to more effectively utilize machine capacity and reduce periods of inactivity; and 3) reduction of idle time: the objective is to identify and reduce instances of idle time between operations, thereby reducing unnecessary energy consumption.",
+        "bbox": [
+            498,
+            170,
+            932,
+            321
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "As shown in Fig. 3, operation $O _ { 3 1 }$ on machine M2 must wait until operation $O _ { 2 2 }$ is completed before commencing, while operation $O _ { 3 2 }$ on M1 must wait for operation $O _ { 2 3 }$ to finish before starting, resulting in significant idle time. Under the premise of maintaining scheduling constraints, shifting operation $O _ { 3 1 }$ on M2 before $O _ { 2 2 }$ and moving operation $O _ { 3 2 }$ on M1 before $O _ { 2 3 }$ can reduce machine idle time, thereby lowering idle energy consumption and shortening the completion time of jobs.",
+        "bbox": [
+            500,
+            321,
+            930,
+            441
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "This strategy, which entails maintaining the sequence of operations while rearranging the production order of different jobs, has the effect of minimizing machine idle periods. Without modifying the critical path, it contributes to a reduction in overall energy consumption and an enhancement in production efficiency.",
+        "bbox": [
+            498,
+            441,
+            932,
+            534
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "E. Operator Selection Based on D3QN",
+        "text_level": 2,
+        "bbox": [
+            500,
+            556,
+            781,
+            571
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "The 12 local search operators in Table I are each suited to different optimization scenarios and optimal solutions. In the local search phase of population evolution, when optimizing the Pareto front solution, the optimal strategy needs to be dynamically selected from 12 operators. To this end, this section proposes a D3QN-based operator selection mechanism, which is invoked in the nondominated solution optimization phase of each iteration (Algorithm 3, line 25), and achieves adaptive matching of operators through deep reinforcement learning.",
+        "bbox": [
+            500,
+            577,
+            932,
+            714
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "The DQN algorithm [19] is an efficient unsupervised deep reinforcement learning algorithm capable of autonomously learning the data distribution within the solution space. In light of these distribution characteristics, a probability mapping related to operator selection is constructed. The original DQN algorithm is prone to overestimating Q-values in certain cases, which can result in instability and a decline in performance during the learning process. To address this issue, an improved version, known as double DQN (DDQN), was proposed. DDQN introduces two neural networks: one for selecting actions and computing target Q-values (referred to as the prediction network), and another for evaluating target Q-values (known as the target network). During the training phase, the target network is periodically updated to generate target Q-values in lieu of utilizing Q-values directly from the prediction network. This approach mitigates the potential for overestimation. Equation (19) defines the objective function for DQN, while (20) defines the objective function for DDQN",
+        "bbox": [
+            498,
+            714,
+            932,
+            941
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "WANG et al.: HYBRID METAHEURISTIC ALGORITHM FOR MULTIOBJECTIVE SCHEDULING IN DHFJS",
+        "bbox": [
+            58,
+            37,
+            617,
+            51
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "1271",
+        "bbox": [
+            902,
+            39,
+            929,
+            50
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:36:04 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "table",
+        "img_path": "images/4ee33614deec4c2550b2c4f9ac6acb5707a9237b463dac7da690e0ad87de48a4.jpg",
+        "table_caption": [
+            "TABLE IHEURISTIC OPERATOR DESIGN"
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Operator Types</td><td>Operator Designs</td></tr><tr><td>Classical operators</td><td>Randomly select two operations, swap their positions. Randomly select one operation and insert it at a specified position. Randomly select two operations, insert one operation before another. Randomly select two operations, insert one operation after another.</td></tr><tr><td>Disruptive and reconstructive operators</td><td>Randomly generate a binary array (0–1), retain positions with 1, randomly redistribute positions with 0. Randomly select a point, maintain positions to the right, shuffle positions to the left. Randomly select a point, maintain positions to the left, shuffle positions to the right. Randomly select two points, disrupt operations between the two points.</td></tr><tr><td>Critical path operators</td><td>Randomly select an operation on the critical path, randomly move all operations of its job to another factory. Randomly select an operation on the critical path, use a roulette wheel selection method to choose a processing factory, move all operations of its job to the selected factory. Randomly select an operation on the critical path, randomly reselect a machining center within its available range. Randomly select an operation on the critical path, use a roulette wheel selection method to choose a machining center, move the current operation to the selected machine for processing.</td></tr></table>",
+        "bbox": [
+            127,
+            112,
+            875,
+            301
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "image",
+        "img_path": "images/1ad47a098faa8ea4080bb0dd79939d95663c08e4fc71992deb335ed3a09f85d6.jpg",
+        "image_caption": [
+            "Fig. 3. Energy saving strategies."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            84,
+            327,
+            478,
+            523
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "code",
+        "sub_type": "algorithm",
+        "code_caption": [],
+        "code_body": "<div class=\"mineru-algorithm\" style=\"white-space: pre-wrap; font-family:monospace;\">\nAlgorithm 2: Reward Mechanism.\n1: Input: $C_{max}^{\\prime}$, $TEC^{\\prime}$, $C_{max}$, $TEC$\n2: Output: reward\n3: If $C_{max} &lt; C_{max}^{\\prime}$ and $TEC &lt; TEC^{\\prime}$:\n4: reward = 5\n5: Else if $C_{max} &lt; C_{max}^{\\prime}$, $TEC &gt; TEC^{\\prime}$ or $C_{max} &gt; C_{max}^{\\prime}$, $TEC &lt; TEC^{\\prime}$:\n6: reward = 10\n7: Else:\n8: reward = 0\n9: End\n</div>",
+        "bbox": [
+            65,
+            575,
+            491,
+            758
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            63,
+            789,
+            494,
+            835
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\begin{array}{c} Y _ {t} ^ {\\mathrm{DQN}} = R _ {t + 1} + \\gamma \\max _ {a} Q \\left(S _ {t + 1}, a; \\theta_ {t} ^ {-}\\right) \\\\ Y _ {t} ^ {\\mathrm{DoubleDQN}} = R _ {t + 1} + \\gamma \\max _ {a} Q \\\\ \\left(S _ {t + 1}, \\underset {a} {\\operatorname{argmax}} Q (S _ {t + 1}, a; \\theta_ {t}); \\theta_ {t} ^ {-}\\right). \\end{array}\\tag{19}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            80,
+            843,
+            447,
+            926
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "(20)",
+        "bbox": [
+            462,
+            901,
+            493,
+            916
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "image",
+        "img_path": "images/73828b726cc47d5abc5753b9a33552785dd5d6b9ddeb33c4ee088551a51ab199.jpg",
+        "image_caption": [
+            "Fig. 4. Network architecture of D3QN."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            520,
+            327,
+            927,
+            440
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "The Q-value, represented by $Q ( s , a )$ , is an implicit indication of the value associated with being in state s and the advantage gained from selecting action a. In response to this, the Dueling network [20] was developed with the explicit objective of segregating the state value and action advantage components within a given state. In the context of the dueling network framework, two distinct networks are employed with the objective of estimating the state value function, $V ( s )$ , and the action advantage function, $A ( s , a )$ , for each state. Subsequently, the action value function $Q ( s , \\ a )$ is derived by integrating the aforementioned networks, as illustrated in the following equation:",
+        "bbox": [
+            506,
+            496,
+            939,
+            662
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\begin{array}{l} Q (s, a; \\theta , \\alpha , \\beta) = V (s; \\theta , \\beta) \\\\ \\qquad + \\left(A (s, a; \\theta , \\alpha) - \\frac {1}{| A |} \\sum_ {a ^ {\\prime}} A (s, a ^ {\\prime}; \\theta , \\alpha)\\right). \\end{array}\\tag{21}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            540,
+            672,
+            875,
+            739
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Fig. 4 illustrates the network architecture of the D3QN, depicting how the state inputs are processed through the hidden layers to generate action values, highlighting the separation of state value and action advantage branches in the dueling network design. The D3QN network consists of an input layer, three fully connected layers (with 64, 128, and 64 neurons, respectively, all using the ReLU activation function), a branching fully connected layer (split into the value stream and advantage stream), and an output layer.",
+        "bbox": [
+            506,
+            746,
+            939,
+            882
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "State design: The local search operators are recommended based on the current job shop state, making accurate extraction and representation of this state crucial. Considering the study’s constraints related to time and energy consumption, three metrics relevant to the overall scheduling problem (number ofjobs, number of machines, total number of operations), four metrics related to job shop processing time (total machine completion time, machine idle/processing time, total completion time per factory, machine idle/processing time per factory), and two metrics related to energy consumption (total machine energy consumption, energy consumption per factory) are proposed to accurately characterize the current job shop state.",
+        "bbox": [
+            506,
+            882,
+            939,
+            929
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "1272",
+        "bbox": [
+            69,
+            39,
+            95,
+            50
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "IEEE TRANSACTIONS ON COMPUTATIONAL SOCIAL SYSTEMS, VOL. 13, NO. 2, APRIL 2026",
+        "bbox": [
+            430,
+            39,
+            939,
+            51
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:36:04 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "code",
+        "sub_type": "algorithm",
+        "code_caption": [],
+        "code_body": "<div class=\"mineru-algorithm\" style=\"white-space: pre-wrap; font-family:monospace;\">\nAlgorithm 3: D3QN-NSGA-II Algorithm Framework.\n\nInput: Number of iterations (G), population size (ps), scaling parameter (β), crossover probability ( $P_{c}$ ),\n1: mutation probability ( $P_{m}$ ), batch size (batch), learning rate (α), epsilon-greedy coefficient (ε), discount factor (γ)\n\n2: Output: Non-dominated solution set PF\n\n3: Initialize population randomly\n\n4: Initialize D3QN network (batch, α, ε, γ)\n\n5: For g=1 to G do\n\n6: pop1, pop2←Reproductive capacity assessment mechanism split population\n\n7: pop1, pop2←Binary tournament selection (pop1, pop2)\n\n8: For i=1 to len(pop1) do\n\n9: C1, C2←Standard evolution operators ( $P_{c}$ ,  $P_{m}$ )\n\n10: pop1 ← pop1 ∪ C1 ∪ C2\n\n11: pop1 ← Remove duplicates (pop1)\n\n12: pop1 ← Energy-saving strategy (pop1)\n\n13: End\n\n14: For i=1 to len(pop2) do\n\n15: C1, C2←Improved evolution operators ( $P_{c}$ ,  $P_{m}$ )\n\n16: pop2 ← pop2 ∪ C1 ∪ C2\n\n17: pop2 ← Remove duplicates (pop2)\n\n18: pop2 ← Energy-saving strategy (pop2)\n\n19: End\n\n20: C ← Remove duplicates (pop1 ∪ pop2)\n\n21: {F0, F1, ...} ← Fast non-dominated sorting (C)\n\n22: C' ← Crowding distance calculation{F0, F1, ...}\n\n23: pop←C' (1:ps, :)\n\n24: P ← Remove duplicates (PF ∪ F0)\n\n25: P, Qθ ← Operator selection mechanism based on D3QN (P, batch, α, ε, γ)\n\n26: g = g + 1\n\n27: End\n\n28: PF ← Fast non-dominated sorting (P)\n</div>",
+        "bbox": [
+            58,
+            80,
+            927,
+            551
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            55,
+            580,
+            488,
+            717
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Action design: Relevant actions involve selecting one of the 12 local search operators as shown in Table I.",
+        "bbox": [
+            58,
+            717,
+            486,
+            747
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Reward design: The designed reward is determined based on the current state $C _ { \\mathrm { m a x } } .$ TEC, and the previous state $C _ { \\mathrm { m a x } } ^ { ' } , ~ \\mathrm { T E C } ^ { ' }$ as outlined in Algorithm 2.",
+        "bbox": [
+            57,
+            747,
+            486,
+            794
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "F. D3QN-NSGA-II Algorithm Flow",
+        "text_level": 2,
+        "bbox": [
+            58,
+            811,
+            309,
+            828
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Sections II-A to II-E provided a detailed introduction to the main components of the D3QN-NSGA-II algorithm. Initially, the algorithm initializes parameters including population size, scaling parameter $\\beta ,$ crossover probability $P _ { c } ,$ mutation probability $P _ { m } ,$ , and sets up the D3QN network. Subsequently, using the NSGA-II algorithm, the population undergoes rapid nondominated sorting and crowding distance calculation. It employs a reproductive capacity assessment mechanism to split the population based on the scaling parameter $\\beta ,$ and through a dual-population evolution strategy and energy-saving scheduling strategy, it obtains a new generation of the population. The nondominated solutions from the latest generation are stored in PF. Each member of the PF population undergoes selection of a local search operator, and the resultant solution from executing this operator is compared against the original solution to ascertain its reward. During each decision-making round, the current state $S _ { t }$ , action chosen under this state $A _ { t } ,$ obtained reward $R _ { t }$ , and the next state $S _ { t + 1 }$ are combined to form experiences stored in the experience pool. If the experience pool reaches a predefined threshold, the DQN network is trained. The framework of the D3QN-NSGA-II algorithm is illustrated in Algorithm 3.",
+        "bbox": [
+            55,
+            833,
+            489,
+            941
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            498,
+            580,
+            932,
+            809
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "IV. EXPERIMENTAL SETTING AND RESULTS",
+        "text_level": 2,
+        "bbox": [
+            563,
+            820,
+            867,
+            834
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "A. Experimental Parameters",
+        "text_level": 2,
+        "bbox": [
+            500,
+            843,
+            703,
+            858
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "In order to validate the effectiveness of D3QN-NSGA-II, this section employs the use of 20 test cases, as provided in the relevant literature [21]. These cases cover ranges for the number of jobs $\\mathrm { n } \\in \\ \\{ 1 0 \\}$ , 20, 30, 40, 50, 100, 150, 200} and the number of factories ${ n _ { f } } \\in \\{ 2 , \\ 3 , \\ 4 , \\ 5 , \\ 6 , \\ 7 \\}$ . Each factory is comprised of five machines, and each job is comprised of five operations. The selection of machines for each operation allows for the consideration of multiple options, with processing times varying according to the specific factory and machine chosen. All machines have a processing power $W _ { P } = 4$ and an idle power $W _ { s } = 1$ . To analyze the distribution and convergence of solution sets obtained by the proposed algorithm and comparative algorithms, the hypervolume(HV) metric [22] and the inverted generational distance (IGD) are introduced. A higher HV is indicative of superior overall algorithmic performance, whereas a smaller IGD is indicative of superior convergence and distribution characteristics. Comparative algorithms include classical multiobjective optimization algorithms such as MOEA/D and several state-of-the-art swarm intelligence optimization algorithms like MOPSO [23], NSWOA [24], and MOGWO [25].",
+        "bbox": [
+            498,
+            864,
+            932,
+            941
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "WANG et al.: HYBRID METAHEURISTIC ALGORITHM FOR MULTIOBJECTIVE SCHEDULING IN DHFJS",
+        "bbox": [
+            58,
+            37,
+            617,
+            51
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "1273",
+        "bbox": [
+            902,
+            39,
+            930,
+            50
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:36:04 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/d9390a80497f29bc860d3a1730fc4432c62436fd67db16b7b01872bc31f8a39f.jpg",
+        "table_caption": [
+            "TABLE II",
+            "PARAMETER VALIDATION RESULTS FOR EACH ALGORITHM"
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Algorithm</td><td>Parameter</td><td>Value Range</td><td>Optimal Value</td></tr><tr><td rowspan=\"8\">D3QN-NSGA-II</td><td>Population size ps</td><td>80, 90, 100</td><td>100</td></tr><tr><td>Crossover probability  $P_c$ </td><td>0.8, 0.9, 1</td><td>0.9</td></tr><tr><td>Mutation probability  $P_m$ </td><td>0.1, 0.2, 0.3</td><td>0.2</td></tr><tr><td>Learning rate α</td><td>0.001, 0.01, 0.1</td><td>0.001</td></tr><tr><td>Greedy factor ε</td><td>0.7, 0.8, 0.9</td><td>0.9</td></tr><tr><td>Discount factor γ</td><td>0.7, 0.8, 0.9</td><td>0.9</td></tr><tr><td>Experience pool</td><td>512, 1024</td><td>512</td></tr><tr><td>Batch size bs</td><td>8, 16, 24</td><td>16</td></tr><tr><td rowspan=\"4\">MOEA/D</td><td>Population size ps</td><td>100, 200, 300</td><td>200</td></tr><tr><td>Neighborhood size ns</td><td>10, 15, 20</td><td>15</td></tr><tr><td>Crossover probability  $P_c$ </td><td>0.8, 0.9, 1</td><td>1</td></tr><tr><td>Mutation probability  $P_m$ </td><td>0.1, 0.2, 0.3</td><td>0.2</td></tr><tr><td rowspan=\"3\">MOPSO</td><td>Population size ps</td><td>50, 100, 150</td><td>100</td></tr><tr><td>Learning factors  $c_1, c_2$ </td><td>1.5, 2, 2.5</td><td>2</td></tr><tr><td>Inertia weight coefficient ω</td><td>0.7, 0.8, 0.9</td><td>0.7</td></tr><tr><td rowspan=\"4\">NSWOA</td><td>Population size ps</td><td>100, 200, 300</td><td>200</td></tr><tr><td>Parameter a</td><td>a ∈ [0, 2]</td><td>Linear decrement</td></tr><tr><td>Contraction-expansion coefficient A</td><td>A ∈ [-1, 1]</td><td>Random generation</td></tr><tr><td>Proximity coefficient C</td><td>C ∈ [0, 2]</td><td>Random generation</td></tr><tr><td rowspan=\"3\">MOGWO</td><td>Population size ps</td><td>100, 200, 300</td><td>100</td></tr><tr><td>Parameter a</td><td>a ∈ [0, 2]</td><td>Linear decrement</td></tr><tr><td>Random exploration coefficients A, C</td><td>A ∈ [-2, 2], C ∈ [0, 2]</td><td>Random generation</td></tr></table>",
+        "bbox": [
+            188,
+            112,
+            816,
+            381
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/a5f493613fba6554f8dcf87a1e1499cac0c6131ca67a35007181161617e6e2f9.jpg",
+        "table_caption": [
+            "TABLE III",
+            "FRIEDMAN RANK SUM TEST FOR D3QN-NSGA-II VARIANT ALGORITHMS"
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Variant Algorithms</td><td>HV Rank</td><td>IGD Rank</td></tr><tr><td>NSGA-II</td><td>4.56</td><td>4.34</td></tr><tr><td>DP+NSGA-II</td><td>3.81</td><td>3.57</td></tr><tr><td>ES+NSGA-II</td><td>3.31</td><td>3.34</td></tr><tr><td>D3QN+NSGA-II</td><td>1.95</td><td>2.15</td></tr><tr><td>D3QN-NSGA-II</td><td>1.33</td><td>1.6</td></tr></table>",
+        "bbox": [
+            168,
+            455,
+            393,
+            539
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            63,
+            566,
+            496,
+            810
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "B. Parameter Validation",
+        "text_level": 2,
+        "bbox": [
+            65,
+            827,
+            240,
+            843
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "The efficacy of an algorithm is significantly influenced by its key parameters. Prior to conducting simulation experiments, it is of paramount importance to validate and optimize the parameters for both the proposed algorithm and the selected comparative algorithms. To ensure fairness and consistency in the comparison, all algorithms (including MOEA/D, MOPSO,",
+        "bbox": [
+            63,
+            849,
+            496,
+            941
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "NSWOA, and MOGWO) adopt the same Taguchi method for parameter tuning, which is used to assess the impact of various parameters on algorithm performance and obtain optimal parameter combinations. The experiments are conducted based on the 20J3F test case, where each parameter combination is independently run ten times, and the results of the parameter validation are presented in Table II. For comparative algorithms, parameters were not directly adopted from original literature but retuned specifically for the DHFJS problem in this study, following the same Taguchi method framework as D3QN-NSGA-II to ensure comparable experimental conditions.",
+        "bbox": [
+            506,
+            407,
+            939,
+            590
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "C. Component Separation Experiment",
+        "text_level": 2,
+        "bbox": [
+            508,
+            617,
+            779,
+            632
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "To assess the contribution of each component in the proposed strategy, we designed a comparative experiment to evaluate the effects of the dual-population evolutionary strategy, energy-efficient scheduling strategy, and D3QN-based operator selection mechanism on algorithm performance. The experiment compared the basic NSGA-II algorithm, NSGA-II with only the dual-population evolutionary strategy (DP+NSGA-II), NSGA-II with only the energy-efficient scheduling strategy (ES+NSGA-II), NSGA-II with only the D3QN-based operator selection mechanism (D3QN+NSGA-II), and the complete algorithm (D3QN-NSGA-II). To ensure the reliability of the experimental results, identical parameter settings were used for all the algorithms, and each variant was run ten times across 20 test cases to compute the average performance.",
+        "bbox": [
+            506,
+            637,
+            939,
+            864
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "This study employed SPASSAU software to analyze the significance of the relationships between algorithm variants, demonstrating the effectiveness of the proposed improved operators. Table III presents the Friedman rank and test statistics for each variant algorithm. Taking the HV value as an example, the test statistic is calculated using the below equation",
+        "bbox": [
+            506,
+            864,
+            939,
+            941
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "1274",
+        "bbox": [
+            69,
+            39,
+            97,
+            50
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "IEEE TRANSACTIONS ON COMPUTATIONAL SOCIAL SYSTEMS, VOL. 13, NO. 2, APRIL 2026",
+        "bbox": [
+            430,
+            39,
+            939,
+            51
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:36:04 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/99f28226ec87e8812889bc8270a18d0eb29b8d9442d8fe5a666f9f32c479edd0.jpg",
+        "table_caption": [
+            "TABLE IV",
+            "COMPARATIVE RESULTS OF HV (MAX) METRIC FOR THE ALGORITHMS"
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Ins</td><td colspan=\"2\">MOEA/D</td><td colspan=\"2\">MOPSO</td><td colspan=\"2\">NSWOA</td><td colspan=\"2\">MOGWO</td><td colspan=\"2\">D3QN-NSGA-II</td></tr><tr><td>Mean</td><td>Std</td><td>Mean</td><td>Std</td><td>Mean</td><td>Std</td><td>Mean</td><td>Std</td><td>Mean</td><td>Std</td></tr><tr><td>10J2F</td><td>0.4531</td><td>0.0316</td><td>0.3570</td><td>0.0538</td><td>0.2021</td><td>0.1355</td><td>0.0398</td><td>0.0129</td><td>0.5779</td><td>0.1324</td></tr><tr><td>20J2F</td><td>0.3493</td><td>0.0832</td><td>0.0153</td><td>0.0093</td><td>0.4381</td><td>0.0375</td><td>0.5857</td><td>0.2364</td><td>0.6587</td><td>0.0987</td></tr><tr><td>20J3F</td><td>0.6579</td><td>0.0591</td><td>0.7312</td><td>0.0371</td><td>0.4975</td><td>0.0945</td><td>0.3465</td><td>0.1103</td><td>0.7851</td><td>0.1589</td></tr><tr><td>30J2F</td><td>0.4689</td><td>0.0695</td><td>0.2298</td><td>0.1134</td><td>0.7226</td><td>0.0682</td><td>0.1986</td><td>0.0569</td><td>0.7479</td><td>0.1754</td></tr><tr><td>30J3F</td><td>0.1531</td><td>0.0412</td><td>0.3894</td><td>0.0657</td><td>0.0274</td><td>0.0016</td><td>0.3062</td><td>0.1568</td><td>0.5874</td><td>0.1589</td></tr><tr><td>40J2F</td><td>0.3174</td><td>0.0862</td><td>0.0627</td><td>0.0068</td><td>0.6841</td><td>0.2138</td><td>0.0478</td><td>0.0057</td><td>0.2578</td><td>0.0789</td></tr><tr><td>40J3F</td><td>0.4572</td><td>0.0737</td><td>0.1257</td><td>0.0381</td><td>0.5857</td><td>0.1578</td><td>0.2156</td><td>0.0089</td><td>0.7923</td><td>0.2587</td></tr><tr><td>40J4F</td><td>0.2671</td><td>0.1502</td><td>0.7646</td><td>0.1284</td><td>0.6731</td><td>0.0874</td><td>0.2526</td><td>0.1367</td><td>0.8751</td><td>0.1569</td></tr><tr><td>50J3F</td><td>0.3892</td><td>0.2781</td><td>0.7603</td><td>0.0429</td><td>0.0772</td><td>0.0051</td><td>0.5621</td><td>0.0985</td><td>0.7925</td><td>0.1175</td></tr><tr><td>50J4F</td><td>0.1883</td><td>0.0145</td><td>0.5440</td><td>0.1254</td><td>0.3863</td><td>0.0645</td><td>0.5978</td><td>0.1236</td><td>0.6244</td><td>0.0791</td></tr><tr><td>50J5F</td><td>0.4307</td><td>0.1358</td><td>0.6589</td><td>0.0487</td><td>0.7007</td><td>0.1654</td><td>0.6321</td><td>0.2238</td><td>0.7015</td><td>0.1267</td></tr><tr><td>100J4F</td><td>0.6566</td><td>0.1787</td><td>0.6116</td><td>0.0503</td><td>0.3909</td><td>0.1007</td><td>0.5784</td><td>0.0457</td><td>0.7954</td><td>0.1598</td></tr><tr><td>100J5F</td><td>0.0314</td><td>0.0144</td><td>0.7808</td><td>0.1994</td><td>0.4189</td><td>0.0456</td><td>0.3547</td><td>0.1032</td><td>0.5789</td><td>0.0563</td></tr><tr><td>100J6F</td><td>0.2612</td><td>0.0248</td><td>0.3951</td><td>0.1754</td><td>0.7192</td><td>0.0954</td><td>0.5368</td><td>0.0781</td><td>0.7965</td><td>0.0654</td></tr><tr><td>100J7F</td><td>0.2176</td><td>0.0187</td><td>0.3404</td><td>0.0871</td><td>0.1617</td><td>0.0093</td><td>0.4568</td><td>0.1597</td><td>0.5798</td><td>0.0068</td></tr><tr><td>150J5F</td><td>0.4588</td><td>0.1632</td><td>0.5609</td><td>0.1891</td><td>0.4578</td><td>0.1257</td><td>0.1248</td><td>0.0548</td><td>0.8645</td><td>0.2548</td></tr><tr><td>150J6F</td><td>0.2535</td><td>0.0632</td><td>0.6831</td><td>0.1203</td><td>0.5814</td><td>0.1268</td><td>0.4583</td><td>0.1587</td><td>0.7128</td><td>0.1493</td></tr><tr><td>150J7F</td><td>0.3445</td><td>0.0092</td><td>0.5946</td><td>0.0891</td><td>0.1357</td><td>0.0568</td><td>0.5462</td><td>0.2487</td><td>0.6568</td><td>0.0574</td></tr><tr><td>200J6F</td><td>0.1819</td><td>0.0227</td><td>0.3223</td><td>0.636</td><td>0.5978</td><td>0.1265</td><td>0.3784</td><td>0.0747</td><td>0.7536</td><td>0.1228</td></tr></table>",
+        "bbox": [
+            180,
+            114,
+            811,
+            357
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/ddd45fff02b38f2d9b99c15fd0a58a7c1c4a027ba51d27ab832fe80980d5197e.jpg",
+        "table_caption": [
+            "TABLE V",
+            "COMPARATIVE RESULTS OF IGD (MIN) METRIC FOR THE ALGORITHMS"
+        ],
+        "table_footnote": [
+            "Note: Bold indicates that the algorithm achieved the optimal results."
+        ],
+        "table_body": "<table><tr><td rowspan=\"2\">Ins</td><td colspan=\"2\">MOEA/D</td><td colspan=\"2\">MOPSO</td><td colspan=\"2\">NSWOA</td><td colspan=\"2\">MOGWO</td><td colspan=\"2\">D3QN-NSGA-II</td></tr><tr><td>Mean</td><td>Std</td><td>Mean</td><td>Std</td><td>Mean</td><td>Std</td><td>Mean</td><td>Std</td><td>Mean</td><td>Std</td></tr><tr><td>10J2F</td><td>0.8954</td><td>0.0698</td><td>0.8453</td><td>0.2498</td><td>0.6548</td><td>0.1587</td><td>0.7897</td><td>0.2148</td><td>0.5647</td><td>0.1297</td></tr><tr><td>20J2F</td><td>0.5659</td><td>0.0935</td><td>0.7449</td><td>0.146</td><td>0.4587</td><td>0.0817</td><td>0.4288</td><td>0.1355</td><td>0.4034</td><td>0.0455</td></tr><tr><td>20J3F</td><td>0.7991</td><td>0.1265</td><td>0.3366</td><td>0.0721</td><td>0.5305</td><td>0.1264</td><td>0.5654</td><td>0.1278</td><td>0.2725</td><td>0.0528</td></tr><tr><td>30J2F</td><td>0.3657</td><td>0.0196</td><td>0.3771</td><td>0.1301</td><td>0.2997</td><td>0.0654</td><td>0.5478</td><td>0.0984</td><td>0.4235</td><td>0.1789</td></tr><tr><td>30J3F</td><td>0.6674</td><td>0.2345</td><td>0.7801</td><td>0.1687</td><td>0.6328</td><td>0.1056</td><td>0.8234</td><td>0.2341</td><td>0.5632</td><td>0.1740</td></tr><tr><td>40J2F</td><td>0.6025</td><td>0.1874</td><td>0.4427</td><td>0.1309</td><td>0.7981</td><td>0.1321</td><td>0.5244</td><td>0.0789</td><td>0.4563</td><td>0.0896</td></tr><tr><td>40J3F</td><td>0.4125</td><td>0.0805</td><td>0.7922</td><td>0.2287</td><td>0.8745</td><td>0.0457</td><td>0.4523</td><td>0.1365</td><td>0.3725</td><td>0.1163</td></tr><tr><td>40J4F</td><td>0.3405</td><td>0.1112</td><td>0.5357</td><td>0.0798</td><td>0.3544</td><td>0.0847</td><td>0.6546</td><td>0.2789</td><td>0.3145</td><td>0.0405</td></tr><tr><td>50J3F</td><td>0.4501</td><td>0.0782</td><td>0.6377</td><td>0.1588</td><td>0.2112</td><td>0.0566</td><td>0.7156</td><td>0.1789</td><td>0.4239</td><td>0.1087</td></tr><tr><td>50J4F</td><td>0.5668</td><td>0.2176</td><td>0.8124</td><td>0.2683</td><td>0.6486</td><td>0.1254</td><td>0.5634</td><td>0.0784</td><td>0.4561</td><td>0.2023</td></tr><tr><td>50J5F</td><td>0.7938</td><td>0.0623</td><td>0.7114</td><td>0.3844</td><td>0.6741</td><td>0.1923</td><td>0.5786</td><td>0.2132</td><td>0.4896</td><td>0.1232</td></tr><tr><td>100J4F</td><td>0.2975</td><td>0.1058</td><td>0.6887</td><td>0.1848</td><td>0.5874</td><td>0.0781</td><td>0.3789</td><td>0.0051</td><td>0.3687</td><td>0.1327</td></tr><tr><td>100J5F</td><td>0.8157</td><td>0.1964</td><td>0.5071</td><td>0.0922</td><td>0.7213</td><td>0.2360</td><td>0.4215</td><td>0.1235</td><td>0.4023</td><td>0.1578</td></tr><tr><td>100J6F</td><td>0.5762</td><td>0.1436</td><td>0.8019</td><td>0.2378</td><td>0.4369</td><td>0.1298</td><td>0.7835</td><td>0.2654</td><td>0.3207</td><td>0.0908</td></tr><tr><td>100J7F</td><td>0.4164</td><td>0.1233</td><td>0.3704</td><td>0.1142</td><td>0.4234</td><td>0.0563</td><td>0.4878</td><td>0.1907</td><td>0.4541</td><td>0.1147</td></tr><tr><td>150J5F</td><td>0.7623</td><td>0.0987</td><td>0.8248</td><td>0.2147</td><td>0.7894</td><td>0.1847</td><td>0.6781</td><td>0.2556</td><td>0.5232</td><td>0.1245</td></tr><tr><td>150J6F</td><td>0.3745</td><td>0.1305</td><td>0.3974</td><td>0.0855</td><td>0.2945</td><td>0.1004</td><td>0.4575</td><td>0.1035</td><td>0.1124</td><td>0.0078</td></tr><tr><td>150J7F</td><td>0.8437</td><td>0.0666</td><td>0.2996</td><td>0.0271</td><td>0.3478</td><td>0.0905</td><td>0.4023</td><td>0.0879</td><td>0.2669</td><td>0.1308</td></tr><tr><td>200J6F</td><td>0.3113</td><td>0.0161</td><td>0.6447</td><td>0.1665</td><td>0.5448</td><td>0.2654</td><td>0.4565</td><td>0.1407</td><td>0.2955</td><td>0.0481</td></tr></table>",
+        "bbox": [
+            178,
+            421,
+            811,
+            664
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            57,
+            696,
+            434,
+            712
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\chi^ {2} = \\frac {1 2 b}{k (k + 1)} \\sum_ {i = 1} ^ {k} \\bar {R} _ {i} ^ {2} - 3 b (k + 1)\n$$",
+        "text_format": "latex",
+        "bbox": [
+            146,
+            723,
+            398,
+            763
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "which yields a value of 57.1488. Referring to the chi-square distribution table, with a degree of freedom of 4, a p-value significantly smaller than 0.001 indicates that there are significant differences between the five algorithm variants. The experimental results show that the complete algorithm (D3QN-NSGA-II) outperforms other variants in both HV and IGD metrics. Specifically, the dual-population evolutionary strategy and D3QN-based operator selection mechanism contributed the most to the performance improvements. In particular, the dualpopulation strategy effectively enhanced the population diversity and global search capability, while the D3QN operator",
+        "bbox": [
+            55,
+            773,
+            489,
+            941
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "(22)",
+        "bbox": [
+            454,
+            736,
+            486,
+            750
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "selection mechanism significantly improved local search efficiency. The energy-efficient scheduling strategy also played a crucial role in reducing energy consumption, further enhancing the overall performance of the algorithm.",
+        "bbox": [
+            498,
+            696,
+            932,
+            758
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "D. Comparative Experiments",
+        "text_level": 2,
+        "bbox": [
+            500,
+            782,
+            710,
+            797
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "To provide a comprehensive assessment of the proposed algorithm’s overall performance, it was benchmarked against three swarm intelligence algorithms and a classical multiobjective optimization method. The benchmarking process included the multiobjective evolutionary algorithm based on decomposition (MOEA/D), enhanced multiobjective particle swarm optimization (MOPSO), enhanced nondominated sorting whale optimization algorithm (NSWOA), and enhanced multiobjective grey wolf optimization algorithm (MOGWO).",
+        "bbox": [
+            498,
+            804,
+            932,
+            941
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "WANG et al.: HYBRID METAHEURISTIC ALGORITHM FOR MULTIOBJECTIVE SCHEDULING IN DHFJS",
+        "bbox": [
+            58,
+            37,
+            617,
+            51
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "1275",
+        "bbox": [
+            902,
+            39,
+            930,
+            50
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:36:04 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/f9e541fbe3816237e5795a4fdac2a43882085bd5f569a918aec9bfd7a72e73d6.jpg",
+        "content": "",
+        "chart_caption": [
+            "Fig. 5. Distribution of solutions obtained by comparative algorithms on selected instances."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            151,
+            78,
+            855,
+            511
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "The experiments were conducted on a system equipped with an AMD Ryzen 7 5800H processor with Radeon Graphics, operating at 3.20 GHz, and 16 GB of memory, running a 64-bit Windows 11 Home edition operating system. The algorithms were implemented in Python 3.8 using the Pytorch framework and executed in Pycharm 2024. To ensure the integrity of the comparisons, each algorithm was executed ten times independently for each instance. The convergence and diversity of the proposed algorithms were evaluated by calculating the mean value of the results obtained across the ten runs, which was then used as the basis for the performance assessment.",
+        "bbox": [
+            63,
+            566,
+            496,
+            733
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Tables IV and V present the mean and standard deviation of HV and IGD values for the D3QN-NSGA-II algorithm and four comparison algorithms applied to the DHFJS problem. From these tables, it is evident that D3QN-NSGA-II achieves the highest HV values and the lowest IGD values in the majority of test cases, indicating its significant advantages in both solution convergence and diversity. For instance, in test cases such as 20J3F, 40J4F, and 150J5F, the mean HV values for D3QN-NSGA-II are 0.7851, 0.8751, and 0.8645, respectively, significantly outperforming the other algorithms. The mean IGD values are also as low as 0.2725, 0.3145, and 0.5232, showing a solution set that is much closer to the true Pareto front. To further validate the statistical significance of the improvement, the Wilcoxon signed-rank test was applied to the HV metric of D3QN-NSGA-II and each of the comparison algorithms, performing pairwise significance analysis. Taking the comparison between D3QN-NSGA-II and MOPSO on the HV metric as an example, the positive rank sum was calculated as $T ^ { + } = 1 8 9 . 0 ,$ and the absolute value of the negative rank sum was $T ^ { - } =$ 1.0. The test statistic is min $( T ^ { + } , T ^ { - } ) = 1 . 0 \\nonumber$ , and the p-value $( 0 . 0 0 0 2 ) < \\alpha ( 0 . 0 5 )$ , indicating a significant difference between the two methods. The experimental results demonstrate that the improvements in both convergence and diversity are statistically significant, validating the effectiveness of the proposed strategy.",
+        "bbox": [
+            63,
+            733,
+            496,
+            930
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            506,
+            566,
+            939,
+            748
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Fig. 5 presents the solution distribution of D3QN-NSGA-II compared to other algorithms on four test cases: 20J3F, 50J5F, 100J4F, and 150J5F. The Pareto front of D3QN-NSGA-II performs excellently in both the low $C _ { \\mathrm { m a x } }$ and low TEC regions, with a uniformly distributed solution set that can meet the requirements of different optimization priorities. In contrast, the Pareto fronts of MOEA/D and MOPSO are more dispersed, while NSWOA and MOGWO tend to focus on optimizing a single objective in certain instances, sacrificing overall balance. The consistent performance of D3QN-NSGA-II across instances of different scales further validates its robustness and scalability, laying the foundation for deployment in complex industrial applications. While D3QN-NSGA-II may have higher computational complexity, its superior solution quality in practical applications outweighs this potential limitation.",
+        "bbox": [
+            506,
+            748,
+            941,
+            930
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "1276",
+        "bbox": [
+            67,
+            39,
+            97,
+            50
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "IEEE TRANSACTIONS ON COMPUTATIONAL SOCIAL SYSTEMS, VOL. 13, NO. 2, APRIL 2026",
+        "bbox": [
+            430,
+            37,
+            939,
+            51
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:36:04 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            942,
+            974
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/02e957d19ef30dc494bd8e97efc243d5f5f2ae0be135bb93c0b05883e9bc6034.jpg",
+        "image_caption": [
+            "Fig. 6. Engine cooling system."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            69,
+            79,
+            474,
+            224
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            55,
+            277,
+            486,
+            324
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "Compared to the other algorithms, D3QN-NSGA-II achieves remarkable success in solving the DHFJS problem, owing to its unique design and optimization strategies. First, the dual-population strategy divides the population into reproduction-capable and regular subpopulations, each subjected to differentiated genetic operations. This effectively balances global exploration and local exploitation, broadening the search space and reducing the risk of falling into local optima. Second, the D3QN operator selection mechanism leverages deep reinforcement learning to dynamically choose the optimal local search operator, significantly enhancing the algorithms adaptability to complex state spaces and improving optimization efficiency. Furthermore, the energy-saving strategy reduces total energy consumption by optimizing machine idle times, indirectly shortening the makespan. In addition, all algorithms were run ten times under the same hardware environment, and the results were averaged to ensure stability. The significance test, with a p-value less than 0.05, further confirms the effectiveness of the improvements in D3QN-NSGA-II.",
+        "bbox": [
+            55,
+            323,
+            489,
+            612
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "E. Engineering Case Study",
+        "text_level": 2,
+        "bbox": [
+            58,
+            632,
+            254,
+            647
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "This section presents an analysis of a real production order for an engine cooling system from a domestic automotive manufacturing company, using it as an engineering case study. The theories and methods introduced in this chapter are applied to the production scheduling of this practical case. The engine factory responsible for producing this cooling system operates multiple job shops to meet order demands, and production is processed based on the order volume. This issue can be abstracted as a distributed heterogeneous job shop problem. Fig. 6 illustrates the schematic diagram of the engine cooling system. The system consists of components such as the adapter plate bracket, fan bracket, double-row deep groove ball bearings, fan hub, fan belt pulley, adapter flange, and cooling fan. The engine cooling system is produced in two job shops within the factory. Job shop 1 manufactures four parts: adapter plate bracket, fan bracket, fan hub, and adapter flange, while job shop 2 handles the production of the remaining components.",
+        "bbox": [
+            55,
+            652,
+            489,
+            910
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "Each job shop is equipped with eight machines for processing these components, including two milling machines (M1, M2), two drilling machines (M3, M4), one machining center (M5), one manual lathe (M6), and two computer numerical control lathes (M7, M8). Using the same experimental environment and algorithm parameter settings as in Part D, D3QN-NSGA-II was applied alongside methods such as MOEA/D, MOPSO, NSWOA5, and MOGWO to solve this production case. Each algorithm was run ten times to calculate the average results. The solution outcomes for the engineering case are shown in Table VI.",
+        "bbox": [
+            57,
+            909,
+            486,
+            941
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "table",
+        "img_path": "images/c2413263cf74741e6a435a95d2a70d0cc010bf36cab33406e0ad69bf20f1631f.jpg",
+        "table_caption": [
+            "TABLE VI",
+            "RESULTS OF SOLVING THE ENGINEERING CASE USING DIFFERENT ALGORITHMS"
+        ],
+        "table_footnote": [
+            "Note: Bold indicates that the algorithm achieved the optimal results."
+        ],
+        "table_body": "<table><tr><td rowspan=\"2\">Algorithm</td><td colspan=\"2\">HV</td><td colspan=\"2\">IGD</td></tr><tr><td>Mean</td><td>Std</td><td>Mean</td><td>Std</td></tr><tr><td>D3QN-NSGA-II</td><td>0.7951</td><td>0.2312</td><td>0.1024</td><td>0.0509</td></tr><tr><td>MOEA/D</td><td>0.6831</td><td>0.1125</td><td>0.2296</td><td>0.1081</td></tr><tr><td>MOPSO</td><td>0.6724</td><td>0.2564</td><td>0.1260</td><td>0.0832</td></tr><tr><td>NSWOA</td><td>0.7128</td><td>0.1943</td><td>0.2050</td><td>0.1178</td></tr><tr><td>MOGWO</td><td>0.7732</td><td>0.2556</td><td>0.1246</td><td>0.0852</td></tr></table>",
+        "bbox": [
+            543,
+            125,
+            885,
+            207
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "image",
+        "img_path": "images/ecda3342f8604eca5e0fcd0f76ff567733104c0619dc0e39c0c6ce5b7b4cb0fd.jpg",
+        "image_caption": [
+            "Fig. 7. Gantt chart for the engineering case scheduling."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            513,
+            250,
+            915,
+            691
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            498,
+            743,
+            932,
+            878
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "From table, it can be observed that when D3QN-NSGA-II is applied to the engineering case, the results for the HV and IGD metrics outperform those of the other algorithms, indicating that the proposed algorithm demonstrates superior performance in practical applications. The Gantt chart for the scheduling results obtained by D3QN-NSGA-II for this engineering case is shown in Fig. 7, with a maximum completion time of 72 min and a total energy consumption of 51.661 KJ.",
+        "bbox": [
+            498,
+            878,
+            932,
+            941
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "header",
+        "text": "WANG et al.: HYBRID METAHEURISTIC ALGORITHM FOR MULTIOBJECTIVE SCHEDULING IN DHFJS",
+        "bbox": [
+            58,
+            37,
+            617,
+            51
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "page_number",
+        "text": "1277",
+        "bbox": [
+            902,
+            39,
+            930,
+            50
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:36:04 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            63,
+            79,
+            496,
+            141
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "text",
+        "text": "V. CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            222,
+            155,
+            340,
+            169
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "text",
+        "text": "The D3QN-NSGA-II algorithm incorporates the attributes of deep reinforcement learning and multiobjective optimization. By employing a dual-population strategy and a D3QN-based operator selection mechanism, the algorithm effectively balances global exploration and local exploitation, thereby enhancing both the convergence speed and the quality of solutions. A detailed description and modeling of the DHFJS problem have led to the definition of rational objective functions and constraints, thereby providing a clear framework for algorithm design and application. Comparative experiments with existing algorithms have consistently demonstrated that D3QN-NSGA-II exhibits superior performance across a range of test cases, as evidenced by metrics such as HV and IGD. These findings validate the effectiveness and superiority of D3QN-NSGA-II.",
+        "bbox": [
+            63,
+            178,
+            496,
+            388
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "text",
+        "text": "From a management practice perspective, this study provides a scheduling method for the manufacturing industry that optimizes both efficiency and energy consumption. The dualpopulation evolutionary strategy guides companies in dynamically allocating search resources during production scheduling, improving global optimization capabilities. The D3QN-based operator selection mechanism helps adaptively adjust scheduling strategies based on real-time production states, enhancing the algorithm’s adaptability to complex production scenarios. The energy-saving scheduling strategy offers a feasible path to reduce machine idle energy consumption and optimize resource utilization, providing practical guidance for companies in achieving green manufacturing and cost control.",
+        "bbox": [
+            63,
+            390,
+            496,
+            585
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "text",
+        "text": "Future research could explore the incorporation of additional optimization objectives (such as cost and quality) and improve the algorithms robustness against uncertainties like machine failures and demand fluctuations.",
+        "bbox": [
+            63,
+            585,
+            496,
+            646
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "text",
+        "text": "REFERENCES",
+        "text_level": 2,
+        "bbox": [
+            235,
+            662,
+            326,
+            675
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[1] Q. Luo, Q. Deng, G. Gong, L. Zhang, W. Han, and K. Li, “An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers,” Expert Syst. Appl., vol. 160, 2020, Art. no. 113721.",
+        "bbox": [
+            75,
+            683,
+            494,
+            717
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[2] L. Meng, Y. Ren, B. Zhang, J.-Q. Li, H. Sang, and C. Zhang, “MILP modeling and optimization of energy-efficient distributed flexible job shop scheduling problem,” IEEE Access, vol. 8, pp. 191191–191203, 2020.",
+        "bbox": [
+            75,
+            717,
+            494,
+            761
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[3] Y. Chen, X. Liao, G. Chen, and Y. Hou, “Dynamic intelligent scheduling in low-carbon heterogeneous distributed flexible job shops with job insertions and transfers,” Sensors, vol. 24, no. 7, 2024, Art. no. 2251.",
+        "bbox": [
+            75,
+            762,
+            494,
+            796
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[4] Y. Jia, Y. Zhou, and Y. Fu, “A multi-objective brain storm optimization for integrated distributed flexible job shop and distribution problems,” Heliyon, vol. 10, no. 16, 2024.",
+        "bbox": [
+            75,
+            797,
+            494,
+            829
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[5] G. Wang, X. Li, L. Gao, and P. Li, “An effective multi-objective whale swarm algorithm for energy-efficient scheduling of distributed welding flow shop,” Ann. Operations Res., vol. 34, pp. 1–33, 2022.",
+        "bbox": [
+            75,
+            830,
+            494,
+            864
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[6] H. Tang, B. Fang, R. Liu, Y. Li, and S. Guo, “A hybrid teaching and learning-based optimization algorithm for distributed sand casting jobshop scheduling problem,” Appl. Soft Comput., vol. 120, 2022, Art. no. 108694.",
+        "bbox": [
+            75,
+            864,
+            494,
+            909
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[7] K. Zhu et al., “Dynamic distributed flexible job-shop scheduling problem considering operation inspection,” Expert Syst. Appl., vol. 224, 2023, Art. no. 119840.",
+        "bbox": [
+            75,
+            909,
+            494,
+            943
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[8] N. Zhu, G. Gong, D. Lu, D. Huang, N. Peng, and H. Qi, “An effective reformative memetic algorithm for distributed flexible job-shop scheduling problem with order cancellation,” Expert Syst. Appl., vol. 237, 2024, Art. no. 121205.",
+        "bbox": [
+            516,
+            82,
+            937,
+            127
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[9] Z. Pan, D. Lei, and L. Wang, “A knowledge-based two-population optimization algorithm for distributed energy-efficient parallel machines scheduling,” IEEE Trans. Cybern., vol. 52, no. 6, pp. 5051–5063, Jun. 2020.",
+        "bbox": [
+            516,
+            127,
+            937,
+            172
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[10] J. Chang, G. Zhu, H. Zhang, Y. Zhou, X. Luo, and L. Wu, “Reversible data hiding for color images based on adaptive 3D prediction-error expansion and double deep Q-network,” IEEE Trans. Circuits Syst. Video Technol., vol. 32, no. 8, pp. 5055–5067, Aug. 2022.",
+        "bbox": [
+            511,
+            172,
+            937,
+            218
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[11] A. Kamalova, S. G. Lee, and S. H. Kwon, “Occupancy reward-driven exploration with deep reinforcement learning for mobile robot system,” Appl. Sci., vol. 12, no. 18, p. 9249, 2022.",
+        "bbox": [
+            511,
+            218,
+            937,
+            251
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[12] F. Khoramnejad and M. Erol-Kantarci, “On joint offloading and resource allocation: A double deep q-network approach,” IEEE Trans. Cogn. Commun. Netw., vol. 7, no. 4, pp. 1126–1141, Apr. 2021.",
+        "bbox": [
+            511,
+            252,
+            937,
+            285
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[13] T.-H. S. Li et al., “Fuzzy double deep Q-network-based gait pattern controller for humanoid robots,” IEEE Trans. Fuzzy Syst., vol. 30, no. 1, pp. 147–161, Jan. 2020.",
+        "bbox": [
+            511,
+            286,
+            937,
+            319
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[14] H. Wang, B. R. Sarker, J. Li, and J. Li, “Adaptive scheduling for assembly job shop with uncertain assembly times based on dual Q learning,” Int. J. Prod. Res., vol. 59, no. 19, pp. 5867–5883, 2021.",
+        "bbox": [
+            511,
+            319,
+            937,
+            354
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[15] F. Zhao, F. Yin, L. Wang, and Y. Yu, “A co-evolution algorithm with dueling reinforcement learning mechanism for the energy-aware distributed heterogeneous flexible flow-shop scheduling problem,” IEEE Trans. Syst., Man, Cybern. Syst., vol. 55, no. 3, pp. 1794–1809, Mar. 2025.",
+        "bbox": [
+            511,
+            354,
+            937,
+            409
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[16] J.-P. Huang, L. Gao, and X.-Y. Li, “An end-to-end deep reinforcement learning method based on graph neural network for distributed job shop scheduling problem,” Expert Syst. Appl., vol. 238, 2024, Art. no. 121756.",
+        "bbox": [
+            511,
+            410,
+            937,
+            454
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[17] G. Al Aqel, X. Li, and L. Gao, “A modified iterated greedy algorithm for flexible job shop scheduling problem,” Chin. J. Mech. Eng., vol. 32, no. 1, 2019, Art. no. 21.",
+        "bbox": [
+            511,
+            455,
+            937,
+            489
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[18] M. Raghuwanshi and O. Kakde, “Genetic algorithm with species and sexual selection,” in Proc. IEEE Conf. Cybern. Intell. Syst. Piscataway, NJ, USA: IEEE Press, 2006, pp. 1–8,",
+        "bbox": [
+            511,
+            489,
+            937,
+            523
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[19] V. Mnih et al., “Human-level control through deep reinforcement learn ing,” Nature, vol. 518, no. 7540, pp. 529–533, 2015.",
+        "bbox": [
+            511,
+            523,
+            937,
+            546
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[20] Z. Wang, T. Schaul, M. Hessel, H. Hasselt, M. Lanctot, and N. Freitas, “Dueling network architectures for deep reinforcement learning,” in Proc. Int. Conf. Mach. Learn. PMLR, 2016, pp. 1995–2003.",
+        "bbox": [
+            511,
+            546,
+            937,
+            580
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[21] R. Li, “Model-driven learning modeling algorithm for solving the green distributed flexible job shop scheduling problem,” M.S. China Univ. Geosciences, 2023. [Online]. Available: https://link.cnki.net/doi/ 10.27492/d.cnki.gzdzu.2023.000260",
+        "bbox": [
+            511,
+            580,
+            937,
+            625
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[22] L. While, P. Hingston, L. Barone, and S. Huband, “A faster algorithm for calculating hypervolume,” IEEE Trans. Evol. Comput., vol. 10, no. 1, pp. 29–38, Jan. 2006.",
+        "bbox": [
+            511,
+            625,
+            937,
+            659
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[23] C. C. Coello and M. S. Lechuga, “MOPSO: A proposal for multiple objective particle swarm optimization,” in Proc. Congr. Evol. Computat. CEC02 (Cat. No. 02TH8600), vol. 2. Piscataway, NJ, USA: IEEE Press, 2002, pp. 1051–1056.",
+        "bbox": [
+            511,
+            659,
+            937,
+            704
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[24] P. Jangir and N. Jangir, “Non-dominated sorting whale optimization al gorithm (NSWOA): A multi-objective optimization algorithm for solving engineering design problems,” Glob. J. Res. Eng., vol. 17, pp. 15–42, 2017.",
+        "bbox": [
+            511,
+            704,
+            937,
+            750
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "ref_text",
+        "text": "[25] S. Mirjalili, S. Saremi, S. M. Mirjalili, and L. D. S. Coelho, “Multiobjective grey wolf optimizer: A novel algorithm for multi-criterion optimization,” Expert Syst. Appl., vol. 47, pp. 106–119, 2016.",
+        "bbox": [
+            511,
+            750,
+            937,
+            784
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "image",
+        "img_path": "images/e061f1b6f64042f7274f5fb5caccdf4d0408c43cf37cc7727c76670da07a8c5c.jpg",
+        "image_caption": [],
+        "image_footnote": [
+            "Lijun Wang received the B.S. degree in mechatronics engineering from the North University of China, Taiyuan, China, in 1993, the M.S. degree in agricultural mechanization engineering from Henan Agricultural University, Zhengzhou, China, in 2003, and the Ph.D. degree in signal and information processing from PLA Information Engineering Uni versity, Zhengzhou, in 2010."
+        ],
+        "content": "",
+        "bbox": [
+            511,
+            819,
+            634,
+            933
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "text",
+        "text": "Her research interests include signal processing, image processing, and machine learning, fault diag nosis, and intelligent control.",
+        "bbox": [
+            649,
+            909,
+            937,
+            944
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "page_number",
+        "text": "1278",
+        "bbox": [
+            69,
+            39,
+            95,
+            50
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "header",
+        "text": "IEEE TRANSACTIONS ON COMPUTATIONAL SOCIAL SYSTEMS, VOL. 13, NO. 2, APRIL 2026",
+        "bbox": [
+            430,
+            39,
+            937,
+            51
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:36:04 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "image",
+        "img_path": "images/816f662aa88d3ac49d8bfe3bb8846f3c939188a787866401db494a31007f1d73.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            60,
+            82,
+            183,
+            196
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "Chengguang Wang received the B.S. degree in mechanical design, manufacture, and automation in 2021 from the North China University of Water Resources and Electric Power, Zhengzhou, China, where he is currently working toward the Ph.D. degree in management science and engineering with the School of Management and Economics.",
+        "bbox": [
+            198,
+            80,
+            489,
+            172
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "His research interests include deep learning, intelligent optimization algorithms, and industrial engineering.",
+        "bbox": [
+            198,
+            172,
+            486,
+            209
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "image",
+        "img_path": "images/6c0100c3f5284f3dfbb25c1a9f2f378171c5095023630cbdc147125868128014.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            503,
+            82,
+            627,
+            196
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "image",
+        "img_path": "images/ab3be8134352656f62b7b66f65125dab326a80086e55031833d3e3a19076ee06.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            60,
+            220,
+            183,
+            334
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "image",
+        "img_path": "images/c7853863948820a90e23635f86a004ed1fb78f187fb2b0f399db0218137591cd.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            60,
+            349,
+            183,
+            464
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "Xiangyang Li received the B.S. degree in automotive engineering from Henan Polytechnic University, Henan, China, in 2019. He is currently working toward the Ph.D. degree management science and engineering with the North China University of Water Resources and Electric Power, Zhengzhou, China.",
+        "bbox": [
+            198,
+            219,
+            488,
+            299
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "His research interests include smart manufacturing and system simulation.",
+        "bbox": [
+            198,
+            299,
+            486,
+            324
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "image",
+        "img_path": "images/f89731aca9eafe01f745e760295999193117d748edf18c8bebfc7b2cc9f037c8.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            503,
+            219,
+            627,
+            335
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "Ruixue Cheng received the Ph.D. degree in gassolids flow measurement from the University of Teesside, Middlesbrough, U.K.",
+        "bbox": [
+            198,
+            349,
+            488,
+            383
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "She is a Senior Lecturer and currently with the School of Computing, Engineering and Digital Technologies, Teesside University, Middlesbrough, U.K. Her research interests include sensing techniques and measurement technology development, signal processing, and mathematical modeling.",
+        "bbox": [
+            198,
+            383,
+            489,
+            453
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "Xiao Ma received the B.E. and M.E. degrees in mechanical engineering and automation from the North China University of Water Resources and Electric Power, Henan, China, and the Ph.D. degree in mechanical and electrical engineering from Shihezi University, Xinjiang, China.",
+        "bbox": [
+            641,
+            80,
+            930,
+            150
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "She is a Lecturer with the School of Mechanical Engineering, North China University of Water Resources and Electric Power. Her research interests include optimization algorithms and smart manufacturing.",
+        "bbox": [
+            641,
+            148,
+            930,
+            208
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "Dong Liu received the master’s degree in mechanical engineering, North China University of Water Conservancy and Electric Power, Zhengzhou, China, and the Ph.D. degree in power machinery and engineering from Beijing Institute of Technology, Beijing, China.",
+        "bbox": [
+            641,
+            220,
+            930,
+            289
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "His research interests include the structural design of diesel combustion chambers, optimization of combustion performance, and reduction of particulate emissions.",
+        "bbox": [
+            641,
+            287,
+            932,
+            335
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "header",
+        "text": "WANG et al.: HYBRID METAHEURISTIC ALGORITHM FOR MULTIOBJECTIVE SCHEDULING IN DHFJS",
+        "bbox": [
+            58,
+            39,
+            617,
+            51
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "page_number",
+        "text": "1279",
+        "bbox": [
+            902,
+            39,
+            930,
+            50
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:36:04 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            942,
+            974
+        ],
+        "page_idx": 12
+    }
+]

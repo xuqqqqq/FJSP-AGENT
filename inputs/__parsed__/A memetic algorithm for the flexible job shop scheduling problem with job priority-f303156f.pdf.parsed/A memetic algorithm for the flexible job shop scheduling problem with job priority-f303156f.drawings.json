@@ -1,0 +1,89 @@
+{
+  "version": "1.0",
+  "drawings": {
+    "im-a38007468276a270c1727d6c565d8aa3-0001": {
+      "id": "im-a38007468276a270c1727d6c565d8aa3-0001",
+      "blockid": "7da4ea7e488446174388a330e5d5168f",
+      "heading": "1. Introduction",
+      "parent_headings": [
+        "A memetic algorithm for the flexible job shop scheduling problem with job priority"
+      ],
+      "format": "jpg",
+      "path": "A memetic algorithm for the flexible job shop scheduling problem with job priority-f303156f.blocks.assets/9758f7bbd3b214c0d2d60f73e80d7203bfa5c8ee24e78c7d81a839ee5632c3bf.jpg",
+      "src": "",
+      "caption": "(a) Solution 1 of MK01",
+      "footnotes": [],
+      "self_ref": "content_list.json#/33"
+    },
+    "im-a38007468276a270c1727d6c565d8aa3-0002": {
+      "id": "im-a38007468276a270c1727d6c565d8aa3-0002",
+      "blockid": "7da4ea7e488446174388a330e5d5168f",
+      "heading": "1. Introduction",
+      "parent_headings": [
+        "A memetic algorithm for the flexible job shop scheduling problem with job priority"
+      ],
+      "format": "jpg",
+      "path": "A memetic algorithm for the flexible job shop scheduling problem with job priority-f303156f.blocks.assets/157ce2f8b475ce1a9a02b0eec5e4948129e36e70b4163a8a0797c68557a970f0.jpg",
+      "src": "",
+      "caption": "(b) Solution 2 of MK01",
+      "footnotes": [],
+      "self_ref": "content_list.json#/34"
+    },
+    "im-a38007468276a270c1727d6c565d8aa3-0003": {
+      "id": "im-a38007468276a270c1727d6c565d8aa3-0003",
+      "blockid": "032064dc41867eb4e7b40e5415f71e77",
+      "heading": "3. The proposed MA",
+      "parent_headings": [
+        "A memetic algorithm for the flexible job shop scheduling problem with job priority"
+      ],
+      "format": "jpg",
+      "path": "A memetic algorithm for the flexible job shop scheduling problem with job priority-f303156f.blocks.assets/fa8dfead4be43ba71d1ab3a32748ee19552b77fd175dca0cd9d6621c7e030a40.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/82"
+    },
+    "im-a38007468276a270c1727d6c565d8aa3-0004": {
+      "id": "im-a38007468276a270c1727d6c565d8aa3-0004",
+      "blockid": "a382c013486c073dfb2fb3e527848897",
+      "heading": "3.1. Chromosome encoding and decoding",
+      "parent_headings": [
+        "A memetic algorithm for the flexible job shop scheduling problem with job priority"
+      ],
+      "format": "jpg",
+      "path": "A memetic algorithm for the flexible job shop scheduling problem with job priority-f303156f.blocks.assets/2c428c276237c83786de52d5997bec01018ed88d2cfcff3060ee11d4d4d8c5f2.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/101"
+    },
+    "im-a38007468276a270c1727d6c565d8aa3-0005": {
+      "id": "im-a38007468276a270c1727d6c565d8aa3-0005",
+      "blockid": "ad26ea181942dfc112709a69da426c10",
+      "heading": "4.3.3 Comparisons with other algorithms",
+      "parent_headings": [
+        "A memetic algorithm for the flexible job shop scheduling problem with job priority"
+      ],
+      "format": "jpg",
+      "path": "A memetic algorithm for the flexible job shop scheduling problem with job priority-f303156f.blocks.assets/1c8cc8725d7cab9063e1bda0d3d7ae59eb732228736dec6e40655713557bc8c5.jpg",
+      "src": "",
+      "caption": "Fig. 5. Convergence curves for MK01, MK04 and MK05.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/171"
+    },
+    "im-a38007468276a270c1727d6c565d8aa3-0006": {
+      "id": "im-a38007468276a270c1727d6c565d8aa3-0006",
+      "blockid": "ad26ea181942dfc112709a69da426c10",
+      "heading": "4.3.3 Comparisons with other algorithms",
+      "parent_headings": [
+        "A memetic algorithm for the flexible job shop scheduling problem with job priority"
+      ],
+      "format": "jpg",
+      "path": "A memetic algorithm for the flexible job shop scheduling problem with job priority-f303156f.blocks.assets/88f95a512c0d29c178b3aad373ec226af2777347bc429e67a3faafa59b49fea0.jpg",
+      "src": "",
+      "caption": "Fig. 7. Gantt chart of a solution of la24 with MA.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/172"
+    }
+  }
+}

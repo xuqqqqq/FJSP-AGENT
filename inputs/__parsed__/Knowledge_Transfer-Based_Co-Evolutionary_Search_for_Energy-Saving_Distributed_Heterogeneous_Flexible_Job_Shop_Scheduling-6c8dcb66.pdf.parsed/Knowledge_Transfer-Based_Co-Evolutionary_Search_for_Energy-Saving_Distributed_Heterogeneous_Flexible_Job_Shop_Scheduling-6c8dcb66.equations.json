@@ -1,0 +1,252 @@
+{
+  "version": "1.0",
+  "equations": {
+    "eq-78fb975a62b0ae0a55602842d9892197-0001": {
+      "id": "eq-78fb975a62b0ae0a55602842d9892197-0001",
+      "blockid": "fc9a0ba764c2dad1aad1600bf29595ab",
+      "heading": "III. PROBLEM DESCRIPTION",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "latex",
+      "content": "\\min F _ {1} = C _ {\\max} = \\max F T _ {i, j, f}\\tag{1}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/62"
+    },
+    "eq-78fb975a62b0ae0a55602842d9892197-0002": {
+      "id": "eq-78fb975a62b0ae0a55602842d9892197-0002",
+      "blockid": "fc9a0ba764c2dad1aad1600bf29595ab",
+      "heading": "III. PROBLEM DESCRIPTION",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "latex",
+      "content": "\\min F _ {2} = T E C = P _ {1} + P _ {2}\\tag{2}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/65"
+    },
+    "eq-78fb975a62b0ae0a55602842d9892197-0003": {
+      "id": "eq-78fb975a62b0ae0a55602842d9892197-0003",
+      "blockid": "fc9a0ba764c2dad1aad1600bf29595ab",
+      "heading": "III. PROBLEM DESCRIPTION",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "latex",
+      "content": "P _ {1}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/66"
+    },
+    "eq-78fb975a62b0ae0a55602842d9892197-0004": {
+      "id": "eq-78fb975a62b0ae0a55602842d9892197-0004",
+      "blockid": "fc9a0ba764c2dad1aad1600bf29595ab",
+      "heading": "III. PROBLEM DESCRIPTION",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "latex",
+      "content": "= \\sum_ {i = 1} ^ {N} \\sum_ {j = 1} ^ {n _ {i}} \\sum_ {f = 1} ^ {n _ {f}} \\sum_ {m = 1} ^ {m _ {f}} T _ {i, j, f, m} \\cdot W _ {P} \\cdot x _ {i, j, f, m} \\cdot \\varphi_ {i, j, f, m}\\tag{3}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/67"
+    },
+    "eq-78fb975a62b0ae0a55602842d9892197-0005": {
+      "id": "eq-78fb975a62b0ae0a55602842d9892197-0005",
+      "blockid": "fc9a0ba764c2dad1aad1600bf29595ab",
+      "heading": "III. PROBLEM DESCRIPTION",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "latex",
+      "content": "P _ {2} = \\sum_ {f = 1} ^ {n _ {f}} \\sum_ {m = 1} ^ {m _ {f}} \\sum_ {p = 1} ^ {P _ {f, m}} (S P _ {f, m, p} - F P _ {f, m, p - 1}) \\cdot W _ {I}\\tag{4}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/68"
+    },
+    "eq-78fb975a62b0ae0a55602842d9892197-0006": {
+      "id": "eq-78fb975a62b0ae0a55602842d9892197-0006",
+      "blockid": "fc9a0ba764c2dad1aad1600bf29595ab",
+      "heading": "III. PROBLEM DESCRIPTION",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {f = 1} ^ {n _ {f}} \\sum_ {m = 1} ^ {m _ {f}} x _ {i, j, f, m} * \\varphi_ {i, j, f, m} = 1, \\forall i \\in I, j \\in J _ {i}\\tag{5}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/70"
+    },
+    "eq-78fb975a62b0ae0a55602842d9892197-0007": {
+      "id": "eq-78fb975a62b0ae0a55602842d9892197-0007",
+      "blockid": "fc9a0ba764c2dad1aad1600bf29595ab",
+      "heading": "III. PROBLEM DESCRIPTION",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {f = 1} ^ {n _ {f}} v _ {i, f} = 1, \\forall i \\in I\\tag{6}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/71"
+    },
+    "eq-78fb975a62b0ae0a55602842d9892197-0008": {
+      "id": "eq-78fb975a62b0ae0a55602842d9892197-0008",
+      "blockid": "fc9a0ba764c2dad1aad1600bf29595ab",
+      "heading": "III. PROBLEM DESCRIPTION",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {i = 1} ^ {N} \\sum_ {j = 1} ^ {n _ {i}} u _ {i, j, f, m, p} \\leq 1, \\forall f \\in F, m \\in M _ {i, j, f},",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/72"
+    },
+    "eq-78fb975a62b0ae0a55602842d9892197-0009": {
+      "id": "eq-78fb975a62b0ae0a55602842d9892197-0009",
+      "blockid": "fc9a0ba764c2dad1aad1600bf29595ab",
+      "heading": "III. PROBLEM DESCRIPTION",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "latex",
+      "content": "p = \\{1, 2, \\dots , P _ {f, m} \\}\\tag{7}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/73"
+    },
+    "eq-78fb975a62b0ae0a55602842d9892197-0010": {
+      "id": "eq-78fb975a62b0ae0a55602842d9892197-0010",
+      "blockid": "fc9a0ba764c2dad1aad1600bf29595ab",
+      "heading": "III. PROBLEM DESCRIPTION",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {i = 1} ^ {N} \\sum_ {j = 1} ^ {n _ {i}} u _ {i, j, f, m, p + 1} \\leq \\sum_ {i = 1} ^ {N} \\sum_ {j = 1} ^ {n _ {i}} u _ {i, j, f, m, p}, \\forall f \\in F,",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/74"
+    },
+    "eq-78fb975a62b0ae0a55602842d9892197-0011": {
+      "id": "eq-78fb975a62b0ae0a55602842d9892197-0011",
+      "blockid": "fc9a0ba764c2dad1aad1600bf29595ab",
+      "heading": "III. PROBLEM DESCRIPTION",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "latex",
+      "content": "m \\in M _ {i, j, f}, p = \\{1, 2, \\dots , P _ {f, m} - 1 \\}\\tag{8}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/75"
+    },
+    "eq-78fb975a62b0ae0a55602842d9892197-0012": {
+      "id": "eq-78fb975a62b0ae0a55602842d9892197-0012",
+      "blockid": "fc9a0ba764c2dad1aad1600bf29595ab",
+      "heading": "III. PROBLEM DESCRIPTION",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "latex",
+      "content": "F T _ {i, j, f} \\leq S T _ {i, j + 1, f}, \\forall i \\in I, j = \\{1, 2, \\dots , n _ {i} - 1 \\},",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/76"
+    },
+    "eq-78fb975a62b0ae0a55602842d9892197-0013": {
+      "id": "eq-78fb975a62b0ae0a55602842d9892197-0013",
+      "blockid": "fc9a0ba764c2dad1aad1600bf29595ab",
+      "heading": "III. PROBLEM DESCRIPTION",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "latex",
+      "content": "f \\in F\\tag{9}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/77"
+    },
+    "eq-78fb975a62b0ae0a55602842d9892197-0014": {
+      "id": "eq-78fb975a62b0ae0a55602842d9892197-0014",
+      "blockid": "fc9a0ba764c2dad1aad1600bf29595ab",
+      "heading": "III. PROBLEM DESCRIPTION",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "latex",
+      "content": "\\begin{array}{c} F P _ {f, m, p} \\leq S P _ {f, m, p + 1}, \\forall f \\in F, m \\in M _ {f}, \\\\ p = \\{1, 2, \\ldots , P _ {f, m} - 1 \\} \\end{array}\\tag{10}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/78"
+    },
+    "eq-78fb975a62b0ae0a55602842d9892197-0015": {
+      "id": "eq-78fb975a62b0ae0a55602842d9892197-0015",
+      "blockid": "9cb9fb9b286b5014d10800c300182e02",
+      "heading": "C. Multi-Factory-Based Greedy Population Initialization Strategy",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "latex",
+      "content": "A T _ {i, f} = \\sum_ {j = 1} ^ {n _ {i}} \\frac {\\sum_ {m \\in M _ {i , j , f}} T _ {i , j , f , m}}{M _ {i , j , f} ^ {n}}\\tag{11}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/98"
+    },
+    "eq-78fb975a62b0ae0a55602842d9892197-0016": {
+      "id": "eq-78fb975a62b0ae0a55602842d9892197-0016",
+      "blockid": "3a964f8222efbe4ee3a67bd48eb51203",
+      "heading": "D. Dynamic Neighborhood Search Structure Centered on Critical Factory",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "latex",
+      "content": "m a x L S T = \\left\\lceil \\varepsilon \\times \\frac {N F E s}{M a x N F E s} \\right\\rceil\\tag{12}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/117"
+    },
+    "eq-78fb975a62b0ae0a55602842d9892197-0017": {
+      "id": "eq-78fb975a62b0ae0a55602842d9892197-0017",
+      "blockid": "3a964f8222efbe4ee3a67bd48eb51203",
+      "heading": "D. Dynamic Neighborhood Search Structure Centered on Critical Factory",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "latex",
+      "content": "e n d _ {\\max} = \\left\\lceil m a x L S T \\times \\frac {2}{3} \\right\\rceil\\tag{13}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/121"
+    },
+    "eq-78fb975a62b0ae0a55602842d9892197-0018": {
+      "id": "eq-78fb975a62b0ae0a55602842d9892197-0018",
+      "blockid": "ec405b9d3c6ae4c25d785021b08e3fbf",
+      "heading": "E. Factory Allocation-Based Knowledge Transfer Mechanism",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "latex",
+      "content": "D i f _ {t + 1} = P F _ {t + 1} ^ {1} / P F _ {t}\\tag{14}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/134"
+    },
+    "eq-78fb975a62b0ae0a55602842d9892197-0019": {
+      "id": "eq-78fb975a62b0ae0a55602842d9892197-0019",
+      "blockid": "ec405b9d3c6ae4c25d785021b08e3fbf",
+      "heading": "E. Factory Allocation-Based Knowledge Transfer Mechanism",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "latex",
+      "content": "P M _ {j, f} = \\left\\{ \\begin{array}{l l} P M _ {j, f} + \\sigma \\times (n _ {f} - f - 1) & \\text { if } f \\geq d F A _ {i, j} \\\\ P M _ {j, f} - \\sigma \\times (f + 1), & \\text { otherwise } \\end{array} \\right.\\tag{15}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/136"
+    }
+  }
+}

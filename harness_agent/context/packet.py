@@ -32,6 +32,8 @@ from harness_agent.context.knowledge import (
 )
 from harness_agent.core.models import TaskContract
 from harness_agent.domains.families import get_problem_family
+from harness_agent.domains.pack import PROJECT_ROOT, get_domain_pack
+from knowledge.src.retriever import build_semantic_query, retrieve_semantic_knowledge
 from harness_agent.slots.contract import ResolvedCodeSlot
 from harness_agent.slots.manifest import load_slot_manifest
 
@@ -106,22 +108,27 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         else None
     )
     contract_review_evidence = _contract_review_payload(contract.review)
-    problem_family_capability = get_problem_family(contract.problem_family).to_payload()
+    active_features = domain_context_provider.active_features(
+        contract=contract,
+        instance_diagnostics=instance_diagnostics,
+        contract_review_evidence=contract_review_evidence,
+    )
+    effective_problem_family = _effective_problem_family(
+        contract.problem_family,
+        active_features=active_features,
+    )
+    effective_domain_context_provider = get_domain_context_provider(effective_problem_family)
+    problem_family_capability = get_problem_family(effective_problem_family).to_payload()
     agent_generated_solver = _uses_agent_generated_solver(contract)
     problem_family_tags = (
         [] if agent_generated_solver else list(problem_family_capability.get("knowledge_tags") or [])
     )
     if agent_generated_solver:
         problem_family_tags.append("agent_generated_solver")
-    active_features = domain_context_provider.active_features(
-        contract=contract,
-        instance_diagnostics=instance_diagnostics,
-        contract_review_evidence=contract_review_evidence,
-    )
     # 知识卡选择和 Method Package 推荐都建立在“领域能力 + 当前实例特征”之上。
     # Domain Pack 提供边界与素材，实例诊断/slot 确认决定当前 round 实际可用什么。
     knowledge_selection = select_knowledge_cards(
-        problem_family=contract.problem_family,
+        problem_family=effective_problem_family,
         problem_family_tags=problem_family_tags,
         slot_manifest=slot_manifest,
         instance_diagnostics=instance_diagnostics,
@@ -129,35 +136,51 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
     )
     auto_cards = knowledge_selection.cards
     strategy_card_paths = selection_cards(
-        problem_family=contract.problem_family,
+        problem_family=effective_problem_family,
         stage="strategy",
     )
     package_catalog = (
         method_package_catalog(
-            problem_family=contract.problem_family,
+            problem_family=effective_problem_family,
             active_features=active_features,
             knowledge_query_tags=["__direction_selection_pending__"],
         )
         if agent_generated_solver
         else {
             "status": "not_applicable",
-            "problem_family": contract.problem_family,
+            "problem_family": effective_problem_family,
             "active_features": active_features,
             "packages": [],
             "recommended_package_id": None,
         }
     )
-    query_catalog = knowledge_query_catalog(problem_family=contract.problem_family)
+    query_catalog = knowledge_query_catalog(problem_family=effective_problem_family)
     family_catalog = method_family_catalog(
-        problem_family=contract.problem_family,
+        problem_family=effective_problem_family,
         active_features=active_features,
     )
     knowledge_card_paths = _unique_paths([*request.knowledge_cards, *auto_cards])
     knowledge_cards = [_source_payload(path, request.max_chars_per_source) for path in knowledge_card_paths]
+
+    semantic_knowledge = None
+    rag_strategy_card = _materialize_lightrag_generated_card(
+        problem_family=effective_problem_family,
+        stage="strategy",
+        selected_tags=[],
+        default_tags=list(dict.fromkeys(problem_family_tags + active_features)),
+        max_chars_per_asset=min(request.max_chars_per_source, 12_000),
+    )
+    if rag_strategy_card:
+        semantic_knowledge = rag_strategy_card.get("semantic_knowledge")
+        knowledge_cards.append(rag_strategy_card["record"])
+
     strategy_selection_cards = [
         _source_payload(path, min(request.max_chars_per_source, 12_000))
         for path in strategy_card_paths
     ]
+    if rag_strategy_card:
+        strategy_selection_cards.append(rag_strategy_card["record"])
+        auto_cards = _unique_paths([*auto_cards, Path(str(rag_strategy_card["path"]))])
     # `required_order` 是 worker 的最小阅读顺序控制，用于把“先看契约/实例/slot，
     # 再改代码”这种流程固化在上下文里，而不是依赖模型自行猜顺序。
     required_order = [
@@ -205,7 +228,8 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         "contract_hash": _hash_text(json.dumps(contract_raw, ensure_ascii=False, sort_keys=True)),
         "task": {
             "task_id": contract.task_id,
-            "problem_family": contract.problem_family,
+            "problem_family": effective_problem_family,
+            "contract_problem_family": contract.problem_family,
             "description": contract.description,
             "review_status": contract.review_status,
             "requires_human_confirmation": contract.requires_human_confirmation,
@@ -232,8 +256,8 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
             "solver_command_template": contract.commands.solver,
             "evaluator_command_template": contract.commands.evaluator,
             "quick_test_command": contract.commands.quick_test,
-            "solution_contract": domain_context_provider.solution_contract(),
-            "solution_format": domain_context_provider.solution_contract().get("format"),
+            "solution_contract": effective_domain_context_provider.solution_contract(),
+            "solution_format": effective_domain_context_provider.solution_contract().get("format"),
             "resources": {key: str(value) for key, value in contract.resources.items()},
             "formal_verdict_owner": "AlgoForge Core",
             "worker_self_evaluation_policy": (
@@ -270,6 +294,7 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         "instance_diagnostics": instance_diagnostics,
         "documents": docs,
         "knowledge_cards": knowledge_cards,
+        "semantic_knowledge": semantic_knowledge,
         "strategy_selection_cards": strategy_selection_cards,
         "auto_knowledge_cards": [str(path) for path in auto_cards],
         "knowledge_selection": knowledge_selection.audit,
@@ -554,20 +579,441 @@ def activate_direction_knowledge_context(
         record = by_path.get(key) or _source_payload(path, max_chars_per_asset)
         by_path[key] = record
         records.append(record)
+    rag_records: list[dict[str, Any]] = []
+    rag_paths: list[str] = []
+    problem_family = str(task.get("problem_family") or "")
+    rag_default_tags = _unique_strings(
+        [
+            *query,
+            *[str(item) for item in catalog.get("active_features") or []],
+            *[
+                str(item)
+                for item in (
+                    context.get("problem_family_capability")
+                    if isinstance(context.get("problem_family_capability"), dict)
+                    else {}
+                ).get("knowledge_tags")
+                or []
+            ],
+        ]
+    )
+    for rag_stage in ("direction", "worker"):
+        rag_card = _materialize_lightrag_generated_card(
+            problem_family=problem_family,
+            stage=rag_stage,
+            selected_tags=query,
+            default_tags=rag_default_tags,
+            max_chars_per_asset=max_chars_per_asset,
+        )
+        if not rag_card:
+            continue
+        record = rag_card["record"]
+        key = str(record.get("path") or "")
+        if key and key not in by_path:
+            by_path[key] = record
+        rag_records.append(by_path[key] if key else record)
+        rag_paths.append(str(rag_card["path"]))
+
     context["knowledge_cards"] = list(by_path.values())
     context["active_direction_knowledge"] = {
         "method_family": str(plan.get("method_family") or ""),
         "method_families": skill_selection.get("method_families") or [],
         "query": query,
-        "paths": paths,
-        "asset_records": records,
+        "paths": _unique_strings([*rag_paths, *paths]),
+        "asset_records": [*rag_records, *records],
         "audit": selection.audit,
         "worker_rule": (
             "Read only these second-stage cards and the matched Worker Implementation Skills. Combine only the "
             "method families selected by Main, and convert them into explicit behavioral deliverables."
         ),
     }
+    if rag_records:
+        context["active_direction_knowledge"]["rag_generated_cards"] = [
+            {
+                "path": str(record.get("path") or ""),
+                "stage": str(record.get("stage") or ""),
+                "source": str(record.get("source") or ""),
+                "tags_used": list(record.get("tags_used") or []),
+            }
+            for record in rag_records
+        ]
+
     return context["active_direction_knowledge"]
+
+
+def _materialize_lightrag_generated_card(
+    *,
+    problem_family: str,
+    stage: str,
+    selected_tags: list[str],
+    default_tags: list[str],
+    max_chars_per_asset: int,
+) -> dict[str, Any] | None:
+    """Retrieve configured LightRAG context once, then reuse it as a real knowledge card."""
+
+    domain_pack = get_domain_pack(problem_family)
+    if domain_pack is None:
+        return None
+    rag_config = getattr(domain_pack, "rag_config", None)
+    if not isinstance(rag_config, dict) or not rag_config.get("enabled"):
+        return None
+    if str(rag_config.get("source") or "").strip().lower() != "lightrag":
+        return None
+    stages = rag_config.get("stages") if isinstance(rag_config.get("stages"), dict) else {}
+    stage_config = stages.get(stage) if isinstance(stages.get(stage), dict) else {}
+    if not stage_config.get("enabled"):
+        return None
+
+    tags = _rag_stage_tags(
+        stage_config=stage_config,
+        selected_tags=selected_tags,
+        default_tags=default_tags,
+        backed_tags=[str(item) for item in rag_config.get("backed_tags") or []],
+    )
+    if not tags:
+        return None
+
+    working_dir = _project_path(rag_config.get("working_dir") or "knowledge/fjsp_kb")
+    mode = str(rag_config.get("mode") or "mix")
+    top_k = _positive_int(rag_config.get("top_k"), default=10)
+    max_content_chars = _positive_int(rag_config.get("max_content_chars"), default=8000)
+    only_need_context = bool(rag_config.get("only_need_context", False))
+    response_type = str(rag_config.get("response_type") or "Actionable implementation knowledge card")
+    query_template = str(stage_config.get("query_template") or "")
+    query = build_semantic_query(
+        tags,
+        domain_pack.knowledge_query_tag_descriptions,
+        query_template=query_template,
+    )
+    cache_key = _rag_generated_card_cache_key(
+        family_id=domain_pack.family_id,
+        stage=stage,
+        tags=tags,
+        tag_descriptions=domain_pack.knowledge_query_tag_descriptions,
+        query_template=query_template,
+        working_dir=working_dir,
+        mode=mode,
+        top_k=top_k,
+        max_content_chars=max_content_chars,
+        only_need_context=only_need_context,
+        response_type=response_type,
+    )
+    card_path = _rag_generated_card_path(
+        rag_config=rag_config,
+        family_id=domain_pack.family_id,
+        stage=stage,
+        cache_key=cache_key,
+    )
+    if card_path.is_file():
+        record = _rag_generated_card_record(
+            card_path=card_path,
+            stage=stage,
+            tags=tags,
+            query=query,
+            cache_key=cache_key,
+            cache_status="hit",
+            max_chars_per_asset=max_chars_per_asset,
+            rag_config=rag_config,
+        )
+        return {
+            "path": str(card_path),
+            "record": record,
+            "semantic_knowledge": {
+                "source": "lightrag_generated_card_cache",
+                "query": query,
+                "content": record.get("snippet") or "",
+                "tags_used": tags,
+                "cache_key": cache_key,
+                "cache_status": "hit",
+            },
+        }
+
+    semantic_knowledge = retrieve_semantic_knowledge(
+        tags=tags,
+        tag_descriptions=domain_pack.knowledge_query_tag_descriptions,
+        working_dir=working_dir,
+        max_content_chars=max_content_chars,
+        mode=mode,
+        top_k=top_k,
+        query_template=query_template,
+        only_need_context=only_need_context,
+        response_type=response_type,
+    )
+    if not semantic_knowledge:
+        return None
+
+    card_path.parent.mkdir(parents=True, exist_ok=True)
+    card_path.write_text(
+        _render_lightrag_generated_card(
+            problem_family=domain_pack.family_id,
+            stage=stage,
+            working_dir=working_dir,
+            mode=mode,
+            top_k=top_k,
+            cache_key=cache_key,
+            only_need_context=only_need_context,
+            response_type=response_type,
+            semantic_knowledge=semantic_knowledge,
+        ),
+        encoding="utf-8",
+    )
+    _write_rag_generated_card_manifest(
+        rag_config=rag_config,
+        family_id=domain_pack.family_id,
+        stage=stage,
+        tags=tags,
+        cache_key=cache_key,
+        card_path=card_path,
+        query=str(semantic_knowledge.get("query") or query),
+        working_dir=working_dir,
+        mode=mode,
+        top_k=top_k,
+        max_content_chars=max_content_chars,
+        only_need_context=only_need_context,
+        response_type=response_type,
+    )
+    record = _rag_generated_card_record(
+        card_path=card_path,
+        stage=stage,
+        tags=list(semantic_knowledge.get("tags_used") or tags),
+        query=str(semantic_knowledge.get("query") or query),
+        cache_key=cache_key,
+        cache_status="miss_generated",
+        max_chars_per_asset=max_chars_per_asset,
+        rag_config=rag_config,
+    )
+    return {
+        "path": str(card_path),
+        "record": record,
+        "semantic_knowledge": semantic_knowledge,
+    }
+
+
+def _rag_stage_tags(
+    *,
+    stage_config: dict[str, Any],
+    selected_tags: list[str],
+    default_tags: list[str],
+    backed_tags: list[str],
+) -> list[str]:
+    configured_stage_tags = _unique_strings([str(item) for item in stage_config.get("tags") or []])
+    selected = _unique_strings([str(item) for item in selected_tags])
+    defaults = _unique_strings([str(item) for item in default_tags])
+    if stage_config.get("use_selected_knowledge_query"):
+        raw_tags = selected or configured_stage_tags or defaults
+    else:
+        raw_tags = configured_stage_tags or selected or defaults
+    backed = {str(item).strip().lower() for item in backed_tags if str(item).strip()}
+    if not backed:
+        return raw_tags[:8]
+    backed_selected = [tag for tag in raw_tags if tag in backed]
+    if backed_selected:
+        return _unique_strings([*raw_tags[:4], *backed_selected])[:8]
+    backed_defaults = [tag for tag in [*configured_stage_tags, *defaults] if tag in backed]
+    return _unique_strings([*raw_tags[:4], *backed_defaults])[:8]
+
+
+def _rag_generated_card_cache_key(
+    *,
+    family_id: str,
+    stage: str,
+    tags: list[str],
+    tag_descriptions: dict[str, str],
+    query_template: str,
+    working_dir: Path,
+    mode: str,
+    top_k: int,
+    max_content_chars: int,
+    only_need_context: bool,
+    response_type: str,
+) -> str:
+    normalized_tags = sorted(_unique_strings(tags))
+    payload = {
+        "family_id": family_id,
+        "stage": stage,
+        "tags": normalized_tags,
+        "tag_descriptions": {tag: tag_descriptions.get(tag, "") for tag in normalized_tags},
+        "query_template": query_template,
+        "working_dir": _project_relative_or_absolute(working_dir),
+        "mode": mode,
+        "top_k": top_k,
+        "max_content_chars": max_content_chars,
+        "only_need_context": only_need_context,
+        "response_type": response_type,
+    }
+    return hashlib.sha1(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:16]
+
+
+def _rag_generated_card_path(
+    *,
+    rag_config: dict[str, Any],
+    family_id: str,
+    stage: str,
+    cache_key: str,
+) -> Path:
+    materialization = rag_config.get("materialization") if isinstance(rag_config.get("materialization"), dict) else {}
+    cache_dir = _project_path(materialization.get("cache_dir") or "knowledge/rag_generated_cards")
+    template = str(
+        materialization.get("path_template")
+        or "{family_id}/{stage}/{stage}_{cache_key}.md"
+    )
+    relative = Path(
+        template.format(
+            family_id=_safe_path_token(family_id),
+            stage=_safe_path_token(stage),
+            cache_key=cache_key,
+        )
+    )
+    card_path = (cache_dir / relative).resolve()
+    card_path.relative_to(PROJECT_ROOT.resolve())
+    return card_path
+
+
+def _rag_generated_card_record(
+    *,
+    card_path: Path,
+    stage: str,
+    tags: list[str],
+    query: str,
+    cache_key: str,
+    cache_status: str,
+    max_chars_per_asset: int,
+    rag_config: dict[str, Any],
+) -> dict[str, Any]:
+    materialization = rag_config.get("materialization") if isinstance(rag_config.get("materialization"), dict) else {}
+    record = _source_payload(card_path, max_chars_per_asset)
+    record.update(
+        {
+            "source": "lightrag_generated_knowledge_card",
+            "rag_generated": True,
+            "stage": stage,
+            "role": str(materialization.get("role") or "supporting_knowledge"),
+            "tags_used": list(tags),
+            "query": query,
+            "cache_key": cache_key,
+            "cache_status": cache_status,
+        }
+    )
+    return record
+
+
+def _write_rag_generated_card_manifest(
+    *,
+    rag_config: dict[str, Any],
+    family_id: str,
+    stage: str,
+    tags: list[str],
+    cache_key: str,
+    card_path: Path,
+    query: str,
+    working_dir: Path,
+    mode: str,
+    top_k: int,
+    max_content_chars: int,
+    only_need_context: bool,
+    response_type: str,
+) -> None:
+    materialization = rag_config.get("materialization") if isinstance(rag_config.get("materialization"), dict) else {}
+    cache_dir = _project_path(materialization.get("cache_dir") or "knowledge/rag_generated_cards")
+    family_dir = cache_dir / _safe_path_token(family_id)
+    manifest_path = family_dir / str(materialization.get("manifest") or "manifest.json")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+    else:
+        manifest = {"schema_version": 1, "family_id": family_id, "cards": []}
+    relative_card = card_path.resolve().relative_to(PROJECT_ROOT.resolve()).as_posix()
+    entry = {
+        "cache_key": cache_key,
+        "family_id": family_id,
+        "stage": stage,
+        "tags": sorted(_unique_strings(tags)),
+        "path": relative_card,
+        "query_hash": _hash_text(query),
+        "working_dir": _project_relative_or_absolute(working_dir),
+        "mode": mode,
+        "top_k": top_k,
+        "max_content_chars": max_content_chars,
+        "only_need_context": only_need_context,
+        "response_type": response_type,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    cards = [
+        item
+        for item in manifest.get("cards") or []
+        if not (
+            isinstance(item, dict)
+            and item.get("cache_key") == cache_key
+            and item.get("stage") == stage
+        )
+    ]
+    manifest["cards"] = [*cards, entry]
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _render_lightrag_generated_card(
+    *,
+    problem_family: str,
+    stage: str,
+    working_dir: Path,
+    mode: str,
+    top_k: int,
+    cache_key: str,
+    only_need_context: bool,
+    response_type: str,
+    semantic_knowledge: dict[str, Any],
+) -> str:
+    tags = ", ".join(str(item) for item in semantic_knowledge.get("tags_used") or [])
+    return (
+        "# LightRAG Generated Knowledge Card\n\n"
+        f"- Problem family: {problem_family}\n"
+        f"- Stage: {stage}\n"
+        f"- Source: LightRAG\n"
+        f"- Working dir: {working_dir}\n"
+        f"- Query mode: {mode}\n"
+        f"- Top k: {top_k}\n"
+        f"- LightRAG answer mode: {'context-only' if only_need_context else 'llm-synthesized'}\n"
+        f"- Response type: {response_type}\n"
+        f"- Cache key: {cache_key}\n"
+        f"- Created at: {datetime.now(timezone.utc).isoformat()}\n"
+        f"- Tags: {tags}\n\n"
+        "## Query\n\n"
+        f"{semantic_knowledge.get('query') or ''}\n\n"
+        "## Retrieved Knowledge\n\n"
+        f"{semantic_knowledge.get('content') or ''}\n"
+    )
+
+
+def _project_relative_or_absolute(path: Path) -> str:
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(PROJECT_ROOT.resolve()).as_posix()
+    except ValueError:
+        return str(resolved)
+
+
+def _safe_path_token(value: str) -> str:
+    token = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value).strip().lower()).strip("._")
+    if not token:
+        raise ValueError("RAG generated card path token is empty")
+    return token
+
+
+def _project_path(value: Any) -> Path:
+    path = Path(str(value))
+    if path.is_absolute():
+        return path
+    return (PROJECT_ROOT / path).resolve()
+
+
+def _positive_int(value: Any, *, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
 
 
 def _unique_strings(values: list[str]) -> list[str]:
@@ -1283,6 +1729,68 @@ def _compact_project_intake(manifest: dict[str, Any]) -> dict[str, Any]:
         "risk_flags": manifest.get("risk_flags") or [],
         "context_index": context_index,
     }
+
+
+def _effective_problem_family(problem_family: str, *, active_features: list[str]) -> str:
+    """Pick the domain pack that matches the active variant while preserving Core IO."""
+
+    normalized = str(problem_family or "").strip().lower().replace("-", "_").replace(" ", "_")
+    features = {str(item).strip().lower() for item in active_features if str(item).strip()}
+    if features & {
+        "fjsp_distributed_transfer",
+        "distributed_fjsp",
+        "dfjspt",
+        "distributed_factories",
+        "factory_assignment",
+        "factory_machine_assignment",
+        "transfer_time",
+        "transportation_constraints",
+        "distributed_decoder",
+        "factory_workload",
+        "energy_consumption",
+        "distributed_transfer",
+    }:
+        return "fjsp_distributed_transfer"
+    if features & {
+        "fjsp_machine_availability",
+        "machine_availability",
+        "machine_calendar",
+        "maintenance",
+        "maintenance_window",
+    }:
+        return "fjsp_machine_availability"
+    if features & {
+        "fjsp_job_priority",
+        "fjsp_priority",
+        "job_priority",
+        "priority_jobs",
+        "priority_completion_time",
+    }:
+        return "fjsp_job_priority"
+    if normalized in {
+        "fjsp_distributed_transfer",
+        "distributed_fjsp",
+        "dfjspt",
+        "distributed_factories",
+        "distributed_fjsp_with_transfers",
+    }:
+        return "fjsp_distributed_transfer"
+    if normalized in {
+        "fjsp_machine_availability",
+        "fjsp_nfa",
+        "nfa_fjsp",
+        "machine_availability_fjsp",
+    }:
+        return "fjsp_machine_availability"
+    if normalized in {
+        "fjsp_job_priority",
+        "fjsp_priority",
+        "priority_fjsp",
+        "fjspjp",
+        "job_priority_fjsp",
+    }:
+        return "fjsp_job_priority"
+    return problem_family
 
 
 def _hash_text(text: str) -> str:

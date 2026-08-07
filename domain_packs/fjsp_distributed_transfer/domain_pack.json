@@ -1,0 +1,696 @@
+{
+  "schema_version": 1,
+  "family_id": "fjsp_distributed_transfer",
+  "aliases": [
+    "DFJSPT",
+    "dfjspt",
+    "distributed_fjsp",
+    "fjsp_distributed",
+    "distributed_flexible_job_shop",
+    "fjsp_with_transfers",
+    "distributed_fjsp_with_transfers"
+  ],
+  "capability": {
+    "display_name": "分布式可转移柔性作业车间调度",
+    "description": "在标准 FJSP 工序优先、候选加工资源和机器容量约束基础上，增加多个工厂、工厂内独立机器编号、同工件相邻工序跨厂或同厂异机转移时间，以及加工和转移能耗指标。",
+    "supported_variants": [
+      "fjsp_distributed_transfer",
+      "dfjspt",
+      "distributed_fjsp",
+      "distributed_fjsp_with_transfers",
+      "energy_aware_distributed_fjsp"
+    ],
+    "canonical_objectives": [
+      {
+        "name": "makespan",
+        "direction": "minimize",
+        "priority": 1
+      },
+      {
+        "name": "max_factory_workload",
+        "direction": "minimize",
+        "priority": 2,
+        "optional": true
+      },
+      {
+        "name": "total_energy_consumption",
+        "direction": "minimize",
+        "priority": 3,
+        "optional": true
+      },
+      {
+        "name": "runtime_seconds",
+        "direction": "minimize",
+        "priority": 4,
+        "optional": true
+      }
+    ],
+    "io_contract_notes": [
+      "实例不是标准 FJSP 纯整数前缀；前 5 行为文本元数据，依次给出源算例、工件数、工厂数、每工厂最大机器数和每工序每工厂候选机器数范围。",
+      "元数据之后每个工件一行；每行先给出 operation_count，每道工序先给出 candidate_count，再给出所有候选加工资源。",
+      "每个候选加工资源包含 factory_id、machine_id、processing_time、unit_energy；当同一工厂连续列出候选机器时，后续候选可省略 factory_id。",
+      "输入中的 factory_id 和 machine_id 为 1-based；候选 solver 输出 JSON 时必须使用 0-based factory_id 和 machine_id。",
+      "同一工件相邻工序若分配到不同工厂，后继工序必须等待跨厂转移时间 T_F=60；若同厂异机，必须等待同厂转移时间 T_M=30；同厂同机不加额外转移时间。",
+      "解使用 standard_fjsp_schedule_v1 的扩展 JSON，每条工序记录必须提供 job_id、op_id、factory_id、machine_id、start、end。",
+      "本变种不存在 SDST setup matrix，也不存在 NFA 机器不可用窗口；不要把转移时间误建模为同机 setup time 或 maintenance window。"
+    ],
+    "evaluator_invariants": [
+      "在演进求解器代码时，不要修改 examples/fjsp_distributed_transfer_evaluator.py。",
+      "在没有新的且经用户确认的 IO contract 前，不要修改分布式 FJSP parser 或 evaluator 的输入输出语义。",
+      "候选求解器必须读取并使用工厂编号、机器编号、加工时间、单位能耗和转移时间；不能把 DFM 数据强行解释为标准 FJSP 或 SDST/NFA。",
+      "候选解只有同时满足工序覆盖、候选资源合法性、同厂机器容量、工序优先和转移时间约束时才可参与目标比较。",
+      "候选求解器可以自行检查 factory/transfer/energy 指标，但是否晋升仅取决于固定 Core evaluator 输出。"
+    ],
+    "solver_entrypoints": [
+      "examples/agent_generated_fjsp_solver.py"
+    ],
+    "specialization_hooks": [
+      "distributed_fjsp_feature_extraction",
+      "factory_machine_candidate_parser",
+      "factory_assignment_decoder",
+      "transfer_time_aware_insertion",
+      "energy_and_factory_workload_metrics",
+      "rag_backed_method_retrieval",
+      "agent_generated_solver"
+    ],
+    "knowledge_tags": [
+      "fjsp",
+      "dispatch_rules",
+      "critical_path",
+      "critical_block_neighborhood",
+      "machine_reassignment",
+      "tabu_search",
+      "distributed_fjsp",
+      "dfjspt",
+      "factory_assignment",
+      "factory_machine_assignment",
+      "transfer_time",
+      "transportation_constraints",
+      "same_factory_transfer",
+      "cross_factory_transfer",
+      "distributed_decoder",
+      "factory_workload",
+      "energy_consumption",
+      "energy_aware_scheduling",
+      "memetic_search"
+    ]
+  },
+  "agent_generated_baseline": {
+    "preserve_paths": [
+      "harness_agent/__init__.py",
+      "harness_agent/domains/__init__.py",
+      "harness_agent/domains/io.py",
+      "harness_agent/core/__init__.py",
+      "harness_agent/core/bounds.py",
+      "examples/standard_fjsp_evaluator.py",
+      "examples/fjsp_distributed_transfer_evaluator.py"
+    ],
+    "hidden_reference_paths": []
+  },
+  "method_families": [
+    {
+      "family_id": "constructive_search",
+      "title": "转移时间感知的分布式构造式多起点搜索",
+      "description": "在标准 FJSP 构造规则基础上，同时选择工厂、机器和 ready operation，并在最早开工时间传播中加入同厂异机或跨厂转移时间。",
+      "query_tags": [
+        "construction",
+        "constructive_search",
+        "beam_search",
+        "idle_gap",
+        "critical_dispatch",
+        "initialization",
+        "multi_start",
+        "load_balance",
+        "decoder",
+        "distributed_fjsp",
+        "factory_assignment",
+        "factory_machine_assignment",
+        "transfer_time",
+        "transportation_constraints",
+        "distributed_decoder"
+      ],
+      "required_features": [],
+      "excluded_features": [
+        "sequence_dependent_setup",
+        "machine_availability"
+      ],
+      "incompatible_with": [],
+      "default_priority": 115
+    },
+    {
+      "family_id": "coupled_local_search",
+      "title": "工厂-机器-顺序耦合局部搜索",
+      "description": "围绕合法分布式解码器，联合尝试换厂、换机、重插入、关键块顺序移动和负载再平衡，并用固定 evaluator 验证转移时间合法。",
+      "query_tags": [
+        "assignment_aware_local_search",
+        "assignment_search",
+        "machine_reassignment",
+        "critical_path",
+        "critical_block",
+        "local_search",
+        "tabu_search",
+        "ils",
+        "adaptive_weight",
+        "distributed_fjsp",
+        "factory_assignment",
+        "transfer_time",
+        "factory_workload",
+        "energy_consumption"
+      ],
+      "required_features": [],
+      "excluded_features": [
+        "sequence_dependent_setup",
+        "machine_availability"
+      ],
+      "incompatible_with": [],
+      "default_priority": 105
+    },
+    {
+      "family_id": "population_memetic",
+      "title": "分布式 FJSP 种群与模因搜索",
+      "description": "维护多个 factory/machine/order 盆地，通过交叉、变异和局部精修探索工厂分配、机器分配和工序顺序，并保留能耗与工厂负载指标。",
+      "query_tags": [
+        "population",
+        "genetic",
+        "memetic",
+        "diversity",
+        "hybrid",
+        "distributed_fjsp",
+        "dfjspt",
+        "factory_assignment",
+        "transfer_time",
+        "energy_aware_scheduling",
+        "memetic_search"
+      ],
+      "required_features": [],
+      "excluded_features": [
+        "sequence_dependent_setup",
+        "machine_availability"
+      ],
+      "incompatible_with": [],
+      "default_priority": 95
+    },
+    {
+      "family_id": "exact_hybrid",
+      "title": "分布式 FJSP 精确与启发式-精确混合搜索",
+      "description": "围绕合法启发式入口，使用 CP-SAT 或有界信赖域修复少量工厂、机器、顺序或时间变量，并显式表达转移时间和机器容量约束。",
+      "query_tags": [
+        "cp_sat",
+        "exact_method",
+        "trust_region",
+        "hybrid",
+        "distributed_fjsp",
+        "factory_assignment",
+        "transfer_time",
+        "factory_workload"
+      ],
+      "required_features": [],
+      "excluded_features": [
+        "sequence_dependent_setup",
+        "machine_availability"
+      ],
+      "incompatible_with": [],
+      "default_priority": 70
+    }
+  ],
+  "worker_implementation_skills": [
+    {
+      "skill_id": "fjsp-experiment-design-worker",
+      "title": "FJSP worker 实验执行",
+      "description": "在已编译的 WorkerAssignment 约束下进行有界插桩、激活检查、试运行和证据报告。",
+      "source_path": ".codex/skills/fjsp-experiment-design-worker",
+      "method_families": [],
+      "activation_tags": [
+        "instrumentation",
+        "activation_checks",
+        "experiment"
+      ],
+      "required_features": [],
+      "excluded_features": [],
+      "default_priority": 900,
+      "always_include": true
+    },
+    {
+      "skill_id": "fjsp-solver-foundation-worker",
+      "title": "FJSP 独立求解器基础",
+      "description": "共享的解析器、表示、合法性、解码器、截止时间与当前最优解实现不变量；DFJSPT 任务中必须把工厂、机器、转移时间和能耗作为 active variant datum 进入解析、解码和自检证据。",
+      "source_path": ".codex/skills/fjsp-solver-foundation-worker",
+      "method_families": [],
+      "activation_tags": [
+        "decoder",
+        "agent_generated_solver",
+        "distributed_fjsp",
+        "factory_assignment",
+        "transfer_time",
+        "distributed_decoder"
+      ],
+      "required_features": [],
+      "excluded_features": [],
+      "default_priority": 1000,
+      "always_include": true
+    },
+    {
+      "skill_id": "fjsp-constructive-search-worker",
+      "title": "FJSP 构造搜索实现",
+      "description": "面向多规则构造、空闲间隙插入、Beam 和结构多样性的实现指导；DFJSPT 任务中必须将工厂选择和转移等待放进 candidate scoring。",
+      "source_path": ".codex/skills/fjsp-constructive-search-worker",
+      "method_families": [
+        "constructive_search"
+      ],
+      "activation_tags": [
+        "construction",
+        "constructive_search",
+        "beam_search",
+        "idle_gap",
+        "critical_dispatch",
+        "initialization",
+        "multi_start",
+        "load_balance",
+        "distributed_fjsp",
+        "factory_assignment",
+        "factory_machine_assignment",
+        "transfer_time",
+        "transportation_constraints"
+      ],
+      "required_features": [],
+      "excluded_features": [
+        "sequence_dependent_setup",
+        "machine_availability"
+      ],
+      "default_priority": 315,
+      "always_include": false
+    },
+    {
+      "skill_id": "fjsp-coupled-local-search-worker",
+      "title": "FJSP 耦合局部搜索实现",
+      "description": "面向考虑分配的顺序移动、关键结构和迭代 VND/ILS/Tabu 闭环的实现指导；DFJSPT 任务中 move 评估必须重解码同工件转移等待和工厂机器容量。",
+      "source_path": ".codex/skills/fjsp-coupled-local-search-worker",
+      "method_families": [
+        "coupled_local_search"
+      ],
+      "activation_tags": [
+        "assignment_aware_local_search",
+        "assignment_search",
+        "machine_reassignment",
+        "critical_path",
+        "critical_block",
+        "local_search",
+        "tabu_search",
+        "ils",
+        "adaptive_weight",
+        "distributed_fjsp",
+        "factory_assignment",
+        "transfer_time",
+        "factory_workload"
+      ],
+      "required_features": [],
+      "excluded_features": [
+        "sequence_dependent_setup",
+        "machine_availability"
+      ],
+      "default_priority": 305,
+      "always_include": false
+    },
+    {
+      "skill_id": "fjsp-population-memetic-worker",
+      "title": "FJSP 种群-模因实现",
+      "description": "面向合法种群编码、多样性、交叉、变异和模因式精修的实现指导；DFJSPT 任务中 chromosome/state 必须同时编码工厂、机器和顺序。",
+      "source_path": ".codex/skills/fjsp-population-memetic-worker",
+      "method_families": [
+        "population_memetic"
+      ],
+      "activation_tags": [
+        "population",
+        "genetic",
+        "memetic",
+        "diversity",
+        "hybrid",
+        "distributed_fjsp",
+        "factory_assignment",
+        "energy_aware_scheduling",
+        "memetic_search"
+      ],
+      "required_features": [],
+      "excluded_features": [
+        "sequence_dependent_setup",
+        "machine_availability"
+      ],
+      "default_priority": 295,
+      "always_include": false
+    },
+    {
+      "skill_id": "fjsp-exact-hybrid-worker",
+      "title": "FJSP 精确混合实现",
+      "description": "面向 CP-SAT、信赖域、探测以及启发式-精确预算组合的实现指导；DFJSPT 任务中必须显式表达工厂选择、机器容量和转移时间。",
+      "source_path": ".codex/skills/fjsp-exact-hybrid-worker",
+      "method_families": [
+        "exact_hybrid"
+      ],
+      "activation_tags": [
+        "cp_sat",
+        "exact_method",
+        "trust_region",
+        "hybrid",
+        "distributed_fjsp",
+        "factory_assignment",
+        "transfer_time"
+      ],
+      "required_features": [],
+      "excluded_features": [
+        "sequence_dependent_setup",
+        "machine_availability"
+      ],
+      "default_priority": 280,
+      "always_include": false
+    }
+  ],
+  "method_packages": [],
+  "semantic_review": {
+    "cards": [
+      "knowledge/references/standard_fjsp/standard_fjsp_algorithm_semantic_review_contract.md"
+    ]
+  },
+  "knowledge": {
+    "base_cards": [
+      "knowledge/benchmarks/standard_fjsp_format.md",
+      "knowledge/principles/harness_agent_design.md",
+      "knowledge/principles/fjsp_variant_domain_pack_rag.md"
+    ],
+    "selection_cards": {
+      "strategy": [
+        "knowledge/references/general_fjsp/fjsp_instance_feature_method_router.md",
+        "knowledge/references/general_fjsp/fjsp_method_selection_zh.md",
+        "knowledge/references/general_fjsp/fjsp_scene_survey_2025_10_17.md",
+        "knowledge/principles/fjsp_variant_domain_pack_rag.md"
+      ],
+      "direction": [
+        "knowledge/references/general_fjsp/fjsp_instance_feature_method_router.md",
+        "knowledge/references/general_fjsp/fjsp_method_selection_zh.md",
+        "knowledge/principles/fjsp_variant_domain_pack_rag.md"
+      ]
+    },
+    "knowledge_query": {
+      "default_limit": 6,
+      "tag_descriptions": {
+        "construction": "从零建立稳定合法 baseline 的构造规则与状态闭环。",
+        "constructive_search": "在构造过程中用有界多状态搜索联合决定 ready operation、工厂、机器和顺序。",
+        "beam_search": "用状态下界、结构去重和宽度上限保留多个部分排程。",
+        "idle_gap": "在每个工厂-机器已有区间中寻找最早可行空隙。",
+        "critical_dispatch": "结合剩余工作量、转移等待、工厂负载和机器空闲压力选择下一道 ready operation。",
+        "initialization": "多起点、负载感知、工厂分配感知和可复现初解。",
+        "decoder": "factory assignment、machine assignment 加机器序列的完整可行解码，并传播同工件转移时间。",
+        "multi_start": "通过工厂分配、机器分配和工序顺序结构指纹保持多个不同入口。",
+        "load_balance": "诊断和改善最大工厂负载、机器负载集中与跨厂转移等待。",
+        "critical_path": "从当前解提取关键路径、紧弧和由转移等待造成的关键延迟。",
+        "critical_block": "围绕关键工厂-机器块生成顺序邻域，并通过分布式转移时间重解码。",
+        "local_search": "有界局部改进与接受控制。",
+        "tabu_search": "禁忌属性、逆移动、特赦和全局 best。",
+        "ils": "局部搜索、扰动和重启的迭代闭环。",
+        "machine_reassignment": "柔性工序换机或换厂，并重新插入对应工厂-机器序列。",
+        "assignment_search": "工厂与机器分配空间中的加工时间、转移时间、能耗和负载权衡。",
+        "assignment_aware_local_search": "联合换厂、换机、插入和关键块排序，并保持 transfer-aware timing。",
+        "adaptive_weight": "基于搜索历史、工厂负载和转移等待改变可达 move 评分。",
+        "cp_sat": "完整 CP-SAT 模型或局部精确修复。",
+        "exact_method": "精确建模、界和求解状态处理。",
+        "trust_region": "只释放少量关键工厂、机器、顺序或时间变量。",
+        "population": "保持多个 factory/machine/order 盆地的群体搜索。",
+        "genetic": "分布式 FJSP 多层编码、交叉和变异。",
+        "memetic": "群体探索与受控局部改进结合。",
+        "diversity": "结构去重、距离和停滞重启。",
+        "hybrid": "构造、局部搜索、群体或精确方法的职责清晰组合。",
+        "distributed_fjsp": "存在多个工厂，每个工厂拥有独立机器集合，工序需同时决定工厂和机器。",
+        "dfjspt": "Distributed Flexible Job-Shop Scheduling Problem with Transfers。",
+        "factory_assignment": "为每道工序选择加工工厂，并评估对转移时间、工厂负载和 makespan 的影响。",
+        "factory_machine_assignment": "工厂编号与机器编号共同定义加工资源；机器编号在每个工厂内部独立。",
+        "transfer_time": "同工件相邻工序因同厂异机或跨厂产生的固定转移等待。",
+        "transportation_constraints": "调度时间传播中必须满足运输或转移时间约束。",
+        "same_factory_transfer": "同一工厂不同机器之间的转移时间 T_M=30。",
+        "cross_factory_transfer": "不同工厂之间的转移时间 T_F=60。",
+        "distributed_decoder": "解码器在计算最早开工时间时同时考虑工序前驱、转移等待和工厂-机器容量。",
+        "factory_workload": "按工厂累积加工负载，并最小化或观察最大工厂负载。",
+        "energy_consumption": "加工能耗与转移能耗之和。",
+        "energy_aware_scheduling": "将单位加工能耗、转移能耗和 makespan/负载共同纳入候选评分。",
+        "memetic_search": "面向 DFJSPT 的 memetic algorithm：群体编码、交叉变异、局部搜索和学习/知识迁移机制。",
+        "workload_balancing": "在多个工厂之间平衡加工负载、转移等待和 makespan 压力。"
+      },
+      "exclude_path_markers": [
+        "fjsp-awls-sdst-adapter",
+        "awls_sdst",
+        "sdst",
+        "setup_time",
+        "setup_matrix",
+        "fjsp_sdst",
+        "machine_availability",
+        "machine_calendar",
+        "maintenance",
+        "maintenance_window",
+        "nfa",
+        "standard_fjsp_awls_hgtsa",
+        "hgtsa",
+        "standard_fjsp_awls_hgtsa_execution_skeleton.md",
+        "hgtsa_fjsp_n8_k_insertion_blueprint.md",
+        "xiejin_hgtsa_n8_k_insertion_tabu_spec.md",
+        "tabu_search_loop.md"
+      ]
+    },
+    "rag": {
+      "enabled": true,
+      "source": "lightrag",
+      "working_dir": "knowledge/fjsp_kb",
+      "mode": "mix",
+      "top_k": 10,
+      "max_content_chars": 8000,
+      "only_need_context": false,
+      "response_type": "Actionable implementation knowledge card",
+      "materialization": {
+        "kind": "rag_generated_knowledge_card",
+        "cache_dir": "knowledge/rag_generated_cards",
+        "path_template": "{family_id}/{stage}/{stage}_{cache_key}.md",
+        "manifest": "manifest.json",
+        "role": "supporting_knowledge",
+        "refresh_policy": "reuse_by_problem_family_stage_tag_set_and_retrieval_config"
+      },
+      "stages": {
+        "strategy": {
+          "enabled": true,
+          "tags": [
+            "distributed_fjsp",
+            "dfjspt",
+            "factory_assignment",
+            "transfer_time",
+            "transportation_constraints",
+            "energy_aware_scheduling",
+            "factory_machine_assignment",
+            "distributed_decoder",
+            "factory_workload",
+            "workload_balancing",
+            "memetic_search"
+          ],
+          "query_template": "在 Distributed Flexible Job-Shop Scheduling Problem with Transfers、DFJSPT、distributed FJSP、transportation constraints、energy-aware distributed scheduling、memetic algorithm 和 workload balancing 问题中，先检索与以下主题相关的论文证据：{tag_descriptions}。然后基于检索证据生成一张面向 Coding Agent 的可执行知识卡，必须包含：问题语义、DFM 输入格式、工厂-机器候选资源建模、同厂/跨厂转移时间规则、transfer-aware decoder、factory assignment 与 machine assignment 策略、memetic/population search 可借鉴算子、能耗和最大工厂负载/负载均衡指标、常见错误和实现 checklist。重点关注如何从标准 FJSP 迁移到分布式可转移约束。"
+        },
+        "direction": {
+          "enabled": true,
+          "use_selected_knowledge_query": true,
+          "query_template": "针对 Distributed FJSP with Transfers，先检索以下已选方向的论文证据、算法细节、伪代码和实现经验：{tag_descriptions}。然后整理成一张可执行方法卡，必须说明适用场景、核心数据结构、工厂/机器/顺序编码、解码和插入步骤、memetic algorithm 或其他群体/局部混合搜索如何作用于 factory assignment、machine assignment、operation sequence，local-search delta 如何保持转移时间合法，如何评估 makespan、最大工厂负载、workload balancing 和总能耗，以及如何做失败规避。"
+        },
+        "worker": {
+          "enabled": true,
+          "use_selected_knowledge_query": true,
+          "query_template": "为 Coding Worker 编写独立 DFJSPT solver 提供实现依据。先检索以下主题的论文证据和实现经验：{tag_descriptions}。然后输出一张可直接转化为代码的知识卡，覆盖 parser、factory-machine candidate representation、transfer-aware decoder、factory assignment、machine assignment、candidate repair、memetic/local-search delta、energy/workload metrics、workload balancing、evaluator-backed self-check，以及不要把 transfer time 误当 setup time 或 maintenance window 的规避规则。"
+        }
+      },
+      "backed_tags": [
+        "distributed_fjsp",
+        "dfjspt",
+        "factory_assignment",
+        "factory_machine_assignment",
+        "transfer_time",
+        "transportation_constraints",
+        "same_factory_transfer",
+        "cross_factory_transfer",
+        "distributed_decoder",
+        "factory_workload",
+        "energy_consumption",
+        "energy_aware_scheduling",
+        "memetic_search",
+        "workload_balancing"
+      ],
+      "fallback_rule": "If LightRAG is unavailable, keep only global FJSP cards and the confirmed requirement/IO documents; do not silently replace DFJSPT knowledge with SDST, NFA, setup-time, or maintenance-window cards."
+    },
+    "tagged_cards": {
+      "adaptive_weight": [
+        "knowledge/references/general_fjsp/optimization_playbook.md"
+      ],
+      "benchmark": [
+        "knowledge/benchmarks/fjsp_benchmark_scope.md",
+        "knowledge/benchmarks/fjsplib.md"
+      ],
+      "candidate_generation": [
+        "knowledge/references/standard_fjsp/standard_fjsp_agent_generated_reference_skeleton.md",
+        "knowledge/references/standard_fjsp/standard_fjsp_agent_generated_neighborhood_templates.md"
+      ],
+      "construction": [
+        "knowledge/references/standard_fjsp/constructive_multistart_blueprint.md",
+        "knowledge/references/standard_fjsp/high_flexibility_idle_critical_beam_blueprint.md",
+        "knowledge/references/general_fjsp/optimization_playbook.md",
+        "knowledge/references/standard_fjsp/standard_fjsp_agent_generated_reference_skeleton.md"
+      ],
+      "constructive_search": [
+        "knowledge/references/standard_fjsp/high_flexibility_idle_critical_beam_blueprint.md",
+        "knowledge/references/standard_fjsp/constructive_multistart_blueprint.md"
+      ],
+      "beam_search": [
+        "knowledge/references/standard_fjsp/high_flexibility_idle_critical_beam_blueprint.md"
+      ],
+      "idle_gap": [
+        "knowledge/references/standard_fjsp/high_flexibility_idle_critical_beam_blueprint.md"
+      ],
+      "critical_dispatch": [
+        "knowledge/references/standard_fjsp/high_flexibility_idle_critical_beam_blueprint.md"
+      ],
+      "decoder": [
+        "knowledge/references/standard_fjsp/constructive_multistart_blueprint.md",
+        "knowledge/references/general_fjsp/core_pseudocode.md"
+      ],
+      "multi_start": [
+        "knowledge/references/standard_fjsp/constructive_multistart_blueprint.md",
+        "knowledge/references/general_fjsp/optimization_playbook.md"
+      ],
+      "load_balance": [
+        "knowledge/references/standard_fjsp/constructive_multistart_blueprint.md",
+        "knowledge/references/general_fjsp/optimization_playbook.md"
+      ],
+      "cp_sat": [
+        "knowledge/references/standard_fjsp/cp_sat_hybrid_blueprint.md",
+        "knowledge/references/general_fjsp/optimization_playbook.md"
+      ],
+      "exact_method": [
+        "knowledge/references/standard_fjsp/cp_sat_hybrid_blueprint.md",
+        "knowledge/references/general_fjsp/fjsp_scene_survey_2025_10_17.md"
+      ],
+      "trust_region": [
+        "knowledge/references/standard_fjsp/cp_sat_hybrid_blueprint.md",
+        "knowledge/references/general_fjsp/core_pseudocode.md"
+      ],
+      "hybrid": [
+        "knowledge/references/general_fjsp/optimization_playbook.md",
+        "knowledge/references/general_fjsp/fjsp_scene_survey_2025_10_17.md"
+      ],
+      "ils": [
+        "knowledge/references/general_fjsp/optimization_playbook.md"
+      ],
+      "local_search": [
+        "knowledge/references/general_fjsp/optimization_playbook.md",
+        "knowledge/references/standard_fjsp/standard_fjsp_agent_generated_neighborhood_templates.md"
+      ],
+      "population": [
+        "knowledge/references/standard_fjsp/population_memetic_blueprint.md",
+        "knowledge/references/general_fjsp/fjsp_scene_survey_2025_10_17.md"
+      ],
+      "genetic": [
+        "knowledge/references/standard_fjsp/population_memetic_blueprint.md"
+      ],
+      "memetic": [
+        "knowledge/references/standard_fjsp/population_memetic_blueprint.md",
+        "knowledge/references/standard_fjsp/standard_fjsp_agent_generated_neighborhood_templates.md"
+      ],
+      "diversity": [
+        "knowledge/references/standard_fjsp/population_memetic_blueprint.md",
+        "knowledge/references/standard_fjsp/constructive_multistart_blueprint.md"
+      ],
+      "critical_block": [
+        "knowledge/references/standard_fjsp/standard_fjsp_algorithm_semantic_review_contract.md",
+        "knowledge/references/standard_fjsp/standard_fjsp_agent_generated_neighborhood_templates.md",
+        "knowledge/references/standard_fjsp/critical_path_machine_block_neighborhood.md"
+      ],
+      "critical_path": [
+        "knowledge/references/standard_fjsp/standard_fjsp_algorithm_semantic_review_contract.md",
+        "knowledge/references/standard_fjsp/critical_path_machine_block_neighborhood.md"
+      ],
+      "initialization": [
+        "knowledge/references/standard_fjsp/constructive_multistart_blueprint.md",
+        "knowledge/references/standard_fjsp/high_flexibility_idle_critical_beam_blueprint.md",
+        "knowledge/references/general_fjsp/optimization_playbook.md"
+      ],
+      "industrial-variants": [
+        "knowledge/principles/fjsp_variant_domain_pack_rag.md",
+        "knowledge/references/general_fjsp/fjsp_scene_survey_2025_10_17.md"
+      ],
+      "machine_reassignment": [
+        "knowledge/references/standard_fjsp/standard_fjsp_agent_generated_reference_skeleton.md",
+        "knowledge/references/standard_fjsp/operation_machine_reassignment.md"
+      ],
+      "assignment_search": [
+        "knowledge/references/standard_fjsp/operation_machine_reassignment.md",
+        "knowledge/references/standard_fjsp/cp_sat_hybrid_blueprint.md",
+        "knowledge/references/general_fjsp/optimization_playbook.md"
+      ],
+      "assignment_aware_local_search": [
+        "knowledge/references/standard_fjsp/operation_machine_reassignment.md",
+        "knowledge/references/standard_fjsp/critical_path_machine_block_neighborhood.md",
+        "knowledge/references/standard_fjsp/standard_fjsp_algorithm_semantic_review_contract.md"
+      ],
+      "neighborhood": [
+        "knowledge/references/standard_fjsp/standard_fjsp_agent_generated_neighborhood_templates.md"
+      ],
+      "portfolio": [
+        "knowledge/references/general_fjsp/optimization_playbook.md"
+      ],
+      "same_machine": [
+        "knowledge/references/standard_fjsp/critical_path_machine_block_neighborhood.md"
+      ],
+      "agent_generated_solver": [
+        "knowledge/principles/agent_generated_variant_quality_contracts.md",
+        ".codex/skills/fjsp-agent-generated-solver/references/solver_contract.md",
+        "knowledge/references/standard_fjsp/standard_fjsp_agent_generated_reference_skeleton.md"
+      ],
+      "search_control": [
+        "knowledge/references/general_fjsp/optimization_playbook.md"
+      ],
+      "tabu_search": [
+        "knowledge/references/standard_fjsp/standard_fjsp_algorithm_semantic_review_contract.md",
+        "knowledge/references/standard_fjsp/standard_fjsp_agent_generated_neighborhood_templates.md"
+      ],
+      "distributed_fjsp": [
+        "knowledge/principles/fjsp_variant_domain_pack_rag.md"
+      ],
+      "dfjspt": [
+        "knowledge/principles/fjsp_variant_domain_pack_rag.md"
+      ],
+      "factory_assignment": [
+        "knowledge/principles/fjsp_variant_domain_pack_rag.md"
+      ],
+      "factory_machine_assignment": [
+        "knowledge/principles/fjsp_variant_domain_pack_rag.md"
+      ],
+      "transfer_time": [
+        "knowledge/principles/fjsp_variant_domain_pack_rag.md"
+      ],
+      "transportation_constraints": [
+        "knowledge/principles/fjsp_variant_domain_pack_rag.md"
+      ],
+      "same_factory_transfer": [
+        "knowledge/principles/fjsp_variant_domain_pack_rag.md"
+      ],
+      "cross_factory_transfer": [
+        "knowledge/principles/fjsp_variant_domain_pack_rag.md"
+      ],
+      "distributed_decoder": [
+        "knowledge/principles/fjsp_variant_domain_pack_rag.md"
+      ],
+      "factory_workload": [
+        "knowledge/principles/fjsp_variant_domain_pack_rag.md"
+      ],
+      "energy_consumption": [
+        "knowledge/principles/fjsp_variant_domain_pack_rag.md"
+      ],
+      "energy_aware_scheduling": [
+        "knowledge/principles/fjsp_variant_domain_pack_rag.md"
+      ],
+      "memetic_search": [
+        "knowledge/principles/fjsp_variant_domain_pack_rag.md"
+      ]
+    }
+  },
+  "edit_strategies": []
+}

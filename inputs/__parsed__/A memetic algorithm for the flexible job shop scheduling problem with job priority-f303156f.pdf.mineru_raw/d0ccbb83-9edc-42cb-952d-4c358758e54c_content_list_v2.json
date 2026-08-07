@@ -1,0 +1,4970 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "A memetic algorithm for the \u0000exible job shop scheduling problem with job priority"
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                39,
+                106,
+                831,
+                178
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Yu Zheng Central South University"
+                    }
+                ]
+            },
+            "bbox": [
+                39,
+                195,
+                271,
+                239
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Ningtao Peng ningtao_peng@163.com"
+                    }
+                ]
+            },
+            "bbox": [
+                40,
+                242,
+                281,
+                290
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Central South University"
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                314,
+                271,
+                335
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Raymond Chiong University of Newcastle Australia"
+                    }
+                ]
+            },
+            "bbox": [
+                40,
+                339,
+                349,
+                383
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Guiliang Gong Central South University of Forestry and Technology"
+                    }
+                ]
+            },
+            "bbox": [
+                40,
+                385,
+                511,
+                430
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Ao He Central South University of Forestry and Technology"
+                    }
+                ]
+            },
+            "bbox": [
+                39,
+                431,
+                511,
+                477
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Wenhui Lin Hunan University"
+                    }
+                ]
+            },
+            "bbox": [
+                40,
+                478,
+                210,
+                523
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Article"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                40,
+                560,
+                107,
+                582
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Keywords: Flexible job shop scheduling. Job priority. Multi-objective optimization. Memetic algorithm. Local search"
+                    }
+                ]
+            },
+            "bbox": [
+                37,
+                597,
+                926,
+                643
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Posted Date: July 29th, 2025"
+                    }
+                ]
+            },
+            "bbox": [
+                39,
+                659,
+                299,
+                681
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "DOI: https://doi.org/10.21203/rs.3.rs-7126761/v1"
+                    }
+                ]
+            },
+            "bbox": [
+                37,
+                696,
+                477,
+                720
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "License:   This work is licensed under a Creative Commons Attribution 4.0 International License. Read Full License"
+                    }
+                ]
+            },
+            "bbox": [
+                37,
+                733,
+                916,
+                780
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Additional Declarations: No competing interests reported."
+                    }
+                ]
+            },
+            "bbox": [
+                37,
+                794,
+                547,
+                819
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Research Square"
+                    }
+                ]
+            },
+            "bbox": [
+                117,
+                60,
+                380,
+                93
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Preprints are preliminary reports that have not undergone peer review. They should not be considered conclusive, used to inform clinical practice, or referenced by the media as validated information."
+                    }
+                ]
+            },
+            "bbox": [
+                447,
+                55,
+                887,
+                95
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "A memetic algorithm for the flexible job shop scheduling problem with job priority"
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                65,
+                36,
+                954,
+                105
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Yu Zheng <sup>a</sup>, Ningtao Peng <sup>a,</sup> *, Raymond Chiong <sup>b</sup>, Guiliang Gong <sup>c,</sup> <sup>d</sup>, Ao He <sup>c</sup>, Wenhui Lin <sup>d</sup>"
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                141,
+                737,
+                158
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>a</sup> The State Key Laboratory of Precision Manufacturing for Extreme Service Performance, College of Mechanical and Electrical Engineering, Central South University, Changsha, 410073, China;"
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                187,
+                956,
+                223
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>b</sup> School of Electrical Engineering and Computing, The University of Newcastle, Callaghan, NSW 2308, Australia"
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                240,
+                885,
+                256
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>c</sup> College of Mechanical and Intelligent Manufacturing, Central South University of Forestry and Technology, Changsha 410004, China"
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                273,
+                954,
+                306
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>d</sup> State Key Laboratory of Advanced Design and Manufacturing for Vehicle Body, Hunan University, Changsha 410082, China."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                323,
+                952,
+                341
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "* Corresponding author. Email: ningtao_peng@163.com"
+                    }
+                ]
+            },
+            "bbox": [
+                67,
+                361,
+                478,
+                378
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Abstract: For the flexible job shop scheduling problem, previous research has focused predominantly on operation and machine related constraints, while assuming that the jobs have no constraints. In real-world manufacturing systems, however, production scheduling with job priority is very common and is of concern to production managers. The purpose of this research is to present a multi-objective flexible job shop scheduling problem with job priority (MO-FJSPJP), aiming to minimize the makespan, total tardiness and completion time of priority jobs simultaneously. A new memetic algorithm (MA) is designed to solve the proposed MO-FJSPJP. In the proposed MA, a well-designed new chromosome encoding method (NCEM) is constructed to obtain a good initial population. A new effective local search approach (LSA) is proposed to improve the MA’s convergence speed and fully exploit its solution space. Computational experiments conducted confirm the effectiveness of the NCEM and LSA, and show that the MA is able to easily obtain better solutions for about 90% of the tested 88 challenging problem instances compared to two other well known algorithms, demonstrating its superior performance on both solution quality and computationa efficiency. The proposed MO-FJSPJP is expected to be useful for production managers in considering job priority when scheduling their operations, and the proposed MA is effective in solving this MO-FJSPJP."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                414,
+                957,
+                676
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Keyword: Flexible job shop scheduling. Job priority. Multi-objective optimization. Memetic algorithm. Local search"
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                693,
+                954,
+                728
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1. Introduction"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                67,
+                752,
+                223,
+                770
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The flexible job shop scheduling problem (FJSP) (Brucker and Schlie, 1990), which is a generalization of the job shop scheduling problem, entails assigning every operation to a set of machines obeying the constraint that operations of each job must be processed by a predefined sequence. In recent decades, the FJSP has attracted much attention from researchers because of its practical relevance and significance for managers to make production decisions in manufacturing systems (Birgin et al., 2015; Chen et al., 2012; Gao et al., 2015a; Kaplanoglu, 2016; Li et al., 2017; Piroozfard et al., 2018; Reddy et al., 2018; Shen et al., 2018; Zandieh et al., 2017; Zeng et al., 2019). Different researchers have extended the problem in different ways. For example, Rossi and Dini (2007) studied a FJSP with sequence-depended setup time and solved it using an ant colony algorithm. Wang and Yu (2010) considered a FJSP considering machine maintenance, during which some machines may become unavailable. Their objectives were to minimize the makespan, the total workload of machines, and the workload of the most loaded machine. Li and Pan (2012) also investigated the FJSP with machine maintenance, and proposed a discrete chemical-reaction optnimization algorithm to simultaneously minimize the maximum completion time, the total workload of machines, and the workload of their critical machine."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                791,
+                957,
+                959
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                505,
+                971,
+                515,
+                982
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                63,
+                34,
+                956,
+                126
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Other researchers have considered special releasing characteristics and manufacturing styles of jobs. For example, Demir and Isleyen (2014) studied a FJSP with overlaps in operations, in which the entire lot is divided into several sub-lots for transportation between processes. They proposed an effective genetic algorithm to solve this problem. Birgin et al. (2015) considered an extension of the FJSP in which the precedence between operations is given by an arbitrary directed acyclic graph, i.e., some parallel operations are available. Extensions of the FJSP with non-static processing time have been examined too. For example, Gao et al. (2015b) studied a FJSP with fuzzy processing time and developed a discrete harmony search algorithm for it. Two recent studies by Gao et al. (2016a); Gao et al. (2016b) investigated the multi-objective flexible job shop scheduling problem (MO-FJSP) with fuzzy processing time as well as new job insertion, respectively. Lu et al. (2017) further investigated the MO-FJSP with controllable processing time and designed a discrete virus optimization algorithm to solve it."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                127,
+                957,
+                330
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Taking human factors into account, Zheng and Wang (2016) proposed an extension of the FJSP considering worker assignments. Gong et al. (2017) presented a nonlinear integer programming model for the MO-FJSP with worker flexibility (MO-FJSPW), and developed a memetic algorithm (MA) to solve the proposed MO-FJSPW with the objectives of minimizing the maximum completion time, the maximum workload of machines and the total workload of all machines. Devassia et al. (2018) addressed the FJSP with resource recovery constraints. Most recently, Gong et al. (2018) studied a double FJSP in which both workers and machines are flexible and the objectives include processing time, green production and human factor indicators."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                331,
+                957,
+                478
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "From the above, we take note of two observations: (1) most of the extended FJSPs are formulated by incorporating some important elements in scheduling systems, including the processing time, machine, job, worker, and so on; by adding these key elements, the FJSP model is more in line with a realistic production environment; and (2) much of the research on FJSPs assumed that jobs have no constraints, i.e., job priority is not considered. In real manufacturing systems, production scheduling with job priority is very common and is of concern to production managers. Let us consider an illustrative example using two solutions for MK01, a benchmark instance from Brandimarte (1993). In Figs. 1(a) and (b), we see that the makespan of these two solutions is the same (equal to 42), and the completion times of jobs 1-10 in solution 1 are 21, 18, 22, 24, 40, 34, 32, 42, 42, 30, respectively, while those in solution 2 are 24, 22, 19, 24, 42, 40, 33, 42, 42, 33, respectively. According to the preference of a production manager, the evaluation results of these two solutions can be completely different. If the production manager only cares about the makespan, the two solutions are the same; if the production manager is concerned about the priority of jobs 4, 8 and 9, the two solutions are also the same; if the production manager is concerned about the priority of jobs 1, 2, 5, 6, 7 and 10, solution 1 is better than solution 2; if the production manager is concerned about the priority of job 3, solution 2 is better than solution 1. However, if the production manager is concerned about the makespan as well as the priority of jobs 4, 1 and 3, there is no feasible solution. It is hence clear that effective methods for solving this FJSP with job priority (FJSPJP) are needed."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                479,
+                957,
+                795
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                504,
+                971,
+                517,
+                982
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/9758f7bbd3b214c0d2d60f73e80d7203bfa5c8ee24e78c7d81a839ee5632c3bf.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "(a) Solution 1 of MK01"
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                164,
+                43,
+                855,
+                212
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/157ce2f8b475ce1a9a02b0eec5e4948129e36e70b4163a8a0797c68557a970f0.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "(b) Solution 2 of MK01"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Fig. 1. Two solutions for MK01."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                161,
+                250,
+                857,
+                422
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this paper, a multi-objective formulation of the FJSPJP (MO-FJSPJP) is proposed, in which we aim to minimize the makespan, total tardiness, and completion time of priority jobs. To the best of our knowledge, this is the very first time job priority has been examined in the relevant literature. MAs, which hybridize evolutionary algorithms with local search (Chiong et al., 2012; Kannan and Ramaraj, 2010), have shown promising performance for solving multi-objective FJSPs (Frutos et al., 2010; Gong et al., 2017; Wenchao et al., 2016; Yuan and Xu, 2013; Yuan and Xu, 2015). Motivated by this, we present a new MA to solve our proposed MO-FJSPJP. In the new MA, a well-designed chromosome encoding operator (NCEM) is constructed by sufficiently making use of the information and structure of the MO-FJSPJP to obtain a highquality initial population. An effective local search approach (LSA) is proposed and integrated into the MA to improve its convergence speed and fully exploit its solution space. Comprehensive computational experiments using up to 88 benchmark instances from the literature confirm the effectiveness of the proposed MA and its component (i.e., the NCEM and LSA)."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                482,
+                956,
+                703
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The rest of this paper is organized as follows. In Section 2, the mathematical model of the proposed MO-FJSPJP is described. In Section 3, details of our proposed MA are presented. Experimental studies and discussions are presented in Section 4. Finally, we draw conclusion in Section 5."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                703,
+                954,
+                759
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2. The mathematic model of the proposed FJSPJP"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                65,
+                780,
+                576,
+                799
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The FJSPJP is defined as follows. There are a set of n jobs "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "J = \\{ J _ { I } , J _ { 2 } , . . . , J _ { n } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", a set of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "n ^ { \\prime }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "jobs "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "J ^ { \\prime } { = } \\{ J ^ { \\prime } { _ { I } } , J ^ { \\prime } { _ { 2 } }"
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": ", . . . , J _ { n } ^ { \\prime } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "with priority, and a set of m machines "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "M = \\left\\{ \\begin{array} { r l r } { { M _ { I } , M _ { 2 } , . . . , M _ { m } } } \\end{array} \\right\\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". A job i has a sequence of j operations "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ O _ { i l } , ~ O _ { i 2 } , . . . , O _ { i j } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", which should be processed one after another obeying the operation constraints. Each operation "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "O _ { i j }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(the jth operation of job i) should be processed by a machine chosen from the machine set M. The scheduling consists of two sub-problems: (1) assigning each operation to a machine among an available machine set, and (2) sequencing the assigned operations (Kacem et al., 2002a; Xia and Wu, 2005)."
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                820,
+                956,
+                932
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                504,
+                971,
+                517,
+                982
+            ]
+        }
+    ],
+    [
+        {
+            "type": "algorithm",
+            "content": {
+                "algorithm_caption": [],
+                "algorithm_content": [
+                    {
+                        "type": "equation_inline",
+                        "content": "X_{ijk}(X_{hgk}) = \\begin{cases} 1, & \\text{if machine } k \\text{ is selected for operation } O_{ij}(O_{hg}) \\\\ 0, & \\text{otherwise} \\end{cases}"
+                    }
+                ]
+            },
+            "bbox": [
+                238,
+                802,
+                794,
+                837
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "One classical 4×5 FJSP is shown in Table 1. In this paper, we aim to minimize the following three objectives:"
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                34,
+                954,
+                68
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "⚫ Minimizing the maximal completion time of machines (makespan) (f<sub>1</sub>)."
+                    }
+                ]
+            },
+            "bbox": [
+                95,
+                70,
+                712,
+                89
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "⚫ Minimizing the total tardiness of all jobs (f<sub>2</sub>)."
+                    }
+                ]
+            },
+            "bbox": [
+                95,
+                90,
+                502,
+                107
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "⚫ Minimizing the maximal completion time of priority jobs (f<sub>3</sub>)."
+                    }
+                ]
+            },
+            "bbox": [
+                95,
+                108,
+                636,
+                126
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Some assumptions are made:"
+                    }
+                ]
+            },
+            "bbox": [
+                95,
+                127,
+                339,
+                143
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "⚫ An operation cannot be interrupted after it has started."
+                    }
+                ]
+            },
+            "bbox": [
+                95,
+                145,
+                574,
+                161
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "⚫ Each machine can process at most an operation at any time."
+                    }
+                ]
+            },
+            "bbox": [
+                95,
+                164,
+                620,
+                181
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "⚫ Each operation can be processed only once on only one machine."
+                    }
+                ]
+            },
+            "bbox": [
+                95,
+                181,
+                663,
+                200
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "⚫ Jobs are independent from each other."
+                    }
+                ]
+            },
+            "bbox": [
+                95,
+                200,
+                445,
+                217
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "⚫ Machines are independent from each other."
+                    }
+                ]
+            },
+            "bbox": [
+                95,
+                219,
+                487,
+                236
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "⚫ An operation cannot be processed until its preceding operations are completed."
+                    }
+                ]
+            },
+            "bbox": [
+                95,
+                237,
+                774,
+                255
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "⚫ Moving time between operations and setting up time of machines are negligible."
+                    }
+                ]
+            },
+            "bbox": [
+                95,
+                256,
+                786,
+                273
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "⚫ The processing time corresponding to the jobs, operations and machines are predefined."
+                    }
+                ]
+            },
+            "bbox": [
+                95,
+                274,
+                845,
+                293
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/060748a6571b117dbc17aa19bd76e68697287993dc2b68b192923e4e4509248c.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "The 4×5 problem."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td></td><td></td><td>M1</td><td>M2</td><td>M3</td><td>M4</td><td>M5</td></tr><tr><td rowspan=\"3\">Job1</td><td> $O_{11}$ </td><td>2</td><td>5</td><td>4</td><td>1</td><td>2</td></tr><tr><td> $O_{12}$ </td><td>5</td><td>4</td><td>5</td><td>7</td><td>5</td></tr><tr><td> $O_{13}$ </td><td>4</td><td>5</td><td>5</td><td>4</td><td>5</td></tr><tr><td rowspan=\"3\">Job2</td><td> $O_{21}$ </td><td>2</td><td>5</td><td>4</td><td>7</td><td>8</td></tr><tr><td> $O_{22}$ </td><td>5</td><td>6</td><td>9</td><td>8</td><td>5</td></tr><tr><td> $O_{23}$ </td><td>4</td><td>5</td><td>4</td><td>54</td><td>5</td></tr><tr><td rowspan=\"3\">Job3</td><td> $O_{31}$ </td><td>9</td><td>8</td><td>6</td><td>7</td><td>9</td></tr><tr><td> $O_{32}$ </td><td>6</td><td>1</td><td>2</td><td>5</td><td>4</td></tr><tr><td> $O_{33}$ </td><td>2</td><td>5</td><td>4</td><td>2</td><td>4</td></tr><tr><td rowspan=\"2\">Job4</td><td> $O_{41}$ </td><td>1</td><td>5</td><td>2</td><td>4</td><td>12</td></tr><tr><td> $O_{42}$ </td><td>5</td><td>1</td><td>2</td><td>1</td><td>2</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                72,
+                336,
+                951,
+                523
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Indices"
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                525,
+                134,
+                539
+            ]
+        },
+        {
+            "type": "code",
+            "content": {
+                "code_caption": [],
+                "code_content": [
+                    {
+                        "type": "text",
+                        "content": "Indices\ni,h : Index of jobs, i, h = 1,2,...,n;\nj,g : Index of operations, j, g = 1,2..., r;\nk : Index of machines, k = 1,2...,m;\nParameters\nn : Total number of jobs;\nn' : Total number of jobs with priority, n' ≤ n;\nr : Total number of operations;\nm : Total number of machines;\nOij(Ohg) : The jth(gh) operation of job i(h);\nPijk : Processing time of Oij on machine k;\nCi : Completion time of job i;\nCOij(COhg) : Completion time of operation Oij(Ohg);\ndi : Due date of job i.\nDecision variables"
+                    }
+                ],
+                "code_language": "txt"
+            },
+            "bbox": [
+                65,
+                533,
+                574,
+                793
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Decision variables"
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                785,
+                228,
+                801
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The mathematical model of FJSPJP is given as follows:"
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                839,
+                522,
+                857
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The objective functions:"
+                    }
+                ]
+            },
+            "bbox": [
+                67,
+                877,
+                273,
+                894
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(1) Minimizing the makespan "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( f _ { I } ) { \\mathrm { : } }"
+                    }
+                ]
+            },
+            "bbox": [
+                95,
+                896,
+                379,
+                913
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "m i n f _ {1} = m a x C _ {i} \\forall i = 1, \\dots , n\\tag{1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/01e8151b66430dd147564c88facb29505ba7558049c95a59202e895c38e53da2.jpg"
+                }
+            },
+            "bbox": [
+                255,
+                920,
+                519,
+                938
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                504,
+                971,
+                517,
+                982
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(2) Minimizing the total tardiness "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( f _ { 2 } ) \\colon"
+                    }
+                ]
+            },
+            "bbox": [
+                95,
+                34,
+                410,
+                51
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\min f _ {2} = \\sum_ {i = 1} ^ {n} \\max (0, C i - d i)\\tag{2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/4029b84e797d9e3f9d273099e0f1f2ae0fbeedd38a4ef9f3b5432a3d1c06de60.jpg"
+                }
+            },
+            "bbox": [
+                174,
+                52,
+                490,
+                70
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(3) Minimizing the completion time of the priority jobs (f<sub>3</sub>):"
+                    }
+                ]
+            },
+            "bbox": [
+                95,
+                71,
+                584,
+                87
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "m i n f _ {3} = \\max _ {1 \\leq i \\leq n ^ {\\prime}} (C _ {i})\\tag{3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/1e506d5cf33f85abddc87d54669d686ba7b7dda444e6b4d84b8f27fec7e44b7f.jpg"
+                }
+            },
+            "bbox": [
+                208,
+                96,
+                384,
+                118
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Linearization of constraints"
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                127,
+                304,
+                143
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "C O _ {i j} - C O _ {i (j - 1)} \\geq P _ {i j k} * X _ {i j k}, \\forall i = 1, \\dots , n; j = 2, \\dots , r; k = 1, \\dots , m\\tag{4}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/a350421f6c16c71528f0617a4ef1ee460151556e606f7dc716e5984e528806e8.jpg"
+                }
+            },
+            "bbox": [
+                181,
+                153,
+                781,
+                173
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "[ (C O _ {h g} - C O _ {i j} - P _ {h g k}) X _ {h g k} X _ {i j k} \\geq 0 ] \\vee [ (C O _ {i j} - C O _ {h g} - P _ {i j k}) X _ {h g k} X _ {i j k} \\geq 0 ]",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/83f9f210cb4c7fd4ffe44c10815671ad91e0ef3b1a8e793c9f83aed411237b97.jpg"
+                }
+            },
+            "bbox": [
+                176,
+                200,
+                828,
+                219
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathrm{where}, \\forall i, h = 1, \\ldots , n; j, g = 2, \\ldots , r; k = 1, \\ldots , m\\tag{5}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/511c9917801c5b04957b9d2e3467511a52ea2c2bb6829b1d7623404ff0238d6b.jpg"
+                }
+            },
+            "bbox": [
+                235,
+                219,
+                675,
+                237
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\sum_ {j = 1} ^ {r} X _ {i j k} = 1 \\forall i = 1, \\dots , n; k = 1, \\dots , m\\tag{6}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/26c6f071ac234cdc6b1afb0e5f1833bf7633510225e2b136d2ac35631ac45553.jpg"
+                }
+            },
+            "bbox": [
+                164,
+                244,
+                507,
+                263
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\sum_ {k = 1} ^ {m} X _ {i j k} = 1 \\forall i = 1, \\ldots , n; j = 1, \\ldots , r\\tag{7}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/c2a91f64700f0f85cd2071b6f2cff3be4f77ea4b3759a604716b7312eb4fcd0b.jpg"
+                }
+            },
+            "bbox": [
+                164,
+                274,
+                497,
+                292
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Equations "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( 1 ) – ( 3 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are the objectives o "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { f } f _ { I , } f _ { 2 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": ". f _ { 3 } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Inequality (4) ensures the operation sequence constraint. Inequality (5) ensures that each machine processes only an operation at each time. Equation (6) ensures that each operation can be processed only one time. Equation (7) ensures that only one machine is selected for each operation."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                294,
+                954,
+                367
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3. The proposed MA"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                65,
+                388,
+                280,
+                407
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The overall framework of the MA is shown in Fig. 2, and main steps of it are described as follows: Step 1: set the algorithm parameters and stopping criterion; set "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\mathrm { G e n } } = 1"
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                428,
+                900,
+                464
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Step 2: generate N individuals as the initial population "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( P ( k ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "using the encoding method introduced in Section 3.1."
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                464,
+                902,
+                499
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Step 3: execute the crossover operator to generate "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P _ { I } ( k )"
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                502,
+                526,
+                519
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Step 4: execute the mutation operator to generate "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P _ { 2 } ( k )"
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                521,
+                521,
+                538
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Step 5: combine P(k) and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P _ { 2 } ( k )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to generate "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P _ { 3 } ( k )"
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                539,
+                470,
+                557
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Step 6: decode the chromosomes of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P _ { 3 } ( k )"
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                558,
+                413,
+                574
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Step 7: the fast nondominated sorting function is executed on "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P _ { 3 } ( k )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", which defines individuals as different nondominated levels (rank 1, rank 2, and so on) (Deb et al., 2002); calculate the crowding distance of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P _ { 3 } ( k )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Define the population obtained from this step as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P _ { \\mathrm { 4 } } ( k )"
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                577,
+                954,
+                631
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/fa8dfead4be43ba71d1ab3a32748ee19552b77fd175dca0cd9d6621c7e030a40.jpg"
+                },
+                "content": "",
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                208,
+                643,
+                815,
+                956
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                505,
+                971,
+                517,
+                982
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Step 8: select 0.2 × N individuals from the first rank to the end rank of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P _ { \\mathrm { 4 } } ( k )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to generate "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P _ { 5 } ( k )"
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                59,
+                833,
+                77
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Step 9: execute the LSA introduced in Section 3.3 on "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P _ { 5 } ( k )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to generate "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P _ { 6 } ( k )"
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                78,
+                697,
+                96
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Step 10: select E individuals from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P _ { 6 } ( k )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to generate the elite population, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P _ { E } ."
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                97,
+                687,
+                114
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Step 11: if the termination condition is met (the maximum computation time), output "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P _ { 5 } ( k )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "; else, go to Step 12."
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                115,
+                942,
+                149
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Step 12: select N-E individuals from the first rank to the end rank of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P _ { \\mathrm { 4 } } ( k )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and combine them with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P _ { E }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to generate "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P _ { 7 } ( k )"
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                152,
+                919,
+                187
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Step 13: eliminate duplicated individuals marked as DI in "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P _ { 7 } ( k )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and generate DI individuals; Gen = Gen + 1; go to Step 3."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                189,
+                952,
+                225
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1. Chromosome encoding and decoding"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                65,
+                241,
+                428,
+                259
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The NCEM has two parts, one is the operation sequence (OS) vector while the other is the machine assignment vector (MAV). Two different encoding methods are used to generate these two vectors."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                273,
+                954,
+                309
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In terms of the OS, the operation-based representation method is used, which is composed of the jobs’ numbers. This representation uses an array of uninterrupted integers from 1 to n, where n is the total number of jobs, and each integer appears ON<sub>i</sub> times, where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "O N _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the total number of operation(s) of job i; therefore, the length of the initial OS is equal "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\textstyle \\mathrm { t o } { \\sum _ { i = 1 } ^ { n } } O N i"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". By scanning the operation sequence from left to right, the lth occurrence of a job number expresses the lth operation of this job. Algorithm 1 shows the details of OS, in which jobs with high priority can be scheduled as soon as possible. Through this, any permutation of the OS can be decoded to a feasible solution."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                309,
+                957,
+                438
+            ]
+        },
+        {
+            "type": "code",
+            "content": {
+                "code_caption": [],
+                "code_content": [
+                    {
+                        "type": "text",
+                        "content": "Algorithm 1: getOS (OS)\n\n1: Wpnum ← Pnum    % Pnum stores the operation number of all jobs\n2: For i = 1 to Total_Op Do    % Total_Op equals the number of total operations of all jobs\n3: Val ← Randomly generate a number from 1 to the sum of the number of jobs and the number of jobs with priority\n4: While Val > the number of jobs || Wpnum (Val) == 0 Do\n5:    If Val > jobs_num Then    % jobs_num is the number of jobs\n6:    Val = Val - jobs_num\n7:    End If\n8:    If Wpnum (Val) == 0 Then\n9:    Randomly regenerate a number from 1 to the sum of the number of jobs and the number of jobs with priority\n10:    End If\n11:    End while\n12:    Chromosome (i) ← Val\n13:    Wpnum (Val) = Wpnum (Val) - 1\n14: End For\n15: Return OS"
+                    }
+                ],
+                "code_language": "txt"
+            },
+            "bbox": [
+                67,
+                456,
+                952,
+                653
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The MAV indicates the machines assigned to process the corresponding operations of jobs. It contains n parts, and the length of the ith part is ONi. Hence the length of this vector also equals "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\textstyle { \\mathrm { t o } } \\sum _ { i = 1 } ^ { n } O N i"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The ith part of this vector expresses the machine assignment set of the ith job. Algorithm 2 shows the details of MAV."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                655,
+                954,
+                709
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "An example of the encoding method is shown in Fig. 3 (a). Here, the first row ([3, 1, 2, 3, 1, 2, 4, 3, 4, 1, 3, 2]) indicates that job 1 has three operations (coded as three "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ } ^ { 6 6 } 1 { } ^ { \\mathrm { \" } } \\mathrm { s } ) _ { \\mathrm { : } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", job 2 has three operations (coded as three "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ } ^ { 6 6 } 2 ^ { 3 9 } \\mathrm { s } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", job 3 has four operations (coded as four "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "^ { * } 3 ^ { * } \\mathrm { s } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and job 4 has two operations (coded as two "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ } ^ { 6 6 } 4 \\mathrm { ^ { 3 } s ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The second row ([4, 3, 5, 2, 4, 5, 1, 1, 3, 4, 2, 5]) is divided into four parts. The first part ([4, 3, 5]) includes the selected machines for the operations job 1, i. e., M4 is selected for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "O _ { I I } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", M3 is selected for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "O _ { I 2 } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "M5 is selected for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "O _ { I 3 ; }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "the second part ([2, 4, 5]) includes the selected machines for the operations of job 2, i. e., M2 is selected for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "O _ { 2 l } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "M4 is selected for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "O _ { 2 2 } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", M5 is selected for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "O _ { 2 3 ; }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and so on."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                711,
+                956,
+                840
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "When the chromosome representation is decoded, each operation starts as soon as possible following the precedence and machine constraints. we use the decoding method implemented in (Deng et al., 2017) to decode the chromosome, which can ensured the scheduling to be an active schedule. A Gantt chart of a schedule based on the chromosome in Fig. 3(a) is shown in Fig. 3(b)."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                841,
+                954,
+                915
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                504,
+                971,
+                517,
+                982
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Fig. 2. The proposed MA framework."
+                    }
+                ]
+            },
+            "bbox": [
+                388,
+                34,
+                648,
+                49
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "Algorithm 2: getMAV (MAV)"
+                    }
+                ]
+            },
+            "bbox": [
+                75,
+                934,
+                289,
+                950
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "1: Set an integer array named machine_load and initialize its elements to zero % the machine_load is used to store the total load of the"
+                    }
+                ]
+            },
+            "bbox": [
+                75,
+                950,
+                947,
+                965
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/2c428c276237c83786de52d5997bec01018ed88d2cfcff3060ee11d4d4d8c5f2.jpg"
+                },
+                "content": "",
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                110,
+                618,
+                914,
+                800
+            ]
+        },
+        {
+            "type": "code",
+            "content": {
+                "code_caption": [],
+                "code_content": [
+                    {
+                        "type": "text",
+                        "content": "corresponding machine according to the order of machine numbers, whose length equals to the total number of machines\n2: Set min_load to infinity;\n3. Randomly generate a number num between 0 and 1\n4. If num < 0.6 Do\n5:    For k = 1 to jobs_num Do    % jobs_num is the number of jobs\n6:    Randomly generate an integer r from 1 to jobs_num and select the r-th job Jr-th from the job set\n7:    For i = 1 to N_Jr-th Do    % N_Jr-th is the number of operations of Jr-th\n8:    Get optional machine set Mset and corresponding process time set Tset of O_Jr-th (i)    % O_Jr-th (i) is the i-th operation of Jr-th\n9:    For j = 1 to the number of optional machines of O_Jr-th (i)    Do\n10:    Mnum = Mset(j)    % Mset(j) is the j-th processing machine of Mset\n11:    If machine_load(Mnum) + Tset (j) < min_load    Then\n12:    min_load ← machine_load(Mnum) + Tset (j)\n13:    Set the currently selected machine index to j\n14:    End If\n15:    End For\n16:    Update the value of the MAV of the chromosome\n17:    Update the value of machine_load\n18:    End For\n19:    End For\n20:    Else If 0.6 < num < 0.9 Do\n21:    Set an integer array named machine_load\n22:    For k = 1 to jobs_num Do    % jobs_num is the number of jobs\n23:    Randomly generate an integer r from 1 to jobs_num and select the r-th job Jr-th from the job set.\n24:    Initialize the elements of machine_load to zero\n25:    Set Min_load to infinity\n26:    For i = 1 to N_Jr-th Do % N_Jr-th is the number of operations of Jr-th\n27:    Get optional machine set Mset and corresponding process time set Tset of O_Jr-th (i)    % O_Jr-th (i) is the i-th operation of Jr-th\n28:    For j = 1 to the number of optional machines of O_Jr-th (i) Do\n29:    Mnum = Mset(j) % Mset(j) is the j-th processing machine of Mset\n30:    If machine_load(Mnum) + Tset (j) < min_load    Then\n31:    min_load ← machine_load(Mnum) + Tset (j)\n32:    Set the currently selected machine index to j\n33:    End If\n34:    End For\n35:    Update the value of the MAV of the chromosome\n36:    Update the value of array machine_load\n37:    End For\n38:    End Else If\n39: Else Do\n40:    Set an integer array named machine_load\n41:    For k = 1 to jobs_num Do    % jobs_num is the number of jobs\n42:    For i = 1 to Total_Op   Do   % Total_Op equals the number of total operations of all jobs\n43:    Randomly select machine as processing machine from the optional machine set\n44:    Update the value of the MAV of the chromosome\n45:    End For\n46: End For\n47: End Else"
+                    }
+                ],
+                "code_language": "matlab"
+            },
+            "bbox": [
+                73,
+                32,
+                922,
+                615
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/bc5dab6eed592c41ccd8db87f87574591e6d71d455409bc161f9fb3c8a22e572.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                110,
+                619,
+                460,
+                781
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/52d531d8bf8c3b5e643ce2e2aae2bc1302fa14f8c5ac2e13aa1fe173b6c01619.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Fig. 3. An encoding and decoding example of a chromosome of 4×5 FJSPJP."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                549,
+                630,
+                915,
+                785
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3. 2. Crossover and mutation operators"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                65,
+                835,
+                410,
+                852
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this paper, in order to guarantee the feasibility of solutions as well as to obtain a high-quality offspring population, we use the precedence operation crossover operator and two-point crossover operator in Deng et al. (2017) to the OS and MAV, respectively; and use the swapping mutation and multi-point mutation operator in Deng et al. (2017) to the OS and MAV, respectively."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                866,
+                956,
+                941
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                505,
+                971,
+                517,
+                982
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3. 3. The proposed local search approach"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                65,
+                40,
+                423,
+                59
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The LSA is designed and integrated into the proposed MA. The LSA mainly combines five kind of operators to find better solutions. These operators include moving the first operations on the critical blocks, moving the last operations on the critical blocks, moving the operations on the critical path to other machines from their optional machines, moving the operations of jobs with priority on the critical path to their predecessor operations, and moving the operations of jobs with priority on the critical path to other machines from their optional machines. Details of the LSA are shown in Algorithm 3."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                73,
+                957,
+                185
+            ]
+        },
+        {
+            "type": "algorithm",
+            "content": {
+                "algorithm_caption": [],
+                "algorithm_content": [
+                    {
+                        "type": "text",
+                        "content": "Algorithm 3: getNewChrom\n1: chrom % chrom is the current sequence\n2: Randomly generate a number R from 0 to 1\n3: If   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "0 \\leq R \\leq 0.4"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  Then\n4: For i = 1 to   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N_{CB}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  %   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N_{CB}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  is the number of critical blocks of chrom\n5: chrom_ls ← chrom\n6: C ← CB{i} % CB{i} is the i-th critical block\n7: For j = 2 to NC % NC is the number of operation in C\n8: If C(1) == C(j) Then % if the first and j-th operation of C belong to the same job\n9: Continue;\n10: Else If\n11: move C(j) to the left of C(1) and generate a new sequence chrom_ls';\n12: If f(chrom_ls') < f(chrom_ls) Then\n13: chrom_ls ← chrom_ls' % update the sequence\n14: End If\n15: End If\n16: End For\n17: For j = 1 to Nc - 1\n18: If C(Nc) == C(j) Then % if the j-th and the last operation of C belong to the same job\n19: Continue\n20: Else If\n21: move C(j) to the right of C(Nc) and generate a new sequence chrom_ls';\n22: If f(chrom_ls') < f(chrom_ls) Then\n23: chrom_ls ← chrom_ls' % update the sequence\n24: End If\n25: End If\n26: End For\n27: chrom ← chrom_ls % update the current sequence\n28: End For\n29: For i = 1 to N_CPhp % N_CPhp is the number of operations of jobs with priority on the critical path\n30: chrom_ls ← chrom\n31: M ← CPhp_M(i) % CPhp_M(i) is the current processing machine of the i-th critical operation of the job with priority\n32: Randomly select a machine M_num differenced with M from the optional machines\n33: CPhp_M(i) ← M_num % generate a new sequence chrom_ls'\n34: If f(chrom_ls') < f(chrom_ls) Then\n35: chrom_ls ← chrom_ls' % update the sequence\n36: End If\n37: chrom ← chrom_ls % update the current sequence\n38: End For\n39: Else If 0.4 < R ≤ 0.6 Then\n40: For i = 1 to N_CP % N_CP is the number of operations in the critical path\n41: chrom_ls ← chrom\n42: O ← CP(i); % CP(i) is the i-th operation of the critical path\n43: If O is the first operation of one's job Then\n44: Continue\n45: Else If\n46: move O to its jobpredecessor and generate a new sequence chrom_ls'\n47: If f(chrom_ls') < f(chrom_ls) Then\n48: chrom_ls ← chrom_ls' % update the sequence\n49: End If\n50: End If\n51: chrom ← chrom_ls % update the current sequence\n52: End For\n53: For i = 1 to N_CPhp % N_CPhp is the number of operations of jobs with priority on the critical path\n54: chrom_ls ← chrom\n55: M ← CPhp_M(i) % CPhp_M(i) is the current processing machine of the i-th critical operation of the job with priority\n56: Randomly select a machine M_num differenced with M from the optional machines\n57: CPhp_M(i) ← M_num % generate a new sequence chrom_ls'\n58: If f(chrom_ls') < f(chrom_ls) Then\n59: chrom_ls ← chrom_ls' % update the sequence"
+                    }
+                ]
+            },
+            "bbox": [
+                70,
+                237,
+                949,
+                957
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                504,
+                971,
+                517,
+                982
+            ]
+        }
+    ],
+    [
+        {
+            "type": "algorithm",
+            "content": {
+                "algorithm_caption": [],
+                "algorithm_content": [
+                    {
+                        "type": "text",
+                        "content": "60: End If\n61: chrom ← chrom_ls % update the current sequence\n62: End For\n63: Else\n64: For i = 1 to   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N_{CP}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  %   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N_{CP}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  is the number of operations on the critical path\n65: chrom_ls ← chrom\n66: M ← CP_M(i) % CP_M(i) is the current processing machine of the i-th critical operation\n67: Randomly select a machine M_num differenced with M from the optional machines\n68: CP_M(i) ← M_num % generate a new sequence chrom_ls'\n69: If f(chrom_ls') < f(chrom_ls) Then\n70: chrom_ls ← chrom_ls' % update the sequence\n71: End If\n72: chrom ← chrom_ls % update the current sequence\n73: End For\n74: For i = 1 to   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N_{hp}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  %   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N_{hp}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  is the number of jobs with priority\n75: chrom_ls ← chrom\n76: For j = 2 to hp(i) % hp(i) is the number of operations of the i-th job with priority\n77: O ← Ohp(j) % Ohp(j) is the j-th operation of the i-th job with priority\n78: move O to its jobpredecessor % generate new sequence chrom_ls'\n79: If f(chrom_ls') < f(chrom_ls) Then\n80: chrom_ls ← chrom_ls' % update the sequence\n81: End If\n82: End For\n83: chrom ← chrom_ls % update the current sequence\n84: End For\n85: End If"
+                    }
+                ]
+            },
+            "bbox": [
+                70,
+                30,
+                838,
+                342
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4. Experimental studies and discussions"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                65,
+                363,
+                470,
+                382
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The proposed MA algorithm was coded in MATLAB R2014a and implemented on a computer configured with an IntelCorei7 CPU of 3.6GHz frequency and 8GB RAM. The performance of the MA was evaluated through a series of experiments. All the experiments were repeated 10 times given the stochastic nature of the algorithms in comparison."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                404,
+                954,
+                475
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To illustrate the effectiveness and robustness of the MA, 88 problem instances ranging from small to medium and large scales were considered from four classes of standard FJSP benchmark instances including 3 Kacem instances (ka4×5, ka8×8, and ka10×10) (Kacem et al., 2002b),10 BRdata instances (MK01- MK10) (Brandimarte, 1993), 57 Hurink Vdata instances (ORB1-ORB6, ORB8-ORB10, Car1-Car8 and la01- la40) (Hurink et al., 1994), and 18 DPdata instances (01a-18a) (Dauz<sup>è</sup>re-P<sup>é</sup>r<sup>è</sup>s and Paulli, 1997)."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                476,
+                954,
+                568
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The number of priority jobs is rounded up by a quarter of the total number of jobs. For example, if total jobs is 15, the number of priority jobs set as 15/4 = 4. All release dates are set to be 0. The due date of job j was set to be equal to its release date plus a due date tightness factor t multiplied by the sum of the maximal processing times of its operations. Equation (8) is used to generate the due date of all jobs."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                568,
+                956,
+                642
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "d i = r i + t \\times (\\sum_ {j = 1} ^ {n i} m a x p i j)\\tag{8}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/50d2fe153d7ee7d06691dc9fca8ba4596c819904a1d67edc56ef985ae8132132.jpg"
+                }
+            },
+            "bbox": [
+                131,
+                644,
+                386,
+                665
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "d _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the due date, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the release date, t is set as 1.5, and max "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { i j }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the maximal processing time of operation "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "O _ { i j }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "on a machine from its processing machine set."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                680,
+                956,
+                715
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 Parameters setting"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                65,
+                731,
+                267,
+                747
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In order to obtain the best combination of the parameters, we used the Taguchi method of Design of Experiments (DOE) (Montgomery, 2008) with instances la01, la02 and la03 (see Section 4.1). According to the experiment, the population size, crossover probability, mutation probability, and maximal total generation used in the proposed MA were set as 150, 0.7, 0.15 and 100, respectively."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                763,
+                956,
+                837
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 Effectiveness metrics"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                65,
+                851,
+                285,
+                868
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To evaluate the performance of the proposed EMA, we adopted the Set Coverage (SC) indicator (Wisittipanich W., 2013) and inverted generational distance (IGD) indicator (Yuan and Xu, 2015) as performance metrics. Furthermore, statistical analysis was carried out to verify the results obtained."
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                883,
+                954,
+                938
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(1) The SC indicator is described as follows:"
+                    }
+                ]
+            },
+            "bbox": [
+                95,
+                939,
+                465,
+                956
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                505,
+                971,
+                517,
+                980
+            ]
+        }
+    ],
+    [
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "C (A, B) = \\frac {\\left| \\left\\{b \\in B \\mid \\exists a \\in A : a > b \\right\\} \\right|}{| B |}\\tag{9}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/b29695350ebc3da376534ecd17e9df6e7f38d077f465cd3bf3ecdafda03463bd.jpg"
+                }
+            },
+            "bbox": [
+                302,
+                39,
+                542,
+                67
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "C \\left( A , B \\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": "measures the fractions of members of B that are dominated by members of A. | B | is the number of solutions in B. Therefore, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "C \\left( A , B \\right) = 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "means that each solution in B is dominated by some solutions in A. On the other hand, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "C \\left( A , B \\right) = 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "indicates that all solutions in "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "B"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are not dominated by any solution in A. The lower the ratio "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "C \\left( A , B \\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the better the solution set in B."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                71,
+                954,
+                143
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(2) The IGD of set A can be obtained by the following equation:"
+                    }
+                ]
+            },
+            "bbox": [
+                95,
+                145,
+                621,
+                162
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "I G D (A, P ^ {*}) = \\frac {1}{| P ^ {*} |} \\sum_ {x \\in P ^ {*}} \\underset {y \\in A} {\\min} d (x, y)\\tag{10}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/27c050df7f45c9bc9ea6cdeabac3f524f0f6522f75e3dec6b8eeb50df83a8af9.jpg"
+                }
+            },
+            "bbox": [
+                186,
+                167,
+                497,
+                196
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { { \\bf P ^ { * } } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the set of non-dominated solutions along the Pareto front and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "| P ^ { * } |"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the size of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P ^ { * } . d \\left( x , y \\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the Euclidean distance between points x and y. The smaller "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "I G D \\left( A , P ^ { * } \\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is, the closer A is to the Pareto front. In this paper, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P ^ { * }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the set of non-dominated solutions among all the solutions obtained by all runs of the algorithms. Besides that, the objectives of all chromosomes are normalized by the following equation:"
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                200,
+                954,
+                275
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\tilde {f} (x) = \\frac {f _ {i} (x) - f _ {i} ^ {m i n}}{f _ {i} ^ {m a x _ {i} ^ {m i n}} , i = 1 , 2}\\tag{11}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/4e9ba344a8710de5de8c15aced71f0ab8be1fde296da95db8db3a45d93f5e0a8.jpg"
+                }
+            },
+            "bbox": [
+                280,
+                282,
+                458,
+                323
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { i } ^ { m i n }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { i } ^ { m a x }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are the minimal and maximal values of the ith objective among all solutions."
+                    }
+                ]
+            },
+            "bbox": [
+                90,
+                330,
+                825,
+                349
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3 Experimental results"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                65,
+                363,
+                284,
+                381
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3.1 Effect of the NCEM"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                65,
+                400,
+                262,
+                418
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "First, in order to examine the performance of the proposed NCEM, we made the following experimental comparisons based on the DPdata instances (01a–18a) (Dauz<sup>è</sup>re-P<sup>é</sup>r<sup>è</sup>s and Paulli, 1997). In this section, MA represents our proposed memetic algorithm using the NCEM; MA<sub>1</sub> represents our proposed memetic algorithm using a traditional encoding method for the FJSP in (Zhang et al., 2011)."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                431,
+                954,
+                504
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The SC and IGD comparisons of MA and MA<sub>1</sub> are shown in Table 2. From Table 2, we can see that MA is significantly outperforms "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { M A } _ { 1 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "on all benchmarks, which demonstrates the high performance of the proposed NCEM."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                504,
+                954,
+                558
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/a49a43a93e15163ac7514c9b9ba594e76b038cc4739340167a4abf062ae51ea5.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "SC and IGD comparisons of MA and MA1."
+                    }
+                ],
+                "table_footnote": [
+                    {
+                        "type": "text",
+                        "content": "Note: for each benchmark, the results that is significantly better than other is marked in bold."
+                    }
+                ],
+                "html": "<table><tr><td rowspan=\"2\">Benchmarks</td><td rowspan=\"2\">Size (n × m)</td><td colspan=\"2\">SC</td><td colspan=\"2\">IGD</td></tr><tr><td>C(MA, MA1)</td><td>C(MA1, MA)</td><td>MA</td><td>MA1</td></tr><tr><td>01a</td><td>10×5</td><td>1.0000</td><td>0.0000</td><td>0.0516</td><td>0.3301</td></tr><tr><td>02a</td><td>10×5</td><td>1.0000</td><td>0.0000</td><td>0.1418</td><td>0.4625</td></tr><tr><td>03a</td><td>10×5</td><td>1.0000</td><td>0.0000</td><td>0.1746</td><td>0.4439</td></tr><tr><td>04a</td><td>10×5</td><td>1.0000</td><td>0.0000</td><td>0.0426</td><td>0.3175</td></tr><tr><td>05a</td><td>10×5</td><td>0.9714</td><td>0.0000</td><td>0.1353</td><td>0.3492</td></tr><tr><td>06a</td><td>10×5</td><td>1.0000</td><td>0.0000</td><td>0.1569</td><td>0.2274</td></tr><tr><td>07a</td><td>15×8</td><td>1.0000</td><td>0.0000</td><td>0.0896</td><td>0.5281</td></tr><tr><td>08a</td><td>15×8</td><td>0.6818</td><td>0.2941</td><td>0.1834</td><td>0.4725</td></tr><tr><td>09a</td><td>15×8</td><td>1.0000</td><td>0.0000</td><td>0.1165</td><td>0.5791</td></tr><tr><td>10a</td><td>15×8</td><td>1.0000</td><td>0.0000</td><td>0.1251</td><td>0.4340</td></tr><tr><td>11a</td><td>15×8</td><td>1.0000</td><td>0.0000</td><td>0.1334</td><td>0.3700</td></tr><tr><td>12a</td><td>15×8</td><td>1.0000</td><td>0.0000</td><td>0.0910</td><td>0.3371</td></tr><tr><td>13a</td><td>20×10</td><td>1.0000</td><td>0.0000</td><td>0.1224</td><td>0.5253</td></tr><tr><td>14a</td><td>20×10</td><td>1.0000</td><td>0.0000</td><td>0.2488</td><td>0.7234</td></tr><tr><td>15a</td><td>20×10</td><td>0.9722</td><td>0.0000</td><td>0.2280</td><td>0.6866</td></tr><tr><td>16a</td><td>20×10</td><td>1.0000</td><td>0.0000</td><td>0.1258</td><td>0.4959</td></tr><tr><td>17a</td><td>20×10</td><td>1.0000</td><td>0.0000</td><td>0.1793</td><td>0.5767</td></tr><tr><td>18a</td><td>20×10</td><td>1.0000</td><td>0.0000</td><td>0.1757</td><td>0.3259</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                67,
+                592,
+                951,
+                879
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                502,
+                970,
+                521,
+                983
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3.2 Effect of the LSA"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                65,
+                35,
+                240,
+                49
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To evaluate the performance of the proposed LSA, further experiments were carried out between MA and the MA without LSA (denoted by MA<sub>2</sub>)."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                65,
+                954,
+                99
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The SC and IGD comparisons of MA and MA<sub>2</sub> are shown in Table 3. From Table 3, we can see that MA is significantly outperforms MA<sub>2</sub> on all benchmarks except 02a, 08a, 10a, 15a, 16a and 18a based on the SC and MA is significantly outperforms "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { M A } _ { 2 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "on all benchmarks based on the IGD, which demonstrate the high performance of the proposed LSA."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                102,
+                954,
+                175
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/81c8155574c96b9f1ee50d49f025f3435edd5cad91b585929778527c0ba2c2c2.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "SC and IGD comparisons of MA and MA2."
+                    }
+                ],
+                "table_footnote": [
+                    {
+                        "type": "text",
+                        "content": "Note: for each benchmark, the results that is significantly better than other is marked in bold."
+                    }
+                ],
+                "html": "<table><tr><td rowspan=\"2\">Benchmarks</td><td rowspan=\"2\">Size (n × m)</td><td colspan=\"2\">SC</td><td colspan=\"2\">IGD</td></tr><tr><td>C(MA,  $MA_2$ )</td><td>C( $MA_2$ , MA)</td><td>MA</td><td> $MA_2$ </td></tr><tr><td>01a</td><td>10×5</td><td>0.5854</td><td>0.1750</td><td>0.0516</td><td>0.2519</td></tr><tr><td>02a</td><td>10×5</td><td>0.2973</td><td>0.3846</td><td>0.1418</td><td>0.4548</td></tr><tr><td>03a</td><td>10×5</td><td>0.2609</td><td>0.0588</td><td>0.1746</td><td>0.4041</td></tr><tr><td>04a</td><td>10×5</td><td>0.7447</td><td>0.2500</td><td>0.0426</td><td>0.2976</td></tr><tr><td>05a</td><td>10×5</td><td>0.3125</td><td>0.1538</td><td>0.1353</td><td>0.3047</td></tr><tr><td>06a</td><td>10×5</td><td>0.4828</td><td>0.1538</td><td>0.1569</td><td>0.2166</td></tr><tr><td>07a</td><td>15×8</td><td>0.5238</td><td>0.1053</td><td>0.0896</td><td>0.4021</td></tr><tr><td>08a</td><td>15×8</td><td>0.1111</td><td>0.4118</td><td>0.1834</td><td>0.3741</td></tr><tr><td>09a</td><td>15×8</td><td>0.4359</td><td>0.0833</td><td>0.1165</td><td>0.4586</td></tr><tr><td>10a</td><td>15×8</td><td>0.1714</td><td>0.3784</td><td>0.1251</td><td>0.3246</td></tr><tr><td>11a</td><td>15×8</td><td>0.5273</td><td>0.2105</td><td>0.1334</td><td>0.3549</td></tr><tr><td>12a</td><td>15×8</td><td>0.5946</td><td>0.3125</td><td>0.0910</td><td>0.3118</td></tr><tr><td>13a</td><td>20×10</td><td>0.2326</td><td>0.2308</td><td>0.1224</td><td>0.6077</td></tr><tr><td>14a</td><td>20×10</td><td>0.5000</td><td>0.0000</td><td>0.2488</td><td>0.5535</td></tr><tr><td>15a</td><td>20×10</td><td>0.1707</td><td>0.2143</td><td>0.2280</td><td>0.6108</td></tr><tr><td>16a</td><td>20×10</td><td>0.1373</td><td>0.3448</td><td>0.1258</td><td>0.4671</td></tr><tr><td>17a</td><td>20×10</td><td>0.2885</td><td>0.0500</td><td>0.1793</td><td>0.5863</td></tr><tr><td>18a</td><td>20×10</td><td>0.2340</td><td>0.4444</td><td>0.1757</td><td>0.3446</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                67,
+                214,
+                951,
+                501
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3.3 Comparisons with other algorithms"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                65,
+                533,
+                371,
+                549
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To further evaluate the effectiveness of MA, we compared it to the well-known NNIA (Gong et al., 2009) and NSGA-Ⅲ (Deb and Jain, 2014), for three reasons. First, the fundamental structures of the NNIA and NSGA-Ⅲ are similar and comparable to our algorithm: they all rely on the GA framework. Second, they all use the nondominated method to deal with multi-objectives. Third, the NNIA and NSGA-Ⅲ are commonly used as a baseline algorithm to the newly proposed multi-objective optimization algorithms to evaluate their performance. To make the comparison more fairness, we have embedded a simple yet effective local search operator proposed in (Gong et al., 2017) to the NNIA and NSGA-Ⅲ to strengthen their performance."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                562,
+                956,
+                692
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Performance metrics are SC and IGD. Table 4 shows the SC comparisons between MA and NNIA, MA and NSGA-Ⅲ. Table 5 shows the IGD comparisons of MA, NNIA and NSGA-Ⅲ."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                693,
+                954,
+                728
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The 2th column, 3rd column, 7th column and 8th column of Table 4 show the SC comparison of MA and NNIA. From this comparison, we can see that the MA is significantly better than the NNIA on all benchmarks except ka8×8, MK07, Car5 and la12. For ka8×8, the SC of MA and NNIA obtain the same value. The 4th column, 5th column, 9th column and 10th column of Table 4 show the SC comparison of MA and NSGA-Ⅲ . From this comparison, we can see that the MA is significantly better than the NSGA-Ⅲ on all benchmarks except ka4×5, ka8×8, ka10×10, MK02 and MK05. For ka4×5, ka8×8 and ka10×10, the MA and NSGA-Ⅲ obtain the same value."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                730,
+                957,
+                858
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The 2th column, 3rd column, 4th column, 6th column, 7th column and 8th column of Table 5 show the IGD comparison of MA, NNIA, and NSGA-Ⅲ. From this comparison, we can see that the MA is significantly better than the NNIA on all benchmarks except MK07, ORB2, la06, la10-12, la15and la19; the MA is significantly better than the NSGA-Ⅲ on all benchmarks except la19."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                859,
+                957,
+                933
+            ]
+        },
+        {
+            "type": "page_footer",
+            "content": {
+                "page_footer_content": [
+                    {
+                        "type": "text",
+                        "content": "Table 4"
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                950,
+                122,
+                963
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "11"
+                    }
+                ]
+            },
+            "bbox": [
+                500,
+                970,
+                519,
+                982
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/90bc93576a0e6eb50378323b5204d3f2821292e9e8a59e151868e6e65a97ab5d.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "SC comparisons of MA, NNIA and NSGA-Ⅲ."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Benchmark</td><td colspan=\"2\">MA(M) vs NNIA(NN)</td><td colspan=\"2\">MA(M) vs NSGA-III(NS)</td><td rowspan=\"2\">Benchmark</td><td colspan=\"2\">MA(M) vs NNIA(NN)</td><td colspan=\"2\">MA(M) vs NSGA-III(NS)</td></tr><tr><td>C(M, NN)</td><td>C(NN, M)</td><td>C(M, NS)</td><td>C(NS,M)</td><td>C(M, NN)</td><td>C(NN, M)</td><td>C(M, NS)</td><td>C(NS,M)</td></tr><tr><td>ka4×5</td><td>1.0000</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>15a</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>ka8×8</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>16a</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>ka10×10</td><td>1.0000</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>17a</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>MK01</td><td>0.8000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>18a</td><td>0.6842</td><td>0.2222</td><td>1.0000</td><td>0.0000</td></tr><tr><td>MK02</td><td>0.8000</td><td>0.3333</td><td>0.2500</td><td>0.6667</td><td>la01</td><td>0.9444</td><td>0.0333</td><td>0.9706</td><td>0.0000</td></tr><tr><td>MK03</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la02</td><td>0.7368</td><td>0.0625</td><td>1.0000</td><td>0.0000</td></tr><tr><td>MK04</td><td>0.8125</td><td>0.0556</td><td>0.9412</td><td>0.0000</td><td>la03</td><td>0.6500</td><td>0.1053</td><td>0.8000</td><td>0.0000</td></tr><tr><td>MK05</td><td>0.7419</td><td>0.1667</td><td>0.2400</td><td>0.3000</td><td>la04</td><td>0.5455</td><td>0.0000</td><td>0.7667</td><td>0.0000</td></tr><tr><td>MK06</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la05</td><td>0.6000</td><td>0.2963</td><td>0.9630</td><td>0.0000</td></tr><tr><td>MK07</td><td>0.2264</td><td>0.5500</td><td>0.3864</td><td>0.3000</td><td>la06</td><td>0.5200</td><td>0.0000</td><td>0.8667</td><td>0.0000</td></tr><tr><td>MK08</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la07</td><td>0.5455</td><td>0.0625</td><td>0.8571</td><td>0.0313</td></tr><tr><td>MK09</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la08</td><td>0.9750</td><td>0.0000</td><td>0.9310</td><td>0.0000</td></tr><tr><td>MK10</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la09</td><td>0.4375</td><td>0.1176</td><td>0.7000</td><td>0.0588</td></tr><tr><td>ORB1</td><td>0.9375</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la10</td><td>0.3824</td><td>0.1379</td><td>0.8621</td><td>0.0345</td></tr><tr><td>ORB2</td><td>0.4000</td><td>0.0769</td><td>0.8889</td><td>0.0000</td><td>la11</td><td>0.3659</td><td>0.1000</td><td>0.6818</td><td>0.0500</td></tr><tr><td>ORB3</td><td>0.7241</td><td>0.0000</td><td>0.9750</td><td>0.0000</td><td>la12</td><td>0.2368</td><td>0.2632</td><td>0.9750</td><td>0.0000</td></tr><tr><td>ORB4</td><td>0.4545</td><td>0.1176</td><td>0.9722</td><td>0.0000</td><td>la13</td><td>0.9167</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>ORB5</td><td>0.7778</td><td>0.2308</td><td>1.0000</td><td>0.0000</td><td>la14</td><td>0.9318</td><td>0.0000</td><td>0.9722</td><td>0.0000</td></tr><tr><td>ORB6</td><td>0.7333</td><td>0.0952</td><td>0.9565</td><td>0.0000</td><td>la15</td><td>0.6774</td><td>0.0000</td><td>0.7143</td><td>0.0000</td></tr><tr><td>ORB8</td><td>0.9024</td><td>0.0435</td><td>1.0000</td><td>0.0000</td><td>la16</td><td>0.9500</td><td>0.0000</td><td>0.8462</td><td>0.0000</td></tr><tr><td>ORB9</td><td>0.8261</td><td>0.0000</td><td>0.9286</td><td>0.0000</td><td>la17</td><td>0.9474</td><td>0.0000</td><td>0.9474</td><td>0.0000</td></tr><tr><td>ORB10</td><td>0.5556</td><td>0.1250</td><td>1.0000</td><td>0.0000</td><td>la18</td><td>0.8947</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>Car1</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la19</td><td>0.5000</td><td>0.5000</td><td>0.6429</td><td>0.0000</td></tr><tr><td>Car2</td><td>0.6531</td><td>0.0000</td><td>0.3333</td><td>0.0294</td><td>la20</td><td>0.9130</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>Car3</td><td>0.3636</td><td>0.1786</td><td>0.8621</td><td>0.0000</td><td>la21</td><td>0.8824</td><td>0.0000</td><td>0.9500</td><td>0.0000</td></tr><tr><td>Car4</td><td>0.9032</td><td>0.0714</td><td>0.5714</td><td>0.0714</td><td>la22</td><td>0.6429</td><td>0.0769</td><td>1.0000</td><td>0.0000</td></tr><tr><td>Car5</td><td>0.4375</td><td>0.4783</td><td>1.0000</td><td>0.0000</td><td>la23</td><td>0.8750</td><td>0.0769</td><td>1.0000</td><td>0.0000</td></tr><tr><td>Car6</td><td>0.7273</td><td>0.1000</td><td>1.0000</td><td>0.0000</td><td>la24</td><td>0.9231</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>Car7</td><td>0.4706</td><td>0.3333</td><td>0.9130</td><td>0.0000</td><td>la25</td><td>0.9667</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>Car8</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la26</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>01a</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la27</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>02a</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la28</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>03a</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la29</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>04a</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la30</td><td>0.9286</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>05a</td><td>0.9677</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la31</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>06a</td><td>0.9302</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la32</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>07a</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la33</td><td>0.9500</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>08a</td><td>0.9524</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la34</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>09a</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la35</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>10a</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la36</td><td>0.9500</td><td>0.1000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>11a</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la37</td><td>0.9231</td><td>0.1333</td><td>1.0000</td><td>0.0000</td></tr><tr><td>12a</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la38</td><td>0.9091</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>13a</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la39</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr><tr><td>14a</td><td>1.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>la40</td><td>0.9000</td><td>0.0909</td><td>1.0000</td><td>0.0000</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                65,
+                43,
+                952,
+                759
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/d7a2ca29b62e79bccdbd07eb61fac9477ab0c6518041f8cbead917f4693dce45.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 5"
+                    },
+                    {
+                        "type": "text",
+                        "content": "IGD comparisons of MA, NNIA and NSGA-Ⅲ."
+                    }
+                ],
+                "table_footnote": [
+                    {
+                        "type": "text",
+                        "content": "Note: for each benchmark, the results that is significantly better than other is marked in bold."
+                    },
+                    {
+                        "type": "text",
+                        "content": "In order to compare the optimal Pareto front distribution of each algorithm easily, a few of examples are selected from each type of numerical examples and the comparisons of these Pareto front are shown in Fig. 4."
+                    }
+                ],
+                "html": "<table><tr><td rowspan=\"2\">Benchmark</td><td colspan=\"3\">IGD</td><td rowspan=\"2\">Benchmark</td><td colspan=\"3\">IGD</td></tr><tr><td>MA</td><td>NNIA</td><td>NSGA-III</td><td>MA</td><td>NNIA</td><td>NSGA-III</td></tr><tr><td>ka4×5</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>15a</td><td>0.0000</td><td>0.4536</td><td>0.5880</td></tr><tr><td>ka8×8</td><td>0.0000</td><td>1.0000</td><td>0.0000</td><td>16a</td><td>0.0000</td><td>0.4713</td><td>0.4553</td></tr><tr><td>ka10×10</td><td>0.0000</td><td>0.7071</td><td>0.7071</td><td>17a</td><td>0.0000</td><td>0.3871</td><td>0.4423</td></tr><tr><td>MK01</td><td>0.0584</td><td>0.2187</td><td>0.4110</td><td>18a</td><td>0.0251</td><td>0.2330</td><td>0.2235</td></tr><tr><td>MK02</td><td>0.0522</td><td>0.2549</td><td>0.0453</td><td>la01</td><td>0.0341</td><td>0.1371</td><td>0.1871</td></tr><tr><td>MK03</td><td>0.0000</td><td>0.4565</td><td>0.3709</td><td>la02</td><td>0.0250</td><td>0.0927</td><td>0.2013</td></tr><tr><td>MK04</td><td>0.0660</td><td>0.1500</td><td>0.2541</td><td>la03</td><td>0.0435</td><td>0.1209</td><td>0.2110</td></tr><tr><td>MK05</td><td>0.1204</td><td>0.1416</td><td>0.1478</td><td>la04</td><td>0.0926</td><td>0.0990</td><td>0.1325</td></tr><tr><td>MK06</td><td>0.0000</td><td>0.4398</td><td>0.3438</td><td>la05</td><td>0.0695</td><td>0.0859</td><td>0.3229</td></tr><tr><td>MK07</td><td>0.1549</td><td>0.0198</td><td>0.1143</td><td>la06</td><td>0.2012</td><td>0.0589</td><td>0.2319</td></tr><tr><td>MK08</td><td>0.0000</td><td>0.3218</td><td>0.3674</td><td>la07</td><td>0.0490</td><td>0.0838</td><td>0.1018</td></tr><tr><td>MK09</td><td>0.0000</td><td>0.3733</td><td>0.4436</td><td>la08</td><td>0.0358</td><td>0.1396</td><td>0.1045</td></tr><tr><td>MK10</td><td>0.0000</td><td>0.3007</td><td>0.2745</td><td>la09</td><td>0.0487</td><td>0.0555</td><td>0.0748</td></tr><tr><td>ORB1</td><td>0.0713</td><td>0.1828</td><td>0.4246</td><td>la10</td><td>0.0734</td><td>0.0517</td><td>0.1121</td></tr><tr><td>ORB2</td><td>0.1265</td><td>0.0931</td><td>0.2714</td><td>la11</td><td>0.1223</td><td>0.0498</td><td>0.1508</td></tr><tr><td>ORB3</td><td>0.0472</td><td>0.1074</td><td>0.3301</td><td>la12</td><td>0.0972</td><td>0.0729</td><td>0.2667</td></tr><tr><td>ORB4</td><td>0.0347</td><td>0.1130</td><td>0.4317</td><td>la13</td><td>0.0469</td><td>0.1359</td><td>0.2207</td></tr><tr><td>ORB5</td><td>0.0472</td><td>0.1242</td><td>0.2993</td><td>la14</td><td>0.0218</td><td>0.1789</td><td>0.2560</td></tr><tr><td>ORB6</td><td>0.0291</td><td>0.0987</td><td>0.2494</td><td>la15</td><td>0.1371</td><td>0.0686</td><td>0.1670</td></tr><tr><td>ORB8</td><td>0.0507</td><td>0.2738</td><td>0.2839</td><td>la16</td><td>0.0405</td><td>0.2128</td><td>0.3229</td></tr><tr><td>ORB9</td><td>0.0641</td><td>0.1290</td><td>0.2891</td><td>la17</td><td>0.0271</td><td>0.2571</td><td>0.4542</td></tr><tr><td>ORB10</td><td>0.0207</td><td>0.1020</td><td>0.4728</td><td>la18</td><td>0.0108</td><td>0.1894</td><td>0.4497</td></tr><tr><td>Car1</td><td>0.0000</td><td>0.1319</td><td>0.2618</td><td>la19</td><td>0.2746</td><td>0.1786</td><td>0.1548</td></tr><tr><td>Car2</td><td>0.0629</td><td>0.0946</td><td>0.1667</td><td>la20</td><td>0.0151</td><td>0.1837</td><td>0.2993</td></tr><tr><td>Car3</td><td>0.0249</td><td>0.1258</td><td>0.2208</td><td>la21</td><td>0.0487</td><td>0.1293</td><td>0.2637</td></tr><tr><td>Car4</td><td>0.0459</td><td>0.1064</td><td>0.0900</td><td>la22</td><td>0.0308</td><td>0.1374</td><td>0.4203</td></tr><tr><td>Car5</td><td>0.0797</td><td>0.0999</td><td>0.2759</td><td>la23</td><td>0.0519</td><td>0.1811</td><td>0.3450</td></tr><tr><td>Car6</td><td>0.0229</td><td>0.0924</td><td>0.3130</td><td>la24</td><td>0.0202</td><td>0.1641</td><td>0.3273</td></tr><tr><td>Car7</td><td>0.0422</td><td>0.0840</td><td>0.1967</td><td>la25</td><td>0.0046</td><td>0.2346</td><td>0.3862</td></tr><tr><td>Car8</td><td>0.0000</td><td>0.1585</td><td>0.2553</td><td>la26</td><td>0.0000</td><td>0.3006</td><td>0.5165</td></tr><tr><td>01a</td><td>0.0000</td><td>0.2636</td><td>0.3364</td><td>la27</td><td>0.0000</td><td>0.3885</td><td>0.4791</td></tr><tr><td>02a</td><td>0.0000</td><td>0.3766</td><td>0.3849</td><td>la28</td><td>0.0000</td><td>0.2263</td><td>0.3163</td></tr><tr><td>03a</td><td>0.0000</td><td>0.3591</td><td>0.3960</td><td>la29</td><td>0.0000</td><td>0.2462</td><td>0.3497</td></tr><tr><td>04a</td><td>0.0000</td><td>0.2998</td><td>0.3480</td><td>la30</td><td>0.0039</td><td>0.2202</td><td>0.4609</td></tr><tr><td>05a</td><td>0.0103</td><td>0.2505</td><td>0.3314</td><td>la31</td><td>0.0000</td><td>0.3177</td><td>0.5610</td></tr><tr><td>06a</td><td>0.0155</td><td>0.2186</td><td>0.2623</td><td>la32</td><td>0.0000</td><td>0.2705</td><td>0.5170</td></tr><tr><td>07a</td><td>0.0000</td><td>0.4487</td><td>0.5600</td><td>la33</td><td>0.0109</td><td>0.2776</td><td>0.3289</td></tr><tr><td>08a</td><td>0.0108</td><td>0.2070</td><td>0.3256</td><td>la34</td><td>0.0000</td><td>0.4284</td><td>0.6862</td></tr><tr><td>09a</td><td>0.0000</td><td>0.4308</td><td>0.4884</td><td>la35</td><td>0.0000</td><td>0.1643</td><td>0.3952</td></tr><tr><td>10a</td><td>0.0000</td><td>0.3701</td><td>0.4204</td><td>la36</td><td>0.0077</td><td>0.1910</td><td>0.2542</td></tr><tr><td>11a</td><td>0.0000</td><td>0.3477</td><td>0.4292</td><td>la37</td><td>0.0062</td><td>0.2590</td><td>0.5135</td></tr><tr><td>12a</td><td>0.0000</td><td>0.3289</td><td>0.3633</td><td>la38</td><td>0.0203</td><td>0.1253</td><td>0.4095</td></tr><tr><td>13a</td><td>0.0000</td><td>0.5525</td><td>0.5150</td><td>la39</td><td>0.0000</td><td>0.4128</td><td>0.5750</td></tr><tr><td>14a</td><td>0.0000</td><td>0.6172</td><td>0.7393</td><td>la40</td><td>0.0046</td><td>0.2066</td><td>0.3340</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                67,
+                804,
+                952,
+                961
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "12"
+                    }
+                ]
+            },
+            "bbox": [
+                500,
+                971,
+                521,
+                982
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/"
+                },
+                "table_caption": [],
+                "table_footnote": [],
+                "html": "",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                65,
+                30,
+                952,
+                595
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Observing the distribution of Pareto front in Figs. 4(a)-(d), the distribution of Pareto front obtained from MA algorithm is more uniform and the number of solutions in the solution set is bigger, which provides more options for dispatchers. In addition, it is obvious that the solution positions of the proposed MA in the figure are basically all biased in the bottom of the front. This means that the solution set of the MA dominates the ones of other two algorithms by large probability in the value of optimization objectives."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                651,
+                956,
+                744
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/c8d7dee4207d0984b9b56484959694dc9d046e1d7a9a157a2ef381ce310d8517.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "(a) The Pareto front results of instance "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { 0 7 a }"
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                127,
+                751,
+                522,
+                885
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/540c28755bb12a0206be870937f447da37d9aa69dc6e59e1f37d02272ed4669b.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "(b) The Pareto front results of instance 10a"
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                526,
+                746,
+                895,
+                885
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "13"
+                    }
+                ]
+            },
+            "bbox": [
+                500,
+                970,
+                521,
+                982
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/03f54fcb6a9be8571ed2b7d82b404d874e7f7f848d1c33e81352e00bc175f434.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "(c) The Pareto front results of instance MK08"
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                119,
+                36,
+                502,
+                174
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/352d4ed520d4a798be0e42c08eb08bcf992024871041b26e202581bfe60890b7.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "(d) The Pareto front results of instance MK10"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Fig. 4. The Pareto front results of instances 07a, 10a, MK08 and MK10."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                505,
+                36,
+                904,
+                175
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In order to illustrate the convergence performance of the proposed MA, a solution of MK01, MK04 and MK05 is randomly selected to draw their convergence curves. The convergence curves of average value of f<sub>1</sub>, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { 2 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { 3 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for MK01, MK04 and MK05 are showed in Figs. 5 (a)-(i), separately. From Fig. 5, we can see that the "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { I } , f _ { 2 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { 3 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "of MA are decreased very fast in early iterations and finally get the optimal solutions. This means that the MA has a high quality initial population and obtains the optimal solution with fewer iteration times compared with NNIA and NSGA-Ⅲ. Want’s more, compared to NNIA and NSGA-Ⅲ, the solution obtained by MA is more stable, and it is always closer to the optimal solution. Take Fig. 5 (e) for example, the "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { 2 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "of MK04 has very large fluctuation by NNIA and NSGA-Ⅲ, especially by NSGA-Ⅲ, but very stable by MA."
+                    }
+                ]
+            },
+            "bbox": [
+                62,
+                225,
+                956,
+                391
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Figs. 6 and 7 illustrate two Gantt charts of two different solutions with NNIA and MA for instance la24 in which job 1, job 2, job 3 and job 4 have priority. From Figs. 6 and 7, we can see that the maximal completion time of these priority jobs of NNIA and MA are 1027 and 774, respectively and the makespan of NNIA and MA is the same (1506). This means that in the case of the same makespan, the proposed MA can ensure that the jobs with priority can be completed earlier than the NNIA."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                393,
+                957,
+                486
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/5f986815aaf9f51903535729a32094febff4122bd10dec4fcc14919352c9dd0d.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                70,
+                489,
+                346,
+                632
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/377eb9bfe47b3e5fb52a7c0407b2bda0fd0e3c3f4522a6fc2eff1ba610d6d6ba.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                347,
+                491,
+                620,
+                631
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/263ffe5f984b5185614890bcb572bc3daa036ef48a6bbc70b376b06b98a62d47.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "(c) Convergence curves of f3 for MK01"
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                620,
+                494,
+                887,
+                631
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/2ae7b4bd1bcee76d9b853abc2104f748a9b5de29f1fff658272b3a7c254b4e3d.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "(a) Convergence curves of f1 for MK01"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(b) Convergence curves of f2 for MK01"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(d) Convergence curves of f1 for MK04"
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                70,
+                665,
+                339,
+                804
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/780fa353efb2476ce48f4565983f62e65bdab06da4fb1c498343f04dd0449781.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "(e) Convergence curves of f2 for MK04"
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                341,
+                669,
+                608,
+                804
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/8f5b3c0032fbc41acd4cbce2ee5ddf39eaecb83b8f674649d90ce3cffb2d305a.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "(f) Convergence curves of f3 for MK04"
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                613,
+                676,
+                887,
+                804
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "14"
+                    }
+                ]
+            },
+            "bbox": [
+                500,
+                970,
+                521,
+                982
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/a6e8380a0de44252da48ae1ea057226ad6a9cf922b81ab4f87b0a70a2ecbe83b.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "(g) Convergence curves of f1 for MK05"
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                68,
+                41,
+                336,
+                180
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/953f0cd843ac7a6a6beecf3348fa155e1f1ca0785dc2608a302c516ffb78b0ea.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "(h) Convergence curves of f2 for MK05"
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                337,
+                40,
+                606,
+                178
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/f5c0a00bb6ee65958202851ad7f8359a9dc18da21b5541a4b90231adcd6fa4b8.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "(i) Convergence curves of f3 for MK05"
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                605,
+                34,
+                887,
+                180
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/1c8cc8725d7cab9063e1bda0d3d7ae59eb732228736dec6e40655713557bc8c5.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Fig. 5. Convergence curves for MK01, MK04 and MK05."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Fig. 6. Gantt chart of a solution of la24 with NNIA."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                109,
+                241,
+                914,
+                468
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/88f95a512c0d29c178b3aad373ec226af2777347bc429e67a3faafa59b49fea0.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Fig. 7. Gantt chart of a solution of la24 with MA."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                115,
+                500,
+                907,
+                760
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.4 Further discussion"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                65,
+                804,
+                265,
+                820
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "From the experimental results, we can see that the proposed MA outperforms the well-known algorithms of NNIA and NSGA-Ⅲ. But why our MA exhibits such excellent performance? Here, we want to emphasize the following two main aspects."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                835,
+                954,
+                888
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "First, the proposed NCEM shows strong power for the MA to obtain high quality initial population, which takes full account of the characteristics of the FJSPJP. More specifically, the NCEM can arrange the jobs with priority to be processed as early as possible respecting the constraints of operations and machines."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                890,
+                954,
+                942
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Second, we would discuss the proposed LSA. By moving the first operations and the last operations in the critical paths, moving the operations on the critical path to other machines from their optional machines, and moving the operations of jobs with priority to their predecessor operations or optional machines, the LSA can promote the individuals close to the Pareto front in different directions and serves well for the convergence and diversity of the MA."
+                    }
+                ]
+            },
+            "bbox": [
+                94,
+                942,
+                954,
+                960
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "15"
+                    }
+                ]
+            },
+            "bbox": [
+                500,
+                971,
+                521,
+                982
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                63,
+                34,
+                956,
+                105
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5. Conclusion"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                65,
+                126,
+                208,
+                143
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this paper, we studied the FJSPJP considering the makespan, total tardiness and completion time of priority jobs. The FJSPJP can help production managers to deal with scheduling problems with job priority, which are widely seen in the real world but totally neglected theoretically. We proposed an effective MA to solve the FJSPJP. In the MA, an NCEM was constructed by sufficiently making use of the information and structure of the FJSPJP, which can guarantee the MA to obtain a high-quality initial population. To improve the convergence speed and fully exploit the solution space of the proposed MA, a new LSA was proposed. I is worth noting that this proposed LSA, which moves operations on the critical paths from different directions, is able to enhance the algorithm’s ability in optimizing multiple objectives. In our experiments, we first used the Taguchi method of DOE to obtain the best combination of key parameters of the MA. After that, further experiments were conducted to evaluate the performance of the proposed NCEM and LSA. Moreover, extensive comparisons were carried out between our proposed MA and two well-known algorithms based on 88 benchmarks from the literature. From these comparisons, we see that the proposed MA can outperform the compared algorithms on almost all of the instances. The superior performance of our MA provides considerable instructive value for real production scheduling problems and important references to other multiobjective optimization algorithms with local search operators."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                166,
+                957,
+                444
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Funding"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                65,
+                464,
+                159,
+                485
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This work was supported by the National Nature Science Foundation of China (Grant 72001217); the Nature Science Foundation of Hunan (Grant 2021JJ41081); the National Key R&D Program of China (Grant 2018YFB1701400); the State Key Laboratory of Construction Machinery (Grant SKLCM2019-03)."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                505,
+                954,
+                560
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Data availability"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                65,
+                581,
+                240,
+                601
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Because the research on job prioritization is expanding into other scenarios, the datasets generated and/or analyzed in this study are not available to the public, but are available from the corresponding author upon request."
+                    }
+                ]
+            },
+            "bbox": [
+                63,
+                621,
+                954,
+                676
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Reference"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                65,
+                697,
+                174,
+                715
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Birgin, E.G., Ferreira, J.E., Ronconi, D.P., 2015. List scheduling and beam search methods for the flexible job shop scheduling problem with sequencing flexibility. Eur J Oper Res 247, 421-440."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                739,
+                954,
+                772
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Brandimarte, P., 1993. Routing and scheduling in a flexible job shop by tabu search. Ann Oper Res 41, 157-183."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                67,
+                776,
+                826,
+                791
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Brucker, P., Schlie, R., 1990. Job-shop scheduling with multi-purpose machines. Computing 45, 369-375."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                67,
+                794,
+                784,
+                810
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Chen, J.C., Wu, C.C., Chen, C.W., Chen, K.H., 2012. Flexible job shop scheduling with parallel machines using Genetic Algorithm and Grouping Genetic Algorithm. Expert Syst Appl 39, 10016-10021."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                67,
+                813,
+                952,
+                846
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Chiong, R., Weise, T., Michalewicz, Z., 2012. Variants of evolutionary algorithms for real-world applications. Springer, Springer Berlin Heidelberg."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                67,
+                850,
+                952,
+                882
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Dauzère-Pérès, S., Paulli, J., 1997. An integrated approach for modeling and solving the general multiprocessor job-shop scheduling problem using tabu search. Ann Oper Res 70, 281-306."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                67,
+                887,
+                952,
+                920
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Deb, K., Jain, H., 2014. An Evolutionary Many-Objective Optimization Algorithm Using Reference-Point-Based Nondominated Sorting Approach, Part I: Solving Problems With Box Constraints. Ieee T Evolut Comput 18, 577-601."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                67,
+                923,
+                954,
+                957
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "16"
+                    }
+                ]
+            },
+            "bbox": [
+                500,
+                971,
+                521,
+                982
+            ]
+        }
+    ],
+    [
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Deb, K., Pratap, A., Agarwal, S., Meyarivan, T., 2002. A fast and elitist multiobjective genetic algorithm: NSGA-II. Ieee T Evolut Comput 6, 182-197."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                34,
+                954,
+                68
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Demir, Y., Isleyen, S.K., 2014. An effective genetic algorithm for flexible job-shop scheduling with overlapping in operations. Int J Prod Res 52, 3905-3921."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                71,
+                954,
+                105
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Deng, Q., Gong, G., Gong, X., Zhang, L., Liu, W., Ren, Q., 2017. A Bee Evolutionary Guiding Nondominated Sorting Geneti Algorithm II for Multiobjective Flexible Job-Shop Scheduling. Comput Intel Neurosc 2017, 1-17."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                108,
+                952,
+                143
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Devassia, J.V., Salazaraguilar, M.A., Boyer, V., 2018. Flexible job-shop scheduling problem with resource recovery constraints. Int J Prod Res, 1-18."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                146,
+                954,
+                179
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Frutos, M., Olivera, A.C., Tohmé, F., 2010. A memetic algorithm based on a NSGAII scheme for the flexible job-shop scheduling problem. Ann Oper Res 181, 745-765."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                183,
+                954,
+                217
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Gao, K.Z., Suganthan, P.N., Chua, T.J., Chong, C.S., Cai, T.X., Pan, Q.K., 2015a. A two-stage artificial bee colony algorithm scheduling flexible job-shop scheduling problem with new job insertion. Expert Syst Appl 42, 7652-7663."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                219,
+                954,
+                255
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Gao, K.Z., Suganthan, P.N., Pan, Q.K., Chua, T.J., Chong, C.S., Cai, T.X., 2016a. An improved artificial bee colony algorithm for flexible job-shop scheduling problem with fuzzy processing time. Expert Syst Appl 65, 52-67."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                256,
+                954,
+                292
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Gao, K.Z., Suganthan, P.N., Pan, Q.K., Tasgetiren, M.F., 2015b. An effective discrete harmony search algorithm for flexible job shop scheduling problem with fuzzy processing time. Int J Prod Res 53, 5896-5911."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                294,
+                954,
+                329
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Gao, K.Z., Suganthan, P.N., Pan, Q.K., Tasgetiren, M.F., Sadollah, A., 2016b. Artificial bee colony algorithm for scheduling and rescheduling fuzzy flexible job shop problem with new job insertion. Knowl-Based Syst 109, 1-16."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                331,
+                954,
+                366
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Gong, G.L., Deng, Q.W., Gong, X.R., Liu, W., Ren, Q.H., 2018. A new double flexible job-shop scheduling problem integrating processing time, green production, and human factor indicators. J Clean Prod 174, 560-576."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                368,
+                954,
+                403
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Gong, M., Jiao, L., Du, H., Bo, L., 2009. Multiobjective immune algorithm with nondominated neighbor-based selection. Evol Comput 17, 131."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                405,
+                954,
+                439
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Gong, X., Deng, Q., Gong, G., Liu, W., Ren, Q., 2017. A memetic algorithm for multi-objective flexible job-shop problem with worker flexibility. Int J Prod Res, 1-17."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                442,
+                954,
+                476
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Hurink, J., Jurisch, B., Thole, M., 1994. Tabu search for the job-shop scheduling problem with multi-purpose machines. Operations-Research-Spektrum 15, 205-215."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                479,
+                954,
+                514
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Kacem, I., Hammadi, S., Borne, P., 2002a. Approach by localization and multiobjective evolutionary optimization for flexible job shop scheduling problems. IEEE Transactions on Systems Man and Cybernetics Part C-Applications and Reviews 32, 1-13."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                516,
+                954,
+                551
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Kacem, I., Hammadi, S., Borne, P., 2002b. Pareto-optimality approach for flexible job-shop scheduling problems: hybridization of evolutionary algorithms and fuzzy logic. Math Comput Simulat 60, 245-276."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                552,
+                954,
+                588
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Kannan, S.S., Ramaraj, N., 2010. A novel hybrid feature selection via Symmetrical Uncertainty ranking based local memetic search algorithm. Knowl-Based Syst 23, 580-585."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                590,
+                954,
+                624
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Kaplanoglu, V., 2016. An object-oriented approach for multi-objective flexible job-shop scheduling problem. Expert Syst Appl 45, 71-84."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                627,
+                952,
+                661
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Li, J.Q., Pan, Q.K., 2012. Chemical-reaction optimization for flexible job-shop scheduling problems with maintenance activity. Appl Soft Comput 12, 2896-2912."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                664,
+                954,
+                699
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Li, X., Peng, Z., Du, B., Guo, J., Xu, W., Zhuang, K., 2017. Hybrid artificial bee colony algorithm with a rescheduling strategy fo solving flexible job shop scheduling problems. Comput Ind Eng 113, 10-26."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                701,
+                954,
+                736
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Lu, C., Li, X.Y., Gao, L., Liao, W., Yi, J., 2017. An effective multi-objective discrete virus optimization algorithm for flexible job shop scheduling problem with controllable processing times. Comput Ind Eng 104, 156-174."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                739,
+                954,
+                774
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Montgomery, D.C., 2008. Design & Analysis of Experiments. John Wiley and Sons."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                775,
+                640,
+                791
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Piroozfard, H., Wong, K.Y., Wong, W.P., 2018. Minimizing total carbon footprint and total late work criterion in flexible job shop scheduling by using an improved multi-objective genetic algorithm. Resour Conserv Recy 128, 267-283."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                794,
+                954,
+                829
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Reddy, M.B.S.S., Ratnam, C., Rajyalakshmi, G., Manupati, V.K., 2018. An effective hybrid multi objective evolutionary algorithm for solving real time event in flexible job shop scheduling problem. Measurement 114, 78-90."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                831,
+                954,
+                866
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Rossi, A., Dini, G., 2007. Flexible job-shop scheduling with routing flexibility and separable setup times using ant colony optimisation method. Robot Cim-Int Manuf 23, 503-516."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                868,
+                954,
+                903
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Shen, L., Dauzère-Pérès, S., Neufeld, J.S., 2018. Solving the flexible job shop scheduling problem with sequence-dependent setup times. Eur J Oper Res 265, 503-516."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                65,
+                904,
+                954,
+                939
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Wang, S.J., Yu, J.B., 2010. An effective heuristic for flexible job-shop scheduling problem with maintenance activities. Comput Ind"
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                67,
+                942,
+                954,
+                958
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "17"
+                    }
+                ]
+            },
+            "bbox": [
+                500,
+                970,
+                521,
+                982
+            ]
+        }
+    ],
+    [
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Eng 59, 436-447."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                67,
+                35,
+                189,
+                49
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Wenchao, Y., Xinyu, L., Baolin, P., 2016. Solving flexible job shop scheduling using an effective memetic algorithm [J]. International Journal of Computer Applications in Technology 53, 157-163."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                67,
+                53,
+                954,
+                87
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Wisittipanich W., K.V., 2013. An efficient pso algorithm for finding pareto-frontier in multi-objective job shop scheduling problems. Industrial Engineering & Management Systems 12 151-160."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                67,
+                90,
+                952,
+                124
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Xia, W.J., Wu, Z.M., 2005. An effective hybrid optimization approach for multi-objective flexible job-shop scheduling problems. Comput Ind Eng 48, 409-425."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                67,
+                127,
+                952,
+                161
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Yuan, Y., Xu, H., 2013. A memetic algorithm for the multi-objective flexible job shop scheduling problem, Proceedings of the 15th annual conference on Genetic and evolutionary computation. ACM, pp. 559-566."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                67,
+                164,
+                952,
+                198
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Yuan, Y., Xu, H., 2015. Multiobjective Flexible Job Shop Scheduling Using Memetic Algorithms. Ieee T Autom Sci Eng 12, 336- 353."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                67,
+                200,
+                952,
+                235
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Zandieh, M., Khatami, A.R., Rahmati, S.H.A., 2017. Flexible job shop scheduling under condition-based maintenance: Improved version of imperialist competitive algorithm. Appl Soft Comput 58, 449-464."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                67,
+                237,
+                954,
+                273
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Zeng, C., Tang, J., Fan, Z., Yan, C., 2019. Auction-based approach for a flexible job-shop scheduling problem with multiple proces plans. Eng Optimiz, 1-18."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                67,
+                275,
+                952,
+                309
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Zhang, G., Gao, L., Shi, Y., 2011. An effective genetic algorithm for the flexible job-shop scheduling problem. Expert Syst Appl 38, 3563-3573."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                67,
+                313,
+                952,
+                346
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Zheng, X., Wang, L., 2016. A knowledge-guided fruit fly optimization algorithm for dual resource constrained flexible job-shop scheduling problem. Int J Prod Res 54, 1-13."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                67,
+                349,
+                954,
+                382
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "18"
+                    }
+                ]
+            },
+            "bbox": [
+                500,
+                970,
+                521,
+                982
+            ]
+        }
+    ]
+]

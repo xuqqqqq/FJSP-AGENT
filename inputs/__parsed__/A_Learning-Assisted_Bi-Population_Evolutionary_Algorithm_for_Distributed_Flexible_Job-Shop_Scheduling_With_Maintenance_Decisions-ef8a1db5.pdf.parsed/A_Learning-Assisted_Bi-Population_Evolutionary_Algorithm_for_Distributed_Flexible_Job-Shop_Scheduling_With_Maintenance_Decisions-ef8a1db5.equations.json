@@ -1,0 +1,330 @@
+{
+  "version": "1.0",
+  "equations": {
+    "eq-3c097ff3685735b34b61c3dd960e3345-0001": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0001",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "\\min f _ {1} = \\max \\left(E _ {i j} + P _ {i j} ^ {\\prime}\\right) \\forall i, j\\tag{1}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/82"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0002": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0002",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "\\min f _ {2} = c \\left(\\sum_ {i, j} \\eta_ {i j} t _ {i j} + t _ {\\mathrm{CM}} \\sum_ {i, j} q _ {i j}\\right)\\tag{2}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/83"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0003": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0003",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "\\min f _ {3} = \\mu_ {1} \\sum_ {i, j} P _ {i j} ^ {\\prime} + \\mu_ {2} \\frac {f _ {2}}{c} + \\mu_ {3} \\sum_ {i, j} I _ {i j}\\tag{3}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/84"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0004": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0004",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "P _ {i j} ^ {\\prime} = \\sum_ {f, m, k} P _ {i j m} x _ {i j f m k} + d a _ {i j} \\forall i, j\\tag{4}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/86"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0005": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0005",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "t _ {i j} = \\min \\left(t _ {\\mathrm{CM}} \\frac {a _ {i j} + P _ {i j} ^ {\\prime}}{T}, t _ {\\mathrm{CM}}\\right) \\forall i, j\\tag{5}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/87"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0006": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0006",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "E _ {i j} \\geq E _ {i, j - 1} + P _ {i, j - 1} ^ {\\prime} \\forall i, j \\geq 2\\tag{6}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/88"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0007": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0007",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "E _ {i j} \\geq E _ {\\mathrm{gh}} + P _ {\\mathrm{gh}} ^ {\\prime} + t _ {\\mathrm{gh}} \\left(\\eta_ {\\mathrm{gh}} + q _ {\\mathrm{gh}}\\right) - L (2 -",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/89"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0008": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0008",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "\\left. x _ {g h f m, k - 1} - x _ {i j f m k}\\right) \\forall i, j, g, h, f, m, k \\geq 2\\tag{7}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/90"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0009": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0009",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "I _ {i j} = E _ {i j} - \\Big [ E _ {\\mathrm{gh}} + P _ {\\mathrm{gh}} ^ {\\prime} + t _ {\\mathrm{gh}} \\big (\\eta_ {\\mathrm{gh}} + q _ {\\mathrm{gh}} \\big) \\Big ],",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/91"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0010": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0010",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "\\text { if } x _ {g h f m, k - 1} + x _ {i j f m k} = 2 \\forall i, j, g, h, f, m, k \\geq 2\\tag{8}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/92"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0011": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0011",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "a _ {i j} \\geq a _ {\\mathrm{gh}} + P _ {\\mathrm{gh}} ^ {\\prime} - L \\big (2 - x _ {g h f m, k - 1} - x _ {i j f m k} +",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/93"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0012": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0012",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "\\eta_ {\\mathrm{gh}} + q _ {\\mathrm{gh}} \\big) \\forall i, j, g, h, f, m, k \\geq 2\\tag{9}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/94"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0013": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0013",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "\\begin{array}{c} q _ {i j} \\leq 1 + \\frac {1}{L} \\Big (a _ {i j} + P _ {i j} ^ {\\prime} - T \\Big) + L \\big (1 - x _ {i j f m k} \\big) \\\\ \\forall i, j, f, m, k \\end{array}\\tag{10}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/95"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0014": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0014",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "q _ {i j} \\geq \\frac {1}{L} \\Big (a _ {i j} + P _ {i j} ^ {\\prime} - T \\Big) - L \\big (1 - x _ {i j f m k} \\big)",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/96"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0015": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0015",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "\\forall i, j, f, m, k",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/97"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0016": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0016",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "\\eta_ {i j} + q _ {i j} \\leq 1 \\forall i, j\\tag{11}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/98"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0017": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0017",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {f, k} x _ {i j f m k} \\leq \\xi_ {i j m} \\forall i, j, m\\tag{13}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/100"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0018": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0018",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {f, m, k} x _ {i j f m k} = 1 \\forall i, j\\tag{14}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/101"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0019": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0019",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {i, j} x _ {i j f m k} \\leq 1 \\forall f, m, k\\tag{15}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/102"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0020": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0020",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {i, j} x _ {i j f m k} \\leq \\sum_ {i, j} x _ {i j f m, k - 1} \\forall f, m, k \\geq 2\\tag{16}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/103"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0021": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0021",
+      "blockid": "79b1c64fc5310db0dfe0cffc02f97647",
+      "heading": "C. Proposed Model",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {m, k} x _ {i j f m k} = \\sum_ {m ^ {\\prime}, k ^ {\\prime}} x _ {i h f m ^ {\\prime} k ^ {\\prime}} \\forall i, j, h, f.\\tag{17}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/104"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0022": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0022",
+      "blockid": "16e7e47e5484725463c399355eb9950f",
+      "heading": "F. Learning-Assisted Adaptive LS Strategy",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "r = - 1, \\left\\{ \\begin{array}{l} \\text {if \\forall w\\in 1,2,3,f_{w} ^{*} -f_{w} ^{\\circ}\\leq 0} \\\\ \\sum_ {w = 1} ^ {3} r _ {w} \\max f _ {w} ^ {*} - f _ {w} ^ {\\circ}, 0, \\text {otherwise} \\end{array} \\right.\\tag{18}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/164"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0023": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0023",
+      "blockid": "3c056f2f5d0fb9eea32d01e345d4a3bb",
+      "heading": "B. Evaluation Metrics",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "f _ {w} ^ {*} (x) = \\frac {f _ {w} (x) - f _ {w} ^ {\\mathrm{min}}}{f _ {w} ^ {\\mathrm{max}} - f _ {w} ^ {\\mathrm{min}}}\\tag{19}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/181"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0024": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0024",
+      "blockid": "3c056f2f5d0fb9eea32d01e345d4a3bb",
+      "heading": "B. Evaluation Metrics",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "\\mathrm{IGD} = \\frac {1}{| \\mathrm{PF} |} \\sum_ {\\omega^ {2} \\in \\mathrm{PF}} \\min _ {\\omega^ {1} \\in \\Omega} \\left\\| \\omega^ {1} - \\omega^ {2} \\right\\|.\\tag{20}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/184"
+    },
+    "eq-3c097ff3685735b34b61c3dd960e3345-0025": {
+      "id": "eq-3c097ff3685735b34b61c3dd960e3345-0025",
+      "blockid": "3c056f2f5d0fb9eea32d01e345d4a3bb",
+      "heading": "B. Evaluation Metrics",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "format": "latex",
+      "content": "\\mathrm{HV} = \\lambda_ {w} (\\cup_ {x \\in \\Omega} [ x, \\pi ])\\tag{21}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/186"
+    }
+  }
+}

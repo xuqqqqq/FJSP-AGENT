@@ -5,6 +5,9 @@ description = "Independent harness engineering agent for FJSP algorithm self-evo
 requires-python = ">=3.10"
 dependencies = [
   "langgraph>=1.0",
+  "lightrag-hku[api]",
+  "ollama>=0.6.2",
+  "openai>=2.49.0",
 ]
 
 [tool.pytest.ini_options]

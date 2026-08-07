@@ -1,0 +1,109 @@
+{
+  "version": "1.0",
+  "tables": {
+    "tb-d9df397d18c928b6ad43dd34f3f76716-0001": {
+      "id": "tb-d9df397d18c928b6ad43dd34f3f76716-0001",
+      "blockid": "84f67928b677c17cd3bc182ba0b826c6",
+      "heading": "3.1 Variations of Light Intensity and Attractiveness",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "dimension": [
+        4,
+        9
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">OS</td><td>2</td><td>1</td><td>3</td><td>2</td><td>3</td><td>1</td><td>1</td><td>2</td></tr><tr><td> $O_{21}$ </td><td> $O_{11}$ </td><td> $O_{31}$ </td><td> $O_{22}$ </td><td> $O_{32}$ </td><td> $O_{12}$ </td><td> $O_{13}$ </td><td> $O_{23}$ </td></tr><tr><td rowspan=\"2\">MS</td><td>2</td><td>4</td><td>3</td><td>1</td><td>3</td><td>4</td><td>2</td><td>1</td></tr><tr><td> $O_{11}$ </td><td> $O_{12}$ </td><td> $O_{13}$ </td><td> $O_{21}$ </td><td> $O_{22}$ </td><td> $O_{23}$ </td><td> $O_{31}$ </td><td> $O_{32}$ </td></tr></table>",
+      "caption": "Fig. 1. Example of OS string and MS string of a firefly.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/68"
+    },
+    "tb-d9df397d18c928b6ad43dd34f3f76716-0002": {
+      "id": "tb-d9df397d18c928b6ad43dd34f3f76716-0002",
+      "blockid": "aaa99e6afcb60e77a4d0d950674079fc",
+      "heading": "3.2 Firefly Representation for the FJSP",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "dimension": [
+        10,
+        3
+      ],
+      "format": "html",
+      "content": "<table><tr><td></td><td>MS string</td><td>OS string</td></tr><tr><td>Firefly j</td><td>1 4 1 3 2 2 3 4</td><td>1 2 3 2 1 1 2 3</td></tr><tr><td>Firefly i</td><td>2 4 3 1 3 4 2 1</td><td>2 1 3 2 3 1 1 2</td></tr><tr><td> $H_{ij}$  and  $S_{ij}$ </td><td> $\\{(1, 1), (3, 1), (4, 3), (5, 2), (6, 2), (7, 3), (8, 4)\\}$ </td><td> $\\{(1, 2), (5, 6), (6, 7), (7, 8)\\}$ </td></tr><tr><td> $|H_{ij}|$  and  $|S_{ij}|$ </td><td>7</td><td>4</td></tr><tr><td>Attractiveness  $\\beta(r)$ </td><td>0.17</td><td>0.38</td></tr><tr><td>rand ∈ [0, 1]</td><td> $\\{0.35, 0.1, 0.09, 0.14, 0.33, 0.49, 0.32\\}$ </td><td> $\\{0.52, 0.05, 0.12, 0.69\\}$ </td></tr><tr><td>Movement  $\\beta$ -step</td><td> $\\{(3, 1), (4, 3), (5, 2)\\}$ </td><td> $\\{(5, 6), (6, 7)\\}$ </td></tr><tr><td>Position after  $\\beta$ -step</td><td>2 4 1 3 2 4 2 1</td><td>2 1 3 2 1 1 3 2</td></tr><tr><td>Position after  $\\alpha$ -step</td><td>2 4 1 3 2 2 4 1</td><td>2 1 3 2 1 1 2 3</td></tr></table>",
+      "caption": "Table 1. Update of the movement of firefly <sup>i</sup> towards a brighter firefly <sup>j</sup>.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/79"
+    },
+    "tb-d9df397d18c928b6ad43dd34f3f76716-0003": {
+      "id": "tb-d9df397d18c928b6ad43dd34f3f76716-0003",
+      "blockid": "92f64d5d9f4f84ce30b2845f9ffe3cf2",
+      "heading": "3.4 Distance",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "dimension": [
+        12,
+        10
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Instance</td><td rowspan=\"2\">n</td><td rowspan=\"2\">o</td><td rowspan=\"2\">m</td><td colspan=\"2\">OOY</td><td colspan=\"2\">WLH</td><td colspan=\"2\">DFA</td></tr><tr><td> $C_{max}$ </td><td>CPU</td><td> $C_{max}$ </td><td>CPU</td><td> $C_{max}$ </td><td>CPU</td></tr><tr><td>MFJS01</td><td>5</td><td>3</td><td>6</td><td>468</td><td>0.20</td><td>468</td><td>0.21</td><td>468</td><td>0.11</td></tr><tr><td>MFJS02</td><td>5</td><td>3</td><td>7</td><td>446</td><td>0.32</td><td>446</td><td>0.32</td><td>446</td><td>0.18</td></tr><tr><td>MFJS03</td><td>6</td><td>3</td><td>7</td><td>466</td><td>0.90</td><td>466</td><td>0.91</td><td>466</td><td>0.36</td></tr><tr><td>MFJS04</td><td>7</td><td>3</td><td>7</td><td>554</td><td>2.54</td><td>554</td><td>2.56</td><td>554</td><td>1.99</td></tr><tr><td>MFJS05</td><td>7</td><td>3</td><td>7</td><td>514</td><td>1.64</td><td>514</td><td>1.78</td><td>514</td><td>1.28</td></tr><tr><td>MFJS06</td><td>8</td><td>3</td><td>7</td><td>634</td><td>3.80</td><td>634</td><td>3.88</td><td>634</td><td>4.46</td></tr><tr><td>MFJS07</td><td>8</td><td>4</td><td>7</td><td>879</td><td>43.33</td><td>879</td><td>44.54</td><td>879</td><td>9.34</td></tr><tr><td>MFJS08</td><td>9</td><td>4</td><td>8</td><td>884</td><td>977</td><td>884</td><td>1050.55</td><td>884</td><td>15.23</td></tr><tr><td>MFJS09</td><td>11</td><td>4</td><td>8</td><td>[877.9; 1111]20.98%</td><td>3600</td><td>[861; 116]22.85%</td><td>3600</td><td>1055</td><td>31.22</td></tr><tr><td>MFJS10</td><td>12</td><td>4</td><td>8</td><td>[1012; 1208]16.23%</td><td>3600</td><td>[1008.2; 1220]17.36%</td><td>3600</td><td>1196</td><td>39.32</td></tr></table>",
+      "caption": "Table 2. The experimental results on Fattahi instances.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/88"
+    },
+    "tb-d9df397d18c928b6ad43dd34f3f76716-0004": {
+      "id": "tb-d9df397d18c928b6ad43dd34f3f76716-0004",
+      "blockid": "404213279942958c10e24335510c1ab0",
+      "heading": "3.5 Attraction and Movement",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "dimension": [
+        12,
+        11
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Instance</td><td rowspan=\"2\">n</td><td rowspan=\"2\">o</td><td rowspan=\"2\">m</td><td rowspan=\"2\">u</td><td colspan=\"2\">WLH</td><td colspan=\"2\">GA</td><td colspan=\"2\">DFA</td></tr><tr><td> $C_{max}$ </td><td>CPU</td><td> $C_{max}$ </td><td>CPU</td><td> $C_{max}$ </td><td>CPU</td></tr><tr><td>FCR01</td><td>5</td><td>3</td><td>6</td><td>6</td><td>513</td><td>0.20</td><td>513</td><td>3.57</td><td>513</td><td>0.13</td></tr><tr><td>FCR02</td><td>5</td><td>3</td><td>7</td><td>9</td><td>548</td><td>0.56</td><td>552</td><td>7.18</td><td>548</td><td>0.16</td></tr><tr><td>FCR03</td><td>6</td><td>3</td><td>7</td><td>14</td><td>620</td><td>2.50</td><td>620</td><td>5.80</td><td>620</td><td>0.44</td></tr><tr><td>FCR04</td><td>7</td><td>3</td><td>7</td><td>17</td><td>746</td><td>27.46</td><td>748</td><td>5.86</td><td>746</td><td>2.33</td></tr><tr><td>FCR05</td><td>7</td><td>3</td><td>7</td><td>20</td><td>693</td><td>20.94</td><td>709</td><td>11.23</td><td>693</td><td>4.28</td></tr><tr><td>FCR06</td><td>8</td><td>3</td><td>7</td><td>20</td><td>774</td><td>4.83</td><td>777</td><td>11.31</td><td>774</td><td>6.17</td></tr><tr><td>FCR07</td><td>8</td><td>4</td><td>7</td><td>12</td><td>[1000; 1024] 2.34%</td><td>3600</td><td>1044</td><td>28.46</td><td>1024</td><td>10.34</td></tr><tr><td>FCR08</td><td>9</td><td>4</td><td>8</td><td>35</td><td>[1414; 1467] 3.61%</td><td>3600</td><td>1478</td><td>35.22</td><td>1418</td><td>16.78</td></tr><tr><td>FCR09</td><td>11</td><td>4</td><td>8</td><td>49</td><td>[1410.96; 2051] 31.21%</td><td>3600</td><td>1976</td><td>65.65</td><td>1944</td><td>34.70</td></tr><tr><td>FCR10</td><td>12</td><td>4</td><td>8</td><td>52</td><td>[1815.26; 2631] 31.00%</td><td>3600</td><td>2337</td><td>70.64</td><td>2320</td><td>43.01</td></tr></table>",
+      "caption": "Table 3. The experimental results (computational time in terms of seconds) on the proposed instances with fixed available periods.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/95"
+    },
+    "tb-d9df397d18c928b6ad43dd34f3f76716-0005": {
+      "id": "tb-d9df397d18c928b6ad43dd34f3f76716-0005",
+      "blockid": "ca67e94f265896b99b24d394e89c93e8",
+      "heading": "4 Numerical Results",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "dimension": [
+        12,
+        10
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Instance</td><td rowspan=\"2\">n</td><td rowspan=\"2\">m</td><td rowspan=\"2\">o</td><td colspan=\"2\">TABC</td><td colspan=\"2\">MA</td><td colspan=\"2\">DFA</td></tr><tr><td> $C_{max}$ </td><td>CPU</td><td> $C_{max}$ </td><td>CPU</td><td> $C_{max}$ </td><td>CPU</td></tr><tr><td>Mk01</td><td>10</td><td>6</td><td>7</td><td>40</td><td>3</td><td>40</td><td>20</td><td>40</td><td>5</td></tr><tr><td>Mk02</td><td>10</td><td>6</td><td>7</td><td>26</td><td>3</td><td>26</td><td>28</td><td>26</td><td>16</td></tr><tr><td>Mk03</td><td>15</td><td>8</td><td>10</td><td>204</td><td>1</td><td>204</td><td>53</td><td>204</td><td>3</td></tr><tr><td>Mk04</td><td>15</td><td>8</td><td>10</td><td>60</td><td>66</td><td>60</td><td>30</td><td>60</td><td>11</td></tr><tr><td>Mk05</td><td>15</td><td>4</td><td>10</td><td>173</td><td>78</td><td>172</td><td>36</td><td>172</td><td>19</td></tr><tr><td>Mk06</td><td>10</td><td>15</td><td>15</td><td>60</td><td>173</td><td>59</td><td>80</td><td>59</td><td>63</td></tr><tr><td>Mk07</td><td>20</td><td>5</td><td>5</td><td>139</td><td>66</td><td>139</td><td>37</td><td>139</td><td>43</td></tr><tr><td>Mk08</td><td>20</td><td>10</td><td>15</td><td>523</td><td>2</td><td>523</td><td>77</td><td>523</td><td>4</td></tr><tr><td>Mk09</td><td>20</td><td>10</td><td>15</td><td>307</td><td>304</td><td>307</td><td>75</td><td>307</td><td>34</td></tr><tr><td>Mk10</td><td>20</td><td>15</td><td>15</td><td>202</td><td>418</td><td>202</td><td>90</td><td>202</td><td>94</td></tr></table>",
+      "caption": "Table 4. Comparison of the DFA with other algorithms on Brandimarte instances.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/104"
+    },
+    "tb-d9df397d18c928b6ad43dd34f3f76716-0006": {
+      "id": "tb-d9df397d18c928b6ad43dd34f3f76716-0006",
+      "blockid": "2cb5d06d73a5afc0aa519bbf5adf4fc6",
+      "heading": "4.2 FJSP-FCR Instances",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "dimension": [
+        11,
+        21
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Algorithm</td><td colspan=\"4\"> $4 \\times 5$ </td><td colspan=\"4\"> $8 \\times 8$ </td><td colspan=\"4\"> $10 \\times 7$ </td><td colspan=\"4\"> $10 \\times 10$ </td><td colspan=\"4\"> $15 \\times 10$ </td></tr><tr><td> $f_1$ </td><td> $f_2$ </td><td> $f_3$ </td><td>CPU</td><td> $f_1$ </td><td> $f_2$ </td><td> $f_3$ </td><td>CPU</td><td> $f_1$ </td><td> $f_2$ </td><td> $f_3$ </td><td>CPU</td><td> $f_1$ </td><td> $f_2$ </td><td> $f_3$ </td><td>CPU</td><td> $f_1$ </td><td> $f_2$ </td><td> $f_3$ </td><td>CPU</td></tr><tr><td>AL + CGA</td><td>16</td><td>10</td><td>34</td><td>-</td><td>15</td><td>13</td><td>79</td><td>-</td><td></td><td>-</td><td></td><td>-</td><td>7</td><td>5</td><td>45</td><td>-</td><td>23</td><td>11</td><td>93</td><td>-</td></tr><tr><td>PSO + SA</td><td></td><td>-</td><td></td><td>-</td><td>15</td><td>12</td><td>75</td><td>-</td><td></td><td>-</td><td></td><td>-</td><td>7</td><td>6</td><td>44</td><td>-</td><td>12</td><td>11</td><td>91</td><td>-</td></tr><tr><td>AIA</td><td></td><td>-</td><td></td><td>-</td><td>14</td><td>12</td><td>77</td><td>0.76</td><td></td><td>-</td><td></td><td>-</td><td>7</td><td>5</td><td>43</td><td>8.97</td><td>11</td><td>11</td><td>93</td><td>109.22</td></tr><tr><td>P-DABC</td><td>11</td><td>10</td><td>32</td><td>-</td><td>14</td><td>12</td><td>77</td><td>-</td><td>12</td><td>11</td><td>61</td><td>-</td><td>8</td><td>7</td><td>41</td><td>-</td><td>12</td><td>11</td><td>91</td><td>-</td></tr><tr><td>SMF</td><td>12</td><td>8</td><td>32</td><td>2.6</td><td>14</td><td>12</td><td>77</td><td>39.5</td><td>11</td><td>10</td><td>62</td><td>109.5</td><td>7</td><td>6</td><td>42</td><td>39.1</td><td>11</td><td>10</td><td>93</td><td>864.6</td></tr><tr><td>PSO + TS</td><td>12</td><td>8</td><td>32</td><td>0.34</td><td>14</td><td>12</td><td>77</td><td>1.67</td><td></td><td>-</td><td></td><td>-</td><td>7</td><td>6</td><td>43</td><td>2.05</td><td>11</td><td>11</td><td>93</td><td>10.88</td></tr><tr><td>WLH</td><td>12</td><td>8</td><td>32</td><td>0.06</td><td>14</td><td>12</td><td>77</td><td>0.54</td><td>11</td><td>10</td><td>62</td><td>0.36</td><td>7</td><td>5</td><td>43</td><td>1.07</td><td>11</td><td>11</td><td>93</td><td>211.74</td></tr><tr><td>GA</td><td>11</td><td>10</td><td>32</td><td>0.29</td><td>14</td><td>12</td><td>77</td><td>0.90</td><td>11</td><td>10</td><td>62</td><td>1.57</td><td>7</td><td>6</td><td>42</td><td>2.02</td><td>12</td><td>12</td><td>93</td><td>18.76</td></tr><tr><td>DFA</td><td>12</td><td>8</td><td>32</td><td>0.11</td><td>14</td><td>12</td><td>77</td><td>0.64</td><td>11</td><td>10</td><td>62</td><td>0.84</td><td>7</td><td>5</td><td>43</td><td>1.27</td><td>11</td><td>11</td><td>93</td><td>6.86</td></tr></table>",
+      "caption": "Table 5. The experimental results on Kacem instances of a multi-objective optimization experiment.",
+      "footnotes": [
+        "<sup>n m</sup> total number of jobs and machines. equals not available. $\\overline { { f _ { 1 } , f _ { 2 } } }$ and $f _ { 3 }$ are respectively the $C _ { m a x }$ , $W _ { m a x }$ , and total workload of the machines."
+      ],
+      "self_ref": "content_list.json#/113"
+    }
+  }
+}

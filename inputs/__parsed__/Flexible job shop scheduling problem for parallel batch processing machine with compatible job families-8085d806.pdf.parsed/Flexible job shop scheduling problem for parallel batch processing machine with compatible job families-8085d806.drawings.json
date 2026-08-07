@@ -1,0 +1,61 @@
+{
+  "version": "1.0",
+  "drawings": {
+    "im-a9dfd659064575aec5a7501a69f9cd4d-0001": {
+      "id": "im-a9dfd659064575aec5a7501a69f9cd4d-0001",
+      "blockid": "57467239412e89989361ae9bae7323f0",
+      "heading": "2.2. Priority job scheduler",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "jpg",
+      "path": "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families-8085d806.blocks.assets/b7a9e0246d1c7aabab2f1fd4dfb8d33384b337bc6e32fbaacfdfa53da1b88177.jpg",
+      "src": "",
+      "caption": "Fig. 1. FJSP instance of 5-job, 6-machine, and 3-step with batching.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/35"
+    },
+    "im-a9dfd659064575aec5a7501a69f9cd4d-0002": {
+      "id": "im-a9dfd659064575aec5a7501a69f9cd4d-0002",
+      "blockid": "5996fab4e936affe28742c5df80fe45e",
+      "heading": "3.2. FJSP with batching applied to priority job scheduling",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "jpg",
+      "path": "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families-8085d806.blocks.assets/aa6459444b5db4601f2a074a9fc0cf7236460add9527c7c8bce8dbc34821a0b3.jpg",
+      "src": "",
+      "caption": "Fig. 2. An optimal solution for the 5-job, 6-machine, and 3-step w/o batching.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/66"
+    },
+    "im-a9dfd659064575aec5a7501a69f9cd4d-0003": {
+      "id": "im-a9dfd659064575aec5a7501a69f9cd4d-0003",
+      "blockid": "5996fab4e936affe28742c5df80fe45e",
+      "heading": "3.2. FJSP with batching applied to priority job scheduling",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "jpg",
+      "path": "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families-8085d806.blocks.assets/0cd49c3bc2465ac33c72823555ce6ff9104ccfed301be5cf30fe8c476d3bc605.jpg",
+      "src": "",
+      "caption": "Fig. 3. An optimal solution for the 5-job, 6-machine, and 3-step w/ batching.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/67"
+    },
+    "im-a9dfd659064575aec5a7501a69f9cd4d-0004": {
+      "id": "im-a9dfd659064575aec5a7501a69f9cd4d-0004",
+      "blockid": "d22df3193913299a2802199cb304f21b",
+      "heading": "4.3. Priority job scheduling test instances",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "jpg",
+      "path": "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families-8085d806.blocks.assets/24de9fc79f205bce214589b16391e13b608883e90a462a6f85a4fae27192a507.jpg",
+      "src": "",
+      "caption": "Fig. 4. Gantt chart schedule of test instance of PJS01.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/108"
+    }
+  }
+}

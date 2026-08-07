@@ -1,0 +1,73 @@
+{
+  "version": "1.0",
+  "tables": {
+    "tb-c111335adb177428c1a51cb7f78bd2c0-0001": {
+      "id": "tb-c111335adb177428c1a51cb7f78bd2c0-0001",
+      "blockid": "ca110884672764aee0f071f58c7db4f9",
+      "heading": "B. Ablation Experiments",
+      "parent_headings": [
+        "A Hierarchical Optimization Algorithm With Dual-Cache Synced Tuning Mechanism for Distributed Flexible Job Shop Scheduling Problem"
+      ],
+      "dimension": [
+        14,
+        10
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">n</td><td rowspan=\"2\">f</td><td colspan=\"2\">MIN</td><td colspan=\"2\">MAX</td><td colspan=\"2\">AVE</td><td colspan=\"2\">STD</td></tr><tr><td>HOA-DSTM</td><td>HOA</td><td>HOA-DSTM</td><td>HOA</td><td>HOA-DSTM</td><td>HOA</td><td>HOA-DSTM</td><td>HOA</td></tr><tr><td rowspan=\"3\">6</td><td>2</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>0.0000</td></tr><tr><td>3</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>0.0000</td></tr><tr><td>4</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>0.0000</td></tr><tr><td rowspan=\"3\">10</td><td>2</td><td>0.0000</td><td>0.0000</td><td>0.0469</td><td>0.0563</td><td>0.0118</td><td>0.0153</td><td>0.0108</td><td>0.0135</td></tr><tr><td>3</td><td>0.0000</td><td>0.0000</td><td>0.0362</td><td>0.1250</td><td>0.0043</td><td>0.0177</td><td>0.0078</td><td>0.0274</td></tr><tr><td>4</td><td>0.0000</td><td>0.0000</td><td>0.0333</td><td>0.0670</td><td>0.0028</td><td>0.0079</td><td>0.0071</td><td>0.0146</td></tr><tr><td rowspan=\"3\">15</td><td>2</td><td>0.0000</td><td>0.0012</td><td>0.0273</td><td>0.0659</td><td>0.0106</td><td>0.0271</td><td>0.0105</td><td>0.0197</td></tr><tr><td>3</td><td>0.0013</td><td>0.0031</td><td>0.0171</td><td>0.0930</td><td>0.0077</td><td>0.0294</td><td>0.0048</td><td>0.0289</td></tr><tr><td>4</td><td>0.0000</td><td>0.0000</td><td>0.0279</td><td>0.0600</td><td>0.0084</td><td>0.0243</td><td>0.0099</td><td>0.0230</td></tr><tr><td rowspan=\"3\">20</td><td>2</td><td>0.0000</td><td>0.0172</td><td>0.0043</td><td>0.0704</td><td>0.0014</td><td>0.0352</td><td>0.0018</td><td>0.0185</td></tr><tr><td>3</td><td>0.0000</td><td>0.0067</td><td>0.0089</td><td>0.0799</td><td>0.0032</td><td>0.0326</td><td>0.0028</td><td>0.0193</td></tr><tr><td>4</td><td>0.0000</td><td>0.0066</td><td>0.0188</td><td>0.0463</td><td>0.0056</td><td>0.0257</td><td>0.0061</td><td>0.0151</td></tr></table>",
+      "caption": "TABLE I",
+      "footnotes": [],
+      "self_ref": "content_list.json#/172"
+    },
+    "tb-c111335adb177428c1a51cb7f78bd2c0-0002": {
+      "id": "tb-c111335adb177428c1a51cb7f78bd2c0-0002",
+      "blockid": "8e76daac296ad4c74312a1916d4359e1",
+      "heading": "C. Comparison to Other Algorithms",
+      "parent_headings": [
+        "A Hierarchical Optimization Algorithm With Dual-Cache Synced Tuning Mechanism for Distributed Flexible Job Shop Scheduling Problem"
+      ],
+      "dimension": [
+        10,
+        11
+      ],
+      "format": "html",
+      "content": "<table><tr><td>HOA-DSTM</td><td>f</td><td> $R^+$ </td><td> $R^-$ </td><td>+</td><td>-</td><td>=</td><td>Z</td><td>p-value</td><td>α = 0.05</td><td>α = 0.1</td></tr><tr><td rowspan=\"3\">IAHA</td><td>2</td><td>911</td><td>35</td><td>42</td><td>0</td><td>1</td><td>-5.2888</td><td>1.231e-07</td><td>yes</td><td>yes</td></tr><tr><td>3</td><td>903</td><td>0</td><td>42</td><td>0</td><td>1</td><td>-5.6454</td><td>1.648e-08</td><td>yes</td><td>yes</td></tr><tr><td>4</td><td>860</td><td>1</td><td>40</td><td>1</td><td>2</td><td>-5.5656</td><td>2.6123e-08</td><td>yes</td><td>yes</td></tr><tr><td rowspan=\"3\">HGTSA</td><td>2</td><td>910</td><td>36</td><td>42</td><td>0</td><td>1</td><td>-5.2768</td><td>1.3149e-07</td><td>yes</td><td>yes</td></tr><tr><td>3</td><td>901</td><td>2</td><td>41</td><td>1</td><td>1</td><td>-5.6204</td><td>1.9052e-08</td><td>yes</td><td>yes</td></tr><tr><td>4</td><td>902</td><td>1</td><td>41</td><td>1</td><td>1</td><td>-5.6329</td><td>1.772e-08</td><td>yes</td><td>yes</td></tr><tr><td rowspan=\"3\">GA-VNS-CP</td><td>2</td><td>784</td><td>119</td><td>32</td><td>1</td><td>10</td><td>-4.1575</td><td>3.2179e-05</td><td>yes</td><td>yes</td></tr><tr><td>3</td><td>716</td><td>64</td><td>31</td><td>8</td><td>4</td><td>-4.5493</td><td>5.3817e-06</td><td>yes</td><td>yes</td></tr><tr><td>4</td><td>741</td><td>39</td><td>34</td><td>5</td><td>4</td><td>-4.8982</td><td>9.6716e-07</td><td>yes</td><td>yes</td></tr></table>",
+      "caption": "TABLE II",
+      "footnotes": [],
+      "self_ref": "content_list.json#/195"
+    },
+    "tb-c111335adb177428c1a51cb7f78bd2c0-0003": {
+      "id": "tb-c111335adb177428c1a51cb7f78bd2c0-0003",
+      "blockid": "8e76daac296ad4c74312a1916d4359e1",
+      "heading": "C. Comparison to Other Algorithms",
+      "parent_headings": [
+        "A Hierarchical Optimization Algorithm With Dual-Cache Synced Tuning Mechanism for Distributed Flexible Job Shop Scheduling Problem"
+      ],
+      "dimension": [
+        13,
+        6
+      ],
+      "format": "html",
+      "content": "<table><tr><td>n</td><td>f</td><td>HOA-DSTM</td><td>IAHA</td><td>HGTSA</td><td>GA-VNS-CP</td></tr><tr><td rowspan=\"3\">6</td><td>2</td><td>0.0000</td><td>0.0142</td><td>0.0248</td><td>0.0000</td></tr><tr><td>3</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>0.0000</td></tr><tr><td>4</td><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>0.0000</td></tr><tr><td rowspan=\"3\">10</td><td>2</td><td>0.0093</td><td>0.1701</td><td>0.1608</td><td>0.0803</td></tr><tr><td>3</td><td>0.0051</td><td>0.1430</td><td>0.1500</td><td>0.0765</td></tr><tr><td>4</td><td>0.0023</td><td>0.1322</td><td>0.1268</td><td>0.0766</td></tr><tr><td rowspan=\"3\">15</td><td>2</td><td>0.0415</td><td>0.1564</td><td>0.1459</td><td>0.0717</td></tr><tr><td>3</td><td>0.0138</td><td>0.2021</td><td>0.1994</td><td>0.0999</td></tr><tr><td>4</td><td>0.0114</td><td>0.1953</td><td>0.2124</td><td>0.1072</td></tr><tr><td rowspan=\"3\">20</td><td>2</td><td>0.0051</td><td>0.2142</td><td>0.2021</td><td>0.1337</td></tr><tr><td>3</td><td>0.0015</td><td>0.2418</td><td>0.2381</td><td>0.1452</td></tr><tr><td>4</td><td>0.0051</td><td>0.2715</td><td>0.2753</td><td>0.1663</td></tr></table>",
+      "caption": "ARPD VALUES IN THE COMPARISON ALGORITHMS",
+      "footnotes": [],
+      "self_ref": "content_list.json#/196"
+    },
+    "tb-c111335adb177428c1a51cb7f78bd2c0-0004": {
+      "id": "tb-c111335adb177428c1a51cb7f78bd2c0-0004",
+      "blockid": "8e76daac296ad4c74312a1916d4359e1",
+      "heading": "C. Comparison to Other Algorithms",
+      "parent_headings": [
+        "A Hierarchical Optimization Algorithm With Dual-Cache Synced Tuning Mechanism for Distributed Flexible Job Shop Scheduling Problem"
+      ],
+      "dimension": [
+        6,
+        5
+      ],
+      "format": "html",
+      "content": "<table><tr><td>f</td><td>IAHA</td><td>HGTSA</td><td>GA-VNS-CP</td><td>HOA-DSTM</td></tr><tr><td>2</td><td>3.56</td><td>3.37</td><td>1.78</td><td>1.29</td></tr><tr><td>3</td><td>3.50</td><td>3.43</td><td>1.79</td><td>1.28</td></tr><tr><td>4</td><td>3.45</td><td>3.41</td><td>1.90</td><td>1.24</td></tr><tr><td>CD. $\\alpha = 0.05$ </td><td>0.4130</td><td>0.4130</td><td>0.4130</td><td>0.4130</td></tr><tr><td>CD. $\\alpha = 0.1$ </td><td>0.3683</td><td>0.3683</td><td>0.3683</td><td>0.3683</td></tr></table>",
+      "caption": "TABLE IV",
+      "footnotes": [],
+      "self_ref": "content_list.json#/197"
+    }
+  }
+}

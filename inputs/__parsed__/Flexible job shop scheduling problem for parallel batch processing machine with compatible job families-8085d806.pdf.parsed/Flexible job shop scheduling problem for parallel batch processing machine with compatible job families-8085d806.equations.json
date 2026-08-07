@@ -1,0 +1,538 @@
+{
+  "version": "1.0",
+  "equations": {
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0001": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0001",
+      "blockid": "eac60419ea6af234a07c3f3c57cd13bb",
+      "heading": "3.1. FJSP with batching",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {m, k} X _ {j s m k} = 1 \\forall j, s\\tag{1.1}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/45"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0002": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0002",
+      "blockid": "eac60419ea6af234a07c3f3c57cd13bb",
+      "heading": "3.1. FJSP with batching",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {j, s} \\left(X _ {j s m k}\\right) \\leq p a r _ {m} ^ {c a p a} \\forall k, m\\tag{1.2}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/46"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0003": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0003",
+      "blockid": "eac60419ea6af234a07c3f3c57cd13bb",
+      "heading": "3.1. FJSP with batching",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "M _ {m, k} ^ {\\text { ptime }} \\geq (p a r _ {j, s, m} ^ {\\text { ptime }}) X _ {j s m k} \\forall j, s, m, k\\tag{1.3}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/48"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0004": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0004",
+      "blockid": "eac60419ea6af234a07c3f3c57cd13bb",
+      "heading": "3.1. FJSP with batching",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "J _ {j, 1} ^ {\\text { arrival }} = \\operatorname{par} _ {j} ^ {\\text { release }} \\forall j\\tag{1.4}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/49"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0005": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0005",
+      "blockid": "eac60419ea6af234a07c3f3c57cd13bb",
+      "heading": "3.1. FJSP with batching",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "M _ {m, k} ^ {\\text { start }} \\geq J _ {j, s} ^ {\\text { arrival }} + L (X _ {j s m k} - 1) \\forall j, s, m, k\\tag{1.5}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/50"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0006": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0006",
+      "blockid": "eac60419ea6af234a07c3f3c57cd13bb",
+      "heading": "3.1. FJSP with batching",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "M _ {m, k} ^ {\\text { complete }} = M _ {m, k} ^ {\\text { start }} + M _ {m, k} ^ {\\text { ptime }} \\forall m, k\\tag{1.6}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/51"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0007": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0007",
+      "blockid": "eac60419ea6af234a07c3f3c57cd13bb",
+      "heading": "3.1. FJSP with batching",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "J _ {j, s + 1} ^ {\\text { arrival }} \\geq M _ {m, k} ^ {\\text { complete }} + L (X _ {j s m k} - 1) \\forall j, m, k: s <   | S |\\tag{1.7}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/52"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0008": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0008",
+      "blockid": "eac60419ea6af234a07c3f3c57cd13bb",
+      "heading": "3.1. FJSP with batching",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "M _ {m, k + 1} ^ {\\text { start }} \\geq M _ {m, k} ^ {\\text { complete }} \\forall m: k <   | K |\\tag{1.8}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/53"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0009": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0009",
+      "blockid": "eac60419ea6af234a07c3f3c57cd13bb",
+      "heading": "3.1. FJSP with batching",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "C m a x \\geq M _ {m, k} ^ {\\text { complete }} + L \\left(X _ {j s m k} - 1\\right) \\forall j, s, m, k\\tag{1.9}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/55"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0010": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0010",
+      "blockid": "eac60419ea6af234a07c3f3c57cd13bb",
+      "heading": "3.1. FJSP with batching",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "\\text { Minimize   Cmax }\\tag{1.10}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/56"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0011": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0011",
+      "blockid": "5996fab4e936affe28742c5df80fe45e",
+      "heading": "3.2. FJSP with batching applied to priority job scheduling",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {m, k} X _ {j s m k} \\leq 1 \\forall j, s\\tag{2.1}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/69"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0012": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0012",
+      "blockid": "5996fab4e936affe28742c5df80fe45e",
+      "heading": "3.2. FJSP with batching applied to priority job scheduling",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {m k} X _ {j s m k} = \\sum_ {m k} X _ {j, s + 1, m, k} \\forall j: s <   | S |\\tag{2.2}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/71"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0013": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0013",
+      "blockid": "5996fab4e936affe28742c5df80fe45e",
+      "heading": "3.2. FJSP with batching applied to priority job scheduling",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "\\text { Maximize } \\sum_ {j, s, m, k} L \\left(X _ {j s m k}\\right)\\tag{2.3}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/73"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0014": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0014",
+      "blockid": "5996fab4e936affe28742c5df80fe45e",
+      "heading": "3.2. FJSP with batching applied to priority job scheduling",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "J _ {j} ^ {\\text { complete }} \\geq M _ {m, k} ^ {\\text { complete }} + L (X _ {j s m k} - 1) \\forall j s m k\\tag{2.4}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/75"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0015": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0015",
+      "blockid": "5996fab4e936affe28742c5df80fe45e",
+      "heading": "3.2. FJSP with batching applied to priority job scheduling",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "C m a x \\geq J _ {j} ^ {\\text { complete }} \\forall j\\tag{2.5}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/78"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0016": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0016",
+      "blockid": "5996fab4e936affe28742c5df80fe45e",
+      "heading": "3.2. FJSP with batching applied to priority job scheduling",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "M _ {m, k} ^ {\\text {complete}} = M _ {m, k} ^ {\\text {start}} + p a r _ {m} ^ {\\text {ptime}} \\forall m, k\\tag{2.6}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/81"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0017": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0017",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {m, k} X _ {j s m k} \\leq 1 \\forall j, s\\tag{2.1}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/122"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0018": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0018",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {m k} X _ {j s m k} = \\sum_ {m k} X _ {j, s + 1, m, k} \\forall j: s <   | S |\\tag{2.2}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/123"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0019": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0019",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {j, s} \\left(X _ {j s m k}\\right) \\leq p a r _ {m} ^ {c a p a} \\forall k, m\\tag{1.2}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/124"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0020": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0020",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "J _ {j, 1} ^ {\\text {arrival}} = \\text {par} _ {j} ^ {\\text {release}} \\forall j\\tag{1.4}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/126"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0021": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0021",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "M _ {m, k} ^ {\\text { start }} \\geq J _ {j, s} ^ {\\text { arrival }} + L (X _ {j s m k} - 1) \\forall j, s, m, k\\tag{1.5}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/130"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0022": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0022",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "M _ {m, k} ^ {\\text { complete }} = M _ {m, k} ^ {\\text { start }} + \\operatorname{par} _ {m} ^ {\\text { ptime }} \\forall m, k\\tag{2.6}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/131"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0023": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0023",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "J _ {j, s + 1} ^ {\\text { arrival }} \\geq M _ {m, k} ^ {\\text { complete }} + L (X _ {j s m k} - 1) \\forall j, m, k: s <   | S |\\tag{1.7}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/132"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0024": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0024",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "M _ {m, k + 1} ^ {\\text { start }} \\geq M _ {m, k} ^ {\\text { complete }} \\forall m: k <   | K |\\tag{1.8}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/133"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0025": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0025",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "J _ {j} ^ {\\text { complete }} \\geq M _ {m, k} ^ {\\text { complete }} + L (X _ {j s m k} - 1) \\forall j s m k\\tag{2.4}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/135"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0026": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0026",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "C m a x \\geq J _ {j} ^ {\\text { complete }} \\forall j\\tag{2.5}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/136"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0027": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0027",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "\\text { Minimize   Cmax }\\tag{1.10}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/137"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0028": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0028",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "\\text { Maximize } \\sum_ {j, s, m, k} L \\left(X _ {j s m k}\\right)\\tag{2.3}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/138"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0029": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0029",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {m, k} X _ {j s m k} = 1 \\forall j, s: p a r _ {j} ^ {p r i} = s u p e r h o t o r h o t\\tag{3.1}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/147"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0030": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0030",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {m, k} X _ {j s m k} \\leq 1 \\forall j, s: p a r _ {j} ^ {p r i} = n o r m a l\\tag{3.2}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/148"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0031": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0031",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {m k} X _ {j s m k} = \\sum_ {m k} X _ {j, s + 1, m, k} \\forall j: s <   | S |\\tag{2.2b}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/149"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0032": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0032",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {j, s} \\left(X _ {j s m k}\\right) \\leq p a r _ {m} ^ {c a p a} \\forall k, m\\tag{1.2b}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/153"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0033": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0033",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "J _ {j, 1} ^ {\\text {arrival}} = p a r _ {j} ^ {\\text {release}} \\forall j\\tag{1.4b}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/155"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0034": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0034",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "M _ {m, k} ^ {\\text { start }} \\geq J _ {j, s} ^ {\\text { arrival }} + L (X _ {j s m k} - 1) \\forall j, s, m, k\\tag{1.5b}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/156"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0035": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0035",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "M _ {m, k} ^ {\\text { complete }} = M _ {m, k} ^ {\\text { start }} + p a r _ {m} ^ {\\text { ptime }} \\forall m, k\\tag{2.6b}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/157"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0036": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0036",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "J _ {j, s + 1} ^ {\\text { arrival }} \\geq M _ {m, k} ^ {\\text { complete }} + L (X _ {j s m k} - 1) \\forall j, m, k: s <   | S |\\tag{1.7b}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/158"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0037": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0037",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "M _ {m, k + 1} ^ {\\text { start }} \\geq M _ {m, k} ^ {\\text { complete }} \\forall m: k <   | K |\\tag{1.8b}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/159"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0038": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0038",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "J _ {j} ^ {\\text { complete }} \\geq M _ {m, k} ^ {\\text { complete }} + L (X _ {j s m k} - 1) \\forall j s m k\\tag{2.4b}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/161"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0039": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0039",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "\\frac {J _ {j} ^ {\\text { complete }}}{p a r _ {j} ^ {T C T}} \\leq p a r _ {j} ^ {X f a c t o r} + J _ {j} ^ {X -} \\forall j\\tag{3.3}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/162"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0040": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0040",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "\\text { Maximize } \\sum_ {j, s, m, k} \\left(L / p a r _ {j} ^ {p r i}\\right) X _ {j s m k}\\tag{3.4}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/163"
+    },
+    "eq-a9dfd659064575aec5a7501a69f9cd4d-0041": {
+      "id": "eq-a9dfd659064575aec5a7501a69f9cd4d-0041",
+      "blockid": "095e792cba9022e78b9bb0ff6eb2baa7",
+      "heading": "Appendix",
+      "parent_headings": [
+        "Flexible job shop scheduling problem for parallel batch processing machine with compatible job families"
+      ],
+      "format": "latex",
+      "content": "\\text { Minimize } \\sum_ {j} J _ {j} ^ {\\mathrm{X-}}\\tag{3.5}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/164"
+    }
+  }
+}

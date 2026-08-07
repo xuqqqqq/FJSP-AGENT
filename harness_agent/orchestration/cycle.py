@@ -6,6 +6,7 @@ import difflib
 import hashlib
 import json
 import re
+import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass, replace
@@ -755,20 +756,32 @@ def copy_read_only_core_dependencies(
     """
 
     domain_pack = get_domain_pack(contract.problem_family)
-    if domain_pack is None:
-        return
-    for relative in domain_pack.agent_generated_baseline_preserve_paths:
+    preserve_paths: list[str] = []
+    if domain_pack is not None:
+        preserve_paths.extend(domain_pack.agent_generated_baseline_preserve_paths)
+    preserve_paths.extend(_python_script_paths_from_command(contract.commands.evaluator))
+
+    for relative in dict.fromkeys(preserve_paths):
         if not relative:
             continue
-        source = project_root / relative
+        source = resolve_project_path(project_root, Path(relative))
         if not source.exists():
             continue
-        target = worktree_path / relative
+        target = worktree_path / Path(relative).as_posix()
         if source.is_dir():
             shutil.copytree(source, target, ignore=_ignore_names(forbidden_paths), dirs_exist_ok=True)
         else:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
+
+
+def _python_script_paths_from_command(command: str) -> list[str]:
+    paths: list[str] = []
+    for token in shlex.split(command):
+        path = Path(token)
+        if path.suffix == ".py" and not path.is_absolute():
+            paths.append(path.as_posix())
+    return paths
 
 
 def stage_worker_input_files(*, contract: TaskContract, project_root: Path, worktree_path: Path) -> None:

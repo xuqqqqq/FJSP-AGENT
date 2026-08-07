@@ -1,0 +1,291 @@
+{
+  "version": "1.0",
+  "equations": {
+    "eq-e630becb450dcca79375a56384053225-0001": {
+      "id": "eq-e630becb450dcca79375a56384053225-0001",
+      "blockid": "9542dfd3fa9523e01012a2002e43b8c8",
+      "heading": "3.1. Fuzzy Number",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "\\mu (x) = \\left\\{ \\begin{array}{l l} 0, & x \\leq a _ {1} \\\\ \\frac {x - a _ {1}}{a _ {2} - a _ {1}}, & a _ {1} <   x \\leq a _ {2} \\\\ \\frac {a _ {3} - x}{a _ {3} - a _ {2}}, & a _ {2} <   x <   a _ {3} \\\\ 0, & x \\geq a _ {3} \\end{array} \\right.\\tag{1}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/40"
+    },
+    "eq-e630becb450dcca79375a56384053225-0002": {
+      "id": "eq-e630becb450dcca79375a56384053225-0002",
+      "blockid": "184044807ea5cb5779a8c9f80b4ee6f9",
+      "heading": "3.2. Fuzzy Operation",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "X + Y = (x _ {1} + y _ {1}, x _ {2} + y _ {2}, x _ {3} + y _ {3})\\tag{2}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/47"
+    },
+    "eq-e630becb450dcca79375a56384053225-0003": {
+      "id": "eq-e630becb450dcca79375a56384053225-0003",
+      "blockid": "184044807ea5cb5779a8c9f80b4ee6f9",
+      "heading": "3.2. Fuzzy Operation",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "\\operatorname{Max} (X, Y) = \\left(\\max \\left(x _ {1}, y _ {1}\\right), \\max \\left(x _ {2}, y _ {2}\\right), \\max \\left(x _ {3}, y _ {3}\\right)\\right)\\tag{3}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/54"
+    },
+    "eq-e630becb450dcca79375a56384053225-0004": {
+      "id": "eq-e630becb450dcca79375a56384053225-0004",
+      "blockid": "184044807ea5cb5779a8c9f80b4ee6f9",
+      "heading": "3.2. Fuzzy Operation",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "I f X > Y, \\operatorname{Max} (X, Y) = X; o t h e r w i s e, \\operatorname{Max} (X, Y) = Y\\tag{4}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/56"
+    },
+    "eq-e630becb450dcca79375a56384053225-0005": {
+      "id": "eq-e630becb450dcca79375a56384053225-0005",
+      "blockid": "d7a0047fe07146bb0f8bf9b6bee30a2d",
+      "heading": "4.2. MILP Modelfor the MO-DFFJSPT",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "O F _ {1} = \\max \\left\\{C _ {i} \\mid i = 1, 2, \\dots , n \\right\\}\\tag{5}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/93"
+    },
+    "eq-e630becb450dcca79375a56384053225-0006": {
+      "id": "eq-e630becb450dcca79375a56384053225-0006",
+      "blockid": "d7a0047fe07146bb0f8bf9b6bee30a2d",
+      "heading": "4.2. MILP Modelfor the MO-DFFJSPT",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "O F _ {2} = \\max \\{W _ {l} \\mid l = 1, 2, \\dots , f \\}\\tag{6}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/95"
+    },
+    "eq-e630becb450dcca79375a56384053225-0007": {
+      "id": "eq-e630becb450dcca79375a56384053225-0007",
+      "blockid": "d7a0047fe07146bb0f8bf9b6bee30a2d",
+      "heading": "4.2. MILP Modelfor the MO-DFFJSPT",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "W _ {l} = \\sum_ {i = 1} ^ {n} \\sum_ {j = 1} ^ {N _ {J _ {i}}} \\sum_ {k = 1} ^ {m} V _ {i, j} ^ {l} * X _ {i, j} ^ {k} * P _ {i, j} ^ {k}, l = 1, 2, \\ldots , f\\tag{7}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/97"
+    },
+    "eq-e630becb450dcca79375a56384053225-0008": {
+      "id": "eq-e630becb450dcca79375a56384053225-0008",
+      "blockid": "d7a0047fe07146bb0f8bf9b6bee30a2d",
+      "heading": "4.2. MILP Modelfor the MO-DFFJSPT",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "O F _ {3} = \\sum_ {i = 1} ^ {n} \\sum_ {j = 1} ^ {N _ {J _ {i}}} \\sum_ {l = 1} ^ {f} \\sum_ {k = 1} ^ {m} V _ {i, j} ^ {l} * X _ {i, j} ^ {k} * P _ {i, j} ^ {k}\\tag{8}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/99"
+    },
+    "eq-e630becb450dcca79375a56384053225-0009": {
+      "id": "eq-e630becb450dcca79375a56384053225-0009",
+      "blockid": "d7a0047fe07146bb0f8bf9b6bee30a2d",
+      "heading": "4.2. MILP Modelfor the MO-DFFJSPT",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {l = 1} ^ {f} \\sum_ {k = 1} ^ {m} V _ {i, j} ^ {l} * X _ {i, j} ^ {k} = 1\\tag{9}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/101"
+    },
+    "eq-e630becb450dcca79375a56384053225-0010": {
+      "id": "eq-e630becb450dcca79375a56384053225-0010",
+      "blockid": "d7a0047fe07146bb0f8bf9b6bee30a2d",
+      "heading": "4.2. MILP Modelfor the MO-DFFJSPT",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "C _ {i, j} - C _ {i, j - 1} \\geq V _ {i, j} ^ {l} * X _ {i, j} ^ {k} * P _ {i, j} ^ {k}, \\forall i, j, l, k\\tag{10}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/103"
+    },
+    "eq-e630becb450dcca79375a56384053225-0011": {
+      "id": "eq-e630becb450dcca79375a56384053225-0011",
+      "blockid": "d7a0047fe07146bb0f8bf9b6bee30a2d",
+      "heading": "4.2. MILP Modelfor the MO-DFFJSPT",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "C _ {i, j} - C _ {u, v} \\geq Y _ {i, j, u, v, k} ^ {l} * P _ {i, j} ^ {k} + L * (Y _ {i, j, u, v, k} ^ {l} - 1)\\tag{11}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/104"
+    },
+    "eq-e630becb450dcca79375a56384053225-0012": {
+      "id": "eq-e630becb450dcca79375a56384053225-0012",
+      "blockid": "d7a0047fe07146bb0f8bf9b6bee30a2d",
+      "heading": "4.2. MILP Modelfor the MO-DFFJSPT",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "Z _ {i, j} ^ {M} + Z _ {i, j} ^ {F} \\in \\{0, 1 \\}, \\forall i, j\\tag{12}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/106"
+    },
+    "eq-e630becb450dcca79375a56384053225-0013": {
+      "id": "eq-e630becb450dcca79375a56384053225-0013",
+      "blockid": "ca66819b3a63310e3ad8db63e602cc39",
+      "heading": "5.2. Encoding and Decoding Method",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "T _ {a} = \\max \\bigl \\{C _ {i, j - 1} + T _ {T}, T _ {s} \\bigr \\}\\tag{13}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/125"
+    },
+    "eq-e630becb450dcca79375a56384053225-0014": {
+      "id": "eq-e630becb450dcca79375a56384053225-0014",
+      "blockid": "ca66819b3a63310e3ad8db63e602cc39",
+      "heading": "5.2. Encoding and Decoding Method",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "T _ {a} + P _ {i, j} ^ {k} \\leq T _ {e}\\tag{14}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/126"
+    },
+    "eq-e630becb450dcca79375a56384053225-0015": {
+      "id": "eq-e630becb450dcca79375a56384053225-0015",
+      "blockid": "9df5dc49cc1dede409c3a22de0bd9e25",
+      "heading": "5.6.1. Individual Selection Criteria",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "F (x, \\lambda) = \\lambda_ {1} O F _ {1} (x) + \\lambda_ {2} O F _ {2} (x) + \\lambda_ {3} O F _ {3} (x)\\tag{15}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/178"
+    },
+    "eq-e630becb450dcca79375a56384053225-0016": {
+      "id": "eq-e630becb450dcca79375a56384053225-0016",
+      "blockid": "9df5dc49cc1dede409c3a22de0bd9e25",
+      "heading": "5.6.1. Individual Selection Criteria",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "\\lambda_ {1} + \\lambda_ {2} + \\lambda_ {3} = I, \\lambda_ {1}, \\lambda_ {2}, \\lambda_ {3} \\in \\{1, 2, \\ldots , I \\}\\tag{16}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/180"
+    },
+    "eq-e630becb450dcca79375a56384053225-0017": {
+      "id": "eq-e630becb450dcca79375a56384053225-0017",
+      "blockid": "59c9dec35a7417f51d71e4b733fd49b1",
+      "heading": "1. HV metric:",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "H V (P, r) = \\bigcup_ {x \\in P} ^ {P} v (x, r)\\tag{17}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/213"
+    },
+    "eq-e630becb450dcca79375a56384053225-0018": {
+      "id": "eq-e630becb450dcca79375a56384053225-0018",
+      "blockid": "59c9dec35a7417f51d71e4b733fd49b1",
+      "heading": "1. HV metric:",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "I G D (P, P ^ {*}) = \\frac {1}{| P ^ {*} |} \\sum_ {x \\in P ^ {*}} \\min _ {y \\in P} d i s (x, y)\\tag{18}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/216"
+    },
+    "eq-e630becb450dcca79375a56384053225-0019": {
+      "id": "eq-e630becb450dcca79375a56384053225-0019",
+      "blockid": "59c9dec35a7417f51d71e4b733fd49b1",
+      "heading": "1. HV metric:",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "S p r e a d = \\frac {d _ {l} + d _ {f} + \\sum_ {i = 1} ^ {N - 1} | d _ {i} - \\overline {{d}} |}{d _ {l} + d _ {f} + (N - 1) \\overline {{d}}}\\tag{19}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/219"
+    },
+    "eq-e630becb450dcca79375a56384053225-0020": {
+      "id": "eq-e630becb450dcca79375a56384053225-0020",
+      "blockid": "59c9dec35a7417f51d71e4b733fd49b1",
+      "heading": "1. HV metric:",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "E (a _ {\\xi}) = \\frac {1}{4} (a _ {1} + 2 a _ {2} + a _ {3})\\tag{20}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/222"
+    },
+    "eq-e630becb450dcca79375a56384053225-0021": {
+      "id": "eq-e630becb450dcca79375a56384053225-0021",
+      "blockid": "59c9dec35a7417f51d71e4b733fd49b1",
+      "heading": "1. HV metric:",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "O F _ {i} = \\frac {O F _ {i} ^ {o} - O F _ {i} ^ {\\min}}{O F _ {i} ^ {\\max} - O F _ {i} ^ {\\min}}, i \\in \\{1, 2, 3 \\}\\tag{21}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/223"
+    },
+    "eq-e630becb450dcca79375a56384053225-0022": {
+      "id": "eq-e630becb450dcca79375a56384053225-0022",
+      "blockid": "ff81c90d137c20e755284b738c251f7e",
+      "heading": "6.3. Parameter Settings",
+      "parent_headings": [
+        "Hybrid Memetic Algorithm to Solve Multiobjective Distributed Fuzzy Flexible Job Shop Scheduling Problem with Transfer"
+      ],
+      "format": "latex",
+      "content": "O D S (O F ^ {c}) = \\sum_ {i = 1} ^ {3} (\\frac {O F _ {i} ^ {c} - \\min \\{O F _ {a l l} ^ {i} \\}}{\\min \\{O F _ {a l l} ^ {i} \\}} * 1 0 0)\\tag{22}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/234"
+    }
+  }
+}

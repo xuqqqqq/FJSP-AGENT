@@ -1,0 +1,75 @@
+{
+  "version": "1.0",
+  "drawings": {
+    "im-0366a0700c144941e3596414c0dfb191-0001": {
+      "id": "im-0366a0700c144941e3596414c0dfb191-0001",
+      "blockid": "709f331f8b7399b50635829536d4b9d9",
+      "heading": "3.1. Filtered beam search",
+      "parent_headings": [
+        "An effective heuristic for flexible job-shop scheduling problem with maintenance activities"
+      ],
+      "format": "jpg",
+      "path": "An effective heuristic for flexible job-shop scheduling problem with maintenance activities-3d02380f.blocks.assets/1d1aa8073e1663dc074ef1cf6595ab157ca66d7e4e35366c78ce9a2c0268014a.jpg",
+      "src": "",
+      "caption": "Fig. 1. Representation of filtered beam search tree.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/68"
+    },
+    "im-0366a0700c144941e3596414c0dfb191-0002": {
+      "id": "im-0366a0700c144941e3596414c0dfb191-0002",
+      "blockid": "618e8e69fc50b87b0de213c85c27cfd9",
+      "heading": "3.2. Modified FBS-based heuristic for the FJSP with maintenance tasks",
+      "parent_headings": [
+        "An effective heuristic for flexible job-shop scheduling problem with maintenance activities"
+      ],
+      "format": "jpg",
+      "path": "An effective heuristic for flexible job-shop scheduling problem with maintenance activities-3d02380f.blocks.assets/96630e839e99f1adfafd8e2918b21d7237b46bf35217d4615a941fe5003d6b24.jpg",
+      "src": "",
+      "caption": "Fig. 2. A schematic illustration of the starting time of a maintenance activity in the branching scheme.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/94"
+    },
+    "im-0366a0700c144941e3596414c0dfb191-0003": {
+      "id": "im-0366a0700c144941e3596414c0dfb191-0003",
+      "blockid": "73559c90e76a070154063e28cb9b04f8",
+      "heading": "4.1. Two general FJSP with maintenance activities",
+      "parent_headings": [
+        "An effective heuristic for flexible job-shop scheduling problem with maintenance activities"
+      ],
+      "format": "jpg",
+      "path": "An effective heuristic for flexible job-shop scheduling problem with maintenance activities-3d02380f.blocks.assets/eb6ef731b3360f58a7b4b3da8f101e77fe6aa34d2cbd71d7b5d36d05798e7253.jpg",
+      "src": "",
+      "caption": "Fig. 4. The scheduling results of the problem 8 \u0003 8/27 operations with maintenance activities with non-fixed starting time.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/124"
+    },
+    "im-0366a0700c144941e3596414c0dfb191-0004": {
+      "id": "im-0366a0700c144941e3596414c0dfb191-0004",
+      "blockid": "73559c90e76a070154063e28cb9b04f8",
+      "heading": "4.1. Two general FJSP with maintenance activities",
+      "parent_headings": [
+        "An effective heuristic for flexible job-shop scheduling problem with maintenance activities"
+      ],
+      "format": "jpg",
+      "path": "An effective heuristic for flexible job-shop scheduling problem with maintenance activities-3d02380f.blocks.assets/2672fcc8e8739b4aecf184b7ef3ffe2e650d549d0a5d5e1073ef37c569181869.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/131"
+    },
+    "im-0366a0700c144941e3596414c0dfb191-0005": {
+      "id": "im-0366a0700c144941e3596414c0dfb191-0005",
+      "blockid": "73559c90e76a070154063e28cb9b04f8",
+      "heading": "4.1. Two general FJSP with maintenance activities",
+      "parent_headings": [
+        "An effective heuristic for flexible job-shop scheduling problem with maintenance activities"
+      ],
+      "format": "jpg",
+      "path": "An effective heuristic for flexible job-shop scheduling problem with maintenance activities-3d02380f.blocks.assets/2e2e611485868dab95795162ccf28f5274d9645e1d67bac3e40cad18a8c73f7e.jpg",
+      "src": "",
+      "caption": "Fig. 5. The scheduling results of problem 8 \u0003 8/27 operations with maintenance activities with fixed starting time. (a) The starting time of each maintenance task is set as the earliest starting time of the time window and (b) the starting time of each maintenance task is set as the latest starting time of the time window.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/132"
+    }
+  }
+}

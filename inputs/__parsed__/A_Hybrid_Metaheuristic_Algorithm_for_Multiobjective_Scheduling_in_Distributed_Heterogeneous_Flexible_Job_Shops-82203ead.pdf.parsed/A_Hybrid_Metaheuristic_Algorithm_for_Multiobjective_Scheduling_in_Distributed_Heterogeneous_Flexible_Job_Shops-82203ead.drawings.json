@@ -1,0 +1,175 @@
+{
+  "version": "1.0",
+  "drawings": {
+    "im-14134317afd8f7893989aea5ef545cb8-0001": {
+      "id": "im-14134317afd8f7893989aea5ef545cb8-0001",
+      "blockid": "f6ecf6f590eed85fa80a7784ae215cbf",
+      "heading": "C. Objective Function",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "jpg",
+      "path": "A_Hybrid_Metaheuristic_Algorithm_for_Multiobjective_Scheduling_in_Distributed_Heterogeneous_Flexible_Job_Shops-82203ead.blocks.assets/7bbc244377b9411f0091bab3356a27fffe85d6a673ff65d1fcefdbb8b5c85fa2.jpg",
+      "src": "",
+      "caption": "Fig. 1. Coding structure.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/97"
+    },
+    "im-14134317afd8f7893989aea5ef545cb8-0002": {
+      "id": "im-14134317afd8f7893989aea5ef545cb8-0002",
+      "blockid": "aae2a87d9356eaba5a90fadc689f379d",
+      "heading": "B. Dual Population Evolutionary Strategy",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "jpg",
+      "path": "A_Hybrid_Metaheuristic_Algorithm_for_Multiobjective_Scheduling_in_Distributed_Heterogeneous_Flexible_Job_Shops-82203ead.blocks.assets/d940eb2b45e185df5e9ce8188ee2c81d665c34b79e3446b2e48cf35d238401d3.jpg",
+      "src": "",
+      "caption": "Fig. 2. Population 2 process selection, crossover, and mutation operations. (a) Improve POX crossover. (b) Reverse mutation.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/111"
+    },
+    "im-14134317afd8f7893989aea5ef545cb8-0003": {
+      "id": "im-14134317afd8f7893989aea5ef545cb8-0003",
+      "blockid": "af4d9d05068818630f9dc5c5aa63305a",
+      "heading": "E. Operator Selection Based on D3QN",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "jpg",
+      "path": "A_Hybrid_Metaheuristic_Algorithm_for_Multiobjective_Scheduling_in_Distributed_Heterogeneous_Flexible_Job_Shops-82203ead.blocks.assets/1ad47a098faa8ea4080bb0dd79939d95663c08e4fc71992deb335ed3a09f85d6.jpg",
+      "src": "",
+      "caption": "Fig. 3. Energy saving strategies.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/129"
+    },
+    "im-14134317afd8f7893989aea5ef545cb8-0004": {
+      "id": "im-14134317afd8f7893989aea5ef545cb8-0004",
+      "blockid": "af4d9d05068818630f9dc5c5aa63305a",
+      "heading": "E. Operator Selection Based on D3QN",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "jpg",
+      "path": "A_Hybrid_Metaheuristic_Algorithm_for_Multiobjective_Scheduling_in_Distributed_Heterogeneous_Flexible_Job_Shops-82203ead.blocks.assets/73828b726cc47d5abc5753b9a33552785dd5d6b9ddeb33c4ee088551a51ab199.jpg",
+      "src": "",
+      "caption": "Fig. 4. Network architecture of D3QN.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/134"
+    },
+    "im-14134317afd8f7893989aea5ef545cb8-0005": {
+      "id": "im-14134317afd8f7893989aea5ef545cb8-0005",
+      "blockid": "5dd559b3b8e4ec4ca2cf3f877854c93e",
+      "heading": "D. Comparative Experiments",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "jpg",
+      "path": "A_Hybrid_Metaheuristic_Algorithm_for_Multiobjective_Scheduling_in_Distributed_Heterogeneous_Flexible_Job_Shops-82203ead.blocks.assets/02e957d19ef30dc494bd8e97efc243d5f5f2ae0be135bb93c0b05883e9bc6034.jpg",
+      "src": "",
+      "caption": "Fig. 6. Engine cooling system.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/187"
+    },
+    "im-14134317afd8f7893989aea5ef545cb8-0006": {
+      "id": "im-14134317afd8f7893989aea5ef545cb8-0006",
+      "blockid": "7c6fcbb963f626f4df2bacff7e9781da",
+      "heading": "E. Engineering Case Study",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "jpg",
+      "path": "A_Hybrid_Metaheuristic_Algorithm_for_Multiobjective_Scheduling_in_Distributed_Heterogeneous_Flexible_Job_Shops-82203ead.blocks.assets/ecda3342f8604eca5e0fcd0f76ff567733104c0619dc0e39c0c6ce5b7b4cb0fd.jpg",
+      "src": "",
+      "caption": "Fig. 7. Gantt chart for the engineering case scheduling.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/194"
+    },
+    "im-14134317afd8f7893989aea5ef545cb8-0007": {
+      "id": "im-14134317afd8f7893989aea5ef545cb8-0007",
+      "blockid": "0f2b21cf4ed54ca7dbd5bc34e07b32dd",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "jpg",
+      "path": "A_Hybrid_Metaheuristic_Algorithm_for_Multiobjective_Scheduling_in_Distributed_Heterogeneous_Flexible_Job_Shops-82203ead.blocks.assets/e061f1b6f64042f7274f5fb5caccdf4d0408c43cf37cc7727c76670da07a8c5c.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [
+        "Lijun Wang received the B.S. degree in mechatronics engineering from the North University of China, Taiyuan, China, in 1993, the M.S. degree in agricultural mechanization engineering from Henan Agricultural University, Zhengzhou, China, in 2003, and the Ph.D. degree in signal and information processing from PLA Information Engineering Uni versity, Zhengzhou, in 2010."
+      ],
+      "self_ref": "content_list.json#/231"
+    },
+    "im-14134317afd8f7893989aea5ef545cb8-0008": {
+      "id": "im-14134317afd8f7893989aea5ef545cb8-0008",
+      "blockid": "0f2b21cf4ed54ca7dbd5bc34e07b32dd",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "jpg",
+      "path": "A_Hybrid_Metaheuristic_Algorithm_for_Multiobjective_Scheduling_in_Distributed_Heterogeneous_Flexible_Job_Shops-82203ead.blocks.assets/816f662aa88d3ac49d8bfe3bb8846f3c939188a787866401db494a31007f1d73.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/236"
+    },
+    "im-14134317afd8f7893989aea5ef545cb8-0009": {
+      "id": "im-14134317afd8f7893989aea5ef545cb8-0009",
+      "blockid": "0f2b21cf4ed54ca7dbd5bc34e07b32dd",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "jpg",
+      "path": "A_Hybrid_Metaheuristic_Algorithm_for_Multiobjective_Scheduling_in_Distributed_Heterogeneous_Flexible_Job_Shops-82203ead.blocks.assets/6c0100c3f5284f3dfbb25c1a9f2f378171c5095023630cbdc147125868128014.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/239"
+    },
+    "im-14134317afd8f7893989aea5ef545cb8-0010": {
+      "id": "im-14134317afd8f7893989aea5ef545cb8-0010",
+      "blockid": "0f2b21cf4ed54ca7dbd5bc34e07b32dd",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "jpg",
+      "path": "A_Hybrid_Metaheuristic_Algorithm_for_Multiobjective_Scheduling_in_Distributed_Heterogeneous_Flexible_Job_Shops-82203ead.blocks.assets/ab3be8134352656f62b7b66f65125dab326a80086e55031833d3e3a19076ee06.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/240"
+    },
+    "im-14134317afd8f7893989aea5ef545cb8-0011": {
+      "id": "im-14134317afd8f7893989aea5ef545cb8-0011",
+      "blockid": "0f2b21cf4ed54ca7dbd5bc34e07b32dd",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "jpg",
+      "path": "A_Hybrid_Metaheuristic_Algorithm_for_Multiobjective_Scheduling_in_Distributed_Heterogeneous_Flexible_Job_Shops-82203ead.blocks.assets/c7853863948820a90e23635f86a004ed1fb78f187fb2b0f399db0218137591cd.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/241"
+    },
+    "im-14134317afd8f7893989aea5ef545cb8-0012": {
+      "id": "im-14134317afd8f7893989aea5ef545cb8-0012",
+      "blockid": "0f2b21cf4ed54ca7dbd5bc34e07b32dd",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "A Hybrid Metaheuristic Algorithm for Multiobjective Scheduling in Distributed Heterogeneous Flexible Job Shops"
+      ],
+      "format": "jpg",
+      "path": "A_Hybrid_Metaheuristic_Algorithm_for_Multiobjective_Scheduling_in_Distributed_Heterogeneous_Flexible_Job_Shops-82203ead.blocks.assets/f89731aca9eafe01f745e760295999193117d748edf18c8bebfc7b2cc9f037c8.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/244"
+    }
+  }
+}

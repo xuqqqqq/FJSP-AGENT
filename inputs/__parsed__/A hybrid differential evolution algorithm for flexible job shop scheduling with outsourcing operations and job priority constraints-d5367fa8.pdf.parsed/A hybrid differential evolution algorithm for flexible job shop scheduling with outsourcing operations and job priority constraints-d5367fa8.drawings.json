@@ -1,0 +1,115 @@
+{
+  "version": "1.0",
+  "drawings": {
+    "im-c8d4aded27e72d48668c384b0a9eb7ec-0001": {
+      "id": "im-c8d4aded27e72d48668c384b0a9eb7ec-0001",
+      "blockid": "cc56cbae2f8e052508803aefcec0c0af",
+      "heading": "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints",
+      "parent_headings": [],
+      "format": "jpg",
+      "path": "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints-d5367fa8.blocks.assets/951ae4427761e2772d3788bd56a58186ecf9804e496cce5be0ba7ba58e70b9f0.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/1"
+    },
+    "im-c8d4aded27e72d48668c384b0a9eb7ec-0002": {
+      "id": "im-c8d4aded27e72d48668c384b0a9eb7ec-0002",
+      "blockid": "9c401e5daa6f30b39301ebd008fb16bc",
+      "heading": "1. Introduction",
+      "parent_headings": [
+        "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints-d5367fa8.blocks.assets/37ca92f9b4daac7819d7bc9425133c79926024628adadca17e57206e2297624a.jpg",
+      "src": "",
+      "caption": "Fig. 1. An instance with outsourcing operations and job priority.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/22"
+    },
+    "im-c8d4aded27e72d48668c384b0a9eb7ec-0003": {
+      "id": "im-c8d4aded27e72d48668c384b0a9eb7ec-0003",
+      "blockid": "c8c2707756536a36039e12328c921e9b",
+      "heading": "3.1. Problem description",
+      "parent_headings": [
+        "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints-d5367fa8.blocks.assets/aa9239fc01efc19e25ff4a9a6f2a7fccc9017fcd20650cdcc45313a51bd921da.jpg",
+      "src": "",
+      "caption": "Fig. 2. An example of the outsourcing operation constraints.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/56"
+    },
+    "im-c8d4aded27e72d48668c384b0a9eb7ec-0004": {
+      "id": "im-c8d4aded27e72d48668c384b0a9eb7ec-0004",
+      "blockid": "b7145b705e045e436ba9ef077345a4b5",
+      "heading": "1) Notations",
+      "parent_headings": [
+        "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints-d5367fa8.blocks.assets/6b0b92b09f96608d247f8495d5e1bdb1c54731f63858c445c18c9e0bd0e19996.jpg",
+      "src": "",
+      "caption": "Fig. 3. The framework of HSDE.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/98"
+    },
+    "im-c8d4aded27e72d48668c384b0a9eb7ec-0005": {
+      "id": "im-c8d4aded27e72d48668c384b0a9eb7ec-0005",
+      "blockid": "85c211da34dfbd79751b2b8e8e9ec3ef",
+      "heading": "4) Objective function",
+      "parent_headings": [
+        "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints-d5367fa8.blocks.assets/fa5191562a5babdd688dac8a22e0a6a8708fa5a8aa1c91c2d3a62f1de67945f0.jpg",
+      "src": "",
+      "caption": "Fig. 4. An example of the two-vector solution representation for the instance in Table 1 and Fig. 2.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/130"
+    },
+    "im-c8d4aded27e72d48668c384b0a9eb7ec-0006": {
+      "id": "im-c8d4aded27e72d48668c384b0a9eb7ec-0006",
+      "blockid": "2727e84af69a1a13c973c3a266161407",
+      "heading": "4.2. Chromosome encoding and decoding",
+      "parent_headings": [
+        "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints-d5367fa8.blocks.assets/27e6624a81f3b41fd2872aef6f667833aa55a5da3e064ef90030688f18ed9f95.jpg",
+      "src": "",
+      "caption": "Fig. 5. An example of penalty against an outsourcing time constraint.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/152"
+    },
+    "im-c8d4aded27e72d48668c384b0a9eb7ec-0007": {
+      "id": "im-c8d4aded27e72d48668c384b0a9eb7ec-0007",
+      "blockid": "2727e84af69a1a13c973c3a266161407",
+      "heading": "4.2. Chromosome encoding and decoding",
+      "parent_headings": [
+        "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints-d5367fa8.blocks.assets/6c7dcc3ee806a3f0acebc523d2bfd9abc83a2dbe5f46c9da193613b548eb654c.jpg",
+      "src": "",
+      "caption": "Fig. 6. An efficient decoding method with operation insertion.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/153"
+    },
+    "im-c8d4aded27e72d48668c384b0a9eb7ec-0008": {
+      "id": "im-c8d4aded27e72d48668c384b0a9eb7ec-0008",
+      "blockid": "2727e84af69a1a13c973c3a266161407",
+      "heading": "4.2. Chromosome encoding and decoding",
+      "parent_headings": [
+        "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints"
+      ],
+      "format": "jpg",
+      "path": "A hybrid differential evolution algorithm for flexible job shop scheduling with outsourcing operations and job priority constraints-d5367fa8.blocks.assets/acbce4fc56465d8ec4645f040d0457edc8bb892b7a437005a9fadc9db0e60336.jpg",
+      "src": "",
+      "caption": "Fig. 7. The steps of heuristic population initialization.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/161"
+    }
+  }
+}

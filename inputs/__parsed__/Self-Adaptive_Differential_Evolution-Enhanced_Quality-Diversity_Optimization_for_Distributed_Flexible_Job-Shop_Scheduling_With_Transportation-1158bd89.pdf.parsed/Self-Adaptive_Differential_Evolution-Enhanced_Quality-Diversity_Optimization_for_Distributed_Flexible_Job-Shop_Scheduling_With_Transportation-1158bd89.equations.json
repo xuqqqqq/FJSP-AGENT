@@ -1,0 +1,122 @@
+{
+  "version": "1.0",
+  "equations": {
+    "eq-f0490d27025df4a1e3094e5246569dcc-0001": {
+      "id": "eq-f0490d27025df4a1e3094e5246569dcc-0001",
+      "blockid": "fcf5690e52d1859006da626f31f90c71",
+      "heading": "B. Preliminariesfor QD Optimization",
+      "parent_headings": [
+        "Self-Adaptive Differential Evolution-Enhanced Quality-Diversity Optimization for Distributed Flexible Job-Shop Scheduling With Transportation"
+      ],
+      "format": "latex",
+      "content": "\\begin{array}{l} \\forall   \\boldsymbol {b} \\in \\mathcal {B},   x ^ {*} = \\underset {x \\in \\mathcal {D}} {\\arg \\min} f (x), \\\\ s. t.   \\boldsymbol {b} _ {x} = \\boldsymbol {b} \\end{array}\\tag{1}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/56"
+    },
+    "eq-f0490d27025df4a1e3094e5246569dcc-0002": {
+      "id": "eq-f0490d27025df4a1e3094e5246569dcc-0002",
+      "blockid": "fcf5690e52d1859006da626f31f90c71",
+      "heading": "B. Preliminariesfor QD Optimization",
+      "parent_headings": [
+        "Self-Adaptive Differential Evolution-Enhanced Quality-Diversity Optimization for Distributed Flexible Job-Shop Scheduling With Transportation"
+      ],
+      "format": "latex",
+      "content": "f (x) = \\max _ {i \\in \\{1, 2, \\dots , n \\}} C _ {i, w _ {i}}\\tag{2}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/59"
+    },
+    "eq-f0490d27025df4a1e3094e5246569dcc-0003": {
+      "id": "eq-f0490d27025df4a1e3094e5246569dcc-0003",
+      "blockid": "746927f3531137068b00d9b135a4bb63",
+      "heading": "C. The Defination of Feature Space",
+      "parent_headings": [
+        "Self-Adaptive Differential Evolution-Enhanced Quality-Diversity Optimization for Distributed Flexible Job-Shop Scheduling With Transportation"
+      ],
+      "format": "latex",
+      "content": "\\begin{array}{l} S _ {i, j} = \\max \\{M _ {t}, C _ {i, j - 1} + T R _ {i, j, k, k ^ {\\prime}} \\} \\\\ \\text { Given   the   known } T _ {i, j, k}, \\text { the   completion   time   is: } \\end{array}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/71"
+    },
+    "eq-f0490d27025df4a1e3094e5246569dcc-0004": {
+      "id": "eq-f0490d27025df4a1e3094e5246569dcc-0004",
+      "blockid": "746927f3531137068b00d9b135a4bb63",
+      "heading": "C. The Defination of Feature Space",
+      "parent_headings": [
+        "Self-Adaptive Differential Evolution-Enhanced Quality-Diversity Optimization for Distributed Flexible Job-Shop Scheduling With Transportation"
+      ],
+      "format": "latex",
+      "content": "\\begin{array}{c} C _ {i, j} = S _ {i, j} + T _ {i, j, k} = \\max \\{M _ {t}, C _ {i, j - 1} + T R _ {i, j, k, k ^ {\\prime}} \\} + \\\\ T _ {i, j, k ^ {\\prime}} \\end{array}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/72"
+    },
+    "eq-f0490d27025df4a1e3094e5246569dcc-0005": {
+      "id": "eq-f0490d27025df4a1e3094e5246569dcc-0005",
+      "blockid": "746927f3531137068b00d9b135a4bb63",
+      "heading": "C. The Defination of Feature Space",
+      "parent_headings": [
+        "Self-Adaptive Differential Evolution-Enhanced Quality-Diversity Optimization for Distributed Flexible Job-Shop Scheduling With Transportation"
+      ],
+      "format": "latex",
+      "content": "\\begin{array}{c} S _ {i, j} = M _ {t} + I _ {O} = (C _ {i, j - 1} + T R _ {i, j, k, k ^ {\\prime}}) + W _ {O}, \\\\ C _ {i, j} = S _ {i, j} + T _ {i, j, k ^ {\\prime}} = M _ {t} + I _ {O} + T _ {i, j, k ^ {\\prime}} = (C _ {i, j - 1} + \\\\ T R _ {i, j, k, k ^ {\\prime}}) + W _ {O} + T _ {i, j, k ^ {\\prime}}. \\end{array}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/79"
+    },
+    "eq-f0490d27025df4a1e3094e5246569dcc-0006": {
+      "id": "eq-f0490d27025df4a1e3094e5246569dcc-0006",
+      "blockid": "7b46ff732bdcdde15700e9348e73c15b",
+      "heading": "B. Self-Adaptive Differential Evolution Collaboration and Mutation Strategy",
+      "parent_headings": [
+        "Self-Adaptive Differential Evolution-Enhanced Quality-Diversity Optimization for Distributed Flexible Job-Shop Scheduling With Transportation"
+      ],
+      "format": "latex",
+      "content": "\\mathbf {x} _ {n e w} = \\mathbf {x} _ {r} + F \\times (\\mathbf {x} _ {t} + \\mathbf {x} _ {i} - 2 \\mathbf {x} _ {r})\\tag{3}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/127"
+    },
+    "eq-f0490d27025df4a1e3094e5246569dcc-0007": {
+      "id": "eq-f0490d27025df4a1e3094e5246569dcc-0007",
+      "blockid": "7b46ff732bdcdde15700e9348e73c15b",
+      "heading": "B. Self-Adaptive Differential Evolution Collaboration and Mutation Strategy",
+      "parent_headings": [
+        "Self-Adaptive Differential Evolution-Enhanced Quality-Diversity Optimization for Distributed Flexible Job-Shop Scheduling With Transportation"
+      ],
+      "format": "latex",
+      "content": "\\mathbf {x} _ {n e w} = \\mathbf {x} _ {r} + F \\times (\\mathbf {x} _ {r} - \\mathbf {x} _ {t})\\tag{4}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/129"
+    },
+    "eq-f0490d27025df4a1e3094e5246569dcc-0008": {
+      "id": "eq-f0490d27025df4a1e3094e5246569dcc-0008",
+      "blockid": "7b46ff732bdcdde15700e9348e73c15b",
+      "heading": "B. Self-Adaptive Differential Evolution Collaboration and Mutation Strategy",
+      "parent_headings": [
+        "Self-Adaptive Differential Evolution-Enhanced Quality-Diversity Optimization for Distributed Flexible Job-Shop Scheduling With Transportation"
+      ],
+      "format": "latex",
+      "content": "\\mathbf {x} _ {n e w} = \\mathbf {x} _ {r} + F \\times (\\mathbf {x} _ {r} - \\mathbf {x} _ {i})\\tag{5}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/131"
+    },
+    "eq-f0490d27025df4a1e3094e5246569dcc-0009": {
+      "id": "eq-f0490d27025df4a1e3094e5246569dcc-0009",
+      "blockid": "6c91b22f9ccb7eea117565d17b71aec1",
+      "heading": "B. Configuration and Evaluation Metric",
+      "parent_headings": [
+        "Self-Adaptive Differential Evolution-Enhanced Quality-Diversity Optimization for Distributed Flexible Job-Shop Scheduling With Transportation"
+      ],
+      "format": "latex",
+      "content": "RPI_{a} = \\left(c_{a} - c_{best}\\right) / c_{best}\\times 100\\%\\tag{6}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/145"
+    }
+  }
+}

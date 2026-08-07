@@ -1,0 +1,73 @@
+{
+  "version": "1.0",
+  "tables": {
+    "tb-2b3dfd7b5cbfa2a90ef71347e70c15cc-0001": {
+      "id": "tb-2b3dfd7b5cbfa2a90ef71347e70c15cc-0001",
+      "blockid": "8dd2ada681deb9b59920a10610e1b09f",
+      "heading": "5.3. ABC Performance Analysis",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "dimension": [
+        14,
+        5
+      ],
+      "format": "html",
+      "content": "<table><tr><td>Instance</td><td>RPD ABC</td><td>RPD VNS</td><td>ET ABC</td><td>ET VNS</td></tr><tr><td>20 × 5</td><td>4.62</td><td>11.52</td><td>2.05</td><td>2.08</td></tr><tr><td>20 × 10</td><td>12.82</td><td>23.01</td><td>2.67</td><td>3.07</td></tr><tr><td>20 × 20</td><td>25.03</td><td>28.19</td><td>3.84</td><td>1.58</td></tr><tr><td>50 × 5</td><td>1.94</td><td>1.72</td><td>3.83</td><td>0.82</td></tr><tr><td>50 × 10</td><td>9.8</td><td>8.24</td><td>3.7</td><td>1.85</td></tr><tr><td>50 × 20</td><td>19.69</td><td>18.5</td><td>4.28</td><td>2.01</td></tr><tr><td>100 × 5</td><td>1.17</td><td>1.35</td><td>4.7</td><td>0.69</td></tr><tr><td>100 × 10</td><td>4.37</td><td>5.09</td><td>4.73</td><td>1.47</td></tr><tr><td>100 × 20</td><td>13.47</td><td>15</td><td>4.87</td><td>1.81</td></tr><tr><td>200 × 10</td><td>1.75</td><td>3.13</td><td>5</td><td>1.77</td></tr><tr><td>200 × 20</td><td>7.25</td><td>11.21</td><td>4.93</td><td>2.33</td></tr><tr><td>500 × 20</td><td>3</td><td>-</td><td>5.04</td><td>-</td></tr><tr><td>Average</td><td>9.26</td><td>11.55</td><td>4.14</td><td>1.85</td></tr></table>",
+      "caption": "Table 1. RPD and ET results for ABC and VNS algorithms in maintenance mode 1 (in %).",
+      "footnotes": [],
+      "self_ref": "content_list.json#/164"
+    },
+    "tb-2b3dfd7b5cbfa2a90ef71347e70c15cc-0002": {
+      "id": "tb-2b3dfd7b5cbfa2a90ef71347e70c15cc-0002",
+      "blockid": "8dd2ada681deb9b59920a10610e1b09f",
+      "heading": "5.3. ABC Performance Analysis",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "dimension": [
+        14,
+        5
+      ],
+      "format": "html",
+      "content": "<table><tr><td>Instance</td><td>RPD ABC</td><td>RPD VNS</td><td>ET ABC</td><td>ET VNS</td></tr><tr><td>20 × 5</td><td>3.68</td><td>10.617</td><td>2.06</td><td>2.8</td></tr><tr><td>20 × 10</td><td>14.05</td><td>24.199</td><td>4.13</td><td>3.12</td></tr><tr><td>20 × 20</td><td>27.52</td><td>32.982</td><td>3.14</td><td>1.72</td></tr><tr><td>50 × 5</td><td>3.03</td><td>1.933</td><td>4.66</td><td>1.16</td></tr><tr><td>50 × 10</td><td>12.39</td><td>9.955</td><td>4.23</td><td>1.93</td></tr><tr><td>50 × 20</td><td>24.9</td><td>19.276</td><td>4.22</td><td>2.15</td></tr><tr><td>100 × 5</td><td>1.47</td><td>1.463</td><td>4.56</td><td>0.85</td></tr><tr><td>100 × 10</td><td>6.23</td><td>5.483</td><td>4.67</td><td>1.61</td></tr><tr><td>100 × 20</td><td>16.43</td><td>15.614</td><td>4.8</td><td>1.97</td></tr><tr><td>200 × 10</td><td>2.52</td><td>3.429</td><td>4.88</td><td>1.93</td></tr><tr><td>200 × 20</td><td>9.64</td><td>12.549</td><td>4.89</td><td>2.33</td></tr><tr><td>500 × 20</td><td>3.04</td><td>-</td><td>5.01</td><td>-</td></tr><tr><td>Average</td><td>11.57</td><td>12.5</td><td>4.27</td><td>1.96</td></tr></table>",
+      "caption": "Table 2. RPD and ET results for ABC and VNS algorithms in maintenance mode 2 (in %).",
+      "footnotes": [],
+      "self_ref": "content_list.json#/165"
+    },
+    "tb-2b3dfd7b5cbfa2a90ef71347e70c15cc-0003": {
+      "id": "tb-2b3dfd7b5cbfa2a90ef71347e70c15cc-0003",
+      "blockid": "8dd2ada681deb9b59920a10610e1b09f",
+      "heading": "5.3. ABC Performance Analysis",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "dimension": [
+        14,
+        3
+      ],
+      "format": "html",
+      "content": "<table><tr><td>Instance</td><td>CPU ABC</td><td>CPU VNS</td></tr><tr><td>20 × 5</td><td>15.94</td><td>0.85</td></tr><tr><td>20 × 10</td><td>22.47</td><td>1.97</td></tr><tr><td>20 × 20</td><td>34.38</td><td>5.54</td></tr><tr><td>50 × 5</td><td>29.56</td><td>19.32</td></tr><tr><td>50 × 10</td><td>50.32</td><td>55.93</td></tr><tr><td>50 × 20</td><td>72.73</td><td>198.85</td></tr><tr><td>100 × 5</td><td>53.2</td><td>178.05</td></tr><tr><td>100 × 10</td><td>103.36</td><td>569.9</td></tr><tr><td>100 × 20</td><td>166.37</td><td>2375.4</td></tr><tr><td>200 × 10</td><td>234.4</td><td>10,116</td></tr><tr><td>200 × 20</td><td>262.61</td><td>20,808</td></tr><tr><td>500 × 20</td><td>1761.34</td><td>-</td></tr><tr><td>Average</td><td>233.89</td><td>3149.4</td></tr></table>",
+      "caption": "Table 3. CPU for ABC and VNS algorithms (in seconds)",
+      "footnotes": [],
+      "self_ref": "content_list.json#/179"
+    },
+    "tb-2b3dfd7b5cbfa2a90ef71347e70c15cc-0004": {
+      "id": "tb-2b3dfd7b5cbfa2a90ef71347e70c15cc-0004",
+      "blockid": "421598049ac992f49b5d045b1beb060c",
+      "heading": "Abbreviations",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "dimension": [
+        13,
+        2
+      ],
+      "format": "html",
+      "content": "<table><tr><td>ABC</td><td>Artificial bee colony</td></tr><tr><td>CPU</td><td>Central processing unit</td></tr><tr><td>ET</td><td>Earliness/tardiness</td></tr><tr><td>GA</td><td>Genetic algorithm</td></tr><tr><td>MILP</td><td>Mixed-integer linear programming</td></tr><tr><td>MSPP</td><td>Machine scheduling problem in production</td></tr><tr><td>PFSP</td><td>Permutation flowshop scheduling problem</td></tr><tr><td>PHM</td><td>Prognostics and health management</td></tr><tr><td>PM</td><td>Preventive maintenance</td></tr><tr><td>PPD</td><td>Post prognostic decision</td></tr><tr><td>RPD</td><td>Relative percentage deviation</td></tr><tr><td>RUL</td><td>Remaining useful life</td></tr><tr><td>VNS</td><td>Variable neighborhood search</td></tr></table>",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/194"
+    }
+  }
+}

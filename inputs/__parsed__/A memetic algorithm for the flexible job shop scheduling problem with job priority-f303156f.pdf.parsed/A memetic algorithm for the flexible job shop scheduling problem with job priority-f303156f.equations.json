@@ -1,0 +1,161 @@
+{
+  "version": "1.0",
+  "equations": {
+    "eq-a38007468276a270c1727d6c565d8aa3-0001": {
+      "id": "eq-a38007468276a270c1727d6c565d8aa3-0001",
+      "blockid": "83133025e3699b8f1b649df285cc1039",
+      "heading": "2. The mathematic model of the proposed FJSPJP",
+      "parent_headings": [
+        "A memetic algorithm for the flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "m i n f _ {1} = m a x C _ {i} \\forall i = 1, \\dots , n\\tag{1}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/61"
+    },
+    "eq-a38007468276a270c1727d6c565d8aa3-0002": {
+      "id": "eq-a38007468276a270c1727d6c565d8aa3-0002",
+      "blockid": "83133025e3699b8f1b649df285cc1039",
+      "heading": "2. The mathematic model of the proposed FJSPJP",
+      "parent_headings": [
+        "A memetic algorithm for the flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "\\min f _ {2} = \\sum_ {i = 1} ^ {n} \\max (0, C i - d i)\\tag{2}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/64"
+    },
+    "eq-a38007468276a270c1727d6c565d8aa3-0003": {
+      "id": "eq-a38007468276a270c1727d6c565d8aa3-0003",
+      "blockid": "83133025e3699b8f1b649df285cc1039",
+      "heading": "2. The mathematic model of the proposed FJSPJP",
+      "parent_headings": [
+        "A memetic algorithm for the flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "m i n f _ {3} = \\max _ {1 \\leq i \\leq n ^ {\\prime}} (C _ {i})\\tag{3}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/66"
+    },
+    "eq-a38007468276a270c1727d6c565d8aa3-0004": {
+      "id": "eq-a38007468276a270c1727d6c565d8aa3-0004",
+      "blockid": "83133025e3699b8f1b649df285cc1039",
+      "heading": "2. The mathematic model of the proposed FJSPJP",
+      "parent_headings": [
+        "A memetic algorithm for the flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "C O _ {i j} - C O _ {i (j - 1)} \\geq P _ {i j k} * X _ {i j k}, \\forall i = 1, \\dots , n; j = 2, \\dots , r; k = 1, \\dots , m\\tag{4}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/68"
+    },
+    "eq-a38007468276a270c1727d6c565d8aa3-0005": {
+      "id": "eq-a38007468276a270c1727d6c565d8aa3-0005",
+      "blockid": "83133025e3699b8f1b649df285cc1039",
+      "heading": "2. The mathematic model of the proposed FJSPJP",
+      "parent_headings": [
+        "A memetic algorithm for the flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "[ (C O _ {h g} - C O _ {i j} - P _ {h g k}) X _ {h g k} X _ {i j k} \\geq 0 ] \\vee [ (C O _ {i j} - C O _ {h g} - P _ {i j k}) X _ {h g k} X _ {i j k} \\geq 0 ]",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/69"
+    },
+    "eq-a38007468276a270c1727d6c565d8aa3-0006": {
+      "id": "eq-a38007468276a270c1727d6c565d8aa3-0006",
+      "blockid": "83133025e3699b8f1b649df285cc1039",
+      "heading": "2. The mathematic model of the proposed FJSPJP",
+      "parent_headings": [
+        "A memetic algorithm for the flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "\\mathrm{where}, \\forall i, h = 1, \\ldots , n; j, g = 2, \\ldots , r; k = 1, \\ldots , m\\tag{5}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/70"
+    },
+    "eq-a38007468276a270c1727d6c565d8aa3-0007": {
+      "id": "eq-a38007468276a270c1727d6c565d8aa3-0007",
+      "blockid": "83133025e3699b8f1b649df285cc1039",
+      "heading": "2. The mathematic model of the proposed FJSPJP",
+      "parent_headings": [
+        "A memetic algorithm for the flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {j = 1} ^ {r} X _ {i j k} = 1 \\forall i = 1, \\dots , n; k = 1, \\dots , m\\tag{6}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/71"
+    },
+    "eq-a38007468276a270c1727d6c565d8aa3-0008": {
+      "id": "eq-a38007468276a270c1727d6c565d8aa3-0008",
+      "blockid": "83133025e3699b8f1b649df285cc1039",
+      "heading": "2. The mathematic model of the proposed FJSPJP",
+      "parent_headings": [
+        "A memetic algorithm for the flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {k = 1} ^ {m} X _ {i j k} = 1 \\forall i = 1, \\ldots , n; j = 1, \\ldots , r\\tag{7}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/72"
+    },
+    "eq-a38007468276a270c1727d6c565d8aa3-0009": {
+      "id": "eq-a38007468276a270c1727d6c565d8aa3-0009",
+      "blockid": "c2c610607d19784b0f0f25a9d515f6ed",
+      "heading": "4. Experimental studies and discussions",
+      "parent_headings": [
+        "A memetic algorithm for the flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "d i = r i + t \\times (\\sum_ {j = 1} ^ {n i} m a x p i j)\\tag{8}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/117"
+    },
+    "eq-a38007468276a270c1727d6c565d8aa3-0010": {
+      "id": "eq-a38007468276a270c1727d6c565d8aa3-0010",
+      "blockid": "fa9904b6d70daa99e9e49cf6df23f888",
+      "heading": "4.2 Effectiveness metrics",
+      "parent_headings": [
+        "A memetic algorithm for the flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "C (A, B) = \\frac {\\left| \\left\\{b \\in B \\mid \\exists a \\in A : a > b \\right\\} \\right|}{| B |}\\tag{9}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/125"
+    },
+    "eq-a38007468276a270c1727d6c565d8aa3-0011": {
+      "id": "eq-a38007468276a270c1727d6c565d8aa3-0011",
+      "blockid": "fa9904b6d70daa99e9e49cf6df23f888",
+      "heading": "4.2 Effectiveness metrics",
+      "parent_headings": [
+        "A memetic algorithm for the flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "I G D (A, P ^ {*}) = \\frac {1}{| P ^ {*} |} \\sum_ {x \\in P ^ {*}} \\underset {y \\in A} {\\min} d (x, y)\\tag{10}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/128"
+    },
+    "eq-a38007468276a270c1727d6c565d8aa3-0012": {
+      "id": "eq-a38007468276a270c1727d6c565d8aa3-0012",
+      "blockid": "fa9904b6d70daa99e9e49cf6df23f888",
+      "heading": "4.2 Effectiveness metrics",
+      "parent_headings": [
+        "A memetic algorithm for the flexible job shop scheduling problem with job priority"
+      ],
+      "format": "latex",
+      "content": "\\tilde {f} (x) = \\frac {f _ {i} (x) - f _ {i} ^ {m i n}}{f _ {i} ^ {m a x _ {i} ^ {m i n}} , i = 1 , 2}\\tag{11}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/130"
+    }
+  }
+}

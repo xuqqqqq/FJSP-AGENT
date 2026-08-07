@@ -1,0 +1,56 @@
+{
+  "version": "1.0",
+  "tables": {
+    "tb-3c097ff3685735b34b61c3dd960e3345-0001": {
+      "id": "tb-3c097ff3685735b34b61c3dd960e3345-0001",
+      "blockid": "271a633ab701718b6b01794b529e146a",
+      "heading": "A. Relevant Studies of the DFJSP/PM",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "dimension": [
+        5,
+        4
+      ],
+      "format": "html",
+      "content": "<table><tr><td>Reference</td><td>Role of PMs</td><td>Objective</td><td>Approach</td></tr><tr><td>[13]</td><td>Constraint</td><td>Makespan</td><td>Modified GA</td></tr><tr><td>[14]</td><td>Decision variable</td><td>Makespan</td><td>Modified GA</td></tr><tr><td>[15]</td><td>Decision variable</td><td>Makespan</td><td>Modified GA</td></tr><tr><td>[16]</td><td>Decision variable</td><td>Makespan</td><td>Modified GA</td></tr></table>",
+      "caption": "TABLE I",
+      "footnotes": [],
+      "self_ref": "content_list.json#/28"
+    },
+    "tb-3c097ff3685735b34b61c3dd960e3345-0002": {
+      "id": "tb-3c097ff3685735b34b61c3dd960e3345-0002",
+      "blockid": "8f785521ea2ffdfa4955ddcd24200f6d",
+      "heading": "D. Evaluation of Each Improvement in LBPEA",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "dimension": [
+        9,
+        5
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">MOEAs</td><td colspan=\"2\">IGD</td><td colspan=\"2\">HV</td></tr><tr><td>rank</td><td>p-value</td><td>rank</td><td>p-value</td></tr><tr><td>LBPEA1</td><td>4.700</td><td></td><td>3.300</td><td></td></tr><tr><td>LBPEA2</td><td>3.575</td><td></td><td>4.350</td><td></td></tr><tr><td>LBPEA3</td><td>3.375</td><td></td><td>4.650</td><td></td></tr><tr><td>LBPEA4</td><td>4.500</td><td>2.683E-08</td><td>3.250</td><td>3.563E-04</td></tr><tr><td>LBPEA5</td><td>2.900</td><td></td><td>4.800</td><td></td></tr><tr><td>LBPEA6</td><td>6.450</td><td></td><td>2.500</td><td></td></tr><tr><td>LBPEA</td><td>2.500</td><td></td><td>5.150</td><td></td></tr></table>",
+      "caption": "TABLE II",
+      "footnotes": [],
+      "self_ref": "content_list.json#/200"
+    },
+    "tb-3c097ff3685735b34b61c3dd960e3345-0003": {
+      "id": "tb-3c097ff3685735b34b61c3dd960e3345-0003",
+      "blockid": "6a4172859f60c3f39a94c51c727d56d0",
+      "heading": "E. Comparisons With Other MOEAs",
+      "parent_headings": [
+        "A Learning-Assisted Bi-Population Evolutionary Algorithm for Distributed Flexible Job-Shop Scheduling With Maintenance Decisions"
+      ],
+      "dimension": [
+        8,
+        5
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">MOEAs</td><td colspan=\"2\">IGD</td><td colspan=\"2\">HV</td></tr><tr><td>rank</td><td>p-value</td><td>rank</td><td>p-value</td></tr><tr><td>SPAMA</td><td>2.350</td><td></td><td>4.900</td><td></td></tr><tr><td>LRVMA</td><td>3.950</td><td></td><td>2.150</td><td></td></tr><tr><td>BPBMO</td><td>5.500</td><td rowspan=\"2\">3.674E-16</td><td>1.500</td><td rowspan=\"2\">1.184E-17</td></tr><tr><td>TS-KEA</td><td>3.150</td><td>4.050</td></tr><tr><td>KBEA</td><td>5.050</td><td></td><td>2.400</td><td></td></tr><tr><td>LBPEA</td><td>1.000</td><td></td><td>6.000</td><td></td></tr></table>",
+      "caption": "TABLE III",
+      "footnotes": [],
+      "self_ref": "content_list.json#/209"
+    }
+  }
+}

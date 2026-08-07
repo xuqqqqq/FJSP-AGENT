@@ -1,0 +1,141 @@
+{
+  "version": "1.0",
+  "tables": {
+    "tb-458859b0b2943b04036593edf0f47c6d-0001": {
+      "id": "tb-458859b0b2943b04036593edf0f47c6d-0001",
+      "blockid": "d70798dfecbcd892d9be4abb0825a7c2",
+      "heading": "4. Proposed approach",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "dimension": [
+        2,
+        14
+      ],
+      "format": "html",
+      "content": "<table><tr><td colspan=\"7\">Factory assignment</td><td colspan=\"7\">Job sequence</td></tr><tr><td>3</td><td>3</td><td>1</td><td>2</td><td>1</td><td>2</td><td>2</td><td>3</td><td>2</td><td>4</td><td>5</td><td>1</td><td>6</td><td>7</td></tr></table>",
+      "caption": "Figure 2. Illustration of solution representation methods.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/158"
+    },
+    "tb-458859b0b2943b04036593edf0f47c6d-0002": {
+      "id": "tb-458859b0b2943b04036593edf0f47c6d-0002",
+      "blockid": "8068568d401707f1deb8e3bcfb1c3924",
+      "heading": "5.4. Efectiveness ofexternal archive-based search process",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "dimension": [
+        4,
+        7
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Algorithms</td><td colspan=\"3\">IGD-metric</td><td colspan=\"3\">Hypervolume-metric</td></tr><tr><td>Average rank value</td><td>Final rank</td><td>Difference</td><td>Average rank value</td><td>Final rank</td><td>Difference</td></tr><tr><td>MOEA-EM</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td></tr><tr><td>MOEA-EM-wø-EABS</td><td>2</td><td>2</td><td></td><td>2</td><td>2</td><td></td></tr></table>",
+      "caption": "Table 1. Results of Friedman and Nemenyi test via mean results for IGD- and Hypervolume-metric.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/226"
+    },
+    "tb-458859b0b2943b04036593edf0f47c6d-0003": {
+      "id": "tb-458859b0b2943b04036593edf0f47c6d-0003",
+      "blockid": "8068568d401707f1deb8e3bcfb1c3924",
+      "heading": "5.4. Efectiveness ofexternal archive-based search process",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "dimension": [
+        3,
+        7
+      ],
+      "format": "html",
+      "content": "<table><tr><td>MOEA-EM vs. MOEA-EM-wø-EABS</td><td>+/-/-</td><td> $R^{+}$ </td><td> $R^{-}$ </td><td>Z</td><td>p-value</td><td> $\\alpha = 0.05$ </td></tr><tr><td>IGD-metric</td><td>27/0/0</td><td>378</td><td>0</td><td>4.54</td><td>0.0000</td><td>Yes</td></tr><tr><td>Hypervolume-metric</td><td>27/0/0</td><td>378</td><td>0</td><td>4.54</td><td>0.0000</td><td>Yes</td></tr></table>",
+      "caption": "Table 2. Results of Wilcoxon signed rank test via mean results for IGD- and Hypervolume-metric.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/227"
+    },
+    "tb-458859b0b2943b04036593edf0f47c6d-0004": {
+      "id": "tb-458859b0b2943b04036593edf0f47c6d-0004",
+      "blockid": "225eaf667caeab6b9b6d76ea7bd7b76c",
+      "heading": "5.5. Experimental results and analysis",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "dimension": [
+        7,
+        3
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Algorithms</td><td colspan=\"2\">IGD-metric</td></tr><tr><td>Average ranking value</td><td>Final rank</td></tr><tr><td>MOEA-EM</td><td>1.2963</td><td>1</td></tr><tr><td>NSGA-II</td><td>2.5185</td><td>3</td></tr><tr><td>MOEA/D</td><td>4.4074</td><td>4</td></tr><tr><td>BMSA</td><td>4.5926</td><td>5</td></tr><tr><td>IMA</td><td>2.2222</td><td>2</td></tr></table>",
+      "caption": "Table 3. Friedman test results via mean values of IGD-metric.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/233"
+    },
+    "tb-458859b0b2943b04036593edf0f47c6d-0005": {
+      "id": "tb-458859b0b2943b04036593edf0f47c6d-0005",
+      "blockid": "225eaf667caeab6b9b6d76ea7bd7b76c",
+      "heading": "5.5. Experimental results and analysis",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "dimension": [
+        5,
+        7
+      ],
+      "format": "html",
+      "content": "<table><tr><td>MOEA-EM vs.</td><td>+/-</td><td> $R^{+}$ </td><td> $R^{-}$ </td><td>Z</td><td>p-value</td><td> $\\alpha = 0.05$ </td></tr><tr><td>NSGA-II</td><td>23/0/4</td><td>334</td><td>44</td><td>3.48</td><td>0.0003</td><td>Yes</td></tr><tr><td>MOEA/D</td><td>27/0/0</td><td>378</td><td>0</td><td>4.54</td><td>0.0000</td><td>Yes</td></tr><tr><td>BMSA</td><td>27/0/0</td><td>378</td><td>0</td><td>4.54</td><td>0.0000</td><td>Yes</td></tr><tr><td>IMA</td><td>24/0/3</td><td>336</td><td>42</td><td>3.53</td><td>0.0004</td><td>Yes</td></tr></table>",
+      "caption": "Table 4. Wilcoxon signed rank test results via mean values of IGD-metric.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/239"
+    },
+    "tb-458859b0b2943b04036593edf0f47c6d-0006": {
+      "id": "tb-458859b0b2943b04036593edf0f47c6d-0006",
+      "blockid": "225eaf667caeab6b9b6d76ea7bd7b76c",
+      "heading": "5.5. Experimental results and analysis",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "dimension": [
+        7,
+        3
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Algorithms</td><td colspan=\"2\">Hypervolume-metric</td></tr><tr><td>Average ranking value</td><td>Final rank</td></tr><tr><td>MOEA-EM</td><td>1.2222</td><td>1</td></tr><tr><td>NSGA-II</td><td>2.6296</td><td>3</td></tr><tr><td>MOEA/D</td><td>4.5741</td><td>5</td></tr><tr><td>BMSA</td><td>4.4259</td><td>4</td></tr><tr><td>IMA</td><td>2.1481</td><td>2</td></tr></table>",
+      "caption": "Table 5. Friedman test results via mean values of Hypervolumemetric.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/240"
+    },
+    "tb-458859b0b2943b04036593edf0f47c6d-0007": {
+      "id": "tb-458859b0b2943b04036593edf0f47c6d-0007",
+      "blockid": "225eaf667caeab6b9b6d76ea7bd7b76c",
+      "heading": "5.5. Experimental results and analysis",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "dimension": [
+        5,
+        7
+      ],
+      "format": "html",
+      "content": "<table><tr><td>MOEA-EM vs.</td><td>+/-/-</td><td> $R^{+}$ </td><td> $R^{-}$ </td><td>Z</td><td>p-value</td><td> $\\alpha = 0.05$ </td></tr><tr><td>NSGA-II</td><td>25/0/2</td><td>363</td><td>15</td><td>4.18</td><td>0.0000</td><td>Yes</td></tr><tr><td>MOEA/D</td><td>27/0/0</td><td>378</td><td>0</td><td>4.54</td><td>0.0000</td><td>Yes</td></tr><tr><td>BMSA</td><td>27/0/0</td><td>378</td><td>0</td><td>4.54</td><td>0.0000</td><td>Yes</td></tr><tr><td>IMA</td><td>23/0/4</td><td>332</td><td>46</td><td>3.44</td><td>0.0006</td><td>Yes</td></tr></table>",
+      "caption": "Table 6. Wilcoxon signed rank test results via mean values of Hypervolume-metric.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/241"
+    },
+    "tb-458859b0b2943b04036593edf0f47c6d-0008": {
+      "id": "tb-458859b0b2943b04036593edf0f47c6d-0008",
+      "blockid": "225eaf667caeab6b9b6d76ea7bd7b76c",
+      "heading": "5.5. Experimental results and analysis",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "dimension": [
+        11,
+        5
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Instances</td><td rowspan=\"2\">weighted vectors</td><td>CPLEX</td><td colspan=\"2\">MOEA-EM</td></tr><tr><td>AOV</td><td>AOV</td><td>Time (sec.)</td></tr><tr><td rowspan=\"3\">5</td><td>(1.0, 0.0)</td><td>53.00*</td><td>70.00</td><td>28.32</td></tr><tr><td>(0.5, 0.5)</td><td>31.00*</td><td>49.20</td><td>29.41</td></tr><tr><td>(0.0, 1.0)</td><td>6.00*</td><td>10.00</td><td>27.21</td></tr><tr><td rowspan=\"3\">7</td><td>(1.0, 0.0)</td><td>60.00</td><td>62.00</td><td>39.52</td></tr><tr><td>(0.5, 0.5)</td><td>60.50</td><td>56.10</td><td>44.52</td></tr><tr><td>(0.0, 1.0)</td><td>131.00</td><td>122.00</td><td>38.28</td></tr><tr><td rowspan=\"3\">10</td><td>(1.0, 0.0)</td><td>-</td><td>95.00</td><td>67.32</td></tr><tr><td>(0.5, 0.5)</td><td>-</td><td>90.50</td><td>74.33</td></tr><tr><td>(0.0, 1.0)</td><td>-</td><td>232.00</td><td>65.67</td></tr></table>",
+      "caption": "Table 7. Comparison results of MOEA-EM and CPLEX.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/244"
+    }
+  }
+}

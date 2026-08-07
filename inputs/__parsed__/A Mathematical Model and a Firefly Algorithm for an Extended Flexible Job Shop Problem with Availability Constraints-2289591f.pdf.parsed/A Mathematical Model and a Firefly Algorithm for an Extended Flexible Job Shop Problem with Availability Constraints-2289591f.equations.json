@@ -1,0 +1,369 @@
+{
+  "version": "1.0",
+  "equations": {
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0001": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0001",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "\\text { minimize } \\lambda_ {1} C _ {m a x} + \\lambda_ {2} W _ {m a x} + \\lambda_ {3} \\sum_ {k = 1} ^ {m} \\sum_ {i = 1} ^ {n} \\sum_ {j = 1} ^ {J _ {i}} p _ {i j k} v _ {i j k}\\tag{1}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/26"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0002": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0002",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "\\mathrm{s.t.} C _ {m a x} \\geqslant \\sum_ {k \\in M _ {i j}} c _ {i j k},",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/27"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0003": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0003",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "\\forall i, j = J _ {i}\\tag{2}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/28"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0004": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0004",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "W _ {m a x} \\geqslant \\sum_ {i = 1} ^ {n} \\sum_ {j = 1} ^ {J _ {i}} p _ {i j k} v _ {i j k},",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/29"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0005": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0005",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "\\forall k\\tag{3}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/30"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0006": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0006",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "\\begin{array}{l} c _ {i j k} \\geqslant s _ {i j k} + p _ {i j k} \\\\ \\quad + \\sum_ {\\forall r} (c u _ {r k} - s u _ {r k}) u _ {i j k r} \\\\ \\quad - (1 - v _ {i j k}) L, \\end{array}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/31"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0007": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0007",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "\\forall i, j, k \\in M _ {i j}\\tag{4}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/32"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0008": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0008",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "s _ {i j k} \\geqslant c _ {h g k} - z _ {i j h g k} L,",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/33"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0009": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0009",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "\\forall i <   h, j, g, k \\in M _ {i j} \\cap M _ {h g}\\tag{5}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/34"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0010": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0010",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "s _ {h g k} \\geqslant c _ {i j k} - (1 - z _ {i j h g k}) L,",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/35"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0011": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0011",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "\\forall i <   h, j, g, k \\in M _ {i j} \\cap M _ {h g}\\tag{6}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/36"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0012": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0012",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "c _ {i j k} \\leqslant s u _ {k r} + u _ {i j k r} L + y _ {i j k r} L",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/37"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0013": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0013",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "\\forall i, j, r, k \\in M _ {i j}\\tag{7}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/38"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0014": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0014",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "s _ {i j k} \\geqslant c u _ {k r} - (1 - y _ {i j k r}) L,",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/39"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0015": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0015",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "\\forall i, j, r, k \\in M _ {i j}\\tag{8}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/40"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0016": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0016",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {k \\in M _ {i j}} s _ {i j k} \\geqslant \\sum_ {k \\in M _ {i j}} c _ {i j - 1 k},",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/41"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0017": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0017",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "\\forall i, j = 2, \\dots , J _ {i}\\tag{9}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/42"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0018": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0018",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {k \\in M _ {i j}} v _ {i j k} = 1,",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/43"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0019": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0019",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "\\forall i, j\\tag{10}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/44"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0020": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0020",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "s _ {i j k} \\leqslant v _ {i j k} L,",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/45"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0021": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0021",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "\\forall i, j, k \\in M _ {i j}\\tag{11}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/46"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0022": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0022",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "c _ {i j k} \\leqslant v _ {i j k} L,",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/47"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0023": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0023",
+      "blockid": "2bb83b39d473d56a12fb55234862048c",
+      "heading": "2 MILP Model",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "\\forall i, j, k \\in M _ {i j}\\tag{12}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/48"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0024": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0024",
+      "blockid": "84f67928b677c17cd3bc182ba0b826c6",
+      "heading": "3.1 Variations of Light Intensity and Attractiveness",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "\\beta (r) = \\beta_ {0} e ^ {- \\gamma r ^ {m}}, m \\geqslant 1,\\tag{13}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/60"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0025": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0025",
+      "blockid": "84f67928b677c17cd3bc182ba0b826c6",
+      "heading": "3.1 Variations of Light Intensity and Attractiveness",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "\\beta (r) = \\frac {\\beta_ {0}}{1 + \\gamma r ^ {2}}.\\tag{14}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/62"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0026": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0026",
+      "blockid": "84f67928b677c17cd3bc182ba0b826c6",
+      "heading": "3.1 Variations of Light Intensity and Attractiveness",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "r _ {i j} = \\| x _ {i} - x _ {j} \\| = \\sqrt {\\sum_ {k = 1} ^ {d} (x _ {i k} - x _ {j k}) ^ {2}},\\tag{15}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/64"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0027": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0027",
+      "blockid": "84f67928b677c17cd3bc182ba0b826c6",
+      "heading": "3.1 Variations of Light Intensity and Attractiveness",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "x _ {i} = x _ {i} + \\beta_ {0} e ^ {- \\gamma r _ {i j} ^ {2}} (x _ {i} - x _ {j}) + \\alpha \\epsilon_ {i},\\tag{16}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/70"
+    },
+    "eq-d9df397d18c928b6ad43dd34f3f76716-0028": {
+      "id": "eq-d9df397d18c928b6ad43dd34f3f76716-0028",
+      "blockid": "404213279942958c10e24335510c1ab0",
+      "heading": "3.5 Attraction and Movement",
+      "parent_headings": [
+        "A Mathematical Model and a Firefly Algorithm for an Extended Flexible Job Shop Problem with Availability Constraints"
+      ],
+      "format": "latex",
+      "content": "x _ {i} = x _ {i} + \\alpha (r a n d _ {i n t}).\\tag{17}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/97"
+    }
+  }
+}

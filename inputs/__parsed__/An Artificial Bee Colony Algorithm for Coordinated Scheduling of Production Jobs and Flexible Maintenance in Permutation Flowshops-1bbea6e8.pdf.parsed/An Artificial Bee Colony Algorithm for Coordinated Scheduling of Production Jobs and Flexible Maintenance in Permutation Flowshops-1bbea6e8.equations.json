@@ -1,0 +1,174 @@
+{
+  "version": "1.0",
+  "equations": {
+    "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0001": {
+      "id": "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0001",
+      "blockid": "0c8b57ab7009bea45d878ea95db51ce8",
+      "heading": "3. Problem Statement",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "format": "latex",
+      "content": "\\pi_ {i} = \\left\\{B _ {i} ^ {1}, P d M _ {i} ^ {1}, B _ {i} ^ {2}, P d M _ {i} ^ {2}, \\dots , B _ {i} ^ {k}, P d M _ {i} ^ {k}, B _ {i} ^ {k _ {i} + 1} \\right\\}, \\text {where} \\cup_ {l = 1} ^ {k _ {i} + 1} B _ {i} ^ {l} = \\mathcal {J}.",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/53"
+    },
+    "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0002": {
+      "id": "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0002",
+      "blockid": "4f318632396203d059d4b50b57aed501",
+      "heading": "2. Generation of maintenance activities planning",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "format": "latex",
+      "content": "\\begin{array}{c c} S = [ 1   3   8   5   6   7   4   2 ] \\\\ \\text {Process J_{1} on M_{1}} & S = [ 1   3   8   5   6   7   4   2 ] \\text {Update cumulative degradation} \\delta_ {1 1} <   \\Delta \\\\ \\text {Process J_{3} on M_{1}} & S = [ 1   3   8   5   6   7   4   2 ] \\delta_ {1 1} + \\delta_ {1 3} <   \\Delta \\\\ \\text {Process J_{8} on M_{1}} & S = [ 1   3   8   5   6   7   4   2 ] \\delta_ {1 1} + \\delta_ {1 3} + \\delta_ {1 8} <   \\Delta \\\\ \\text {Process J_{5} on M_{1}} & S = [ 1   3   8   5   6   7   4   2 ] \\delta_ {1 1} + \\delta_ {1 3} + \\delta_ {1 8} + \\delta_ {1 5} > \\Delta \\end{array}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/81"
+    },
+    "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0003": {
+      "id": "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0003",
+      "blockid": "c13ae41201484d6ebb6dfcba5f3b2404",
+      "heading": "4.2. Employed Bees Phase",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "format": "latex",
+      "content": "\\begin{array}{l} {S ^ {\\prime} [ p ] = S [ q ]} \\\\ {S ^ {\\prime} [ q ] = S [ p ]} \\\\ {S ^ {\\prime} [ k ] = S [ k ] \\mathrm{for} k \\neq p, q} \\end{array}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/90"
+    },
+    "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0004": {
+      "id": "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0004",
+      "blockid": "c13ae41201484d6ebb6dfcba5f3b2404",
+      "heading": "4.2. Employed Bees Phase",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "format": "latex",
+      "content": "S ^ {\\prime} [ i ] = \\left\\{ \\begin{array}{l l} S [ i ] & \\text {   for   } i <   p \\text {   or   } i > q \\\\ S [ i + 1 ] & \\text {   for   } p \\leq i <   q \\\\ S [ p ] & \\text {   if   } i = q \\end{array} \\right.\\tag{1}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/96"
+    },
+    "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0005": {
+      "id": "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0005",
+      "blockid": "c13ae41201484d6ebb6dfcba5f3b2404",
+      "heading": "4.2. Employed Bees Phase",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "format": "latex",
+      "content": "S ^ {\\prime} [ i ] = \\left\\{ \\begin{array}{l l} S [ i ] & \\text {   for   } i <   q \\text {   or   } i > p \\\\ S [ i - 1 ] & \\text {   for   } q <   i \\leq p \\\\ S [ q ] & \\text {   if   } i = p \\end{array} \\right.\\tag{2}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/98"
+    },
+    "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0006": {
+      "id": "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0006",
+      "blockid": "c6d94bebcf21cc197162e3d1ab709870",
+      "heading": "4.3. Onlooker Bees Phase",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "format": "latex",
+      "content": "p _ {i} = \\frac {\\text {fitness} (f s _ {i})}{\\sum_ {k = 1} ^ {S N} \\text {fitness} (f s _ {k})}\\tag{3}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/115"
+    },
+    "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0007": {
+      "id": "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0007",
+      "blockid": "6978393fa6067ba5caefdee485ece405",
+      "heading": "5.1. Data Benchmarks for the Integrated Scheduling Problem",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "format": "latex",
+      "content": "R P D = \\frac {C _ {m a x} - L B}{L B} \\times 1 0 0\\tag{4}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/138"
+    },
+    "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0008": {
+      "id": "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0008",
+      "blockid": "6978393fa6067ba5caefdee485ece405",
+      "heading": "5.1. Data Benchmarks for the Integrated Scheduling Problem",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "format": "latex",
+      "content": "a _ {i} = \\min _ {j} (\\sum_ {k = 1} ^ {i - 1} P _ {k j})\\tag{5}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/140"
+    },
+    "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0009": {
+      "id": "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0009",
+      "blockid": "6978393fa6067ba5caefdee485ece405",
+      "heading": "5.1. Data Benchmarks for the Integrated Scheduling Problem",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "format": "latex",
+      "content": "b _ {i} = \\min _ {\\mathrm{j}} (\\sum_ {k = i + 1} ^ {m} P _ {k j})\\tag{6}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/141"
+    },
+    "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0010": {
+      "id": "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0010",
+      "blockid": "6978393fa6067ba5caefdee485ece405",
+      "heading": "5.1. Data Benchmarks for the Integrated Scheduling Problem",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "format": "latex",
+      "content": "T _ {i} = \\sum_ {j = 1} ^ {n} P _ {i j} + k _ {i} \\times D\\tag{7}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/142"
+    },
+    "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0011": {
+      "id": "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0011",
+      "blockid": "6978393fa6067ba5caefdee485ece405",
+      "heading": "5.1. Data Benchmarks for the Integrated Scheduling Problem",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "format": "latex",
+      "content": "L B = \\max \\left\\{\\max _ {i} \\left(a _ {i} + T _ {i} + b _ {i}\\right), \\max _ {j} \\sum_ {i = 1} ^ {m} P _ {i j} \\right\\}\\tag{8}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/147"
+    },
+    "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0012": {
+      "id": "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0012",
+      "blockid": "6978393fa6067ba5caefdee485ece405",
+      "heading": "5.1. Data Benchmarks for the Integrated Scheduling Problem",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "format": "latex",
+      "content": "E T _ {i} = \\frac {\\sum_ {k = 1} ^ {n _ {i}} | \\delta_ {k} - 1 |}{n _ {i}}\\tag{9}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/149"
+    },
+    "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0013": {
+      "id": "eq-2b3dfd7b5cbfa2a90ef71347e70c15cc-0013",
+      "blockid": "6978393fa6067ba5caefdee485ece405",
+      "heading": "5.1. Data Benchmarks for the Integrated Scheduling Problem",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "format": "latex",
+      "content": "E T = \\frac {\\sum_ {i = 1} ^ {m} E T _ {i}}{m} \\times 1 0 0\\tag{10}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/152"
+    }
+  }
+}

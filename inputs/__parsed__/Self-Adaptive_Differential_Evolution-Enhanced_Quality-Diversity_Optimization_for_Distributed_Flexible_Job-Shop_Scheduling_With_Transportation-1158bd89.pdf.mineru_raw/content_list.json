@@ -1,0 +1,3814 @@
+[
+    {
+        "type": "text",
+        "text": "Self-Adaptive Differential Evolution-Enhanced Quality-Diversity Optimization for Distributed Flexible Job-Shop Scheduling With Transportation",
+        "text_level": 1,
+        "bbox": [
+            89,
+            73,
+            914,
+            176
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Haoxiang Qin, Yi Xiang , Yuyan Han , Yuting Wang , Chunguo Wu , and Fujian Feng",
+        "bbox": [
+            146,
+            184,
+            856,
+            202
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Abstract—Distributed Flexible Job Shop Scheduling with Transportation Constraints (DFJSP-T) is widely used in manufacturing workshops across various industries, as it more accurately represents real-world production scenarios. However, many existing studies do not fully leverage critical problem features or domain knowledge, limiting the ability of current algorithms to find highquality solutions for complex large-scale problems. To address these challenges, this paper proposes a Self-Adaptive Differential Evolution Enhanced Quality-Diversity Optimization (SADE-QD). The SADE-QD incorporates domain knowledge in three main ways: (1) it models the problem using machine idle and job transportation features, allowing the algorithm to retain solutions with diverse behaviors; (2) it introduces a knowledge-guided heuristic search strategy based on critical path to discover more high-quality solutions; and (3) it applies an self-adaptive differential evolution search method that leverages machine idle and transportation features to explore a broader range of solutions. This helps valuable information from the feature space contribute directly to the search process. Experiments on small, medium, and large scale benchmarks show that SADE-QD achieves an average makespan reduction of 12% compared to several recent state-of-the-art algorithms.",
+        "bbox": [
+            63,
+            239,
+            496,
+            506
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Index Terms—Distributed flexible job shop scheduling, transportation, quality-diversity optimization, differential evolution.",
+        "bbox": [
+            65,
+            513,
+            494,
+            541
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "I. INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            659,
+            239,
+            789,
+            253
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "lem (DFJSP) extends the traditional Flexible Job Shop Scheduling Problem (FJSP) and is widely applied in modern manufacturing [1], [2]. It integrates job assignment and transportation scheduling across independent machines, enabling flexible resource allocation and greater adaptability [3], [4]. Eachjob comprises multiple operations that can be processed by various machines [5], and jobs are distributed among multiple factories to better respond to demand fluctuations, shorten production cycles, and enhance customer satisfaction [6], [7], [8]. In DFJSP, processing and transportation are interdependent: operations cannot begin until the required transport is completed, and subsequent transport tasks depend on prior operations. Therefore, to optimize the overall production system, processing and transportation must be addressed in a coordinated and integrated manner [9].",
+        "bbox": [
+            506,
+            260,
+            939,
+            502
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "In modern manufacturing scheduling [10], [11], [12], [13], incorporating problem features and knowledge is critical for improving machine utilization and overall production efficiency. Neglecting these factors can lead to unrealistic models, suboptimal resource allocation, and reduced performance [14]. For example, Qin et al. [15] demonstrated that identifying job transportation and machine idleness as key features, and designing heuristics based on transportation characteristics, can enhance scheduling flexibility while reducing energy consumption. Similarly, Pan et al. [16] highlighted the importance of minimizing machine idle time and transport delays by leveraging domain knowledge to adapt to dynamic production conditions. Additionally, in practice, schedulers must also consider the flexible demands of actual production. One effective approach is to generate solutions with diverse characteristics [17]. Studies have shown that real-world environments, such as machining plants in Nanjing, China [18], and coal machinery workshops [19], often require a variety of scheduling strategies to cope with changing operational conditions. Li et al. [20] further demonstrated that offering a range of tailored solutions enables schedulers to reduce idle times and adapt decisions to specific scenarios. By exploring diverse solution sets, decision-makers can better balance trade-offs and select schedules aligned with varying production needs [21], [22], [23].",
+        "bbox": [
+            506,
+            502,
+            939,
+            864
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "As scheduling problems grow in complexity, manual approaches can no longer meet the demands of modern production [24]. To enable automated scheduling, many studies have formulated FJSP and DFJSP as mixed-integer linear programming (MILP) models [25], [26], [27], [28]. However, these models are limited to small-scale instances due to combinatorial explosion, making it challenging to obtain efficient or even feasible solutions for larger problems within reasonable time. To overcome this, meta-heuristic algorithms have been widely adopted and have shown strong performance in optimizing scheduling decisions [21], [29], [30], [31], [32], [33], [34], [35], [36], [37], [38], [39], [40], [41], [42], [43], [44], [45]. Despite their success, these methods often overlook important problemspecific features and domain knowledge, such as machine idle time and job transportation. As a result, their adaptability to the diverse and dynamic requirements of real-world production remains limited [19].",
+        "bbox": [
+            506,
+            864,
+            939,
+            896
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:33:46 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            942,
+            974
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "2260",
+        "bbox": [
+            67,
+            39,
+            97,
+            50
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "header",
+        "text": "IEEE TRANSACTIONS ON EMERGING TOPICS IN COMPUTATIONAL INTELLIGENCE, VOL. 10, NO. 3, JUNE 2026",
+        "bbox": [
+            338,
+            37,
+            939,
+            51
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "Received 7 December 2025; accepted 29 January 2026. Date of publication 19 March 2026; date of current version 29 May 2026. This work was supported in part by Guangdong Basic and Applied Basic Research Foundation under Grant 2024A1515030022, in part by the Fundamental Research Funds for the Centra Universities, JLU under Grant 93K172024K03 and Grant 2024ZYGXZR097, in part by the National Natural Science Foundation of China under Grant 61906069, Grant 62566012, and Grant 62541317, and in part by the Natura Science Foundation of Shandong province under Grant ZR2023MF022 and Grant ZR2024MF112. (Corresponding author: Yi Xiang.)",
+        "bbox": [
+            63,
+            555,
+            494,
+            659
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "Haoxiang Qin is with the School of Software Engineering, South China University of Technology, Guangzhou 510006, China (e-mail: 987352978@qq.com).",
+        "bbox": [
+            65,
+            657,
+            494,
+            693
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "Yi Xiang is with the School of Software Engineering, South China University of Technology, Guangzhou 510006, China, and also with the Key Laboratory of Symbolic Computation and Knowledge Engineering of Ministry of Education, Jilin University, Changchun 130012, China (e-mail: xiangyi@scut.edu.cn).",
+        "bbox": [
+            63,
+            691,
+            494,
+            738
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "Yuyan Han and Yuting Wang are with the School of Computer Science, Liaocheng University, Liaocheng 252059, China (e-mail: hanyuyan@lcu-cs.com; wangyuting@lcu-cs.com).",
+        "bbox": [
+            63,
+            737,
+            494,
+            772
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "Chunguo Wu is with the Key Laboratory of Symbolic Computation and Knowledge Engineering of Ministry of Education, College of Computer Science and Technology, Jilin University, Changchun 130012, China (e-mail: wucg@jlu.edu.cn).",
+        "bbox": [
+            63,
+            771,
+            494,
+            816
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "Fujian Feng is with the College of Data Science and Information Engineering, Guizhou Minzu University, Guiyang 550025, China (e-mail: fujian\\_feng @gzmu.edu.cn).",
+        "bbox": [
+            65,
+            816,
+            494,
+            851
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "This article has supplementary downloadable material available at https://doi.org/10.1109/TETCI.2026.3670689, provided by the authors.",
+        "bbox": [
+            65,
+            849,
+            496,
+            875
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "Recommended for acceptance by Y. Wang.",
+        "bbox": [
+            79,
+            873,
+            318,
+            885
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "Digital Object Identifier 10.1109/TETCI.2026.3670689",
+        "bbox": [
+            77,
+            883,
+            385,
+            897
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "2471-285X © 2026 IEEE. All rights reserved, including rights for text and data mining, and training of artificial intelligence and similar technologies. Personal use is permitted, but republication/redistribution requires IEEE permission. See https://www.ieee.org/publications/rights/index.html for more information.",
+        "bbox": [
+            60,
+            914,
+            941,
+            940
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            57,
+            79,
+            489,
+            306
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To address the limitations of existing methods and better meet the flexibility demands of real-world manufacturing, Quality-Diversity (QD) optimization [46], [47] offers a promising avenue. By leveraging domain-specific features and problem knowledge, QD guides the search toward high-quality solutions while encouraging behavioral diversity, thus promoting cooperation among solutions and helping escape local optima. However, traditional QD frameworks often lack effective variation strategies, which restricts their exploitation ability. To overcome this, we integrate differential evolution (DE) operators [48] into QD. DE exploits promising individuals to generate offspring and facilitates collaborative, targeted evolution across the feature space. Combined with a self-adaptive mechanism that dynamically adjusts the search based on population feedback, the approach becomes well suited for the complex DFJSP-T.",
+        "bbox": [
+            57,
+            306,
+            489,
+            532
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To better solve DFJSP-T, we propose a Self-Adaptive Differential Evolution-enhanced Quality-Diversity Optimization (SADE-QD). The approach uses the widely adopted MAP-Elites framework [49], which has demonstrated strong performance across robotics [50], [51], gaming [52], [53], and software testing [54], [55]. Unlike existing DFJSP-T algorithms, which mainly rely on traditional metaheuristics that operate only in the decision space, our method reformulates DFJSP-T as a QD optimization task in feature space. This changes the goal of the search. Instead of finding a single optimal schedule, the algorithm maintains and evolves a set of behaviorally diverse schedules at the same time. Existing most DFJSP-T approaches do not build or utilize the feature space, and they do not exploit interactions across different behavioral regions. In contrast, SADE-QD introduces a theoretically supported feature space, a MAP-Elites grid archive, and a self-adaptive DE collaboration mechanism that guides evolution based on behavioral information. These designs create a fundamentally different optimization process compared with previous DFJSP-T research.",
+        "bbox": [
+            57,
+            532,
+            489,
+            819
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "The core difficulty in extending MAP-Elites to DFJSP-T is the design of meaningful features. Prior work [17] suggested using job transportation and machine idle times for FJSP-T, but provided no theoretical justification. This study fills that gap by formally proving the rationality of these two features and by building the QD model upon this theoretical foundation. Based on this, our contributions focus on three aspects:",
+        "bbox": [
+            57,
+            819,
+            489,
+            924
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "\\- QD Reformulation with Proven Behavioral Features: This work models DFJSP-T as a QD optimization problem, providing a novel perspective on its formulation. We theoretically formalize and prove the necessity and sufficiency of using machine idle time and job transportation times as behavior features in QD optimization for DFJSP-T. This provides a principled feature space for MAP-Elites, enabling the algorithm to preserve and explore structurally distinct scheduling solutions that conventional methods cannot represent.",
+        "bbox": [
+            74,
+            925,
+            489,
+            955
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            533,
+            79,
+            932,
+            200
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Feature-Diverse Evolutionary Framework: Unlike traditional algorithms that explore toward the search space, the proposed QD paradigm maintains diverse features and exploits cooperation among feature space. This diversity forms a multi-modal search landscape that improves exploration and avoids premature convergence. Our analysis further shows that most successful and high-quality updates arise from neighboring feature solutions rather than from the solution itself, highlighting the cross-cell evolutionary synergy enabled by QD.",
+        "bbox": [
+            516,
+            200,
+            932,
+            351
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "\\- Self-Adaptive Feature-Guided DE Co-Evolution: We introduce a self-adaptive differential evolution mechanism that co-evolves the solution vectors under the guidance of MAP-Elites’ transportation–idle (T&I) feature space. The strategy no longer depends solely on stochastic mutation. Instead, it progressively shifts solutions toward elite behavioral feature regions with lower transportation and machine idle times. This creates a closed feedback loop: vector perturbations change the behavioral features, and the resulting elites guide the next round of perturbations. The synergy across different behavioral regions enables targeted exploitation while preserving diversity, with 74.8%– 89.8% of the obtained solutions outperform state-of-the-art methods.",
+        "bbox": [
+            516,
+            351,
+            932,
+            561
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "The remainder of this paper is organized as follows. Section II reviews related work on FJSP, DFJSP, and QD optimization. Section III performs feature selection and validation, and models DFJSP-T as a QD optimization problem. In Section IV, the proposed SADE-QD algorithm is described. Section V shows the results and analysis of SADE-QD. Finally, Section VI concludes the paper and suggests future research directions.",
+        "bbox": [
+            500,
+            561,
+            932,
+            670
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "II. RELATED WORK",
+        "text_level": 2,
+        "bbox": [
+            644,
+            685,
+            787,
+            699
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To contextualize the necessity and novelty of the proposed algorithm, this section critically reviews existing literature on complex FJSPs and DJSPs, then subsequently explores the potential of QD optimization in addressing these recognized challenges.",
+        "bbox": [
+            500,
+            705,
+            932,
+            782
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "A. Flexible Job Shop Scheduling",
+        "text_level": 2,
+        "bbox": [
+            500,
+            797,
+            732,
+            814
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "FJSP has been studied for decades [24], [29], [56]. Within FJSP, each operation has the flexibility to be executed on any machine from the available set [30]. To address this problem, researchers have formulated it as an optimization problem, either single-objective or multi-objective, and applied various meta-heuristic algorithms. Meta-heuristic approaches such as Particle Swarm Optimization (PSO) combined with Genetic Algorithms (GA) [31], [32], hybrid GA [40], [57], and hybrid variable neighborhood search (VNS) [37] are widely utilized for the FJSP. Additionally, algorithms utilizing small populations, including the two-individual master-apprentice Evolutionary Algorithm (EA) [33] and the single-individual iterative greedy algorithm [3], have demonstrated promising performance for solving FJSP. Several studies have also explored FJSP under specific constraints. For example, Zhang et al. [34] investigated the FJSP with assembly constraints, integrating multiple flexible and assembled stages. For other complex constraints, such as the mating operation in FJSP, Zhang et al. [35] suggested a knowledge-based cuckoo search approach. To optimize multiple objectives simultaneously in the presence of job arrivals, An et al. [41] leverages a non-dominated sorting genetic algorithm-III approach. Furthermore, numerous high-performing evolutionary algorithms have been developed to handle FJSP with fuzzy constraints, aiming to achieve high-quality solutions while minimizing energy consumption [37], [42], [58]. A comprehensive review of FJSP methods can be found in [59].",
+        "bbox": [
+            498,
+            819,
+            934,
+            955
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "QIN et al.: SADE-QD FOR DISTRIBUTED FLEXIBLE JOB-SHOP SCHEDULING WITH TRANSPORTATION",
+        "bbox": [
+            58,
+            37,
+            609,
+            51
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2261",
+        "bbox": [
+            902,
+            39,
+            930,
+            50
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:33:46 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            960,
+            942,
+            974
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            63,
+            79,
+            496,
+            335
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Although these approaches have achieved remarkable success, they fail to take into account the transportation constraints and distributed scheduling environment of FJSPs. In addition, the above methods have difficulty in continuing to generate more diverse solutions in the later stages of evolution, thus making it difficult to meet the flexibility requirements of organizations.",
+        "bbox": [
+            63,
+            335,
+            496,
+            428
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "B. FJSP With Distributed Environment and Transportation Constraints",
+        "text_level": 2,
+        "bbox": [
+            63,
+            443,
+            471,
+            474
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "With the shift from centralized to distributed production, the DFJSP has emerged as an extension of FJSP to address the added complexity of distributed environments. Various methods have been proposed to solve DFJSP, including an improved genetic algorithm that enhances solution quality by refining the most promising individuals [36]. In [26], four mathematical models of DFJSP were suggested to optimize the makespan. Luo et al. [43] considered job transfers across factories and presented the Memetic Algorithm (MA) to optimize multiple tasks. Later, they addressed worker arrangement constraints and applied an enhanced MA to address the DFJSP [21]. In [22], [39], Deep Q-networks Co-Evolution (DQCE) and a Surprisingly Popular Based Adaptive MA (SPAMA) were proposed for addressing the DFJSP. Additionally, some studies have incorporated both distributed environments and lag time considerations in DFJSP [38], [44]. It should be noted that during transportation and loading process, the machine’s state is often assumed to be idle by default, whereas in practice, lag time should be accounted for to improve scheduling accuracy [14], [60].",
+        "bbox": [
+            63,
+            479,
+            496,
+            767
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "It is crucial to highlight that, for the above studies, the utilization of domain knowledge and problem features (e.g., distributed factories, the state of machine transportation, and machine idle time) are limited. Addressing these limitations requires more flexible and adaptable optimization approaches that can accommodate the evolving requirements of real-world distributed production systems.",
+        "bbox": [
+            63,
+            766,
+            496,
+            875
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "C. Quality-Diversity Optimization",
+        "text_level": 2,
+        "bbox": [
+            65,
+            888,
+            306,
+            904
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "As discussed earlier, QD optimization [46], [47] represents a paradigm in evolutionary algorithms, focusing on simultaneously exploring the feature space and optimizing objective functions measured by user-defined metrics [61]. These metrics, known as features or behavior descriptors, are numerical vectors that characterize solution properties and define a corresponding feature space. For example, in robotics, the objective might be speed, while features could include weight and height, forming a three-dimensional space. The goal of QD is to identify the best-performing solution for each region within this feature space. MAP-Elites [49], a widely used QD algorithm, discretizes the feature space into a grid and aims to fill each cell with the highest-quality solution for its corresponding features. Starting from a randomly generated population, solutions are evaluated and placed into the grid. Iteratively, selected solutions undergo mutation to produce new candidates, which are added to the grid if they occupy an empty cell or outperform the current occupant. This process promotes both diversity and local refinement within each cell. Although MAP-Elites has been applied successfully in fields such as robotics, gaming, and software testing, QD optimization remains largely unexplored in job shop scheduling. This paper pioneers its application to DFJSP-T, leveraging solution diversity and adaptability to address the complexity of distributed production environments.",
+        "bbox": [
+            63,
+            909,
+            494,
+            955
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "table",
+        "img_path": "images/438f419e93900e21570e4f7ff8294a09d2ba611d3c87c030c3333993f22a89ff.jpg",
+        "table_caption": [
+            "TABLE I SYMBOL DEFINITIONS OF DFJSP-T"
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Symbols</td><td>Descriptions</td></tr><tr><td> $k$ </td><td>Index of machine</td></tr><tr><td> $j$ </td><td>Index of operation</td></tr><tr><td> $i$ </td><td>Index of job</td></tr><tr><td> $f$ </td><td>Index of factory</td></tr><tr><td> $l$ </td><td>Total number of factories</td></tr><tr><td> $n$ </td><td>Total number of jobs</td></tr><tr><td> $n_{\\text{max}}$ </td><td>Total number of operations across all jobs</td></tr><tr><td> $m$ </td><td>Total number of machines in each factory</td></tr><tr><td> $w_i$ </td><td>Number of operations associated with job  $i$ </td></tr><tr><td> $F$ </td><td>Set of factories, where  $F = \\{1,\\dots,f,\\dots,l\\}$ </td></tr><tr><td> $I$ </td><td>Set of jobs, where  $I = \\{1,\\dots,i,\\dots,n\\}$ </td></tr><tr><td> $M$ </td><td>Set of machines, where  $M = \\{1,\\dots,k,\\dots,m\\}$ </td></tr><tr><td> $J_i$ </td><td>Set of operations for job  $i$ , where  $J_i = \\{1,\\dots,j,\\dots,w_i\\}$ </td></tr><tr><td> $M_f$ </td><td>Set of machines in factory  $f$ ,  $M_f = \\{1,\\dots,k,\\dots,m_f\\}$ </td></tr><tr><td> $O_{i,j}$ </td><td>Operation  $j$  in job  $i$ </td></tr><tr><td> $T_{i,j,f,k}$ </td><td>Processing time for  $O_{i,j}$  on machine  $k$  in  $f$ </td></tr><tr><td> $M_{i,j,f}$ </td><td>Set of machines available for operation  $O_{i,j}$  in  $f$ </td></tr><tr><td> $TR_{i,j,k,k'}$ </td><td>Transportation time between machines  $k$  and  $k'$  for  $O_{i,j}$ </td></tr><tr><td> $C_{i,j}$ </td><td>Completion time of  $O_{i,j}$ </td></tr><tr><td> $C_{max}$ </td><td>Makespan</td></tr><tr><td> $S_{f,i,j}$ </td><td>Start time for operation  $O_{i,j}$  in factory  $f$ </td></tr></table>",
+        "bbox": [
+            543,
+            112,
+            900,
+            337
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            506,
+            362,
+            939,
+            681
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "III. QD OPTIMIZATION MODEL FOR DFJSP-T",
+        "text_level": 2,
+        "bbox": [
+            565,
+            696,
+            880,
+            713
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "This section begins with a description of the DFJSP-T. When applying QD to DFJSP-T, besides the objective function, the definition of the feature space is crucial as it directly affects the quality and diversity of the solutions. However, the selection of features should not be arbitrary and needs to be supported by a specific properties or theories. To justify the use of job transportation and machine idle times as features, we verify three formal properties of the DFJSP-T. On this basis, it lays the theoretical foundation for the subsequent design of algorithmic frameworks.",
+        "bbox": [
+            506,
+            718,
+            939,
+            871
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "A. Problem Description",
+        "text_level": 2,
+        "bbox": [
+            506,
+            888,
+            680,
+            904
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "To better describe the problem, Table I lists the following symbols. The optimization objective is to minimize the makespan $C _ { m a x }$ (completion time of the last operation). In DFJSP-T, there are n jobs to be processed in l factories with different processing capabilities. All jobs must be assigned to one of the l factories. For each operation $j$ of job i (denoted $O _ { i , j } ) _ { \\mathrm { ~ } }$ , a machine k must be selected form a set of available machines within the assigned factory. Each factory is an a FJSP containing m machines. The standard processing time $T _ { i , j , f , k }$ of $O _ { i , j }$ in factory f on each machine k for different operations is known in advance. Setup times are either negligible or assumed to be included in the processing time. Preemption or interruption of an operation in progress is not allowed. After an operation is completed on a machine, it may need to be transported to another machine within the same factory for further processing. The transportation time $T R _ { i , j , k , k ^ { \\prime } }$ is determined by the distance between machines.",
+        "bbox": [
+            506,
+            909,
+            937,
+            957
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "2262",
+        "bbox": [
+            67,
+            39,
+            95,
+            50
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "IEEE TRANSACTIONS ON EMERGING TOPICS IN COMPUTATIONAL INTELLIGENCE, VOL. 10, NO. 3, JUNE 2026",
+        "bbox": [
+            338,
+            37,
+            939,
+            51
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:33:46 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            960,
+            941,
+            974
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            57,
+            79,
+            489,
+            277
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "B. Preliminariesfor QD Optimization",
+        "text_level": 2,
+        "bbox": [
+            58,
+            291,
+            326,
+            306
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "QD optimization focuses on identifying a set of diverse and high-quality solutions within a given feature space. Let D and $\\boldsymbol { B }$ represent the decision and feature space, respectively. In this context, the goal is to minimize the objective function $f ( x )$ The general mathematical formulation for QD optimization is as follows:",
+        "bbox": [
+            57,
+            311,
+            488,
+            404
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\begin{array}{l} \\forall   \\boldsymbol {b} \\in \\mathcal {B},   x ^ {*} = \\underset {x \\in \\mathcal {D}} {\\arg \\min} f (x), \\\\ s. t.   \\boldsymbol {b} _ {x} = \\boldsymbol {b} \\end{array}\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            170,
+            410,
+            375,
+            458
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "where $b _ { x } = ( b _ { 1 } ( x ) , b _ { 2 } ( x ) , \\ldots , b _ { r } ( x ) )$ denotes the feature vector of solution $x \\in D , b _ { q } ( x ) , q = 1 , . . . , r$ represents the q-th feature; $r \\geq 1$ indicates the dimensionality of the feature space. As outlined in [47], QD seeks to identify the optimal solution $x ^ { * }$ for each cell within B. For DJFSP-T, D represents the set of operation sequences, machine selections, and factory allocation orderings. In the following subsections, this paper illustrate how to instantiate the main components of the QD optimization model and apply it to DFJSP-T. This includes specifying the $f ( x )$ and defining the feature space B.",
+        "bbox": [
+            57,
+            465,
+            489,
+            617
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "f(x) quantifies how the solution x addresses the DFJSP-T. In this study, f(x) is defined as the makespan, which is expressed as follows:",
+        "bbox": [
+            58,
+            617,
+            488,
+            662
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\nf (x) = \\max _ {i \\in \\{1, 2, \\dots , n \\}} C _ {i, w _ {i}}\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            188,
+            670,
+            356,
+            694
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "where $C _ { i , w _ { i } }$ represents the completion time ofthe final operation $w _ { i }$ in job $\\ i . \\operatorname* { m a x } _ { i \\in \\{ 1 , 2 , . . . , n \\} } C _ { i , w _ { i } }$ indicates finding the makespan for the last operation of all jobs.",
+        "bbox": [
+            57,
+            699,
+            486,
+            753
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "C. The Defination of Feature Space",
+        "text_level": 2,
+        "bbox": [
+            58,
+            767,
+            306,
+            782
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "The feature space comprises one or more user-defined behaviors that characterize how a solution addresses the problem. In this paper, we define the number of machine idle times (num\\_idle) and job transfers (num\\_trans) as the two features constituting the feature space B. These features are selected because the completion time of an operation isjointly influenced by processing time, transportation time, and machine idle time. Since processing time is fixed, variations in completion time primarily result from differences in transportation and idle times caused by scheduling decisions.",
+        "bbox": [
+            57,
+            789,
+            489,
+            941
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Focusing on only one feature, such as machine idle time, may not accurately reflect its influence on completion time. This will be formally validated in the following properties. In general, more job transfers and idle periods tend to increase completion time and prolong the makespan [17]. However, in extreme cases where all operations are assigned to a single machine to minimize transfers, other machines may remain idle, leading to an excessively long makespan. Therefore, considering both machine idle time andjob transportation is essential for capturing their combined effect on completion time. We now present and prove the key propositions that establish this relationship.",
+        "bbox": [
+            500,
+            79,
+            932,
+            246
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Property 1. Necessary conditions for job completion: The completion time $C _ { i , j }$ depends on both machine idle time and job transportation time. These features are tightly coupled and jointly determine when processing can begin. Neglecting either renders the computation $o f C _ { i , j }$ incomplete or incorrect.",
+        "bbox": [
+            500,
+            246,
+            932,
+            321
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Proof: We prove by contradiction that machine idle time and job transportation time are jointly necessary for correctly computing the $C _ { i , j }$ :",
+        "bbox": [
+            500,
+            321,
+            930,
+            367
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "\\- Ignoring machine availability: Assume the computation of $O _ { i , j }$ excludes machine available time $M _ { t }$ . Let $C _ { i , j - 1 }$ be the completion time of the preceding operation and $T R _ { i , j , k , k ^ { \\prime } }$ be the transportation time to machine $k ^ { \\prime } .$ . If $M _ { t } > C _ { i , j - 1 } + T R _ { i , j , k , k ^ { \\prime } }$ , where $M _ { t }$ is the earliest available time of machine k, then the actual start time $S _ { i , j }$ must satisfy $S _ { i , j } \\geq M _ { t }$ . Omitting $M _ { t }$ would imply $S _ { i , j } =$ $C _ { i , j - 1 } + T R _ { i , j , k , k ^ { \\prime } }$ , which violates machine availability. Thus, idle time is essential for determining $C _ { i , j }$",
+        "bbox": [
+            516,
+            366,
+            930,
+            503
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "\\- Ignoring job transportation: Assume transportation time $T R _ { i , j , k , k ^ { \\prime } }$ is omitted. This implies that the job is considered instantly available at machine $k ^ { \\prime }$ upon completion of $O _ { i , j - 1 } , \\mathrm { i . e . , } S _ { i , j } = C _ { i , j - 1 }$ . However, if $T R _ { i , j , k , k ^ { \\prime } } > 0$ this leads to an infeasible start time, since the job has not yet arrived. In reality, $O _ { i , j }$ cannot start before $C _ { i , j - 1 } +$ $T R _ { i , j , k , k ^ { \\prime } }$ . Therefore, ignoring transportation time violates the constraint $S _ { i , j } \\geq C _ { i , j - 1 } + T R _ { i , j , k , k ^ { \\prime } }$ , making it essential for correctly determining $C _ { i , j }$",
+        "bbox": [
+            516,
+            503,
+            930,
+            638
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Property 2. Sufficient conditions for job completion: Given the machine idle time and job transportation time, along with the known processing time, the completion time $C _ { i , j }$ of operation $O _ { i , j }$ is uniquely determined. That is, once the earliest available time of the machine and the arrival time of job are known, $C _ { i , j }$ can be computed without ambiguity.",
+        "bbox": [
+            500,
+            638,
+            932,
+            744
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Proof: Under the assumptions of non-preemptive scheduling, no setup time, and active scheduling (i.e., operations are not delayed beyond their earliest feasible start), the start time of $O _ { i , j }$ is governed only by the two constraints discussed (machine availability and job transportation). Once these constraints are satisfied, $O _ { i , j }$ can begin immediately.",
+        "bbox": [
+            500,
+            744,
+            932,
+            835
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Under our assumptions, operation $O _ { i , j }$ can begin only when both conditions are satisfied, no additional condition conflicts exist. Thus, the start time is:",
+        "bbox": [
+            500,
+            834,
+            930,
+            878
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\begin{array}{l} S _ {i, j} = \\max \\{M _ {t}, C _ {i, j - 1} + T R _ {i, j, k, k ^ {\\prime}} \\} \\\\ \\text { Given   the   known } T _ {i, j, k}, \\text { the   completion   time   is: } \\end{array}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            516,
+            878,
+            843,
+            909
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\begin{array}{c} C _ {i, j} = S _ {i, j} + T _ {i, j, k} = \\max \\{M _ {t}, C _ {i, j - 1} + T R _ {i, j, k, k ^ {\\prime}} \\} + \\\\ T _ {i, j, k ^ {\\prime}} \\end{array}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            501,
+            909,
+            904,
+            941
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "QIN et al.: SADE-QD FOR DISTRIBUTED FLEXIBLE JOB-SHOP SCHEDULING WITH TRANSPORTATION",
+        "bbox": [
+            58,
+            37,
+            607,
+            51
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "2263",
+        "bbox": [
+            902,
+            39,
+            930,
+            50
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:33:46 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "All components on the right-hand side are either known inputs or derived from prior operations. No other factors affect $S _ { i , j }$ under the given assumptions. Hence, machine idle time (through $M _ { t } )$ and job transportation time $T R _ { i , j , k , k ^ { \\prime } }$ are sufficient to uniquely determine $C _ { i , j }$",
+        "bbox": [
+            63,
+            79,
+            494,
+            155
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Property 3. Quantitative relationship for job completion: Given the predecessor completion time $C _ { i , j - 1 } ,$ , machine availability time $M _ { t } ,$ , and transportation time $T R _ { i , j , k , k ^ { \\prime } }$ , the completion time of $\\ ' O _ { i , j }$ can be computed as $C _ { i , j } = \\operatorname* { m a x } \\{ M _ { t } , C _ { i , j - 1 } +$ $T R _ { i , j , k , k ^ { \\prime } } \\} + \\bar { T } _ { i , j , k ^ { \\prime } }$",
+        "bbox": [
+            63,
+            155,
+            494,
+            231
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "This formula quantitatively shows the contribution of any machine idle time and transportation time to $C _ { i , j }$ . Let the machine idle time before $O _ { i , j }$ be defined as $I _ { O } = \\operatorname* { m a x } \\{ 0 , ( C _ { i , j - 1 } +$ $T R _ { i , j , k , k ^ { \\prime } } ) - M _ { t } \\}$ . The duration which machine k remains idle while waiting for thejob to arrive. Ifthejob arrives after the available machine, $I _ { O } > 0 ;$ otherwise, $I _ { O } = 0$ . Similarly, define the job waiting time as: $W _ { O } = \\operatorname* { m a x } \\{ 0 , M _ { t } - ( C _ { i , j - 1 } + T R _ { i , j , k , k ^ { \\prime } } )$ }, which indicates the time the job waits at machine $k ^ { \\prime }$ for it to become available. If the machine is already available upon job arrival, then $W _ { O } = 0$ . By definition, at most one of $I _ { O }$ or $W _ { O }$ is positive, and they never overlap. Using these quantities, the start and completion time can be reformulated as:",
+        "bbox": [
+            63,
+            231,
+            494,
+            410
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\begin{array}{c} S _ {i, j} = M _ {t} + I _ {O} = (C _ {i, j - 1} + T R _ {i, j, k, k ^ {\\prime}}) + W _ {O}, \\\\ C _ {i, j} = S _ {i, j} + T _ {i, j, k ^ {\\prime}} = M _ {t} + I _ {O} + T _ {i, j, k ^ {\\prime}} = (C _ {i, j - 1} + \\\\ T R _ {i, j, k, k ^ {\\prime}}) + W _ {O} + T _ {i, j, k ^ {\\prime}}. \\end{array}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            67,
+            411,
+            459,
+            458
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "This equation clearly reveals the dependency structure. If the job arrives after the machine becomes available $( I _ { O } > 0 .$ $W _ { O } = 0 )$ , then $C _ { i , j } = ( C _ { i , j - 1 } + T R _ { i , j , k , k ^ { \\prime } } ) + T _ { i , j , k ^ { \\prime } }$ , and the machine experienced an idle period $I _ { O }$ (which does not delay $C _ { i , j }$ beyond the arrival time). Conversely, if the machine becomes available after the job arrives $( W _ { O } > 0 , I _ { O } = 0 )$ , then $C _ { i , j } = M _ { t } + T _ { i , j , k ^ { \\prime } }$ , and the completion is pushed out by the waiting time $W _ { O }$ (thejob waits until time $M _ { t } )$ . In both cases, any increase in $T R _ { i , j , k , k ^ { \\prime } }$ (longer transportation) directly increases the waiting/idle interval and thus delays $C _ { i , j }$ , any delay in machine availability (larger $M _ { t }$ relative to $C _ { i , j - 1 } + T _ { i , j , k ^ { \\prime } } )$ also directly delays $C _ { i , j }$ . Quantitatively, this relationship is expressed as:",
+        "bbox": [
+            63,
+            457,
+            494,
+            652
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "\\- Monotonicity: $C _ { i , j }$ is non-decreasing in both $M _ { t }$ and $T R _ { i , j , k , k ^ { \\prime } }$ . An increase in transportation time $T R _ { i , j , k , k ^ { \\prime } }$ either directly increases $C _ { i , j }$ (if the machine was waiting) or simply increases $I _ { O }$ (if the machine was free early, $C _ { i , j }$ doesn’t change until $T R _ { i , j , k , k ^ { \\prime } }$ exceeds $M _ { t } - C _ { i , j - 1 } )$ Similarly, a delay in machine free time $M _ { t }$ either directly increases $C _ { i , j }$ (if the job is waiting) or increases $W _ { O }$ (if the job arrives early).",
+        "bbox": [
+            80,
+            652,
+            494,
+            773
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "\\- Additive impact: The difference between $C _ { i , j }$ and the sum $( C _ { i , j - 1 } + T _ { i , j , k ^ { \\prime } } )$ (which would be the completion time if there are no transportation or machine idle needed) is exactly the effective waiting time max $I _ { O } , W _ { O }$ caused by these factors. In fact: $C _ { i , j } - ( C _ { i , j - 1 } +$ $T _ { i , j , k ^ { \\prime } } ) = \\operatorname* { m a x } \\{ M _ { t } - C _ { i , j - 1 } , T R _ { i , j , k , k ^ { \\prime } } \\}$ , which is either the machine-induced delay or the transportation delay, whichever is larger. This underscores that $C _ { i , j }$ is extended beyond $C _ { i , j - 1 } + T _ { i , j , k ^ { \\prime } }$ precisely by the presence of a transport time and/or a machine busy delay.",
+        "bbox": [
+            80,
+            773,
+            494,
+            926
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Proof: The core relationship $C _ { i , j } = \\operatorname* { m a x } \\{ M _ { t } , C _ { i , j - 1 } +$ $T _ { i , j , k ^ { \\prime } } \\} + T _ { i , j , k ^ { \\prime } }$ is derived earlier from the fundamental scheduling constraints. Here we provide a clear derivation and interpretation:",
+        "bbox": [
+            506,
+            79,
+            937,
+            138
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Derivation of the Formula: By definition, $S _ { i , j } =$ max $\\left\\{ M _ { t } , C _ { i , j - 1 } + T R _ { i , j , k , k ^ { \\prime } } \\right\\}$ . This is simply a restatement of the fact that $O _ { i , j }$ cannot start until both the machine is ready at $M _ { t }$ and the job has arrived at $C _ { i , j - 1 } + T R _ { i , j , k , k ^ { \\prime } }$ Thus, whichever of these two time is later will decide $S _ { i , j }$ Once started, $O _ { i , j }$ completes after its processing time $T _ { i , j , k ^ { \\prime } }$ giving $C _ { i , j } = \\bar { S _ { i , j } } + T _ { i , j , k ^ { \\prime } }$ immediately. This establishes $C _ { i , j } = \\operatorname* { m a x } \\{ M _ { t } , \\bar { C } _ { i , j - 1 } + T R _ { i , j , k , k ^ { \\prime } } \\} + T _ { i , j , k ^ { \\prime } }$ as claimed.",
+        "bbox": [
+            506,
+            140,
+            937,
+            263
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "We introduce $I _ { O }$ and $W _ { O }$ to distinguish two scenarios:",
+        "bbox": [
+            523,
+            261,
+            900,
+            276
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "\\- If $M _ { t } < C _ { i , j - 1 } + T R _ { i , j , k , k ^ { \\prime } }$ , the machine is idle first and waits for thejob. In this case $I _ { O } = ( C _ { i , j - 1 } + T R _ { i , j , k , k ^ { \\prime } } ) -$ ${ { M } _ { t } } > 0$ and $W _ { O } = 0$ . The start time $S _ { i , j } = C _ { i , j - 1 } +$ $T R _ { i , j , k , k ^ { \\prime } }$ (job arrival), and the machine idle time $I _ { O }$ does not add to the timeline beyond $S _ { i , j } ~ ( \\mathrm { i t } ^ { \\prime } \\mathrm { s }$ a gap before $O _ { i , j }$ starts). The completion time simplifies to $C _ { i , j } = ( C _ { i , j - 1 } .$ + $T R _ { i , j , k , k ^ { \\prime } } + T _ { i , j , k ^ { \\prime } }$ . Here $T R _ { i , j , k , k ^ { \\prime } }$ directly delays $C _ { i , j }$ while the machine idle do not further delay completion (it only indicates the unused time of the machine).",
+        "bbox": [
+            523,
+            275,
+            937,
+            411
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "\\- If $M _ { t } \\geq C _ { i , j - 1 } + T R _ { i , j , k , k ^ { \\prime } }$ , the job arrives first and waits for the machine. In this case $W _ { O } = M _ { t } - \\left( C _ { i , j - 1 } + \\right.$ $T R _ { i , j , k , k ^ { \\prime } } ) \\geq 0$ and $I _ { O } = 0$ . The start time $S _ { i , j } = M _ { t }$ (machine ready time). The waiting time $W _ { O }$ represents the delay caused by the machine not being available when the job is ready. It directly leads to the delay of $C _ { i , j }$ . The completion time becomes $C _ { i , j } = M _ { t } + T _ { i , j , k ^ { \\prime } }$ , which can be rewritten as $C _ { i , j } = ( C _ { i , j - 1 } + T R _ { i , j , k , k ^ { \\prime } } ) + W _ { O } + T _ { i , j , k ^ { \\prime } }$ Here the transportation time $T _ { i , j , k ^ { \\prime } }$ does not delay $C _ { i , j }$ beyond $M _ { t }$ (since the job is ready earlier), but the busy processing of machine delays $C _ { i , j }$ by $W _ { O }$",
+        "bbox": [
+            523,
+            412,
+            937,
+            578
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Combined impact: The formula $C _ { i , j } = M _ { t } + I _ { O } + T _ { i , j , k ^ { \\prime } } =$ $( C _ { i , j - 1 } + T R _ { i , j , k , k ^ { \\prime } } ) + W _ { O } + T _ { i , j , k ^ { \\prime } }$ unifies both scenarios. It explicitly includes both $T R _ { i , j , k , k ^ { \\prime } }$ and either an idle interval $I _ { O }$ or a waiting interval $W _ { O }$ (one of which will be zero). This gives a quantitative measure of how much later $C _ { i , j }$ occurs compared to the ideal case of starting immediately after $O _ { i , j - 1 }$ on an idle machine. As noted, the maximum of $M _ { t }$ and $C _ { i , j - 1 } + T R _ { i , j , k , k ^ { \\prime } }$ determines the delay. For example, if the transportation time $T R _ { i , j , k , k ^ { \\prime } }$ increases while all other factors remain fixed, the completion time $C _ { i , j }$ may increase—especially when the machine is available and idle, as the job takes longer to arrive. However, if the machine is the bottleneck (i.e., still busy), $C _ { i , j }$ may remain unaffected until the increased transportation time exceeds the originaljob waiting time $W _ { O }$ . Similarly, if the machine becomes available later (i.e., $M _ { t }$ increases), this leads to a longer $W _ { O }$ if the job has already arrived. But if the transportation time is the bottleneck, $C _ { i , j }$ remains unchanged until $M _ { t }$ surpasses the arrival time of the job, which is $C _ { i , j - 1 } + T R _ { i , j , k , k ^ { \\prime } }$ . In all cases, $C _ { i , j }$ is exactly $T _ { i , j , k ^ { \\prime } }$ plus the larger of the two delay factors $M _ { t } - C _ { i , j - 1 }$ and $T R _ { i , j , k , k ^ { \\prime } }$",
+        "bbox": [
+            506,
+            578,
+            937,
+            880
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Thus, Property 3 provides the explicit formula relating $C _ { i , j }$ to machine idle and transportation time, and the reasoning above confirms that this formula correctly captures the influence (or lack thereof) of each factor in all cases. This quantitative relationship completes the understanding of how $C _ { i , j }$ is determined by these two critical features.",
+        "bbox": [
+            506,
+            878,
+            937,
+            926
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "2264",
+        "bbox": [
+            67,
+            39,
+            95,
+            50
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "IEEE TRANSACTIONS ON EMERGING TOPICS IN COMPUTATIONAL INTELLIGENCE, VOL. 10, NO. 3, JUNE 2026",
+        "bbox": [
+            338,
+            37,
+            937,
+            51
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:33:46 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            960,
+            941,
+            974
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "image",
+        "img_path": "images/13b3ae62d9e8074c1cafebb8bcf9798ec7c0cd1f14b54da8a92b7bad360ee7d0.jpg",
+        "image_caption": [
+            "Fig. 1. Gantt chart of the DFJSP-T."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            111,
+            80,
+            434,
+            273
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            57,
+            335,
+            488,
+            382
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Based on the above properties, we choose with machine idle and job transportation as the key features for constructing the QD optimization problem. For the convenience of discretized representation, we use their times as a measure of feature variance. An unbounded feature space can lead to significant computational overhead, potentially rendering QD optimization intractable. To manage this, we specify lower and upper bounds lb, ub for the feature space B. Specifically, the features num\\_idle and num\\_trans are constrained within the range [lb, ub], where $l b = 0$ and $u b = n _ { m a x } .$ . As a result, the feature space B is discretized into $( u b - l b ) ^ { 2 }$ grid cells, and the algorithm maintains the best-performing solution in each cell. The values of lb and ub are set manually, depending on the decision maker’s preference or the problem scale. For instance, in a problem with 50 operations, the maximum number of machine idle or transportation times cannot exceed 50. Therefore, ub = 50 is a reasonable upper bound, while the lower bound remains 0, as neither machine idle time nor job transportation time can be negative.",
+        "bbox": [
+            57,
+            382,
+            489,
+            670
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "D. Illustrative Example for QD Optimization",
+        "text_level": 2,
+        "bbox": [
+            58,
+            691,
+            372,
+            708
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "The following example illustrates the problem, helping to clarify the decision space, objective function, and feature space.",
+        "bbox": [
+            57,
+            714,
+            486,
+            744
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Consider a scenario with l = 2 factories, where each factory is equipped with a FJSP structure comprising 3 machines. There are n = 8 jobs, including operations with a total of $n _ { m a x } = 2 5$ that need to be processed on machines in these two factories. Fig. 1 illustrates the Gantt chart for the DFJSP-T. Operations for the same job are depicted in the same color, while light brown represents transportation time of jobs. The feature space consists of two features: num\\_idle and num\\_trans. From the Gantt chart, num\\_idle is 8, num\\_trans is 14. Therefore, the corresponding storage coordinate of this scheduling scheme in the feature space is (8,14). Additionally, the maximum completion time $C _ { \\mathrm { m a x } }$ (determined by the critical factory 2) for this schedule is 20.",
+        "bbox": [
+            57,
+            744,
+            489,
+            940
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "code",
+        "sub_type": "code",
+        "code_caption": [],
+        "code_body": "```txt\nAlgorithm 1: The framework of SADE-QD.\n\nInput: batch, lb, ub\n\nOutput: grid A(includes P and X)\n\n1: A ← Generate_Grid(lb, ub)\n\n2: for i ← 1 to batch do\n\n3: x ← random_solution()\n\n4: Add_to_grid(P, X, x)\n\n5: end for\n\n6: while The stopping criterion is not met do\n\n7: for i ← 1 to batch do\n\n8: x' ← SADE - CM(A)\n\n// Apply self-adaptive DE-enhanced collaborative mutation strategy to generate diverse and high-quality solutions.\n\n9: Add_to_grid(P, X, x')\n\n// Evaluate and update the grid archive A.\n\n10: end for\n\n11: end while\n```",
+        "bbox": [
+            501,
+            80,
+            929,
+            358
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "IV. SADE-QD FOR THE DFJSP-T",
+        "text_level": 2,
+        "bbox": [
+            604,
+            383,
+            826,
+            398
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Based on the properties derived in the preceding section, this section will construct a feature space using num\\_idle and num\\_trans, and design the SADE-QD algorithm framework accordingly. The proposed SADE-QD employs a grid archive to maintain diverse solutions within the bounded feature space B, as defined in Section III-C. B is discretized into multiple cells, each corresponding to a behavioral niche. A high-level overview ofSADE-QD is provided in Algorithm 1, with detailed components explained in the following sections.",
+        "bbox": [
+            500,
+            404,
+            932,
+            542
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "A. Initialization",
+        "text_level": 2,
+        "bbox": [
+            500,
+            556,
+            619,
+            571
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "At the beginning of the procedure, the batch size and feature space bounds [lb, ub] are provided as inputs. In Line 1 of Algorithm 1, an empty archive A (includes performance set P and coordinate set X) is initialized as a 2D matrix of size $( u b - l b ) ^ { 2 }$ , consistent with the discretized feature space defined in Section III-C. All entries are initialized as null, which indicates that no solutions have been stored in the grid. In Lines 3-4, a batch of individuals is randomly generated and added to the grid. Each solution x consists of three concatenated vectors: 1) Operation Sequence (OS, π), 2) Machine Selection (MS, μ), and 3) Factory Assignment (FA, τ ). The vectors π and μ share the same length, which equals the total number of operations $n _ { \\mathrm { m a x } } .$ The vector τ has length n, corresponding to the number of jobs. As illustrated in Fig. 2, the OS vector determines the order in which operations enter the schedule, the MS vector specifies the machine chosen for each operation, and the FA vector assigns each job to a single factory.",
+        "bbox": [
+            500,
+            578,
+            932,
+            835
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Feasibility of solutions is ensured by the encoding and decod ing rules. The assigned factory of each job is determined by FA, so all operations belonging to the same job are forced to stay in the same factory. The machine assignment is controlled by MS, and the decoding step only allows machines that can process the corresponding operation. Even when a search operator modifies the machine index, the index is always restricted to the set of feasible machines. Therefore, the encoding and decoding scheme prevents infeasible schedules. Furthermore, the specific decoding process can be found in the supplementary materials.",
+        "bbox": [
+            500,
+            834,
+            932,
+            941
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "QIN et al.: SADE-QD FOR DISTRIBUTED FLEXIBLE JOB-SHOP SCHEDULING WITH TRANSPORTATION",
+        "bbox": [
+            58,
+            37,
+            609,
+            51
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "2265",
+        "bbox": [
+            902,
+            39,
+            930,
+            50
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:33:46 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "image",
+        "img_path": "images/b380e27703baeee866e3ab138211df3133581e0bc747f34b4c0e26b7736adc1a.jpg",
+        "image_caption": [
+            "Fig. 2. An example of encoding scheme."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            149,
+            79,
+            412,
+            186
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "image",
+        "img_path": "images/6a1acbe182c9bc7129f6551dbcbf43fade4fcee059f1ab8931667e6b381e184a.jpg",
+        "image_caption": [
+            "Fig. 3. Illustration ofthree ways ofupdate in grid archive. The figure illustrates three scenarios for updating solutions in the feature space after applying the HS operators. The solution is updated in two scenarios: 1) If the corresponding cel is empty, the newly generated solution is archived directly to the cell. 2) If the targeted cell is already occupied, the new solution will only replace the existing one if it offers a better performance; otherwise, the new solution will be ignored."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            74,
+            239,
+            486,
+            404
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            63,
+            521,
+            494,
+            569
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "B. Self-Adaptive Differential Evolution Collaboration and Mutation Strategy",
+        "text_level": 2,
+        "bbox": [
+            63,
+            585,
+            466,
+            617
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "As shown in Lines 8-9 of Algorithm 1, SADE-QD performs the Self-adaptive Differential Evolution Collaboration and Mutation Strategy (SADE-CM) to obtain solutions with high quality and diverse behavioral features. In the pre-evolutionary stage, SADE-CM focus on expanding the domain of the feature space using problem-specific knowledge-assisted heuristic search strategy (KAHS), whereas in the mid- to lateevolutionary stage, DE is utilized to enhance co-mutation of KAHS.",
+        "bbox": [
+            63,
+            623,
+            496,
+            758
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "In the early stage of evolution, the selection of solutions continues to be conducted from the grid archive with diverse behavioral features. This aligns with the original intention of pre-QD to increase the diversity of solutions as much as possible [46]. While expanding the feature space by continuously populating the grid with solutions exhibiting novel behavioral features, we propose the KAHS to enhance the quality of newly generated solutions. The pseudocode of KAHS is shown in Algorithm 2.",
+        "bbox": [
+            63,
+            758,
+            496,
+            893
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "The essence of using KAHS is to reduce the length of the Critical Path, and thereby reducing the makespan of job sequence. It fully leverages the domain knowledge of DFJSP-T to evolve solutions. As shown in Algorithm 2, the process of KAHS involves three knowledge-assisted heuristics (for τ, π, and $\\mu ,$ respectively) based on the Critical Path. The Critical Path refers to the sequence of operations that has the longest duration. The factory with the longest Critical Path is known as the Critical Factory [39], [62]. It is crucial that there is no idle time between adjacent critical operations. The duration of the Critical Path directly impacts the overall completion time of the final operation. Before executing the three knowledge-assisted heuristics, it is necessary to identify the Critical Factory and its corresponding Critical Path (Lines 2–4). Then, a critical operation $O _ { i , j }$ is selected from the Critical Path, and one of its attributes—processing machine, operation sequence, or factory assignment index—is randomly modified (only one is changed per iteration, Lines 5–6). Specifically, if KAHS is applied to π, a operation $O _ { i , j }$ is chosen from Critical Path, and the positions of $O _ { i , j }$ and random operation $O _ { i ^ { \\prime } , j ^ { \\prime } }$ are swapped. If KAHS targets $\\mu ,$ the machine assigned to $O _ { i , j }$ is randomly selected from the available machine set. For the $\\tau _ { \\ast }$ , the job i associated with $O _ { i , j }$ is swapped with a randomly chosen job $i ^ { \\prime }$ from a non-critical factory. Finally, the newly generated solution is then used to update the current grid archive.",
+        "bbox": [
+            63,
+            893,
+            496,
+            941
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "code",
+        "sub_type": "code",
+        "code_caption": [],
+        "code_body": "```txt\nAlgorithm 2: KAHS (x, P).\n\nInput: x, P\nOutput: x'\n\n1: x is composed of τ, π, and μ\n2: Allocate jobs to each factory f according to τ\n3: Find the critical factory f_critical\n4: ope_path ← Calculate the Critical Path of f_critical\n5: Randomly select one O_{i,j} from ope_path\n6: Change the item at the position corresponding to O_{i,j} with a randomly selected index in one of the τ, π, and μ\n7: A new solution x' is generated\nreturn x'\n\nAlgorithm 3: Add _ to_grid(P, X, x, bool).\n\nInput: P, X, x, bool\nOutput: grid A(includes P and X)\n1: Calculate the objective value f(x) and the corresponding cell coordinate b_x of solution x\n2: if P(b_x) = ∅ or P(b_x) > f(x) then\n3: P(b_x) ← f(x)\n4: X(b_x) ← x\n5: end if\n```",
+        "bbox": [
+            508,
+            80,
+            937,
+            436
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            506,
+            472,
+            939,
+            804
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "The process of updating the grid archive is straightforward, with details provided in Algorithm 3. Similar to traditional QD, The purpose of this update is to populate all cells in the grid $\\mathcal { A }$ with top-performing solutions. In Line 1, the value of $f ( x )$ is calculated along with the corresponding cell coordinate $b _ { x }$ of solution x. According to Lines 2-5 in Algorithm 3, if the position in grid is empty, x is directly stored in the grid. Otherwise, x and the existing solution in the grid compare their objective values. If $f ( x )$ is better than the existing solution, x replaces it; otherwise, x is discarded. Fig. 3 visually illustrates the process of updating solutions in the feature space.",
+        "bbox": [
+            506,
+            804,
+            939,
+            941
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "2266",
+        "bbox": [
+            67,
+            39,
+            95,
+            50
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "IEEE TRANSACTIONS ON EMERGING TOPICS IN COMPUTATIONAL INTELLIGENCE, VOL. 10, NO. 3, JUNE 2026",
+        "bbox": [
+            338,
+            37,
+            939,
+            51
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:33:46 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            57,
+            79,
+            486,
+            109
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "An illustration of update is given in Fig. 3, showing how the proposed algorithm takes the boundary and termination conditions of the grid as inputs and outputs a diverse set of solutions. The scheduling decision maker can then select the most appropriate solution from this set. We apply KAHS to τ, $\\pi ,$ , and $\\mu$ as examples and illustrate three different update ways in the grid archive. After generations of evolution and updating, the grid archive is gradually populated, which indicates the acquisition of high-quality solutions with diverse behavioral features.",
+        "bbox": [
+            57,
+            109,
+            489,
+            260
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "After iterating for thousands or even tens of thousands of generations, most cells in the grid archive become filled. At this stage, a key issue emerges: solutions located at the edges of the grid are less likely to be selected as parents, since their proportion in the population decreases. This leads to stagnation in grid coverage expansion, limiting the discovery of behaviorally diverse solutions. To overcome this, the paper introduces further improvements. Inspired by collaborative DE strategies [48], we propose a self-adaptive DE approach that leverages domain knowledge to help the algorithm select promising solutions located at the edges of the grid archive, guiding the KAHS process for further solution evolution. This enhances the exploration of the algorithm while preserving its exploitation. Experiments in [17], [63] have shown that solutions with fewerjob transportation and machine idle times usually possess greater potential for improvement and higher quality. Based on this insight, we design a knowledge-based self-adaptive DE collaboration mechanism, which is responsible for selecting suitable collaborators before updating $\\tau , \\ \\pi$ , and $\\mu$ to enhance both solution quality and diversity.",
+        "bbox": [
+            57,
+            261,
+            489,
+            563
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "To make the collaboration between KAHS and DE truly adaptive, SADE-QD employs a self-adjusting mechanism based on the evolution status of the grid archive. In early generation, the algorithm monitors two indicators: (1) the increase in grid coverage, and (2) the improvement of objective values within the archive. When both indicators show clear progress, KAHS is preferred because the search still benefits from intensive exploitation around the Critical Path. When grid expansion slows down and no quality improvement are observed for a predefined number of iterations, the algorithm automatically leverages DE-guided operators. In this way, KAHS dominates the early stage, while DE collaboration gradually becomes the main driver in the mid and late stages.",
+        "bbox": [
+            57,
+            561,
+            489,
+            758
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "The knowledge-based self-adaptive DE collaboration mechanism is shown below:",
+        "bbox": [
+            58,
+            758,
+            486,
+            787
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "DE/rand-to-T&I-guided-edge/1",
+        "bbox": [
+            74,
+            789,
+            299,
+            804
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathbf {x} _ {n e w} = \\mathbf {x} _ {r} + F \\times (\\mathbf {x} _ {t} + \\mathbf {x} _ {i} - 2 \\mathbf {x} _ {r})\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            149,
+            815,
+            397,
+            830
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "DE/rand-to-T&I-guided-edge/2",
+        "bbox": [
+            75,
+            840,
+            299,
+            856
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathbf {x} _ {n e w} = \\mathbf {x} _ {r} + F \\times (\\mathbf {x} _ {r} - \\mathbf {x} _ {t})\\tag{4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            171,
+            868,
+            375,
+            883
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "DE/rand-to-T&I-guided-edge/3",
+        "bbox": [
+            74,
+            893,
+            299,
+            909
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathbf {x} _ {n e w} = \\mathbf {x} _ {r} + F \\times (\\mathbf {x} _ {r} - \\mathbf {x} _ {i})\\tag{5}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            171,
+            920,
+            373,
+            936
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "where F is the scaling factor. ${ \\bf x } _ { n e w }$ denotes a newly generated solution with guidance. ${ \\bf x } _ { r }$ indicates a random solution from the grid archive. $\\mathbf { x } _ { t }$ denotes a solution with minimal job transportation times. To avoid extreme cases, it is randomly selected from the top 20 solutions with the lowest transportation times in each generation. Similarly, $\\mathbf { x } _ { i }$ represents a solution with minimal machine idle times and is also randomly chosen from the top 20 solutions with the lowest idle times per generation.",
+        "bbox": [
+            500,
+            79,
+            932,
+            200
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "The proposed DE operators are designed to assist KAHS for adjusting $\\tau , \\ \\pi ,$ and $\\mu$ to improve both the quality and diversity of solutions by explicitly leveraging problem-specific features. As shown in Fig. 4, during DE-guided collaboration, the corresponding vector is extracted from one of the three vector archives (FA, OS, and MS), while the remaining two are randomly selected from the assistant archive within the grid. DE/rand-to-T&I-guided-edge/1perturbs the factory assignment vector $\\tau ,$ , as factory allocation directly affects both job transportation and machine idle times. Suboptimal assignments often cause excessive inter-factory movement, increasing makespan. This operator therefore guides the current solution ${ \\bf x } _ { r }$ toward a promising region by combining the behavioral characteristics of solutions with minimal transportation time $\\left( \\mathbf { x } _ { t } \\right)$ and minimal idle time $\\left( \\mathbf { x } _ { i } \\right)$ . DE/rand-to-T&I-guided-edge/2adjusts the operation sequence vector $\\pi ,$ which strongly influences transportation patterns. By directing ${ \\bf x } _ { r }$ toward $\\mathbf { x } _ { i } ,$ which exhibits minimal transportation delays, the operator encourages the construction of compact schedules and helps reduce the critical path length. DE/rand-to-T&I-guided-edge/3refines the machine assignment vector $\\mu ,$ addressing imbalance in machine workloads. Guiding the solution toward $\\mathbf { x } _ { i }$ helps alleviate bottlenecks and improves overall machine utilization. After applying the corresponding KAHS adjustment to $\\tau , \\pi , \\operatorname { o r } \\mu ,$ a new solution is generated. This solution is compared with its associated vector archive, which includes both the current vector and its collaborators $( \\mathrm { e . g . , } \\varphi$ is the collaborator of τ), as well as the assistant archive. If the new solution outperforms the current one, it replaces it in the archive. Together, these guided DE operators enhance grid coverage and promote the generation of high-quality solutions with diverse behaviors.",
+        "bbox": [
+            500,
+            200,
+            932,
+            669
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "V. EXPERIMENTS",
+        "text_level": 2,
+        "bbox": [
+            654,
+            685,
+            779,
+            699
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "This section will provide a detailed performance evaluation of the SADE-QD for DFJSP-T.",
+        "bbox": [
+            500,
+            705,
+            930,
+            736
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "A. Benchmarks ofDFJSP-T",
+        "text_level": 2,
+        "bbox": [
+            500,
+            752,
+            700,
+            768
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "In real-world multi-factory machining systems, such as those used for metal parts production, jobs are often processed across different factories, and transferring them between sites incurs additional transportation time. Such settings naturally give rise to the DFJSP-T problem. This article therefore abstracts the core decision-making challenges in such environments. Following [39], we constructed all benchmark instances based on this setting. A total number of 20 instances were tested. For each instance, 20 independent experiments were conducted, resulting in a total of 400 runs per algorithm (all experiments used the same instances). The number of factories was chosen from the set $f \\in \\{ 2 , 3 , 4 , 5 , 6 , 7 \\}$ , with each factory consisting of 5 machines. The total number of jobs, i, varied across the set 10, 20, 30, 40, 50, 100, 150, 200, and for each job i, the number of operations w<sub>i</sub> was fixed at 5. The processing time for each operation $T _ { i , j , f , k }$ was within the range [5, 20]. Machines were considered non-idle due to factors such as machine settings, cleaning, inspection, and operation transportation, as outlined in [64]. Additionally, the maximum evaluations for all tests was: M ax\\_ $\\begin{array} { r } { I t e r = 2 0 0 \\cdot \\sum _ { 1 } ^ { n } w _ { i } } \\end{array}$ . In practical production scheduling, decision-makers must define appropriate termination conditions. Whether based on the number of evaluations or other performance metrics, these parameters can be flexibly adjusted to meet specific scheduling requirements.",
+        "bbox": [
+            500,
+            773,
+            932,
+            940
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "QIN et al.: SADE-QD FOR DISTRIBUTED FLEXIBLE JOB-SHOP SCHEDULING WITH TRANSPORTATION",
+        "bbox": [
+            58,
+            37,
+            609,
+            51
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "2267",
+        "bbox": [
+            902,
+            39,
+            930,
+            50
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:33:46 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "image",
+        "img_path": "images/411efc72c2e4760b8b48131cd51c055542f5aa6f94f3706ec9a3c05b879b51c2.jpg",
+        "image_caption": [
+            "Fig. 4. Collaborative evolution for solutions in the grid archive."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            196,
+            80,
+            808,
+            330
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            63,
+            381,
+            496,
+            579
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "B. Configuration and Evaluation Metric",
+        "text_level": 2,
+        "bbox": [
+            65,
+            594,
+            346,
+            609
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "The experiments were performed on a system running a 64-bit Windows 11 OS, equipped with an Intel Core i7-13790F processor clocked at 2.10 GHz and 16.0 GB of RAM. Python was used for the algorithm implementations, with the development carried out in the PyCharm 2023 IDE. We assess the performance of algorithm using the relative percentage increment (RPI) metric [65], [66]. The RPI quantifies the difference between the makespan of the current solution and the best-known solution, defined as:",
+        "bbox": [
+            63,
+            614,
+            496,
+            751
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "equation",
+        "text": "$$\nRPI_{a} = \\left(c_{a} - c_{best}\\right) / c_{best}\\times 100\\%\\tag{6}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            154,
+            758,
+            407,
+            775
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "where $c _ { a }$ represents the makespan produced by algorithm $a ,$ and $c _ { b e s t }$ is the minimum makespan found across all algorithms. A lower $R P I _ { a }$ value signifies a better performance by algorithm a.",
+        "bbox": [
+            63,
+            782,
+            494,
+            843
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "C. Validation of the QD Optimization for DFJSP-T",
+        "text_level": 2,
+        "bbox": [
+            65,
+            858,
+            422,
+            875
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "The framework of the proposed algorithm is the core concept of this paper. To validate the effectiveness of the QD optimization, we conducted a dedicated experiment to evaluate the performance of the SADE-QD. As shown in Fig. 5, we compare the proposed SADE-QD with a variant that does not use the QD optimization framework (stored in a traditional population way and does not take into account the diversity of solution features, denoted as v-QD). As depicted in the RPI box plot of Fig. 5(a), the overall RPI value of the SADE-QD is approximately 64.3% lower than that of v-QD, and both the mean and median are also lower compared to v-QD.",
+        "bbox": [
+            63,
+            880,
+            496,
+            941
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/d1e7f20c73ff5ba68cc36f5f5639678169f56b7c66f822bd759405a31bf5a5d5.jpg",
+        "content": "",
+        "chart_caption": [
+            "(a)"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            550,
+            382,
+            718,
+            568
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/98c5072c9a6aa90b54acdf4551fd29a166cba1835b4d5dd427f26a699b201f39.jpg",
+        "content": "",
+        "chart_caption": [
+            "(b)",
+            "Fig. 5. Comparison with and without the use of the QD optimization framework."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            723,
+            385,
+            893,
+            568
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            506,
+            652,
+            939,
+            758
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "To provide more details on the superiority of SADE-QD over v-QD across all instances, we further performed statistical experiments: job quantities of 10 and 20 are classified as small-scale (s) cases, while 30, 40, and 50 are considered medium-scale (m) cases, and 100, 150, and 200 are designated as large-scale (l) cases (represented by shades of pink indicating varying depths). The analysis of the solutions within feature space involved the following criteria: for solutions better than those ofthe compared algorithms, we incremented the count indicated by the red “ ↑\\color{red}{\\$\\uparrow\\$}”; for solutions that were on par with the best solutions of comparison algorithms, we added the tally marked by the blue “∼”; and for cases where solutions obtained from SADE-QD were outperformed by the best solutions from comparison algorithms, we added the count designated by the green “ ↓\\color{green}{\\$\\downarrow\\$}”.",
+        "bbox": [
+            506,
+            758,
+            939,
+            941
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "2268",
+        "bbox": [
+            67,
+            39,
+            95,
+            50
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "IEEE TRANSACTIONS ON EMERGING TOPICS IN COMPUTATIONAL INTELLIGENCE, VOL. 10, NO. 3, JUNE 2026",
+        "bbox": [
+            338,
+            39,
+            939,
+            51
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:33:46 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/c57bf66cb499eba74efa6975cf7838312941dd5ecd3f97f9d5dd23ad59d14811.jpg",
+        "table_caption": [
+            "TABLE II PARAMETER SETTINGS"
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td colspan=\"2\">SADE-QD</td><td>IGSA</td></tr><tr><td colspan=\"2\">batch: 100cells size:  $n_{max} \\times n_{max}$ N: 2-dimensional</td><td>ps: 1destruction size: 2Temperature: 0.3</td></tr><tr><td>DCGA</td><td>SPAMA</td><td>DQNMA</td></tr><tr><td>ps: 100pc: 0.9pm: 0.15</td><td>ps: 100history memory: 30reward step: 0.15</td><td>ps: 100batch: 16experience pool: 512</td></tr></table>",
+        "bbox": [
+            154,
+            113,
+            392,
+            199
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            57,
+            223,
+            488,
+            268
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "As shown in Fig. 5(b), in 400 runs, approximately 98.6% of the solutions obtained by SADE-QD are better than v-QD. This further validates that incorporating the diversity of solution features to find solutions is far superior to just storing a group of solutions.",
+        "bbox": [
+            57,
+            268,
+            489,
+            343
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "The superiority of SADE-QD lies in its capacity to produce a broad range of high-quality solutions, each with distinct features. These diverse solutions provide decision makers with a wider range of choices, which can be better adapted to different machines, transportation equipment, and the various needs of actual scheduling scenarios. SADE-CM strategy guides the evolution of collaborative solutions in the direction of smaller features conducive to solution improvement in the later stages of the iteration. In addition, this characterization of the generated diversified solutions prevents the algorithm from falling into a local optimum to some extent. In the developed QD, the objective function and feature space can be customized according to the specific scheduling environment, enabling the approach to more accurately capture key performance indicators of interest. This flexibility greatly supports the decision-making process.",
+        "bbox": [
+            55,
+            343,
+            489,
+            571
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "D. Comparison Experiment and Analysis",
+        "text_level": 2,
+        "bbox": [
+            58,
+            587,
+            346,
+            602
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "This subsection conducted a comparison between SADE-QD and four prevalent algorithms. The selected algorithms address FJSP and related problems: dual population collaborative GA (DCGA) [23], the IG and simulated annealing algorithm (IGSA) [3], SPAMA [22], and DQN based memetic algorithm (DQNMA) [67]. DCGA was chosen because it is based on the classic GA and represents the latest study on solving FJSP with transportation constraints. IG and IGSA have shown strong performance in FJSP, with IGSA being an improved version applied to FJSP with transportation constraints, which are similar to the problem addressed in this paper. SPAMA and DQNMA are modern algorithms for DFJSP with transportation. SPAMA focuses on collaborative solutions, while DQNMA utilizes deep reinforcement learning techniques, representing the state-of-theart in this field. All algorithms were implemented following their original descriptions, using the encoding and decoding schema of SADE-QD. The objective value calculations were adapted for other algorithms, and their strategies were modified to solve DFJSP-T. Table II presents the main parameters for all compared algorithms. Notably, SADE-QD had fewer parameters compared to the other algorithms. We conducted an independent evaluation of the DE scaling factor F. As shown in Fig. 6, the smallest average objective value across all instances was achieved when $F { = } 0 . 6$ . For all algorithms except IGSA, the batch size, analogous to the population size $p s ,$ , was fixed at 100.",
+        "bbox": [
+            55,
+            607,
+            489,
+            941
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "chart",
+        "img_path": "images/d259845f870dd386431c693926070927f866a334bc91935d5168d81d404688bf.jpg",
+        "content": "",
+        "chart_caption": [
+            "Fig. 6. Comparison of different scaling factor F settings."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            550,
+            79,
+            877,
+            224
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "chart",
+        "img_path": "images/dc4ec38b0c65b2cf213c87950c060e13a1fc83239e0e5d5f249152cad0819a24.jpg",
+        "content": "",
+        "chart_caption": [
+            "Fig. 7. Comparison among SADE-QD and other algorithms."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            580,
+            276,
+            848,
+            454
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            500,
+            517,
+            930,
+            563
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Table III shows the performance results for all algorithms under comparison. We evaluate the RPI, MEAN, BEST, and standard deviation (STD) metrics. The symbol † denotes a statistically significant difference between SADE-QD and the other algorithms. It is evident from Table III that SADE-QD outperforms other algorithms across all instances, with significant differences observed in each comparison. A box plot and win rate pie charts are utilized to visualize the distribution of solutions based on these results. To assess the statistical significance of the performance differences, a Friedman test with a significance level of $\\alpha = 0 . 0 5$ was conducted across all instances. As shown in Fig. 7, the boxplots reveal that SADE-QD exhibits the lowest median and mean RPI values among all algorithms, together with the smallest interquartile range. This indicates both superior performance and high consistency. In contrast, the other four algorithms show larger medians, wider spreads, and more outliers, suggesting greater variability and inferior solution quality.",
+        "bbox": [
+            500,
+            561,
+            932,
+            820
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "In addition to the boxplots, Fig. 7 also presents two pie charts that summarize the win percentage across all test comparisons. The upper pie chart excludes SADE-QD and reports the win counts among the remaining four algorithms. In this case, no single method dominates: DQNMA wins 179 tests, SPAMA wins 141 tests, and DCGA wins 95 tests, indicating a relatively balanced competition when the proposed algorithm is removed. The lower pie chart incorporates SADE-QD into the comparison.",
+        "bbox": [
+            498,
+            820,
+            932,
+            941
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "QIN et al.: SADE-QD FOR DISTRIBUTED FLEXIBLE JOB-SHOP SCHEDULING WITH TRANSPORTATION",
+        "bbox": [
+            58,
+            37,
+            609,
+            51
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "2269",
+        "bbox": [
+            902,
+            39,
+            930,
+            50
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:33:46 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "table",
+        "img_path": "images/13540df40929911887e1a80315e0cfeb580a88605af2b8519aed7c852967378b.jpg",
+        "table_caption": [
+            "TABLE III",
+            "NUMERICAL RESULTS OF ALL COMPARISON ALGORITHMS"
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Instance</td><td colspan=\"5\">RPI</td><td colspan=\"5\">MEAN</td><td colspan=\"5\">BEST</td><td colspan=\"5\">STD</td></tr><tr><td>SADE-QD</td><td>DCGA</td><td>IGSA</td><td>SPAMA</td><td>DQNMA</td><td>SADE-QD</td><td>DCGA</td><td>IGSA</td><td>SPAMA</td><td>DQNMA</td><td>SADE-QD</td><td>DCGA</td><td>IGSA</td><td>SPAMA</td><td>DQNMA</td><td>SADE-QD</td><td>DCGA</td><td>IGSA</td><td>SPAMA</td><td>DQNMA</td></tr><tr><td>10J2F</td><td>0.07</td><td> $0.35\\dagger$ </td><td> $0.47\\dagger$ </td><td> $0.34\\dagger$ </td><td> $0.35\\dagger$ </td><td>97.2</td><td>122.40</td><td>133.95</td><td>122.15</td><td>123.05</td><td>91</td><td>110</td><td>122</td><td>111</td><td>106</td><td>2.745</td><td>7.096</td><td>5.862</td><td>4.030</td><td>5.916</td></tr><tr><td>20J2F</td><td>0.03</td><td> $0.20\\dagger$ </td><td> $0.38\\dagger$ </td><td> $0.19\\dagger$ </td><td> $0.18\\dagger$ </td><td>180.35</td><td>209.40</td><td>241.10</td><td>207.85</td><td>206.55</td><td>175</td><td>188</td><td>223</td><td>195</td><td>190</td><td>2.254</td><td>13.248</td><td>9.375</td><td>5.905</td><td>6.549</td></tr><tr><td>20J3F</td><td>0.03</td><td> $0.28\\dagger$ </td><td> $0.49\\dagger$ </td><td> $0.26\\dagger$ </td><td> $0.26\\dagger$ </td><td>129.7</td><td>161.45</td><td>187.20</td><td>158.45</td><td>158.20</td><td>126</td><td>144</td><td>177</td><td>152</td><td>148</td><td>2.250</td><td>8.900</td><td>7.317</td><td>4.559</td><td>5.764</td></tr><tr><td>30J2F</td><td>0.03</td><td> $0.15\\dagger$ </td><td> $0.33\\dagger$ </td><td> $0.14\\dagger$ </td><td> $0.15\\dagger$ </td><td>261.6</td><td>293.10</td><td>338.35</td><td>289.65</td><td>291.10</td><td>254</td><td>269</td><td>311</td><td>275</td><td>279</td><td>2.854</td><td>13.345</td><td>13.743</td><td>7.307</td><td>5.982</td></tr><tr><td>30J3F</td><td>0.03</td><td> $0.21\\dagger$ </td><td> $0.45\\dagger$ </td><td> $0.16\\dagger$ </td><td> $0.16\\dagger$ </td><td>182.05</td><td>213.75</td><td>255.45</td><td>204.50</td><td>204.25</td><td>176</td><td>194</td><td>236</td><td>194</td><td>198</td><td>2.685</td><td>9.968</td><td>9.417</td><td>4.513</td><td>4.621</td></tr><tr><td>40J2F</td><td>0.03</td><td> $0.13\\dagger$ </td><td> $0.32\\dagger$ </td><td> $0.14\\dagger$ </td><td> $0.12\\dagger$ </td><td>340.95</td><td>376.75</td><td>439.15</td><td>379.70</td><td>372.65</td><td>332</td><td>352</td><td>403</td><td>369</td><td>356</td><td>3.927</td><td>12.578</td><td>13.812</td><td>5.243</td><td>7.922</td></tr><tr><td>40J3F</td><td>0.02</td><td> $0.17\\dagger$ </td><td> $0.40\\dagger$ </td><td> $0.14\\dagger$ </td><td> $0.14\\dagger$ </td><td>240.35</td><td>275.10</td><td>328.15</td><td>267.05</td><td>267.50</td><td>235</td><td>253</td><td>314</td><td>257</td><td>254</td><td>2.961</td><td>9.408</td><td>9.544</td><td>5.969</td><td>6.420</td></tr><tr><td>40J4F</td><td>0.02</td><td> $0.26\\dagger$ </td><td> $0.48\\dagger$ </td><td> $0.16\\dagger$ </td><td> $0.16\\dagger$ </td><td>187</td><td>229.75</td><td>270.25</td><td>213.00</td><td>212.95</td><td>183</td><td>213</td><td>252</td><td>204</td><td>200</td><td>2.714</td><td>9.031</td><td>9.014</td><td>3.880</td><td>4.407</td></tr><tr><td>50J3F</td><td>0.01</td><td> $0.16\\dagger$ </td><td> $0.35\\dagger$ </td><td> $0.10\\dagger$ </td><td> $0.10\\dagger$ </td><td>296.2</td><td>338.85</td><td>394.00</td><td>321.85</td><td>322.45</td><td>292</td><td>321</td><td>373</td><td>305</td><td>303</td><td>2.441</td><td>12.500</td><td>12.342</td><td>9.444</td><td>7.997</td></tr><tr><td>50J4F</td><td>0.02</td><td> $0.21\\dagger$ </td><td> $0.43\\dagger$ </td><td> $0.15\\dagger$ </td><td> $0.13\\dagger$ </td><td>228.65</td><td>272.00</td><td>322.85</td><td>258.60</td><td>255.10</td><td>225</td><td>251</td><td>299</td><td>246</td><td>246</td><td>3.216</td><td>10.819</td><td>9.783</td><td>5.698</td><td>5.139</td></tr><tr><td>50J5F</td><td>0.03</td><td> $0.24\\dagger$ </td><td> $0.53\\dagger$ </td><td> $0.17\\dagger$ </td><td> $0.17\\dagger$ </td><td>189.35</td><td>228.65</td><td>281.00</td><td>215.40</td><td>215.15</td><td>184</td><td>215</td><td>259</td><td>208</td><td>208</td><td>2.540</td><td>9.337</td><td>10.657</td><td>3.747</td><td>5.363</td></tr><tr><td>100J4F</td><td>0.02</td><td> $0.14\\dagger$ </td><td> $0.37\\dagger$ </td><td> $0.10\\dagger$ </td><td> $0.08\\dagger$ </td><td>439.65</td><td>494.00</td><td>591.20</td><td>474.15</td><td>468.70</td><td>432</td><td>467</td><td>564</td><td>458</td><td>453</td><td>3.167</td><td>15.871</td><td>16.745</td><td>8.197</td><td>8.367</td></tr><tr><td>100J5F</td><td>0.01</td><td> $0.16\\dagger$ </td><td> $0.40\\dagger$ </td><td> $0.08\\dagger$ </td><td> $0.09\\dagger$ </td><td>359.05</td><td>411.25</td><td>497.35</td><td>384.95</td><td>385.85</td><td>355</td><td>399</td><td>466</td><td>373</td><td>375</td><td>2.114</td><td>9.678</td><td>18.015</td><td>5.306</td><td>7.206</td></tr><tr><td>100J6F</td><td>0.02</td><td> $0.24\\dagger$ </td><td> $0.50\\dagger$ </td><td> $0.16\\dagger$ </td><td> $0.16\\dagger$ </td><td>292.55</td><td>356.40</td><td>433.25</td><td>334.30</td><td>333.60</td><td>288</td><td>338</td><td>411</td><td>314</td><td>318</td><td>2.235</td><td>13.068</td><td>11.285</td><td>7.568</td><td>6.402</td></tr><tr><td>100J7F</td><td>0.02</td><td> $0.16\\dagger$ </td><td> $0.40\\dagger$ </td><td> $0.15\\dagger$ </td><td> $0.15\\dagger$ </td><td>285.35</td><td>323.05</td><td>390.85</td><td>321.25</td><td>320.60</td><td>279</td><td>299</td><td>375</td><td>308</td><td>308</td><td>3.183</td><td>11.014</td><td>11.032</td><td>6.576</td><td>6.652</td></tr><tr><td>150J5F</td><td>0.02</td><td> $0.18\\dagger$ </td><td> $0.41\\dagger$ </td><td> $0.15\\dagger$ </td><td> $0.13\\dagger$ </td><td>504.4</td><td>587.00</td><td>701.65</td><td>570.50</td><td>562.95</td><td>496</td><td>567</td><td>665</td><td>558</td><td>547</td><td>3.899</td><td>13.992</td><td>20.466</td><td>8.192</td><td>8.835</td></tr><tr><td>150J6F</td><td>0.01</td><td> $0.07\\dagger$ </td><td> $0.30\\dagger$ </td><td> $0.01\\dagger$ </td><td> $0.01\\dagger$ </td><td>478.75</td><td>507.95</td><td>616.20</td><td>480.30</td><td>481.65</td><td>475</td><td>486</td><td>581</td><td>457</td><td>470</td><td>2.337</td><td>17.647</td><td>13.976</td><td>8.945</td><td>6.226</td></tr><tr><td>150J7F</td><td>0.01</td><td> $0.09\\dagger$ </td><td> $0.34\\dagger$ </td><td> $0.11\\dagger$ </td><td> $0.10\\dagger$ </td><td>413.6</td><td>447.50</td><td>549.25</td><td>455.55</td><td>451.25</td><td>409</td><td>428</td><td>525</td><td>439</td><td>431</td><td>2.854</td><td>11.086</td><td>16.105</td><td>10.257</td><td>10.417</td></tr><tr><td>200J6F</td><td>0.02</td><td> $0.06\\dagger$ </td><td> $0.29\\dagger$ </td><td> $0.11\\dagger$ </td><td> $0.10\\dagger$ </td><td>625.6</td><td>652.95</td><td>792.10</td><td>684.35</td><td>678.55</td><td>616</td><td>634</td><td>754</td><td>642</td><td>655</td><td>4.547</td><td>12.784</td><td>19.344</td><td>15.932</td><td>15.000</td></tr><tr><td>200J7F</td><td>0.01</td><td> $0.09\\dagger$ </td><td> $0.31\\dagger$ </td><td> $0.11\\dagger$ </td><td> $0.11\\dagger$ </td><td>543.85</td><td>586.55</td><td>705.20</td><td>593.70</td><td>594.60</td><td>537</td><td>564</td><td>664</td><td>566</td><td>569</td><td>2.961</td><td>18.429</td><td>14.771</td><td>13.985</td><td>15.816</td></tr><tr><td>AVG</td><td>0.023</td><td>0.178</td><td>0.398</td><td>0.147</td><td>0.143</td><td>313.81</td><td>354.39</td><td>423.43</td><td>346.86</td><td>345.34</td><td>308</td><td>334.6</td><td>398.7</td><td>331.55</td><td>330.7</td><td>2.894</td><td>11.990</td><td>12.630</td><td>7.263</td><td>7.550</td></tr></table>",
+        "bbox": [
+            106,
+            113,
+            897,
+            318
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "chart",
+        "img_path": "images/cd421c7fd9f4e8cd4f6104e33204f4a0c1dac6615c34ccdf39529b9a0578aa34.jpg",
+        "content": "",
+        "chart_caption": [
+            "Friedman's two-way analysis of variance by ranks",
+            "Fig. 8. Friedman Test of all comparative algorithms."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            146,
+            343,
+            412,
+            412
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "Here, SADE-QD achieves 389 wins in all tests, while the bestperforming competitor wins only 8 tests. This overwhelming dominance further confirms that SADE-QD consistently outperforms all competing methods across almost all instances.",
+        "bbox": [
+            63,
+            472,
+            494,
+            532
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "The pairwise p-values obtained from the Friedman test confirm these observations. For each comparison involving SADE-QD, the p-values are below 0.05, indicating statistically significant differences. This reflects that the improvements achieved by SADE-QD are not due to random fluctuations but arise from meaningful algorithmic advantages. Fig. 8 further illustrates the average ranks and differences among all algorithms: SADE-QD consistently ranks 1st, while the remaining algorithms obtain larger ranks. Although DQNMA ranks 2nd, its performance is still statistically worse than SADE-QD (p < 0.05).",
+        "bbox": [
+            63,
+            532,
+            496,
+            684
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "To illustrate the differences between the algorithms from multiple perspectives, error bar charts with a 95% confidence interval are presented. These visual representations offer a deeper insight into the reliability of results. Fig. 9 shows the comparison of RPI values across different numbers of factories for all algorithms, as well as the win rate of SADE-QD. Compared to other algorithms, SADE-QD consistently exhibits lower mean and median values, indicating more stable solutions with fewer outliers. When SADE-QD is excluded from the comparison, DQNMA and SPAMA perform the best. However, when MAP-Elites is included, it consistently produces the optimal solution across all test instances. These findings underscore the effectiveness of the proposed method, highlighting its superior performance and reliability in producing robust and optimal solutions across various scenarios.",
+        "bbox": [
+            63,
+            684,
+            496,
+            910
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "SADE-QD achieves the best performance in terms of RPI, MEAN, BEST, and rank, while also presenting the lowest STD values across runs. These advantages stem not only from the exploration capability of the QD framework but more importantly from the intrinsic synergy introduced by the SADE-CM strategy. In the early evolutionary stage, the critical-path-based KAHS provides knowledge-driven exploitation by selectively modifying τ , π, or μ on critical operations. This directly eliminates scheduling bottlenecks such as long waiting sequences, inefficient factory assignments, or imbalanced machine loads. Such targeted improvements cannot be achieved by random variation operators, allowing SADE-QD to accelerate makespan reduction by systematically shortening the Critical Path from the outset.",
+        "bbox": [
+            63,
+            909,
+            494,
+            940
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            506,
+            334,
+            939,
+            513
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "As evolution progresses and the archive becomes densely populated, exploration gradually loses its ability to expand the feature space. This leads to a risk of stagnation. At this stage, the self-adaptive DE collaboration becomes essential. The algorithm uses solutions with minimal transfer and machine idle times as directional guidance. The DE/rand-to-T&I-guidededgeoperators introduce controlled and knowledge-based perturbations. These perturbations move solutions toward promising regions. At the same time, they preserve feasibility. This mechanism helps maintain diversity at the boundaries of the feature space. Traditional operators rarely generate offspring in these regions, so the guided DE strategy becomes important. It enables the discovery of novel behavioral patterns and improves grid coverage and solution quality. The alternating cycle of KAHS exploiting the Critical Path and DE-guided collaboration expanding the feature-space frontier creates an adaptive balance between exploration and exploitation. This balance explains the superior performance, robustness, and stability of SADE-QD across all benchmark instances.",
+        "bbox": [
+            506,
+            513,
+            939,
+            801
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "This work explores the main advantage of the proposed algorithm over existing optimization methods: its ability to yield diverse and high-performing solutions. This raises the question: within the feature space, how many solutions outperform those generated by the compared algorithms, and what is their proportion? To this end, we conducted the following statistical experiments: pairwise comparisons between SADE-QD and other algorithms, including DCGA, IGSA, SPAMA, and DQNMA. The experimental setup was the same as in Section V.C. Fig. 10",
+        "bbox": [
+            506,
+            801,
+            939,
+            939
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "page_number",
+        "text": "2270",
+        "bbox": [
+            67,
+            39,
+            95,
+            50
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "header",
+        "text": "IEEE TRANSACTIONS ON EMERGING TOPICS IN COMPUTATIONAL INTELLIGENCE, VOL. 10, NO. 3, JUNE 2026",
+        "bbox": [
+            340,
+            39,
+            939,
+            51
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:33:46 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "(a.1) Box plot of RPIs among all compared algotithms",
+        "bbox": [
+            132,
+            80,
+            237,
+            95
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/4e763ac4d4f70cf3f14805ab70c569dfe01cc1adfd83af74061f0260aa8753a8.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            106,
+            94,
+            244,
+            250
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/95b185439593d08226036b55226191b671151007b925627750a211ab734f5c95.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            245,
+            93,
+            363,
+            171
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/071ae8d3d684d7418b638cdf6c7c0ab97d6e20d29b50d92160ae9b2e1bec7439.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            252,
+            171,
+            361,
+            250
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/06bc8edfc82a1bc48490c79e95d4e808d2f389101133cdb7d555a4564b567831.jpg",
+        "content": "",
+        "chart_caption": [
+            "(a) f = 2"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            367,
+            80,
+            503,
+            250
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/570021264b2d6ce6acf5a30e1b4a9cf5e7d1cf9b71c6f08500e9d3c33e603a14.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            506,
+            94,
+            622,
+            161
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/27c904b6387c92e78f4e954b8789418c8dc17e3518b9fd3a67c16e02124309d4.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            508,
+            162,
+            621,
+            248
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/17f8fe3d67b3dce0570734e18803ee38d6ef3da90c8c692d2ef95b520628a24f.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            626,
+            79,
+            764,
+            250
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/c8c4a0ba689c0960018a30514c2480ce28827e865c0f0fee029cb6e7bcfcc9aa.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            765,
+            93,
+            880,
+            159
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/a7f1564cf18a052bb02f7b71d4cdce03ef79e564dab9a62f4a11fa170280e81b.jpg",
+        "content": "",
+        "chart_caption": [
+            "(c) f = 4"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            772,
+            172,
+            883,
+            248
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/7e7b5a5dd789b1687dd675762161e79636cd0315d9486b0d77c04667671d4452.jpg",
+        "content": "",
+        "chart_caption": [
+            "(b) f = 3"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            106,
+            284,
+            245,
+            445
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/bb92d24373c3638aeba79fa789c2fdea90c5ed71820254be70c8bfe646971485.jpg",
+        "content": "",
+        "chart_caption": [
+            "(d) f = 5"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            247,
+            284,
+            363,
+            441
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/26973ea3c68e202d9d072d0956a066abe58708ad186bd48804784715e0b488b1.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            365,
+            272,
+            506,
+            444
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/13e4fdda163722aa6c0125905c8f394aae3faf8df590d9f996996f788a5a2286.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            506,
+            286,
+            622,
+            367
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/5913ed189e5d96dd31a1f1171708da80b064ab1005f219db619a1da5c494ecab.jpg",
+        "content": "",
+        "chart_caption": [
+            "(e) f = 6"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            510,
+            359,
+            622,
+            441
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/75c05f51ded40080496eacef195e2a45e81656cb9e9d5e5af56d70b76e34cbe8.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            626,
+            272,
+            764,
+            444
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/3cb3982dbeacc0cc635d803a8551d75fdd638c144a47743447afb3b5876882e2.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            765,
+            286,
+            880,
+            349
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/e14826ae52107585555eb8cb61d674d1d98c51986b9ddbe1d36be185ab9b33ad.jpg",
+        "content": "",
+        "chart_caption": [
+            "(f) f = 7"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            772,
+            364,
+            883,
+            441
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/c3154b4e9acb5353539a01b0301778e2d02271e199f16976bc9c1cb2e4bee05a.jpg",
+        "content": "",
+        "chart_caption": [
+            "Fig. 9. Comparative analysis of SADE-QD and other algorithms across different factory settings.",
+            "(a) SADE-QD vs DCGA"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            121,
+            503,
+            301,
+            648
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/ff980f43b497d6eb41c524e56ffbe3433a239d72f41c6998e09a10142be70038.jpg",
+        "content": "",
+        "chart_caption": [
+            "(b) SADE-QD vs IGSA"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            309,
+            503,
+            491,
+            648
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/0decac11527546ac6db5964d82ced1aa2389df70db79270bd3948c3b799173f1.jpg",
+        "content": "",
+        "chart_caption": [
+            "(c) SADE-QD vs SPAMA"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            500,
+            503,
+            681,
+            648
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/0789d64b40da8a822bb1cdce8a58f7da579b2a0442e467b941f17d4cf796f4f5.jpg",
+        "content": "",
+        "chart_caption": [
+            "(d) SADE-QD vs DQNMA",
+            "Fig. 10. Summary of the statistic for solution quality comparisons between SADE-QD and other algorithms under different scale instances."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            688,
+            501,
+            870,
+            648
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "text",
+        "text": "shows that within the feature space, the solution set derived by SADE-QD contains 74.8% to 89.8% of solutions with quality superior to the best solutions found by the comparison algorithms, and these solutions exhibit a diverse range of behavioral characteristics. Only 10.2% to 24.6% ofthe solutions are inferior to the best solutions of the comparison algorithms. This confirms that QD optimization not only yields better solutions but also provides a more diverse range and a greater number of superior solutions.",
+        "bbox": [
+            57,
+            728,
+            489,
+            864
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "text",
+        "text": "To illustrate the distribution within feature space and explore how features affect solution quality, we selected three instances—20J2F (small), 50J4F (medium), and 100J6F (large)—and visualized the grid in Fig. 11. The x-axis corresponds to the number of machine idle times, while the y-axis indicates the number of operation transfers. The color intensity of each cell in the grids indicates the corresponding makespan value, with darker colors representing larger makespan values. It is observed that higher numbers of machine idle times or operation transfers (the right region of the graphs) generally lead to larger makespan values (darker colors). Therefore, devising search strategies that perturb the order of solutions to generate solutions with different feature values can effectively improve the makespan. Additionally, the red squares in the grids indicate the positions of the best objective values. For the small, medium, and large-scale instances, the corresponding minimum makespan values are 172, 213, and 288. These optimal values mainly appear in the upper-left or central region of the grids in Fig. 11, rather than the right region, further supporting our previous conjecture.",
+        "bbox": [
+            55,
+            864,
+            489,
+            940
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/c36f1ee9fef943b3f72440f60b81e245008c16ccd7271baa56cad8628234feb0.jpg",
+        "content": "",
+        "chart_caption": [
+            "(a) 20J2F"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            510,
+            729,
+            638,
+            805
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/d6e681470f5768bebed843ddc5528782ccc0e3493028297aac7dd18edfb81214.jpg",
+        "content": "",
+        "chart_caption": [
+            "(b) 50J4F"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            651,
+            728,
+            781,
+            805
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "chart",
+        "img_path": "images/76f43bda481c358395f81193373847c25eb27bc2a8b74f1f6260c943bcc65953.jpg",
+        "content": "",
+        "chart_caption": [
+            "(c) 100J6F",
+            "Fig. 11. The grid returned by SADE-QD in three instances."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            794,
+            729,
+            922,
+            805
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            500,
+            878,
+            932,
+            941
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "header",
+        "text": "QIN et al.: SADE-QD FOR DISTRIBUTED FLEXIBLE JOB-SHOP SCHEDULING WITH TRANSPORTATION",
+        "bbox": [
+            58,
+            39,
+            609,
+            51
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "page_number",
+        "text": "2271",
+        "bbox": [
+            902,
+            39,
+            930,
+            50
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:33:46 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "table",
+        "img_path": "images/fbc3063533989557c459d02d87be6bf799e3a161b5826bcc14ecbf9bc260d705.jpg",
+        "table_caption": [
+            "TABLE IV NUMERICAL RESULTS OF ALL VARIANTS"
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Instance</td><td colspan=\"3\">RPI</td><td colspan=\"3\">MEAN</td><td colspan=\"3\">BEST</td></tr><tr><td>SADE-QD</td><td>V-CM</td><td>V-DE</td><td>SADE-QD</td><td>V-CM</td><td>V-DE</td><td>SADE-QD</td><td>V-CM</td><td>V-DE</td></tr><tr><td>10J2F</td><td>0.064</td><td> $0.322\\dagger$ </td><td> $0.080\\dagger$ </td><td>95.8</td><td>118.95</td><td>97.2</td><td>91</td><td>112</td><td>90</td></tr><tr><td>20J2F</td><td>0.031</td><td> $0.157\\dagger$ </td><td>0.031</td><td>175.35</td><td>196.7</td><td>175.3</td><td>170</td><td>186</td><td>170</td></tr><tr><td>20J3F</td><td>0.040</td><td> $0.261\\dagger$ </td><td> $0.069\\dagger$ </td><td>124.85</td><td>151.3</td><td>128.3</td><td>120</td><td>143</td><td>123</td></tr><tr><td>30J2F</td><td>0.057</td><td>0.151</td><td>0.055</td><td>254.65</td><td>277.3</td><td>254.2</td><td>248</td><td>266</td><td>241</td></tr><tr><td>30J3F</td><td>0.046</td><td> $0.190\\dagger$ </td><td>0.050</td><td>176.8</td><td>201.1</td><td>177.5</td><td>170</td><td>189</td><td>169</td></tr><tr><td>40J2F</td><td>0.029</td><td> $0.116\\dagger$ </td><td>0.036</td><td>333.45</td><td>361.65</td><td>335.55</td><td>324</td><td>349</td><td>325</td></tr><tr><td>40J3F</td><td>0.033</td><td> $0.142\\dagger$ </td><td> $0.044\\dagger$ </td><td>234.5</td><td>259.2</td><td>237.1</td><td>227</td><td>247</td><td>230</td></tr><tr><td>40J4F</td><td>0.041</td><td> $0.113\\dagger$ </td><td>0.048</td><td>182.15</td><td>194.85</td><td>183.35</td><td>175</td><td>189</td><td>177</td></tr><tr><td>50J3F</td><td>0.033</td><td> $0.128\\dagger$ </td><td> $0.044\\dagger$ </td><td>289.3</td><td>315.8</td><td>292.45</td><td>283</td><td>303</td><td>280</td></tr><tr><td>50J4F</td><td>0.034</td><td> $0.080\\dagger$ </td><td> $0.053\\dagger$ </td><td>223.3</td><td>233.35</td><td>227.45</td><td>216</td><td>228</td><td>221</td></tr><tr><td>50J5F</td><td>0.039</td><td> $0.188\\dagger$ </td><td> $0.065\\dagger$ </td><td>176.7</td><td>202</td><td>181</td><td>170</td><td>196</td><td>174</td></tr><tr><td>100J4F</td><td>0.020</td><td> $0.084\\dagger$ </td><td> $0.035\\dagger$ </td><td>414.2</td><td>440.15</td><td>420.4</td><td>406</td><td>428</td><td>412</td></tr><tr><td>100J5F</td><td>0.031</td><td> $0.117\\dagger$ </td><td> $0.045\\dagger$ </td><td>337.1</td><td>365.1</td><td>341.6</td><td>331</td><td>357</td><td>327</td></tr><tr><td>100J6F</td><td>0.022</td><td> $0.120\\dagger$ </td><td> $0.041\\dagger$ </td><td>287.15</td><td>314.684</td><td>292.5</td><td>281</td><td>305</td><td>286</td></tr><tr><td>100J7F</td><td>0.013</td><td> $0.123\\dagger$ </td><td> $0.036\\dagger$ </td><td>280.5</td><td>310.95</td><td>286.95</td><td>277</td><td>306</td><td>282</td></tr><tr><td>150J5F</td><td>0.012</td><td> $0.076\\dagger$ </td><td> $0.025\\dagger$ </td><td>498.95</td><td>530.4</td><td>505.3</td><td>494</td><td>516</td><td>493</td></tr><tr><td>150J6F</td><td>0.011</td><td> $0.206\\dagger$ </td><td> $0.150\\dagger$ </td><td>421.65</td><td>503</td><td>479.6</td><td>417</td><td>493</td><td>469</td></tr><tr><td>150J7F</td><td>0.011</td><td> $0.087\\dagger$ </td><td> $0.025\\dagger$ </td><td>408.3</td><td>439</td><td>413.9</td><td>404</td><td>431</td><td>406</td></tr><tr><td>200J6F</td><td>0.019</td><td> $0.073\\dagger$ </td><td> $0.033\\dagger$ </td><td>618.75</td><td>651.15</td><td>626.95</td><td>612</td><td>644</td><td>615</td></tr><tr><td>200J7F</td><td>0.017</td><td> $0.079\\dagger$ </td><td> $0.037\\dagger$ </td><td>537.05</td><td>569.5</td><td>547.35</td><td>528</td><td>563</td><td>534</td></tr><tr><td>AVG</td><td>0.030</td><td>0.141</td><td>0.050</td><td>303.525</td><td>331.807</td><td>310.198</td><td>297.2</td><td>322.55</td><td>301.2</td></tr></table>",
+        "bbox": [
+            97,
+            113,
+            464,
+            282
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            63,
+            310,
+            496,
+            478
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "E. Ablation Analysis",
+        "text_level": 2,
+        "bbox": [
+            65,
+            496,
+            215,
+            511
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "To evaluate the impact of different components in SADE-QD, we compare it against two variants: 1) V-CM, which omits the SADE-CM strategy, and 2) V-DE, which excludes the self-adaptive DE strategy. The results for SADE-QD and its variants are presented in Table IV. Besides RPI, we report the mean (MEAN) and best (BEST) makespan values across 20 runs for each instance. The final row (AVG) represents the overall average across all instances, with the best values are marked in ‘bold’. ‘J’ and ‘F’ denote the number of jobs and factories, respectively. As indicated in Table IV, SADE-QD consistently surpasses both V-CM and V-DE, achieving 95% (19/20) of the best RPI values, whereas V-CM and V-DE achieve 0% (0/20) and 5% (2/20), respectively. For both MEAN and BEST values, SADE-QD achieves 90% (18/20) and 70% (14/20) of the minimum values, respectively. The AVG values further confirm the superior performance of SADE-QD, yielding the best RPI (0.03), MEAN (303.525), and BEST (297.2) among all algorithms, indicating the effectiveness of both components. To assess whether the performance differences between SADE-QD and its variants are statistically significant, we conducted a Wilcoxon signed-rank test at a significance level of α = 0.05. In Table IV, the symbol † indicates that SADE-QD significantly outperforms the variants, with most of p-values below 0.05, confirming the statistical significance of the results.",
+        "bbox": [
+            63,
+            517,
+            496,
+            880
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "To illustrate the distribution and performance differences among the solutions, we present box plots and win rate pie charts based on RPI values. As shown in Fig. 12, SADE-QD consistently achieves the best values, demonstrating its superior performance. In the absence of SADE-QD, V-DE wins100% of the outcomes. This indicates that SADE-CM, plays a critical role in enhancing the performance of the algorithm. In contrast, removing only the DE strategy (which is primarily responsible for guidance) has a less pronounced impact than SADE-CM, but it still contributes to improving the overall performance of the algorithm. Notably, when the complete SADE-QD is incorporated, it outperforms both V-CM and V-DE in approximately 74% of cases, further confirming its effectiveness in optimizing DFJSP-T.",
+        "bbox": [
+            63,
+            880,
+            496,
+            941
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "chart",
+        "img_path": "images/406d1c7be7578994238e316b0b4ac090923bc7ed36550b59dc26d361a2abfffd.jpg",
+        "content": "",
+        "chart_caption": [
+            "Fig. 12. Comparisons among SADE-QD and its variants."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            587,
+            80,
+            858,
+            261
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            506,
+            323,
+            939,
+            474
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "The superior performance of SADE-QD can be attributed to its QD optimization modeling. Incorporating job transfers and machine idle times as feature dimensions within the feature space effectively promotes solution diversity, preventing premature convergence to local optima. QD optimization ensures a broad exploration of the solution space, maintaining diversity throughout the search process. The improvement observed with the inclusion ofSADE-CMis likely due to its domain knowledgebased DE operators, which facilitate the discovery of diverse and high-performing solutions for DFJSP-T. The combination of diversity maintenance and targeted perturbations applied to the FA, OS, and MS vectors enhances the exploration abilities, leading to superior scheduling outcomes.",
+        "bbox": [
+            506,
+            474,
+            939,
+            672
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "F. Discussion",
+        "text_level": 2,
+        "bbox": [
+            508,
+            691,
+            612,
+            707
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "This section presents our findings on the solution update process using SADE-QD. We selected all these instances and recorded the number of successful updates for each feature space cell. A successful update for a cell occurs when a newly generated solution is either placed directly into the cell or replaces an existing solution due to having a better objective value. Successful updates can originate from either the solution within the cell itself or its neighboring solutions. Fig. 13 shows the percentage ofsuccessful updates contributed by the solutions themselves and their neighboring solutions. As illustrated in Fig. 13, neighboring solutions contribute significantly more successful updates compared to the solutions themselves. This finding highlights the importance of co-evolution facilitated by QD optimization. One of the primary assumptions of QD is that evolving a set of solutions is generally more effective than evolving each solution independently [46]. Our experimental results confirm that this assumption holds true in our context.",
+        "bbox": [
+            506,
+            713,
+            939,
+            941
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "page_number",
+        "text": "2272",
+        "bbox": [
+            67,
+            39,
+            95,
+            49
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "header",
+        "text": "IEEE TRANSACTIONS ON EMERGING TOPICS IN COMPUTATIONAL INTELLIGENCE, VOL. 10, NO. 3, JUNE 2026",
+        "bbox": [
+            338,
+            39,
+            939,
+            51
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:33:46 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "chart",
+        "img_path": "images/ff4ff80720124b1046384427d1a8885f6d7b6070906323e1e926774d7b52ee76.jpg",
+        "content": "",
+        "chart_caption": [
+            "Fig. 13. Percentage of successful updates in all instances."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            139,
+            80,
+            405,
+            261
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            57,
+            321,
+            486,
+            353
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "text",
+        "text": "VI. CONCLUSION AND FUTURE WORK",
+        "text_level": 2,
+        "bbox": [
+            139,
+            371,
+            407,
+            385
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "text",
+        "text": "This paper presents the SADE-QD for addressing the DFJSP-T. Unlike conventional optimization methods, SADE-QD generates a set of high-performing solutions with diverse behaviors, offering greater flexibility for decision-makers. In the early stages of iteration, SADE-QD focuses on exploring solutions with diverse behaviors. In the later stages, once a sufficiently diverse set of solutions has been discovered, the self-adaptive differential evolution strategy intentionally guides the search toward more promising regions of the feature space by leveraging solutions with better-performing features.",
+        "bbox": [
+            57,
+            393,
+            488,
+            544
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "text",
+        "text": "The results demonstrate that SADE-QD provides significant advantages over other optimization methods. The solutions obtained by SADE-QD outperform those generated by state-ofthe-art algorithms in 74.8% to 89.8% of instances, validating its effectiveness. Furthermore, analysis reveals that neighboring solutions play a key role in successful updates, emphasizing the importance of co-evolution in the optimization process.",
+        "bbox": [
+            57,
+            544,
+            488,
+            648
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "text",
+        "text": "The application of SADE-QD optimization in DFJSP-T opens several promising avenues for future research. One potential direction is expanding the feature space to incorporate additional industrial constraints and operational characteristics. Further exploration is needed to assess the scalability ofQD optimization in more complex multi-objective scheduling problems. Additionally, future work could investigate the integration of QD with advanced techniques such as evolutionary strategies [68], reinforcement learning [17], [69], and neural networks [70] to further enhance its performance and adaptability in real-world scheduling applications.",
+        "bbox": [
+            57,
+            648,
+            489,
+            816
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "text",
+        "text": "REFERENCES",
+        "text_level": 2,
+        "bbox": [
+            242,
+            830,
+            335,
+            844
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[1] Z. Pan, L. Wang, J. Zheng, J.-f. Chen, and X. Wang, “A learning-based multi-population evolutionary optimization for flexible job shop scheduling problem with finite transportation resources,” IEEE Trans. Evol. Comput., vol. 27, no. 6, pp. 1590–1603, Dec. 2023.",
+        "bbox": [
+            67,
+            852,
+            486,
+            898
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[2] J. Ding, S. Dauzère-Pérès, L. Shen, and Z. Lü, “A novel evolutionary algorithm for energy-efficient scheduling in flexible job shops,” IEEE Trans. Evol. Comput., vol. 27, no. 5, pp. 1470–1484, Oct. 2023.",
+        "bbox": [
+            67,
+            898,
+            486,
+            931
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[3] J.-Q. Li et al., “A hybrid iterated greedy algorithm for a crane transportation flexible job shop problem,” IEEE Trans. Autom. Sci. Eng., vol. 19, no. 3, pp. 2153–2170, Jul. 2022.",
+        "bbox": [
+            510,
+            82,
+            930,
+            114
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[4] Y. Du, J. Li, C. Li, and P. Duan, “A reinforcement learning approach for flexible job shop scheduling problem with crane transportation and setup times,” IEEE Trans. Neural Netw. Learn. Syst., vol. 35, no. 4, pp. 5695–5709, Apr. 2024.",
+        "bbox": [
+            511,
+            116,
+            930,
+            161
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[5] K. Gao, F. Yang, M. Zhou, Q. Pan, and P. N. Suganthan, “Flexiblejob-shop rescheduling for new job insertion by using discrete jaya algorithm,” IEEE Trans. Cybern., vol. 49, no. 5, pp. 1944–1955, May 2019.",
+        "bbox": [
+            510,
+            162,
+            930,
+            195
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[6] J.-J. Wang and L. Wang, “A cooperative memetic algorithm with learning-based agent for energy-aware distributed hybrid flow-shop scheduling,” IEEE Trans. Evol. Comput., vol. 26, no. 3, pp. 461–475, Jun. 2022.",
+        "bbox": [
+            510,
+            196,
+            930,
+            239
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[7] X.-L. Jing, Q.-K. Pan, L. Gao, and L. Wang, “An effective iterated greedy algorithm for a robust distributed permutation flowshop problem with carryover sequence-dependent setup time,” IEEE Trans. Syst., Man, Cybern. Syst., vol. 52, no. 9, pp. 5783–5794, Sep. 2022.",
+        "bbox": [
+            510,
+            239,
+            930,
+            286
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[8] R. Li, W. Gong, C. Lu, and L. Wang, “A learning-based memetic algorithm for energy-efficient flexible job-shop scheduling with type-2 fuzzy processing time,” IEEE Trans. Evol. Comput., vol. 27, no. 3, pp. 610–620, Jun. 2023.",
+        "bbox": [
+            510,
+            286,
+            930,
+            330
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[9] B. Xin et al., “Simultaneous scheduling of processing machines and automated guided vehicles via a multi-view modeling-based hybrid algorithm,” IEEE Trans. Autom. Sci. Eng., vol. 21, no. 3, pp. 4753–4767, Jul. 2024.",
+        "bbox": [
+            508,
+            330,
+            929,
+            364
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[10] M. Jensen, “Generating robust and flexible job shop schedules using genetic algorithms,” IEEE Trans. Evol. Comput., vol. 7, no. 3, pp. 275–288, Jun. 2003.",
+        "bbox": [
+            503,
+            364,
+            930,
+            398
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[11] Q. Zhang, H. Manier, and M.-A. Manier, “A genetic algorithm with tabu search procedure for flexible job shop scheduling with transportation constraints and bounded processing times,” Comput. Operations Res., vol. 39, no. 7, pp. 1713–1723, 2012.",
+        "bbox": [
+            503,
+            398,
+            930,
+            444
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[12] J. Li, Y. Han, K. Gao, X. Xiao, and P. Duan, “Bi-population balancing multi-objective algorithm for fuzzy flexiblejob shop with energy and transportation,” IEEE Trans. Autom. Sci. Eng., vol. 21, no. 3, pp. 4686–4702, Jul. 2024.",
+        "bbox": [
+            503,
+            444,
+            930,
+            489
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[13] K. Lei, P. Guo, Y. Wang, J. Zhang, X. Meng, and L. Qian, “Large-scale dynamic scheduling for flexible job-shop with random arrivals of new jobs by hierarchical reinforcement learning,” IEEE Trans. Ind. Informat., vol. 20, no. 1, pp. 1007–1018, Jan. 2024.",
+        "bbox": [
+            503,
+            489,
+            930,
+            535
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[14] F. M. Defersha and D. Rooyani, “An efficient two-stage genetic algorithm for a flexible job-shop scheduling problem with sequence dependent attached/detached setup, machine release date and lag-time,” Comput. Ind. Eng., vol. 147, 2020, Art. no. 106605.",
+        "bbox": [
+            503,
+            535,
+            930,
+            580
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[15] H. Qin, Y. Xiang, Y. Han, and X. Yan, “Optimizing energy-efficient flexible job shop scheduling with transportation constraints: A Q-learning enhanced quality-diversity algorithm,” in Proc. 6th Int. Conf. Data-Driven Optim. Complex Syst., 2024, pp. 373–378.",
+        "bbox": [
+            503,
+            580,
+            930,
+            625
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[16] Z. Pan, L. Wang, J. Wang, Y. Yu, and R. Li, “Distributed energy-efficient flexible manufacturing with assembly and transportation: A knowledgebased bi-hierarchical optimization approach,” IEEE Trans. Autom. Sci. Eng., vol. 22, pp. 7463–7479, 2025.",
+        "bbox": [
+            503,
+            625,
+            930,
+            671
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[17] H. Qin, Y. Xiang, F. Liu, Y. Han, and Y. Wang, “Enhancing quality-diversity algorithm by reinforcement learning for flexible job shop scheduling with transportation constraints,” Swarm Evol. Comput., vol. 93, 2025, Art. no. 101849. [Online]. Available: https://www.sciencedirect.com/ science/article/pii/S2210650225000070",
+        "bbox": [
+            503,
+            671,
+            930,
+            727
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[18] M. Dai, D. Tang, A. Giret, and M. A. Salido, “Multi-objective optimization for energy-efficient flexible job shop scheduling problem with transportation constraints,” Robot. Comput.- Integr. Manuf., vol. 59, pp. 143–157, 2019.",
+        "bbox": [
+            503,
+            727,
+            930,
+            772
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[19] Y. Yao et al., “A novel mathematical model for the flexible job-shop scheduling problem with limited automated guided vehicles,” IEEE Trans. Autom. Sci. Eng., vol. 22, pp. 7449–7462, 2024.",
+        "bbox": [
+            503,
+            773,
+            930,
+            806
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[20] Z. Li and Y. Chen, “Dynamic scheduling of multi-memory process flexible job shop problem based on digital twin,” Comput. Ind. Eng., vol. 183, 2023, Art. no. 109498.",
+        "bbox": [
+            503,
+            806,
+            930,
+            839
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[21] Q. Luo, Q. Deng, G. Gong, X. Guo, and X. Liu, “A distributed flexible job shop scheduling problem considering worker arrangement using an improved memetic algorithm,” Expert Syst. Appl., vol. 207, 2022, Art. no. 117984.",
+        "bbox": [
+            503,
+            840,
+            930,
+            885
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[22] R. Li, W. Gong, L. Wang, C. Lu, and X. Zhuang, “Surprisingly popularbased adaptive memetic algorithm for energy-efficient distributed flexible job shop scheduling,” IEEETrans. Cybern., vol. 53, no. 12, pp. 8013–8023, Dec. 2023.",
+        "bbox": [
+            503,
+            886,
+            930,
+            930
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "header",
+        "text": "QIN et al.: SADE-QD FOR DISTRIBUTED FLEXIBLE JOB-SHOP SCHEDULING WITH TRANSPORTATION",
+        "bbox": [
+            58,
+            39,
+            607,
+            51
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "page_number",
+        "text": "2273",
+        "bbox": [
+            902,
+            39,
+            930,
+            49
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:33:46 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            963,
+            941,
+            974
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "ref_text",
+        "text": "[23] X. Han et al., “A dual population collaborative genetic algorithm for solving flexible job shop scheduling problem with AGV,” Swarm Evol. Computation, vol. 86, 2024, Art. no. 101538.",
+        "bbox": [
+            67,
+            82,
+            494,
+            116
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[24] S. Dauzère-Pérès, J. Ding, L. Shen, and K. Tamssaouet, “The flexible job shop scheduling problem: A review,” Eur. J. Oper. Res., vol. 314, pp. 409–432, 2023.",
+        "bbox": [
+            67,
+            116,
+            494,
+            150
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[25] B. Tutumlu and T. Saraç, “A milp model and a hybrid genetic algorithm for flexible job-shop scheduling problem with job-splitting,” Comput. Operations Res., vol. 155, 2023, Art. no. 106222.",
+        "bbox": [
+            67,
+            150,
+            494,
+            184
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[26] L. Meng, C. Zhang, Y. Ren, B. Zhang, and C. Lv, “Mixed-integer linear programming and constraint programming formulations for solving distributed flexible job shop scheduling problem,” Comput. Ind. Eng., vol. 142, 2020, Art. no. 106347.",
+        "bbox": [
+            67,
+            184,
+            494,
+            229
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[27] L. Meng, C. Zhang, B. Zhang, K. Gao, Y. Ren, and H. Sang, “MILP modeling and optimization of multi-objective flexible job shop scheduling problem with controllable processing times,” Swarm Evol. Computation, vol. 82, 2023, Art. no. 101374. [Online]. Available: https://www. sciencedirect.com/science/article/pii/S2210650223001475",
+        "bbox": [
+            67,
+            229,
+            494,
+            285
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[28] L. Meng, W. Cheng, C. Zhang, K. Gao, B. Zhang, and Y. Ren, “Novel CP models and CP-assisted meta-heuristic algorithm for flexible job shop scheduling benchmark problem with multi-AGV,” IEEE Trans. Syst., Man, Cybern. Syst., vol. 55, no. 11, pp. 8455–8468, Nov. 2025.",
+        "bbox": [
+            67,
+            286,
+            494,
+            330
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[29] C. Lin, Z. Cao, and M. Zhou, “Learning-based grey wolf optimizer for stochastic flexible job shop scheduling,” IEEE Trans. Autom. Sci. Eng., vol. 19, no. 4, pp. 3659–3671, Oct. 2022.",
+        "bbox": [
+            67,
+            330,
+            494,
+            364
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[30] P. Brandimarte, “Routing and scheduling in a flexible job shop by tabu search,” Ann. Operations Res., vol. 41, no. 3, pp. 157–183, 1993.",
+        "bbox": [
+            67,
+            364,
+            494,
+            388
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[31] T. Jamrus, C.-F. Chien, M. Gen, and K. Sethanan, “Hybrid particle swarm optimization combined with genetic operators for flexible job-shop scheduling under uncertain processing time for semiconductor manufacturing,” IEEE Trans. Semicond. Manuf., vol. 31, no. 1, pp. 32–41, Feb. 2018.",
+        "bbox": [
+            67,
+            388,
+            494,
+            444
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[32] L. Sun, L. Lin, M. Gen, and H. Li, “A hybrid cooperative coevolution algorithm for fuzzy flexiblejob shop scheduling,” IEEE Trans. Fuzzy Syst., vol. 27, no. 5, pp. 1008–1022, May 2019.",
+        "bbox": [
+            67,
+            444,
+            494,
+            478
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[33] J. Ding, Z. Lü, C.-M. Li, L. Shen, L. Xu, and F. Glover, “A two-individual based evolutionary algorithm for the flexible job shop scheduling problem,” in Proc. AAAI Conf. Artif. Intell., vol. 33, no. 1, pp. 2262–2269, 2019.",
+        "bbox": [
+            67,
+            478,
+            494,
+            523
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[34] S. Zhang and S. Wang, “Flexible assembly job-shop scheduling with sequence-dependent setup times and part sharing in a dynamic environment: Constraint programming model, mixed-integer programming model, and dispatching rules,” IEEE Trans. Eng. Manag., vol. 65, no. 3, pp. 487–504, Aug. 2018.",
+        "bbox": [
+            67,
+            523,
+            494,
+            580
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[35] Z. Cao, C. Lin, and M. Zhou, “A knowledge-based cuckoo search algorithm to schedule a flexible job shop with sequencing flexibility,” IEEE Trans. Autom. Sci. Eng., vol. 18, no. 1, pp. 56–69, Jan. 2021.",
+        "bbox": [
+            67,
+            580,
+            494,
+            614
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[36] L. De Giovanni and F. Pezzella, “An improved genetic algorithm for the distributed and flexible job-shop scheduling problem,” Eur. J. Oper. Res., vol. 200, no. 2, pp. 395–408, 2010.",
+        "bbox": [
+            67,
+            614,
+            494,
+            648
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[37] D. Lei, M. Li, and L. Wang, “A two-phase meta-heuristic for multiobjective flexible job shop scheduling problem with total energy consumption threshold,” IEEE Trans. Cybern., vol. 49, no. 3, pp. 1097–1109, Mar. 2019.",
+        "bbox": [
+            67,
+            648,
+            494,
+            681
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[38] Z.-Q. Zhang, F.-C. Wu, B. Qian, R. Hu, L. Wang, and H.-P. Jin, “A Qlearning-based hyper-heuristic evolutionary algorithm for the distributed flexible job-shop scheduling problem with crane transportation,” Expert Syst. Appl., vol. 234, 2023, Art. no. 121050.",
+        "bbox": [
+            67,
+            681,
+            494,
+            727
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[39] R. Li, W. Gong, L. Wang, C. Lu, and C. Dong, “Co-evolution with deep reinforcement learning for energy-aware distributed heterogeneous flexible job shop scheduling,” IEEE Trans. Syst., Man, Cybern. Syst., vol. 54, no. 1, pp. 201–211, Jan. 2024.",
+        "bbox": [
+            67,
+            727,
+            494,
+            773
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[40] I. Kacem, S. Hammadi, and P. Borne, “Approach by localization and multiobjective evolutionary optimization for flexible job-shop scheduling problems,” IEEE Trans. Syst., Man, Cybern., Part C (Appl. Rev.), vol. 32, no. 1, pp. 1–13, Feb. 2002.",
+        "bbox": [
+            67,
+            773,
+            494,
+            818
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[41] Y. An, X. Chen, K. Gao, Y. Li, and L. Zhang, “Multiobjective flexible jobshop rescheduling with new job insertion and machine preventive maintenance,” IEEE Trans. Cybern., vol. 53, no. 5, pp. 3101–3113, May 2023.",
+        "bbox": [
+            67,
+            818,
+            494,
+            852
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[42] Z. Pan, D. Lei, and L. Wang, “A bi-population evolutionary algorithm with feedback for energy-efficient fuzzy flexible job shop scheduling,” IEEE Trans. Syst., Man, Cybern. Syst., vol. 52, no. 8, pp. 5295–5307, Aug. 2022.",
+        "bbox": [
+            67,
+            852,
+            494,
+            897
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[43] Q. Luo, Q. Deng, G. Gong, L. Zhang, W. Han, and K. Li, “An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers,” Expert Syst. Appl., vol. 160, 2020, Art. no. 113721.",
+        "bbox": [
+            67,
+            897,
+            494,
+            931
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[44] Y. Du, J. qing Li, C. Luo, and L. lei Meng, “A hybrid estimation of distribution algorithm for distributed flexible job shop scheduling with crane transportations,” Swarm Evol. Comput., vol. 62, 2021, Art. no. 100861.",
+        "bbox": [
+            510,
+            82,
+            937,
+            116
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[45] W. Cheng, L. Meng, B. Zhang, K. Gao, and H. Sang, “Imitation learningassisted evolutionary algorithm for energy-efficient flexible job shop scheduling problem with automated guided vehicles,” IEEE Trans. Evol. Comput., vol. 30, no. 1, pp. 171–185, Feb. 2026.",
+        "bbox": [
+            510,
+            116,
+            937,
+            161
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[46] J. K. Pugh, L. B. Soros, and K. O. Stanley, “Quality diversity: A new frontier for evolutionary computation,” Front. Robot. AI, vol. 3, 2016, Art. no. 40.",
+        "bbox": [
+            510,
+            162,
+            937,
+            195
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[47] K. Chatzilygeroudis, A. Cully, V. Vassiliades, and J.-B. Mouret, “Qualitydiversity optimization: A novel branch ofstochastic optimization,” in Black Box Optimization, Machine Learning, and No-Free Lunch Theorems, P. M. Pardalos, V. Rasskazova, and M. N. Vrahatis, Eds., Cham, Switzerland: Springer, 2021, pp. 109–135.",
+        "bbox": [
+            510,
+            195,
+            937,
+            252
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[48] H. Qin, W. Bai, Y. Xiang, F. Liu, Y. Han, and L. Wang, “A self-adaptive collaborative differential evolution algorithm for solving energy resource management problems in smart grids,” IEEE Trans. Evol. Comput., vol. 28, no. 5, pp. 1427–1441, Oct. 2024.",
+        "bbox": [
+            511,
+            252,
+            937,
+            297
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[49] J.-B. Mouret and J. Clune, “Illuminating search spaces by mapping elites,” 2015, arXiv:1504.04909.",
+        "bbox": [
+            510,
+            297,
+            937,
+            320
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[50] A. Cully, J. Clune, D. Tarapore, and J.-B. Mouret, “Robots that can adapt like animals,” Nature, vol. 521, no. 7553, pp. 503–507, May 2015, doi: 10.1038/nature14422.",
+        "bbox": [
+            511,
+            320,
+            937,
+            353
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[51] L. Grillotti and A. Cully, “Unsupervised behavior discovery with qualitydiversity optimization,” IEEE Trans. Evol. Comput., vol. 26, no. 6, pp. 1539–1552, Dec. 2022.",
+        "bbox": [
+            511,
+            354,
+            937,
+            388
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[52] A. Ecoffet, J. Huizinga, J. Lehman, K. O. Stanley, and J. Clune, “First return, then explore,” Nature, vol. 590, no. 7847, pp. 580–586, Feb., doi: 10.1038/s41586-020-03157-9.",
+        "bbox": [
+            511,
+            388,
+            937,
+            421
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[53] J. Schrum, B. Capps, K. Steckel, V. Volz, and S. Risi, “Hybrid encoding for generating large scale game level patterns with local variations,” IEEE Trans. Games, vol. 15, no. 1, pp. 46–55, Mar. 2023.",
+        "bbox": [
+            511,
+            422,
+            937,
+            455
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[54] Y. Xiang, H. Huang, M. Li, S. Li, and X. Yang, “Looking for novelty in search-based software product line testing,” IEEE Trans. Softw. Eng., vol. 48, no. 7, pp. 2317–2338, Jul. 2022.",
+        "bbox": [
+            510,
+            455,
+            937,
+            489
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[55] Y. Xiang, H. Huang, S. Li, M. Li, C. Luo, and X. Yang, “Automated test suite generation for software product lines based on quality-diversity optimization,” ACM Trans. Softw. Eng. Methodol., vol. 33, pp. 1–52, Oct. 2023.",
+        "bbox": [
+            511,
+            489,
+            937,
+            534
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[56] Y. Yuan and H. Xu, “Multiobjective flexible job shop scheduling using memetic algorithms,” IEEE Trans. Autom. Sci. Eng., vol. 12, no. 1, pp. 336–353, Jan. 2015.",
+        "bbox": [
+            510,
+            535,
+            937,
+            569
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[57] N. Zribi, I. Kacem, A. E. Kamel, and P. Borne, “Assignment and scheduling in flexiblejob-shops by hierarchical optimization,” IEEE Trans. Syst., Man, Cybern., vol. 37, no. 4, pp. 652–661, Jul. 2007.",
+        "bbox": [
+            510,
+            569,
+            937,
+            603
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[58] Y. Du, J.-q. Li, X.-l. Chen, P.-y. Duan, and Q.-k. Pan, “Knowledge-based reinforcement learning and estimation ofdistribution algorithm for flexible job shop scheduling problem,” IEEE Trans. Emerg. Topics Comput. Intell., vol. 7, no. 4, pp. 1036–1050, Aug. 2023.",
+        "bbox": [
+            510,
+            603,
+            937,
+            648
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[59] A. P. A. Agarwal and D. Kumar, “Job shop and flexiblejob shop scheduling problems: Critical analysis of literature review and their basic technology,” Int. J. Ind. Eng. Des., vol. 6, pp. 48–69, Jul. 2020.",
+        "bbox": [
+            510,
+            648,
+            937,
+            683
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[60] Y. Wang and Q. Zhu, “A hybrid genetic algorithm for flexible job shop scheduling problem with sequence-dependent setup times and job lag times,” IEEE Access, vol. 9, pp. 104864–104873, 2021.",
+        "bbox": [
+            510,
+            681,
+            937,
+            715
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[61] Y. Zhang, M. C. Fontaine, A. K. Hoover, and S. Nikolaidis, “Deep surrogate assisted map-elites for automated hearthstone deckbuilding,” in Proc. Genet. Evol. Comput. Conf., 2022, pp. 158–167.",
+        "bbox": [
+            510,
+            715,
+            937,
+            750
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[62] C. Lu, L. Gao, J. Yi, and X. Li, “Energy-efficient scheduling of distributed flow shop with heterogeneous factories: A real-world case from automobile industry in China,” IEEE Trans. Ind. Informat., vol. 17, no. 10, pp. 6687–6696, Oct. 2021.",
+        "bbox": [
+            511,
+            750,
+            937,
+            795
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[63] H. Qin, Y. Xiang, Y. Han, Y. Wang, J. Li, and Q. Pan, “A knowledge region selection enhanced quality-diversity algorithm for real-world flexible job shop scheduling with automated guided vehicles transportation,” Eng. Appl. Artif. Intell., vol. 164, 2026, Art. no. 113352.",
+        "bbox": [
+            510,
+            795,
+            937,
+            840
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[64] G. U. Umit Bilge, “A time window approach to simultaneous scheduling of machines and material handling system in an FMS,” Operations Res., vol. 43, no. 6, pp. 1058–1070, 1995.",
+        "bbox": [
+            511,
+            840,
+            937,
+            875
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[65] H.-X. Qin et al., “An improved iterated greedy algorithm for the energyefficient blocking hybrid flow shop scheduling problem,” Swarm Evol. Computation, vol. 69, 2022, Art. no. 100992.",
+        "bbox": [
+            511,
+            875,
+            937,
+            907
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "[66] H. Qin, Y. Han, Y. Wang, Y. Liu, J. Li, and Q. Pan, “Intelligent optimization under blocking constraints: A novel iterated greedy algorithm for the",
+        "bbox": [
+            510,
+            909,
+            937,
+            931
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "page_number",
+        "text": "2274",
+        "bbox": [
+            67,
+            39,
+            95,
+            49
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "header",
+        "text": "IEEE TRANSACTIONS ON EMERGING TOPICS IN COMPUTATIONAL INTELLIGENCE, VOL. 10, NO. 3, JUNE 2026",
+        "bbox": [
+            338,
+            39,
+            939,
+            50
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:33:46 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            50,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "ref_text",
+        "text": "hybrid flow shop group scheduling problem,” Knowl.-BasedSyst., vol. 258, 2022, Art. no. 109962.",
+        "bbox": [
+            89,
+            82,
+            486,
+            104
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "ref_text",
+        "text": "[67] X. Zhou, F. Wang, B. Wu, Y. Li, and N. Shen, “Deep reinforcement learning-based memetic algorithm for solving dynamic distributed green flexible job shop scheduling problem with finite transportation resources,” Swarm Evol. Computation, vol. 94, 2025, Art. no. 101885.",
+        "bbox": [
+            62,
+            104,
+            486,
+            148
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "ref_text",
+        "text": "[68] S. Yang, H. Huang, F. Luo, Y. Xu, and Z. Hao, “Local-diversity evaluation assignment strategy for decomposition-based multiobjective evolutionary algorithm,” IEEE Trans. Syst., Man, Cybern. Syst., vol. 53, no. 3, pp. 1697–1709, Mar. 2023.",
+        "bbox": [
+            62,
+            150,
+            486,
+            195
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "ref_text",
+        "text": "[69] H. Qin et al., “Energy-efficient iterative greedy algorithm for the distributed hybrid flow shop scheduling with blocking constraints,” IEEE Trans. Emerg. Topics Comput. Intell., vol. 7, no. 5, pp. 1442–1457, Oct. 2023.",
+        "bbox": [
+            62,
+            196,
+            486,
+            229
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "ref_text",
+        "text": "[70] J.-P. Huang, L. Gao, X.-Y. Li, and C.-J. Zhang, “A novel priority dispatch rule generation method based on graph neural network and reinforcement learning for distributed job-shop scheduling,” J. Manuf. Syst., vol. 69, pp. 119–134, 2023.",
+        "bbox": [
+            60,
+            229,
+            486,
+            273
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "image",
+        "img_path": "images/ce78f6540fc6323de948da26d665303c334b1a40a89ed9cd482745cdc0aa86c6.jpg",
+        "image_caption": [],
+        "image_footnote": [
+            "Haoxiang Qin received the B.S. and M.S. degrees from the School of Computer Science, Liaocheng University, Liaocheng, China. He is currently working toward the Ph.D. degree in software engineering with the School of Software Engineering, South China University of Technology, Guangzhou, China. His research interests include quality-diversity optimization, flexible job shop scheduling, and deep reinforcement learning."
+        ],
+        "content": "",
+        "bbox": [
+            62,
+            319,
+            183,
+            434
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "image",
+        "img_path": "images/ea77b795becb9af45c5f7e5a162eb2332097c2a490837f90396879e3f3aa23b8.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            62,
+            469,
+            183,
+            584
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "text",
+        "text": "Yi Xiang received the B.Sc. and M.Sc. degrees in mathematics from Guangzhou University, Guangzhou, China, in 2010 and 2013, respectively, and the Ph.D. degree in computer science from Sun Yat-sen University, Guangzhou, in 2018. He is currently an Associate Professor with the School of Software Engineering, South China University of Technology, Guangzhou. His research interests include software product lines, search-based software engineering, and multi-objective optimization.",
+        "bbox": [
+            198,
+            467,
+            489,
+            584
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "image",
+        "img_path": "images/c602da1df3a96431eb198577fb9906b1c89c8f438ba46a8475e8c95daf40b932.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            62,
+            631,
+            183,
+            744
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "text",
+        "text": "Yuyan Han received the M.S. degree from the School of Computer Science, Liaocheng University, Liaocheng, China, in 2012, and the Ph.D. degree in control theory and control engineering from the China University ofMining and Technology, Xuzhou, China, in 2016. Since 2016, she has been an Associate Professor with the School of Computer Science, Liaocheng University. She has authored more than 72 refereed papers. Her research interests include evolutionary computation, multiobjective optimization, and flow-shop scheduling.",
+        "bbox": [
+            198,
+            628,
+            489,
+            756
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "image",
+        "img_path": "images/b33b9bdbd8343848f3e329343edd308182061864d42d5fa6b1e9a489c9190c68.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            503,
+            83,
+            626,
+            196
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "text",
+        "text": "Yuting Wang received the master’s degree in computer software and theory from the China University of Petroleum Beijing, China, in 2005. Since 2013, he has been an Associate Professor with the School of Computer Science, Liaocheng University, Liaocheng, China. He has authored or coauthored more than 20 papers. His research interests include mathematical modeling, intelligent optimization algorithms, and software development technology.",
+        "bbox": [
+            641,
+            80,
+            932,
+            186
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "image",
+        "img_path": "images/50d0b82c224fc82e8ff283692f83e9becdb5980750b387c77fddf8914b70d34c.jpg",
+        "image_caption": [],
+        "image_footnote": [
+            "technology."
+        ],
+        "content": "",
+        "bbox": [
+            503,
+            263,
+            626,
+            378
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "text",
+        "text": "Chunguo Wu received the B.S. and M.S. degrees from the Department of Mathematics, and the Ph.D. degree from the College of Computer Science and Technology, Jilin University, Changchun, China, in 2006. He is currently a Professor with Jilin University. He has authored or coauthored two books, two inventions, and more than 60 articles in Information Sciences and Physical Review E. His research interests include machine learning, evolutionary computation, adaptive systems, mathematical modeling, intelligent optimization algorithms, and software development",
+        "bbox": [
+            641,
+            263,
+            932,
+            390
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "image",
+        "img_path": "images/b817516ad4b4f7aa2fda3c846894c2c8a86a6b3d2218d3945104022fd195fbfc.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            503,
+            479,
+            626,
+            594
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "text",
+        "text": "Fujian Feng received the B.S. degree in computer science and technology from the Shandong Technology and Business University, Yantai, China, in 2009, the M.S. degree in probability theory and mathematical statistics from Guizhou Minzu University, Guiyang, China, in 2013, and the Ph.D. degree in software engineering from the South China University ofTechnology, Guangzhou, China, in 2022. He is currently a Professor with the Guizhou Key Laboratory ofPattern Recognition and Intelligent System, Guizhou Minzu University, Guiyang, China. His research interests include evolutionary computation and micro-computation.",
+        "bbox": [
+            641,
+            478,
+            930,
+            604
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            503,
+            603,
+            821,
+            614
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "header",
+        "text": "QIN et al.: SADE-QD FOR DISTRIBUTED FLEXIBLE JOB-SHOP SCHEDULING WITH TRANSPORTATION",
+        "bbox": [
+            58,
+            39,
+            607,
+            51
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "page_number",
+        "text": "2275",
+        "bbox": [
+            902,
+            39,
+            930,
+            50
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "footer",
+        "text": "Authorized licensed use limited to: Huazhong University of Science and Technology. Downloaded on July 22,2026 at 05:33:46 UTC from IEEE Xplore. Restrictions apply.",
+        "bbox": [
+            52,
+            962,
+            941,
+            974
+        ],
+        "page_idx": 15
+    }
+]

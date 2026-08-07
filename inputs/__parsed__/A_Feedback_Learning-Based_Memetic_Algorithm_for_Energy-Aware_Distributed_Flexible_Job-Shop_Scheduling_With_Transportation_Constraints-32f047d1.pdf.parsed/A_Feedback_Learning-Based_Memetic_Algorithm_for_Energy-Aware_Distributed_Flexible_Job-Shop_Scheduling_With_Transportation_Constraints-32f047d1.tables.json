@@ -1,0 +1,107 @@
+{
+  "version": "1.0",
+  "tables": {
+    "tb-3064a959dca3e0581ecf9bc89a1a99fd-0001": {
+      "id": "tb-3064a959dca3e0581ecf9bc89a1a99fd-0001",
+      "blockid": "37c06e8b65513207b22abcda1879884f",
+      "heading": "E. Problem-Specific Operators",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "dimension": [
+        11,
+        5
+      ],
+      "format": "html",
+      "content": "<table><tr><td>No</td><td>Operator</td><td>Exploration or Exploitation</td><td>Vector</td><td>Objective</td></tr><tr><td>1</td><td>crossover</td><td>Exploration</td><td>all</td><td>all</td></tr><tr><td>2</td><td>reencode</td><td>Exploitation</td><td>JSV</td><td> $C_{\\text{max}}$ </td></tr><tr><td>3</td><td>JS-swap1</td><td>Exploitation</td><td>JSV</td><td> $C_{\\text{max}}$ </td></tr><tr><td>4</td><td>JS-swap2</td><td>Exploitation</td><td>JSV</td><td>TEC</td></tr><tr><td>5</td><td>JS-insert1</td><td>Exploitation</td><td>JSV</td><td> $C_{\\text{max}}$ </td></tr><tr><td>6</td><td>JS-insert2</td><td>Exploitation</td><td>JSV</td><td>TEC</td></tr><tr><td>7</td><td>MA1</td><td>Exploitation</td><td>MAV</td><td> $C_{\\text{max}}$ </td></tr><tr><td>8</td><td>MA2</td><td>Exploitation</td><td>MAV</td><td>TEC</td></tr><tr><td>9</td><td>AA1</td><td>Exploitation</td><td>AAV</td><td> $C_{\\text{max}}$ </td></tr><tr><td>10</td><td>AA2</td><td>Exploitation</td><td>AAV</td><td>TEC</td></tr></table>",
+      "caption": "TABLE I",
+      "footnotes": [],
+      "self_ref": "content_list.json#/162"
+    },
+    "tb-3064a959dca3e0581ecf9bc89a1a99fd-0002": {
+      "id": "tb-3064a959dca3e0581ecf9bc89a1a99fd-0002",
+      "blockid": "9356f3f30fb4f451216bf194ad3b8c77",
+      "heading": "B. Parameter Settings",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "dimension": [
+        18,
+        5
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Experiment Number</td><td colspan=\"3\">Factor level</td><td rowspan=\"2\">RV</td></tr><tr><td>PS</td><td>NS</td><td>HL</td></tr><tr><td>1</td><td>1</td><td>1</td><td>1</td><td>0.800</td></tr><tr><td>2</td><td>1</td><td>2</td><td>2</td><td>0.732</td></tr><tr><td>3</td><td>1</td><td>3</td><td>3</td><td>0.717</td></tr><tr><td>4</td><td>1</td><td>4</td><td>4</td><td>0.686</td></tr><tr><td>5</td><td>2</td><td>1</td><td>2</td><td>0.739</td></tr><tr><td>6</td><td>2</td><td>2</td><td>1</td><td>0.681</td></tr><tr><td>7</td><td>2</td><td>3</td><td>4</td><td>0.792</td></tr><tr><td>8</td><td>2</td><td>4</td><td>3</td><td>0.733</td></tr><tr><td>9</td><td>3</td><td>1</td><td>3</td><td>0.686</td></tr><tr><td>10</td><td>3</td><td>2</td><td>4</td><td>0.764</td></tr><tr><td>11</td><td>3</td><td>3</td><td>1</td><td>0.736</td></tr><tr><td>12</td><td>3</td><td>4</td><td>2</td><td>0.596</td></tr><tr><td>13</td><td>4</td><td>1</td><td>4</td><td>0.649</td></tr><tr><td>14</td><td>4</td><td>2</td><td>3</td><td>0.744</td></tr><tr><td>15</td><td>4</td><td>3</td><td>2</td><td>0.709</td></tr><tr><td>16</td><td>4</td><td>4</td><td>1</td><td>0.612</td></tr></table>",
+      "caption": "TABLE II",
+      "footnotes": [],
+      "self_ref": "content_list.json#/224"
+    },
+    "tb-3064a959dca3e0581ecf9bc89a1a99fd-0003": {
+      "id": "tb-3064a959dca3e0581ecf9bc89a1a99fd-0003",
+      "blockid": "9356f3f30fb4f451216bf194ad3b8c77",
+      "heading": "B. Parameter Settings",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "dimension": [
+        7,
+        4
+      ],
+      "format": "html",
+      "content": "<table><tr><td>Level</td><td>PS</td><td>NS</td><td>HL</td></tr><tr><td>1</td><td>0.7337</td><td>0.7185</td><td>0.7072</td></tr><tr><td>2</td><td>0.7362</td><td>0.7301</td><td>0.6940</td></tr><tr><td>3</td><td>0.6955</td><td>0.7385</td><td>0.7201</td></tr><tr><td>4</td><td>0.6787</td><td>0.6569</td><td>0.7228</td></tr><tr><td>Delta</td><td>0.0575</td><td>0.0816</td><td>0.0288</td></tr><tr><td>Rank</td><td>2</td><td>1</td><td>3</td></tr></table>",
+      "caption": "AVERAGE RVS AND THE RANK OF EACH PARAMETER",
+      "footnotes": [],
+      "self_ref": "content_list.json#/225"
+    },
+    "tb-3064a959dca3e0581ecf9bc89a1a99fd-0004": {
+      "id": "tb-3064a959dca3e0581ecf9bc89a1a99fd-0004",
+      "blockid": "ac2adcff59dda40efbe8fa40b4473090",
+      "heading": "C. Effect of Designed Strategies on the FLMA",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "dimension": [
+        33,
+        9
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">(F,n,m)</td><td colspan=\"4\">HV</td><td colspan=\"4\">IGD</td></tr><tr><td>FLMA</td><td>A1</td><td>A2</td><td>A3</td><td>FLMA</td><td>A1</td><td>A2</td><td>A3</td></tr><tr><td>(2,20,3)</td><td>0.77</td><td>0.66</td><td>0.68</td><td>0.61</td><td>0.00</td><td>0.05</td><td>0.07</td><td>0.10</td></tr><tr><td>(2,20,5)</td><td>0.83</td><td>0.65</td><td>0.53</td><td>0.42</td><td>0.00</td><td>0.09</td><td>0.20</td><td>0.19</td></tr><tr><td>(2,40,3)</td><td>0.75</td><td>0.67</td><td>0.65</td><td>0.62</td><td>0.00</td><td>0.07</td><td>0.09</td><td>0.09</td></tr><tr><td>(2,40,5)</td><td>0.76</td><td>0.63</td><td>0.63</td><td>0.48</td><td>0.00</td><td>0.09</td><td>0.11</td><td>0.18</td></tr><tr><td>(2,60,3)</td><td>0.71</td><td>0.58</td><td>0.59</td><td>0.50</td><td>0.00</td><td>0.08</td><td>0.06</td><td>0.12</td></tr><tr><td>(2,60,5)</td><td>0.77</td><td>0.62</td><td>0.54</td><td>0.40</td><td>0.00</td><td>0.11</td><td>0.14</td><td>0.28</td></tr><tr><td>(2,80,3)</td><td>0.73</td><td>0.67</td><td>0.70</td><td>0.56</td><td>0.02</td><td>0.05</td><td>0.04</td><td>0.13</td></tr><tr><td>(2,80,5)</td><td>0.80</td><td>0.68</td><td>0.66</td><td>0.49</td><td>0.00</td><td>0.08</td><td>0.09</td><td>0.21</td></tr><tr><td>(2,100,3)</td><td>0.82</td><td>0.61</td><td>0.72</td><td>0.53</td><td>0.00</td><td>0.11</td><td>0.07</td><td>0.20</td></tr><tr><td>(2,100,5)</td><td>0.85</td><td>0.70</td><td>0.57</td><td>0.56</td><td>0.00</td><td>0.10</td><td>0.22</td><td>0.20</td></tr><tr><td>(3,20,3)</td><td>0.71</td><td>0.65</td><td>0.58</td><td>0.54</td><td>0.05</td><td>0.07</td><td>0.13</td><td>0.23</td></tr><tr><td>(3,20,5)</td><td>0.88</td><td>0.67</td><td>0.76</td><td>0.19</td><td>0.00</td><td>0.15</td><td>0.07</td><td>0.54</td></tr><tr><td>(3,40,3)</td><td>0.77</td><td>0.62</td><td>0.61</td><td>0.57</td><td>0.02</td><td>0.09</td><td>0.12</td><td>0.09</td></tr><tr><td>(3,40,5)</td><td>0.77</td><td>0.63</td><td>0.53</td><td>0.56</td><td>0.00</td><td>0.10</td><td>0.18</td><td>0.15</td></tr><tr><td>(3,60,3)</td><td>0.75</td><td>0.63</td><td>0.65</td><td>0.58</td><td>0.00</td><td>0.07</td><td>0.07</td><td>0.11</td></tr><tr><td>(3,60,5)</td><td>0.81</td><td>0.60</td><td>0.63</td><td>0.42</td><td>0.00</td><td>0.14</td><td>0.15</td><td>0.25</td></tr><tr><td>(3,80,3)</td><td>0.72</td><td>0.60</td><td>0.65</td><td>0.45</td><td>0.01</td><td>0.05</td><td>0.06</td><td>0.19</td></tr><tr><td>(3,80,5)</td><td>0.76</td><td>0.66</td><td>0.42</td><td>0.30</td><td>0.05</td><td>0.14</td><td>0.26</td><td>0.31</td></tr><tr><td>(3,100,3)</td><td>0.68</td><td>0.60</td><td>0.59</td><td>0.45</td><td>0.05</td><td>0.06</td><td>0.09</td><td>0.20</td></tr><tr><td>(3,100,5)</td><td>0.59</td><td>0.84</td><td>0.70</td><td>0.32</td><td>0.21</td><td>0.00</td><td>0.15</td><td>0.47</td></tr><tr><td>(5,20,3)</td><td>0.84</td><td>0.69</td><td>0.77</td><td>0.58</td><td>0.06</td><td>0.18</td><td>0.12</td><td>0.30</td></tr><tr><td>(5,20,5)</td><td>0.85</td><td>0.78</td><td>0.71</td><td>0.11</td><td>0.08</td><td>0.10</td><td>0.20</td><td>0.70</td></tr><tr><td>(5,40,3)</td><td>0.90</td><td>0.80</td><td>0.46</td><td>0.25</td><td>0.00</td><td>0.11</td><td>0.53</td><td>0.56</td></tr><tr><td>(5,40,5)</td><td>0.90</td><td>0.78</td><td>0.78</td><td>0.13</td><td>0.02</td><td>0.17</td><td>0.05</td><td>0.70</td></tr><tr><td>(5,60,3)</td><td>0.67</td><td>0.33</td><td>0.44</td><td>0.24</td><td>0.00</td><td>0.31</td><td>0.11</td><td>0.35</td></tr><tr><td>(5,60,5)</td><td>0.76</td><td>0.46</td><td>0.74</td><td>0.16</td><td>0.00</td><td>0.14</td><td>0.07</td><td>0.51</td></tr><tr><td>(5,80,3)</td><td>0.77</td><td>0.32</td><td>0.50</td><td>0.24</td><td>0.00</td><td>0.37</td><td>0.20</td><td>0.31</td></tr><tr><td>(5,80,5)</td><td>0.63</td><td>0.67</td><td>0.73</td><td>0.04</td><td>0.19</td><td>0.14</td><td>0.11</td><td>0.79</td></tr><tr><td>(5,100,3)</td><td>0.82</td><td>0.79</td><td>0.42</td><td>0.24</td><td>0.07</td><td>0.09</td><td>0.23</td><td>0.45</td></tr><tr><td>(5,100,5)</td><td>0.94</td><td>0.52</td><td>0.78</td><td>0.31</td><td>0.00</td><td>0.40</td><td>0.10</td><td>0.36</td></tr><tr><td>AVE</td><td>0.78</td><td>0.64</td><td>0.62</td><td>0.40</td><td>0.03</td><td>0.12</td><td>0.14</td><td>0.31</td></tr></table>",
+      "caption": "TABLE IV",
+      "footnotes": [],
+      "self_ref": "content_list.json#/232"
+    },
+    "tb-3064a959dca3e0581ecf9bc89a1a99fd-0005": {
+      "id": "tb-3064a959dca3e0581ecf9bc89a1a99fd-0005",
+      "blockid": "124f3da80a290937cdd40f7b0115b4e4",
+      "heading": "D. Comparisons to Other Algorithms",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "dimension": [
+        38,
+        7
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Instance</td><td colspan=\"3\">HV</td><td colspan=\"3\">IGD</td></tr><tr><td>FLMA</td><td>HMOMA</td><td>IGA</td><td>FLMA</td><td>HMOMA</td><td>IGA</td></tr><tr><td>DFJSPT1</td><td>0.95</td><td>0.51</td><td>0.59</td><td>0.00</td><td>0.31</td><td>0.27</td></tr><tr><td>DFJSPT2</td><td>0.98</td><td>0.54</td><td>0.63</td><td>0.00</td><td>0.50</td><td>0.37</td></tr><tr><td>DFJSPT3</td><td>0.99</td><td>0.65</td><td>0.74</td><td>0.00</td><td>0.56</td><td>0.39</td></tr><tr><td>DFJSPT4</td><td>0.96</td><td>0.60</td><td>0.67</td><td>0.00</td><td>0.38</td><td>0.12</td></tr><tr><td>DFJSPT5</td><td>1.00</td><td>0.72</td><td>0.64</td><td>0.00</td><td>0.59</td><td>0.62</td></tr><tr><td>DFJSPT6</td><td>0.95</td><td>0.61</td><td>0.58</td><td>0.00</td><td>0.42</td><td>0.15</td></tr><tr><td>DFJSPT7</td><td>0.98</td><td>0.66</td><td>0.63</td><td>0.00</td><td>0.35</td><td>0.19</td></tr><tr><td>DFJSPT8</td><td>0.93</td><td>0.56</td><td>0.58</td><td>0.00</td><td>0.28</td><td>0.10</td></tr><tr><td>DFJSPT9</td><td>0.96</td><td>0.67</td><td>0.72</td><td>0.01</td><td>0.29</td><td>0.10</td></tr><tr><td>DFJSPT10</td><td>0.93</td><td>0.55</td><td>0.54</td><td>0.00</td><td>0.34</td><td>0.26</td></tr><tr><td>DMK01</td><td>1.00</td><td>0.05</td><td>0.23</td><td>0.00</td><td>1.12</td><td>0.77</td></tr><tr><td>DMK02</td><td>1.00</td><td>0.04</td><td>0.15</td><td>0.00</td><td>1.11</td><td>0.83</td></tr><tr><td>DMK03</td><td>1.00</td><td>0.04</td><td>0.14</td><td>0.00</td><td>1.17</td><td>0.91</td></tr><tr><td>DMK04</td><td>1.00</td><td>0.07</td><td>0.23</td><td>0.00</td><td>1.06</td><td>0.80</td></tr><tr><td>DMK05</td><td>1.00</td><td>0.05</td><td>0.16</td><td>0.00</td><td>1.12</td><td>0.83</td></tr><tr><td>DMK06</td><td>1.00</td><td>0.03</td><td>0.09</td><td>0.00</td><td>1.20</td><td>0.94</td></tr><tr><td>DMK07</td><td>1.00</td><td>0.05</td><td>0.18</td><td>0.00</td><td>1.11</td><td>0.79</td></tr><tr><td>DMK08</td><td>1.00</td><td>0.08</td><td>0.21</td><td>0.00</td><td>1.02</td><td>0.74</td></tr><tr><td>DMK09</td><td>1.00</td><td>0.04</td><td>0.18</td><td>0.00</td><td>1.18</td><td>0.84</td></tr><tr><td>DMK10</td><td>1.00</td><td>0.04</td><td>0.09</td><td>0.00</td><td>1.18</td><td>0.92</td></tr><tr><td>(2,20)</td><td>0.93</td><td>0.21</td><td>0.38</td><td>0.00</td><td>0.65</td><td>0.43</td></tr><tr><td>(2,40)</td><td>0.92</td><td>0.12</td><td>0.23</td><td>0.00</td><td>0.69</td><td>0.45</td></tr><tr><td>(2,60)</td><td>0.90</td><td>0.07</td><td>0.25</td><td>0.00</td><td>0.79</td><td>0.49</td></tr><tr><td>(2,80)</td><td>0.93</td><td>0.05</td><td>0.14</td><td>0.00</td><td>0.86</td><td>0.58</td></tr><tr><td>(2,100)</td><td>0.95</td><td>0.06</td><td>0.15</td><td>0.00</td><td>0.89</td><td>0.63</td></tr><tr><td>(3,20)</td><td>0.96</td><td>0.13</td><td>0.40</td><td>0.00</td><td>0.77</td><td>0.39</td></tr><tr><td>(3,40)</td><td>0.96</td><td>0.06</td><td>0.24</td><td>0.00</td><td>0.84</td><td>0.44</td></tr><tr><td>(3,60)</td><td>0.93</td><td>0.09</td><td>0.20</td><td>0.00</td><td>0.81</td><td>0.47</td></tr><tr><td>(3,80)</td><td>0.97</td><td>0.05</td><td>0.17</td><td>0.00</td><td>0.91</td><td>0.38</td></tr><tr><td>(3,100)</td><td>0.97</td><td>0.04</td><td>0.18</td><td>0.00</td><td>1.00</td><td>0.48</td></tr><tr><td>(5,20)</td><td>0.98</td><td>0.13</td><td>0.23</td><td>0.00</td><td>0.88</td><td>0.64</td></tr><tr><td>(5,40)</td><td>1.00</td><td>0.04</td><td>0.30</td><td>0.00</td><td>1.08</td><td>0.69</td></tr><tr><td>(5,60)</td><td>0.95</td><td>0.03</td><td>0.31</td><td>0.00</td><td>0.84</td><td>0.07</td></tr><tr><td>(5,80)</td><td>0.99</td><td>0.03</td><td>0.21</td><td>0.00</td><td>1.02</td><td>0.56</td></tr><tr><td>(5,100)</td><td>0.99</td><td>0.03</td><td>0.26</td><td>0.00</td><td>1.02</td><td>0.38</td></tr><tr><td>AVE</td><td>0.97</td><td>0.22</td><td>0.33</td><td>0.00</td><td>0.81</td><td>0.52</td></tr></table>",
+      "caption": "TABLE V",
+      "footnotes": [],
+      "self_ref": "content_list.json#/244"
+    },
+    "tb-3064a959dca3e0581ecf9bc89a1a99fd-0006": {
+      "id": "tb-3064a959dca3e0581ecf9bc89a1a99fd-0006",
+      "blockid": "124f3da80a290937cdd40f7b0115b4e4",
+      "heading": "D. Comparisons to Other Algorithms",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "dimension": [
+        6,
+        4
+      ],
+      "format": "html",
+      "content": "<table><tr><td></td><td>p-value(C)</td><td>p-value(HV)</td><td>p-value(IGD)</td></tr><tr><td>p-value (FLMA, A1)</td><td>0.000</td><td>0.000</td><td>0.000</td></tr><tr><td>p-value (FLMA, A2)</td><td>0.000</td><td>0.000</td><td>0.000</td></tr><tr><td>p-value (FLMA, A3)</td><td>0.000</td><td>0.000</td><td>0.000</td></tr><tr><td>p-value (FLMA, HMOMA)</td><td>0.000</td><td>0.000</td><td>0.000</td></tr><tr><td>p-value (FLMA, IGA)</td><td>0.000</td><td>0.000</td><td>0.000</td></tr></table>",
+      "caption": "PAIRWISE COMPARISONS OF ALL ALGORITHMS",
+      "footnotes": [],
+      "self_ref": "content_list.json#/245"
+    }
+  }
+}

@@ -5,7 +5,9 @@ import math
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from harness_agent.agents.quality_contract import build_agent_generated_solver_quality_contract
 from harness_agent.context.contract import DraftContractRequest, build_draft_contract
 from harness_agent.context.packet import ContextPacketRequest, write_context_packet, write_refreshed_context_packet
 from harness_agent.context.intake import ProjectIntakeRequest, write_project_intake
@@ -30,6 +32,228 @@ class ContextPacketTests(unittest.TestCase):
         self.assertEqual(
             ["job_id", "op_id", "machine_id", "start", "end"],
             protocol["solution_contract"]["schedule_record_fields"],
+        )
+
+    def test_distributed_instance_switches_effective_domain_and_solution_contract(self) -> None:
+        instance_path = (
+            "ALL-Input-Information/10-distributed-FJSP/10-Instance/small size/DFM01_10x2x6.txt"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            contract_path = Path(tmp) / "distributed_contract.json"
+            contract_path.write_text(
+                json.dumps(
+                    {
+                        "task_id": "distributed_fjsp_test",
+                        "problem_family": "FJSP",
+                        "description": "Solve distributed FJSP with factories, transfer time, and energy.",
+                        "instances": [{"id": "DFM01", "path": instance_path}],
+                        "objectives": [
+                            {
+                                "name": "makespan",
+                                "direction": "minimize",
+                                "priority": 1,
+                                "invalid_if_missing": True,
+                            }
+                        ],
+                        "commands": {
+                            "solver": (
+                                "python examples/agent_generated_fjsp_solver.py --input {instance} "
+                                "--output {solution} --seed {seed} --time-limit-sec {solver_time_limit_seconds}"
+                            ),
+                            "evaluator": (
+                                "python examples/fjsp_distributed_transfer_evaluator.py "
+                                "--instance {instance} --solution {solution} --metrics {metrics}"
+                            ),
+                            "quick_test": "python -m py_compile examples/fjsp_distributed_transfer_evaluator.py",
+                        },
+                        "budget": {
+                            "rounds": 1,
+                            "seeds": [0],
+                            "timeout_seconds": 30,
+                            "max_workers": 1,
+                        },
+                        "paths": {
+                            "allowed_paths": ["examples"],
+                            "forbidden_paths": ["examples/fjsp_distributed_transfer_evaluator.py"],
+                        },
+                        "review": {
+                            "status": "confirmed",
+                            "baseline_source": "agent_generated",
+                            "agent_generated_solver_path": "examples/agent_generated_fjsp_solver.py",
+                        },
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with patch("harness_agent.context.packet._materialize_lightrag_generated_card", return_value=None):
+                output = write_context_packet(
+                    ContextPacketRequest(
+                        contract_path=contract_path,
+                        output_path=Path(tmp) / "context.json",
+                        project_root=ROOT,
+                    )
+                )
+            packet = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual("fjsp_distributed_transfer", packet["task"]["problem_family"])
+        self.assertIn("factory_assignment", packet["knowledge_selection"]["active_features"])
+        self.assertEqual("fjsp_distributed_transfer", packet["knowledge_selection"]["active_variant"])
+        self.assertEqual(
+            "distributed_fjsp_schedule_v1",
+            packet["evaluator_protocol"]["solution_format"],
+        )
+        self.assertEqual(
+            ["job_id", "op_id", "factory_id", "machine_id", "start", "end"],
+            packet["evaluator_protocol"]["solution_contract"]["schedule_record_fields"],
+        )
+        summary = packet["instance_diagnostics"]["summary"]
+        self.assertEqual(1, summary["distributed_transfer_instance_count"])
+        self.assertEqual(2, summary["factory_count_max"])
+        quality_contract = build_agent_generated_solver_quality_contract(packet)
+        self.assertIn("fjsp_distributed_transfer", quality_contract["active_features"])
+        self.assertIn("factory_assignment", quality_contract["active_features"])
+        self.assertIn("transfer_time", quality_contract["active_features"])
+        self.assertIn("energy_consumption", quality_contract["active_features"])
+        self.assertEqual(
+            {
+                "factory_assignment_guard",
+                "transfer_time_precedence_guard",
+                "factory_machine_eligibility_guard",
+                "distributed_machine_non_overlap_guard",
+                "energy_and_workload_metric_guard",
+            },
+            set(quality_contract["variant_required_code_capabilities"])
+            & {
+                "factory_assignment_guard",
+                "transfer_time_precedence_guard",
+                "factory_machine_eligibility_guard",
+                "distributed_machine_non_overlap_guard",
+                "energy_and_workload_metric_guard",
+            },
+        )
+
+    def test_priority_instance_switches_effective_domain_and_preserves_standard_solution_contract(self) -> None:
+        instance_path = (
+            "ALL-Input-Information/11-priority-FJSP/11-Instances/"
+            "fjsp.barnes.mt10c1.m11j10c2.priority.seed20260722.txt"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            contract_path = Path(tmp) / "priority_contract.json"
+            contract_path.write_text(
+                json.dumps(
+                    {
+                        "task_id": "priority_fjsp_test",
+                        "problem_family": "FJSP",
+                        "description": "Solve FJSP with job priority and minimize priority completion time.",
+                        "instances": [{"id": "mt10c1_priority", "path": instance_path}],
+                        "objectives": [
+                            {
+                                "name": "makespan",
+                                "direction": "minimize",
+                                "priority": 1,
+                                "invalid_if_missing": True,
+                            },
+                            {
+                                "name": "priority_completion_time",
+                                "direction": "minimize",
+                                "priority": 2,
+                                "invalid_if_missing": True,
+                            },
+                        ],
+                        "commands": {
+                            "solver": (
+                                "python examples/agent_generated_fjsp_solver.py --input {instance} "
+                                "--output {solution} --seed {seed} --time-limit-sec {solver_time_limit_seconds}"
+                            ),
+                            "evaluator": (
+                                "python examples/fjsp_job_priority_evaluator.py "
+                                "--instance {instance} --solution {solution} --metrics {metrics}"
+                            ),
+                            "quick_test": "python -m py_compile examples/fjsp_job_priority_evaluator.py",
+                        },
+                        "budget": {
+                            "rounds": 1,
+                            "seeds": [0],
+                            "timeout_seconds": 30,
+                            "max_workers": 1,
+                        },
+                        "paths": {
+                            "allowed_paths": ["examples"],
+                            "forbidden_paths": ["examples/fjsp_job_priority_evaluator.py"],
+                        },
+                        "review": {
+                            "status": "confirmed",
+                            "baseline_source": "agent_generated",
+                            "agent_generated_solver_path": "examples/agent_generated_fjsp_solver.py",
+                        },
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with patch("harness_agent.context.packet._materialize_lightrag_generated_card", return_value=None):
+                output = write_context_packet(
+                    ContextPacketRequest(
+                        contract_path=contract_path,
+                        output_path=Path(tmp) / "context.json",
+                        project_root=ROOT,
+                    )
+                )
+            packet = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual("fjsp_job_priority", packet["task"]["problem_family"])
+        self.assertEqual("FJSP", packet["task"]["contract_problem_family"])
+        self.assertEqual("fjsp_job_priority", packet["problem_family_capability"]["family_id"])
+        self.assertEqual("fjsp_job_priority", packet["knowledge_selection"]["domain_pack"])
+        self.assertEqual("fjsp_job_priority", packet["knowledge_selection"]["active_variant"])
+        self.assertIn("priority_completion_time", packet["knowledge_selection"]["active_features"])
+        self.assertEqual(
+            [
+                {"name": "makespan", "direction": "minimize", "priority": 1},
+                {"name": "priority_completion_time", "direction": "minimize", "priority": 2},
+            ],
+            [
+                {
+                    "name": item["name"],
+                    "direction": item["direction"],
+                    "priority": item["priority"],
+                }
+                for item in packet["task"]["objectives"]
+            ],
+        )
+        self.assertEqual(
+            "standard_fjsp_schedule_v1",
+            packet["evaluator_protocol"]["solution_format"],
+        )
+        self.assertEqual(
+            ["job_id", "op_id", "machine_id", "start", "end"],
+            packet["evaluator_protocol"]["solution_contract"]["schedule_record_fields"],
+        )
+        self.assertEqual(
+            ["makespan", "priority_completion_time"],
+            packet["evaluator_protocol"]["solution_contract"]["objective_metrics"],
+        )
+        summary = packet["instance_diagnostics"]["summary"]
+        self.assertEqual(1, summary["priority_job_instance_count"])
+        self.assertEqual(3, summary["priority_job_count_max"])
+        self.assertEqual([1, 6, 8], packet["instance_diagnostics"]["instances"][0]["priority_job_ids"])
+        quality_contract = build_agent_generated_solver_quality_contract(packet)
+        self.assertIn("fjsp_job_priority", quality_contract["active_features"])
+        self.assertIn("job_priority", quality_contract["active_features"])
+        self.assertIn("priority_completion_time", quality_contract["active_features"])
+        self.assertTrue(
+            {
+                "priority_tail_parser_guard",
+                "priority_job_identity_guard",
+                "priority_completion_metric_guard",
+                "lexicographic_priority_objective_guard",
+                "priority_aware_dispatch_guard",
+            }.issubset(set(quality_contract["variant_required_code_capabilities"]))
         )
 
     def test_standard_instance_profile_exposes_finite_method_selection_features(self) -> None:
@@ -520,6 +744,90 @@ class ContextPacketTests(unittest.TestCase):
         self.assertIn("agent_generated_decoder_neighborhood.md", auto_cards)
         self.assertNotIn("awls_sdst_hudata20_baseline_notes.md", auto_cards)
         self.assertNotIn("fjsp_sdst_search_observation_20260723.md", auto_cards)
+
+    def test_context_packet_routes_nfa_to_machine_availability_domain_pack(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            instance = tmp_path / "FFCR01.txt"
+            instance.write_text((ROOT / "examples" / "nfa_ffcr01.txt").read_text(encoding="utf-8"), encoding="utf-8")
+            contract = tmp_path / "contract.json"
+            contract.write_text(
+                json.dumps(
+                    {
+                        "task_id": "nfa_diagnostics_context",
+                        "problem_family": "FJSP",
+                        "description": "diagnostics smoke",
+                        "instances": [{"id": "FFCR01", "path": str(instance)}],
+                        "objectives": [{"name": "makespan", "direction": "minimize"}],
+                        "commands": {
+                            "solver": "python examples/agent_generated_fjsp_solver.py --input {instance} --output {solution}",
+                            "evaluator": "python examples/nfa_machine_availability_evaluator.py",
+                            "quick_test": "python -m compileall examples",
+                        },
+                        "budget": {"rounds": 1, "seeds": [0]},
+                        "paths": {"allowed_paths": ["examples"], "forbidden_paths": [".git"]},
+                        "review": {
+                            "status": "confirmed",
+                            "baseline_source": "agent_generated",
+                        },
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            with patch(
+                "harness_agent.context.packet._materialize_lightrag_generated_card",
+                return_value={
+                    "path": str(tmp_path / "rag_card.md"),
+                    "record": {
+                        "path": str(tmp_path / "rag_card.md"),
+                        "exists": True,
+                        "snippet": "calendar-aware insertion knowledge",
+                        "rag_generated": True,
+                        "stage": "strategy",
+                        "source": "lightrag_generated_knowledge_card",
+                        "tags_used": ["machine_availability", "machine_calendar"],
+                    },
+                    "semantic_knowledge": {
+                        "source": "lightrag",
+                        "query": "machine availability",
+                        "content": "calendar-aware insertion knowledge",
+                        "tags_used": ["machine_availability", "machine_calendar"],
+                    },
+                },
+            ) as materialize:
+                output = write_context_packet(
+                    ContextPacketRequest(
+                        contract_path=contract,
+                        output_path=tmp_path / "context_packet.json",
+                        hypothesis="Use NFA diagnostics.",
+                    )
+                )
+            packet = json.loads(output.read_text(encoding="utf-8"))
+
+        materialize.assert_called()
+        self.assertEqual("fjsp_machine_availability", materialize.call_args.kwargs["problem_family"])
+        diagnostics = packet["instance_diagnostics"]
+        self.assertEqual("fjsp_machine_availability", diagnostics["instances"][0]["variant"])
+        self.assertEqual(1, diagnostics["summary"]["nfa_instance_count"])
+        self.assertEqual("fjsp_machine_availability", packet["task"]["problem_family"])
+        self.assertEqual("FJSP", packet["task"]["contract_problem_family"])
+        self.assertEqual("fjsp_machine_availability", packet["problem_family_capability"]["family_id"])
+        self.assertEqual("fjsp_machine_availability", packet["knowledge_selection"]["domain_pack"])
+        self.assertEqual("fjsp_machine_availability", packet["knowledge_selection"]["active_variant"])
+        self.assertIn("machine_calendar", packet["knowledge_selection"]["active_features"])
+        self.assertTrue(packet["semantic_knowledge"])
+        self.assertTrue(
+            any(card.get("rag_generated") for card in packet["knowledge_cards"] if isinstance(card, dict))
+        )
+        quality_contract = build_agent_generated_solver_quality_contract(packet)
+        self.assertIn("machine_calendar", quality_contract["active_features"])
+        self.assertIn(
+            "machine_calendar_availability_guard",
+            quality_contract["variant_required_code_capabilities"],
+        )
 
     def test_context_packet_summarizes_multiple_sdst_shapes_without_prefix_bias(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,0 +1,129 @@
+{
+  "version": "1.0",
+  "drawings": {
+    "im-b4a2ee09a275fc5e20453805c0167e0d-0001": {
+      "id": "im-b4a2ee09a275fc5e20453805c0167e0d-0001",
+      "blockid": "d93e464b211d4f70a006f2db868c1fe1",
+      "heading": "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority",
+      "parent_headings": [],
+      "format": "jpg",
+      "path": "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority-91df90f1.blocks.assets/5eec97509586482f90dcd59b4e3469cec5142b40b9b3ab6055cfc72d400bc668.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/1"
+    },
+    "im-b4a2ee09a275fc5e20453805c0167e0d-0002": {
+      "id": "im-b4a2ee09a275fc5e20453805c0167e0d-0002",
+      "blockid": "caf50fa18e4f6b5bbc073f73b9f51b49",
+      "heading": "1. Introduction",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "jpg",
+      "path": "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority-91df90f1.blocks.assets/ffcbbae08e1774c138a518b61ecf442fe09d45a574d583bff65528a57b35c494.jpg",
+      "src": "",
+      "caption": "(a) Industrial robot production workshop",
+      "footnotes": [],
+      "self_ref": "content_list.json#/26"
+    },
+    "im-b4a2ee09a275fc5e20453805c0167e0d-0003": {
+      "id": "im-b4a2ee09a275fc5e20453805c0167e0d-0003",
+      "blockid": "caf50fa18e4f6b5bbc073f73b9f51b49",
+      "heading": "1. Introduction",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "jpg",
+      "path": "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority-91df90f1.blocks.assets/78ac76843458ff2aa9faa54254255a64822fe00a34b200500d012781defd7b28.jpg",
+      "src": "",
+      "caption": "(b) The highest-priority job in an industrial robot's structure",
+      "footnotes": [],
+      "self_ref": "content_list.json#/27"
+    },
+    "im-b4a2ee09a275fc5e20453805c0167e0d-0004": {
+      "id": "im-b4a2ee09a275fc5e20453805c0167e0d-0004",
+      "blockid": "2527a9f3f1f1bcd2b629838405968863",
+      "heading": "2.1. DFJSP related work",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "jpg",
+      "path": "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority-91df90f1.blocks.assets/20ff15d77cb031452feb40447e58c7242435cbd79e4686437906106ae5714bdd.jpg",
+      "src": "",
+      "caption": "Fig. 2. An example of a practical DFJSP considering job priority.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/46"
+    },
+    "im-b4a2ee09a275fc5e20453805c0167e0d-0005": {
+      "id": "im-b4a2ee09a275fc5e20453805c0167e0d-0005",
+      "blockid": "2527a9f3f1f1bcd2b629838405968863",
+      "heading": "2.1. DFJSP related work",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "jpg",
+      "path": "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority-91df90f1.blocks.assets/b325245e0034f64ceb11803e688fe746da7d81544ff0ed992e26bfd6ebe65786.jpg",
+      "src": "",
+      "caption": "Fig. 3. Research block diagram.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/53"
+    },
+    "im-b4a2ee09a275fc5e20453805c0167e0d-0006": {
+      "id": "im-b4a2ee09a275fc5e20453805c0167e0d-0006",
+      "blockid": "19aec26c9a6b3afa1c40c54db8f2240b",
+      "heading": "3.4. Mathematical model of DFSPJP",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "jpg",
+      "path": "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority-91df90f1.blocks.assets/cc58d7df46bf92d79b4c8f539bb9ba5000f5d452d923d3cdfba67ab445295cb1.jpg",
+      "src": "",
+      "caption": "Fig. 4. The flow chart of the proposed NMA.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/128"
+    },
+    "im-b4a2ee09a275fc5e20453805c0167e0d-0007": {
+      "id": "im-b4a2ee09a275fc5e20453805c0167e0d-0007",
+      "blockid": "9328b9c5bb0c6d906d014cc4e2a07133",
+      "heading": "4.1. Encoding and decoding",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "jpg",
+      "path": "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority-91df90f1.blocks.assets/a6fc1519fbbe37c0be20c34ba8f287f82937f1167659ebf7882f5f338c09963e.jpg",
+      "src": "",
+      "caption": "Fig. 8. A diagram of the REC.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/162"
+    },
+    "im-b4a2ee09a275fc5e20453805c0167e0d-0008": {
+      "id": "im-b4a2ee09a275fc5e20453805c0167e0d-0008",
+      "blockid": "6e7d121e3d4fb63877e3294c4ada8981",
+      "heading": "4.3. Crossover operator",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "jpg",
+      "path": "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority-91df90f1.blocks.assets/2679873a1bce5656878356de58fef87f5ca4bdeb15db04809a9653365bfb997f.jpg",
+      "src": "",
+      "caption": "Fig. 9. A diagram of the RAM.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/185"
+    },
+    "im-b4a2ee09a275fc5e20453805c0167e0d-0009": {
+      "id": "im-b4a2ee09a275fc5e20453805c0167e0d-0009",
+      "blockid": "6e7d121e3d4fb63877e3294c4ada8981",
+      "heading": "4.3. Crossover operator",
+      "parent_headings": [
+        "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority"
+      ],
+      "format": "jpg",
+      "path": "Multi-objective optimization for distributed flexible job shop scheduling problem with job priority-91df90f1.blocks.assets/0d32b398160ca48b3d47655b60f0cb815644b7c4ab406c7cda62635b3f627754.jpg",
+      "src": "",
+      "caption": "Fig. 10. A diagram of the TPM.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/186"
+    }
+  }
+}

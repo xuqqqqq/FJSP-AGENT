@@ -21,6 +21,7 @@ from harness_agent.orchestration.loop import (
     run_competing_worker_cycles,
     run_worker_cycle_with_in_round_repairs,
     run_worker_loop,
+    prepare_agent_generated_baseline_source_project,
     select_agent_generated_baseline_cycle,
     should_attempt_in_round_repair,
     worker_proposal_diagnostics,
@@ -1663,6 +1664,29 @@ class WorkerLoopTests(unittest.TestCase):
                 (ROOT / "examples" / "web_demo_io.md").read_text(encoding="utf-8"),
                 mirrored_io.read_text(encoding="utf-8"),
             )
+
+    def test_agent_generated_source_project_includes_contract_evaluator_dependency(self) -> None:
+        base = json.loads((ROOT / "configs" / "standard_fjsp_tiny.example.json").read_text(encoding="utf-8"))
+        base["commands"] = {
+            **base["commands"],
+            "evaluator": (
+                "python examples/nfa_machine_availability_evaluator.py "
+                "--instance {instance} --solution {solution} --metrics {metrics}"
+            ),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract_path = tmp_path / "contract.json"
+            contract_path.write_text(json.dumps(base, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            contract = TaskContract.load(contract_path)
+
+            source_project, _hidden = prepare_agent_generated_baseline_source_project(
+                project_root=ROOT,
+                contract=contract,
+                output_dir=tmp_path,
+            )
+
+            self.assertTrue((source_project / "examples" / "nfa_machine_availability_evaluator.py").is_file())
 
     def test_main_agent_direction_plan_reaches_every_attempt_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

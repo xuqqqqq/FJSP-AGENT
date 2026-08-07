@@ -1,0 +1,260 @@
+{
+  "version": "1.0",
+  "tables": {
+    "tb-4e81bd487dda5925119fd6cffd61c849-0001": {
+      "id": "tb-4e81bd487dda5925119fd6cffd61c849-0001",
+      "blockid": "af554efa9af5c0ed2486904568b218be",
+      "heading": "3.1. Problem Description",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "dimension": [
+        15,
+        6
+      ],
+      "format": "html",
+      "content": "<table><tr><td>Jobs</td><td>Operations</td><td> $M_1$ </td><td> $M_2$ </td><td> $M_3$ </td><td> $M_4$ </td></tr><tr><td rowspan=\"3\"> $J_1$ </td><td> $O_{1,1}$ </td><td>12/4</td><td>-</td><td>-</td><td>-</td></tr><tr><td> $O_{1,2}$ </td><td>-</td><td>8/2</td><td>2/2</td><td>13/4</td></tr><tr><td> $O_{1,3}$ </td><td>6/2</td><td>-</td><td>20/6</td><td>-</td></tr><tr><td rowspan=\"2\"> $J_2$ </td><td> $O_{2,1}$ </td><td>-</td><td>17/5</td><td>9/3</td><td>13/4</td></tr><tr><td> $O_{2,2}$ </td><td>-</td><td>15/4</td><td>-</td><td>20/6</td></tr><tr><td rowspan=\"2\"> $J_3$ </td><td> $O_{3,1}$ </td><td>-</td><td>19/6</td><td>-</td><td>-</td></tr><tr><td> $O_{3,2}$ </td><td>-</td><td>-</td><td>20/6</td><td>4/2</td></tr><tr><td rowspan=\"3\"> $J_4$ </td><td> $O_{4,1}$ </td><td>-</td><td>-</td><td>5/2</td><td>16/5</td></tr><tr><td> $O_{4,2}$ </td><td>12/4</td><td>-</td><td>14/4</td><td>-</td></tr><tr><td> $O_{4,3}$ </td><td>-</td><td>-</td><td>14/4</td><td>-</td></tr><tr><td rowspan=\"2\"> $J_5$ </td><td> $O_{5,1}$ </td><td>-</td><td>-</td><td>2/2</td><td>19/6</td></tr><tr><td> $O_{5,2}$ </td><td>-</td><td>16/5</td><td>1/2</td><td>-</td></tr><tr><td> $J_6$ </td><td> $O_{6,1}$ </td><td>-</td><td>17/5</td><td>-</td><td>6/2</td></tr><tr><td> $J_7$ </td><td> $O_{7,1}$ </td><td>6/2</td><td>15/4</td><td>-</td><td>18/5</td></tr></table>",
+      "caption": "Table 1. Data model of Product P.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/56"
+    },
+    "tb-4e81bd487dda5925119fd6cffd61c849-0002": {
+      "id": "tb-4e81bd487dda5925119fd6cffd61c849-0002",
+      "blockid": "af554efa9af5c0ed2486904568b218be",
+      "heading": "3.1. Problem Description",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "dimension": [
+        5,
+        5
+      ],
+      "format": "html",
+      "content": "<table><tr><td></td><td> $M_1$ </td><td> $M_2$ </td><td> $M_3$ </td><td> $M_4$ </td></tr><tr><td> $M_1$ </td><td>0</td><td>1</td><td>1</td><td>2</td></tr><tr><td> $M_2$ </td><td>1</td><td>0</td><td>1</td><td>1</td></tr><tr><td> $M_3$ </td><td>1</td><td>1</td><td>0</td><td>1</td></tr><tr><td> $M_4$ </td><td>2</td><td>1</td><td>1</td><td>0</td></tr></table>",
+      "caption": "Table 2. Transportation Time between Machines.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/57"
+    },
+    "tb-4e81bd487dda5925119fd6cffd61c849-0003": {
+      "id": "tb-4e81bd487dda5925119fd6cffd61c849-0003",
+      "blockid": "bc27f3826601e006c6454fd43c6fe1c8",
+      "heading": "3.2. Mathematical Model",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "dimension": [
+        22,
+        3
+      ],
+      "format": "html",
+      "content": "<table><tr><td>Symbol Type</td><td>Symbol</td><td>Symbol Description</td></tr><tr><td rowspan=\"14\">Parameter</td><td> $J$ </td><td>Set of all jobs</td></tr><tr><td> $J_i$ </td><td>The  $i$ -th job,  $i = 1,2,\\dots,n$ </td></tr><tr><td> $O_{i,j}$ </td><td>The  $j$ -th operation of job  $J_i$ ,  $j = 1,2,\\dots,o_i$ </td></tr><tr><td> $M$ </td><td>Set of all machines</td></tr><tr><td> $M_k$ </td><td>The  $k$ -th machine,  $k = 1,2,\\dots,m$ </td></tr><tr><td> $P_i$ </td><td>Set of predecessor jobs of job  $J_i$ </td></tr><tr><td> $\\mathcal{M}$ </td><td>A sufficiently large constant</td></tr><tr><td> $jn$ </td><td>Total number of jobs in the product</td></tr><tr><td> $o_i$ </td><td>Number of operations in job  $J_i$ </td></tr><tr><td> $mn$ </td><td>Total number of machines</td></tr><tr><td> $a_{i,j,k}$ </td><td>1 if machine  $M_k$  is a candidate machine for operation  $O_{i,j}$ , otherwise 0</td></tr><tr><td> $T_{i,j,k}^{proc}$ </td><td>Processing time of operation  $O_{i,j}$  on machine  $M_k$ </td></tr><tr><td> $T_{ij,k}^{setup}$ </td><td>Setup time of operation  $O_{i,j}$  on machine  $M_k$ </td></tr><tr><td> $T_{k,q}^{trans}$ </td><td>Transportation time between machines  $M_k$  and  $M_q$ </td></tr><tr><td rowspan=\"7\">Variable</td><td> $S_{i,j}$ </td><td>Start time of operation  $O_{i,j}$ </td></tr><tr><td> $C_{i,j}$ </td><td>Completion time of operation  $O_{i,j}$ </td></tr><tr><td> $C_i$ </td><td>Completion time of job  $J_i$ </td></tr><tr><td> $x_{i,j,k}$ </td><td>1 if  $O_{i,j}$  is processed on machine  $M_k$ , otherwise 0</td></tr><tr><td> $y_{i,j,i',j',k}$ </td><td> $y_{i,j,i',j',k} = 1$  when operation  $O_{i,j}$  is processed on machine  $M_k$  before another operation  $O_{i',j',}$ , otherwise 0</td></tr><tr><td> $z_{i,j,k',k}$ </td><td> $z_{i,j,k',k} = 1$  when operation  $O_{i,j-1}$  is processed on machine  $M_{k'}$  and  $O_{i,j}$  is processed on another machine  $M_k$ , otherwise 0</td></tr><tr><td> $v_{i,i',k',k}$ </td><td> $v_{i,i',k',k} = 1$  when the last operation of sub-job  $J_i$  is processed on  $M_{k'}$  and the first operation of the parent job  $J_i$  is processed on another machine  $M_k$ , otherwise 0</td></tr></table>",
+      "caption": "Table 3. Symbol definitions.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/65"
+    },
+    "tb-4e81bd487dda5925119fd6cffd61c849-0004": {
+      "id": "tb-4e81bd487dda5925119fd6cffd61c849-0004",
+      "blockid": "6646fead3b16c95e4a924d3f47e2753c",
+      "heading": "4.1.1. Encoding",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "dimension": [
+        4,
+        15
+      ],
+      "format": "html",
+      "content": "<table><tr><td>Random position</td><td>-5.96</td><td>4.22</td><td>-2.33</td><td>-6.54</td><td>-3.05</td><td>0.54</td><td>-4.10</td><td>1.47</td><td>3.76</td><td>5.78</td><td>-3.87</td><td>-1.56</td><td>2.68</td><td>6.90</td></tr><tr><td>OS</td><td>1</td><td>1</td><td>1</td><td>2</td><td>2</td><td>3</td><td>3</td><td>4</td><td>4</td><td>4</td><td>5</td><td>5</td><td>6</td><td>7</td></tr><tr><td>ROV ascending order</td><td>-6.54</td><td>-5.96</td><td>-4.10</td><td>-3.87</td><td>-3.05</td><td>-2.33</td><td>-1.56</td><td>0.54</td><td>1.47</td><td>2.68</td><td>3.76</td><td>4.22</td><td>5.78</td><td>6.90</td></tr><tr><td>OS</td><td>2</td><td>1</td><td>3</td><td>5</td><td>2</td><td>1</td><td>5</td><td>3</td><td>4</td><td>6</td><td>4</td><td>1</td><td>4</td><td>7</td></tr></table>",
+      "caption": "Figure 4. Illustration of the ROV rule for OS (Row 2 lists the job IDs for all operations. Each of these IDs is assigned a random value from Row 1. The values are sorted ascendingly to produce the ROV sequence (Row 3), whose order is then mapped back to the job IDs in Row 2 to yield the final operation sequence (Row 4)).",
+      "footnotes": [],
+      "self_ref": "content_list.json#/114"
+    },
+    "tb-4e81bd487dda5925119fd6cffd61c849-0005": {
+      "id": "tb-4e81bd487dda5925119fd6cffd61c849-0005",
+      "blockid": "6646fead3b16c95e4a924d3f47e2753c",
+      "heading": "4.1.1. Encoding",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "dimension": [
+        1,
+        15
+      ],
+      "format": "html",
+      "content": "<table><tr><td>OS</td><td>2</td><td>1</td><td>3</td><td>2</td><td>1</td><td>3</td><td>4</td><td>4</td><td>1</td><td>4</td><td>5</td><td>5</td><td>6</td><td>7</td></tr></table>",
+      "caption": "Figure 6. A repaired OS encoding after applying the job-priority correction mechanism.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/117"
+    },
+    "tb-4e81bd487dda5925119fd6cffd61c849-0006": {
+      "id": "tb-4e81bd487dda5925119fd6cffd61c849-0006",
+      "blockid": "3072888baed44725923ee380e06f2e51",
+      "heading": "4.3.2. Adaptive Inertia Weight",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "dimension": [
+        4,
+        4
+      ],
+      "format": "html",
+      "content": "<table><tr><td>Update Mode</td><td>Condition</td><td>Inertia Weight</td><td>Corresponding Behavior</td></tr><tr><td>Encircling prey</td><td> $p < 0.5$  and  $|\\vec{A}| < 1$ </td><td> $w(t)$ </td><td>Local exploitation: shrinking towards the current best</td></tr><tr><td>Bubble-net attacking</td><td> $p < 0.5$  and  $|\\vec{A}| \\geq 1$ </td><td> $w(t)$ </td><td>Local exploitation: spiral search around the best</td></tr><tr><td>Searching for prey</td><td> $p \\geq 0.5$ </td><td> $v(t)$ </td><td>Global exploration: moving towards the random individual</td></tr></table>",
+      "caption": "Table 4. Inertia Weight Usage in IWOA Update Modes.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/174"
+    },
+    "tb-4e81bd487dda5925119fd6cffd61c849-0007": {
+      "id": "tb-4e81bd487dda5925119fd6cffd61c849-0007",
+      "blockid": "df571acf3528b7ad9bb0584a6971efa6",
+      "heading": "5.1. Instance Generation",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "dimension": [
+        3,
+        8
+      ],
+      "format": "html",
+      "content": "<table><tr><td>Instance</td><td>JN</td><td>ON</td><td>MN</td><td>Instance</td><td>JN</td><td>ON</td><td>MN</td></tr><tr><td>T01</td><td>10</td><td>39</td><td>4</td><td>T07</td><td>35</td><td>140</td><td>7</td></tr><tr><td>T02</td><td>15</td><td>58</td><td>4</td><td>T08</td><td>40</td><td>155</td><td>7</td></tr></table>",
+      "caption": "Table 5. Instance settings. JN, ON, and MN denote the number of jobs, the total number of operations, and the number of machines, respectively.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/213"
+    },
+    "tb-4e81bd487dda5925119fd6cffd61c849-0008": {
+      "id": "tb-4e81bd487dda5925119fd6cffd61c849-0008",
+      "blockid": "df571acf3528b7ad9bb0584a6971efa6",
+      "heading": "5.1. Instance Generation",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "dimension": [
+        5,
+        8
+      ],
+      "format": "html",
+      "content": "<table><tr><td>Instance</td><td>JN</td><td>ON</td><td>MN</td><td>Instance</td><td>JN</td><td>ON</td><td>MN</td></tr><tr><td>T03</td><td>20</td><td>80</td><td>5</td><td>T09</td><td>40</td><td>170</td><td>8</td></tr><tr><td>T04</td><td>25</td><td>117</td><td>5</td><td>T10</td><td>45</td><td>182</td><td>8</td></tr><tr><td>T05</td><td>30</td><td>123</td><td>6</td><td>T11</td><td>45</td><td>201</td><td>9</td></tr><tr><td>T06</td><td>30</td><td>133</td><td>6</td><td>T12</td><td>50</td><td>220</td><td>9</td></tr></table>",
+      "caption": "Table 5. Cont.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/216"
+    },
+    "tb-4e81bd487dda5925119fd6cffd61c849-0009": {
+      "id": "tb-4e81bd487dda5925119fd6cffd61c849-0009",
+      "blockid": "f843ccce5133b294ded5ea05df808bb4",
+      "heading": "5.2. Parameter Experiments",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "dimension": [
+        18,
+        6
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Number of Experiments</td><td colspan=\"4\">Parameter</td><td rowspan=\"2\">Avg</td></tr><tr><td>NP</td><td>n</td><td> $W_{\\text{min}}$ </td><td> $W_{\\text{max}}$ </td></tr><tr><td>1</td><td>100</td><td>2</td><td>0.2</td><td>0.6</td><td>326.8</td></tr><tr><td>2</td><td>100</td><td>3</td><td>0.3</td><td>0.7</td><td>324.7</td></tr><tr><td>3</td><td>100</td><td>4</td><td>0.4</td><td>0.8</td><td>322.3</td></tr><tr><td>4</td><td>100</td><td>5</td><td>0.5</td><td>0.9</td><td>324.8</td></tr><tr><td>5</td><td>150</td><td>2</td><td>0.3</td><td>0.8</td><td>310.9</td></tr><tr><td>6</td><td>150</td><td>3</td><td>0.2</td><td>0.9</td><td>312.1</td></tr><tr><td>7</td><td>150</td><td>4</td><td>0.5</td><td>0.6</td><td>330.2</td></tr><tr><td>8</td><td>150</td><td>5</td><td>0.4</td><td>0.7</td><td>320.9</td></tr><tr><td>9</td><td>200</td><td>2</td><td>0.4</td><td>0.9</td><td>318.8</td></tr><tr><td>10</td><td>200</td><td>3</td><td>0.5</td><td>0.8</td><td>319.0</td></tr><tr><td>11</td><td>200</td><td>4</td><td>0.2</td><td>0.7</td><td>308.7</td></tr><tr><td>12</td><td>200</td><td>5</td><td>0.3</td><td>0.6</td><td>322.1</td></tr><tr><td>13</td><td>250</td><td>2</td><td>0.5</td><td>0.7</td><td>322.8</td></tr><tr><td>14</td><td>250</td><td>3</td><td>0.4</td><td>0.6</td><td>317.3</td></tr><tr><td>15</td><td>250</td><td>4</td><td>0.3</td><td>0.9</td><td>306.4</td></tr><tr><td>16</td><td>250</td><td>5</td><td>0.2</td><td>0.8</td><td>320.1</td></tr></table>",
+      "caption": "Table 6. Experimental Table of Parameter Combinations.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/225"
+    },
+    "tb-4e81bd487dda5925119fd6cffd61c849-0010": {
+      "id": "tb-4e81bd487dda5925119fd6cffd61c849-0010",
+      "blockid": "7489bc081f33730bd82ce223c166d73a",
+      "heading": "5.3. Ablation Experiments",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "dimension": [
+        15,
+        15
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Instance</td><td colspan=\"3\">IWOA</td><td colspan=\"3\">IWOA1</td><td colspan=\"4\">IWOA2</td><td colspan=\"4\">IWOA3</td></tr><tr><td>Best</td><td>Avg</td><td>Best</td><td>Avg</td><td>p</td><td>Win</td><td>Best</td><td>Avg</td><td>p</td><td>Win</td><td>Best</td><td>Avg</td><td>p</td><td>Win</td></tr><tr><td>T01</td><td>145.0</td><td>145.0</td><td>145.0</td><td>145.0</td><td>1.0000</td><td>=</td><td>145.0</td><td>145.0</td><td>1.0000</td><td>=</td><td>145.0</td><td>145.0</td><td>1.0000</td><td>=</td></tr><tr><td>T02</td><td>205.0</td><td>207.5</td><td>208.0</td><td>210.8</td><td>0.0102</td><td>+</td><td>210.9</td><td>210.0</td><td>0.0091</td><td>+</td><td>205.0</td><td>210.8</td><td>0.0588</td><td>=</td></tr><tr><td>T03</td><td>199.0</td><td>204.9</td><td>206.0</td><td>209.9</td><td>0.0113</td><td>+</td><td>208.4</td><td>208.0</td><td>0.0821</td><td>=</td><td>205.0</td><td>208.1</td><td>0.0757</td><td>=</td></tr><tr><td>T04</td><td>292.0</td><td>296.7</td><td>303.0</td><td>306.0</td><td>0.0002</td><td>+</td><td>304.8</td><td>306.0</td><td>0.0004</td><td>+</td><td>297.0</td><td>303.2</td><td>0.0058</td><td>+</td></tr><tr><td>T05</td><td>301.0</td><td>304.9</td><td>306.0</td><td>309.0</td><td>0.0312</td><td>+</td><td>309.8</td><td>315.0</td><td>0.0211</td><td>+</td><td>301.0</td><td>307.2</td><td>0.1988</td><td>=</td></tr><tr><td>T06</td><td>306.0</td><td>313.0</td><td>317.0</td><td>324.5</td><td>0.0004</td><td>+</td><td>319.3</td><td>329.0</td><td>0.0041</td><td>+</td><td>312.0</td><td>316.9</td><td>0.1405</td><td>=</td></tr><tr><td>T07</td><td>318.0</td><td>328.0</td><td>330.0</td><td>341.1</td><td>0.0010</td><td>+</td><td>338.8</td><td>351.0</td><td>0.0032</td><td>+</td><td>330.0</td><td>337.1</td><td>0.0028</td><td>+</td></tr><tr><td>T08</td><td>347.0</td><td>358.8</td><td>361.0</td><td>373.6</td><td>0.0012</td><td>+</td><td>371.6</td><td>378.0</td><td>0.0022</td><td>+</td><td>356.0</td><td>362.8</td><td>0.2730</td><td>=</td></tr><tr><td>T09</td><td>354.0</td><td>363.1</td><td>388.0</td><td>402.9</td><td>0.0002</td><td>+</td><td>390.4</td><td>402.0</td><td>0.0002</td><td>+</td><td>372.0</td><td>378.8</td><td>0.0004</td><td>+</td></tr><tr><td>T10</td><td>341.0</td><td>347.5</td><td>358.0</td><td>365.8</td><td>0.0002</td><td>+</td><td>359.7</td><td>382.0</td><td>0.0009</td><td>+</td><td>348.0</td><td>354.9</td><td>0.0588</td><td>=</td></tr><tr><td>T11</td><td>326.0</td><td>338.0</td><td>342.0</td><td>351.1</td><td>0.0073</td><td>+</td><td>351.5</td><td>356.0</td><td>0.0025</td><td>+</td><td>331.0</td><td>343.6</td><td>0.1124</td><td>=</td></tr><tr><td>T12</td><td>483.0</td><td>495.7</td><td>514.0</td><td>523.1</td><td>0.0002</td><td>+</td><td>519.0</td><td>536.0</td><td>0.0002</td><td>+</td><td>496.0</td><td>505.8</td><td>0.0343</td><td>+</td></tr><tr><td colspan=\"4\">+/=-</td><td colspan=\"3\">11/1/0</td><td colspan=\"4\">10/2/0</td><td colspan=\"4\">4/8/0</td></tr></table>",
+      "caption": "Table 7. Results of ablation experiments.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/228"
+    },
+    "tb-4e81bd487dda5925119fd6cffd61c849-0011": {
+      "id": "tb-4e81bd487dda5925119fd6cffd61c849-0011",
+      "blockid": "7fa2ce6cf2b9e0f496a7eecf46d7ceb8",
+      "heading": "5.4. Comparative Experiments",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "dimension": [
+        4,
+        19
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Instance</td><td colspan=\"3\">IWOA</td><td colspan=\"3\">FISA_RWPS</td><td colspan=\"3\">ABC_MSE</td><td colspan=\"3\">ISA-VCLDC</td><td colspan=\"3\">MAS_HGWO</td><td colspan=\"3\">WOA</td></tr><tr><td>Best</td><td>Avg</td><td>Time</td><td>Best</td><td>Avg</td><td>Time</td><td>Best</td><td>Avg</td><td>Time</td><td>Best</td><td>Avg</td><td>Time</td><td>Best</td><td>Avg</td><td>Time</td><td>Best</td><td>Avg</td><td>Time</td></tr><tr><td>T01</td><td>145.0</td><td>145.0</td><td>10.3</td><td>145.0</td><td>147.1</td><td>12.8</td><td>145.0</td><td>145.5</td><td>11.7</td><td>145.0</td><td>146.3</td><td>10.7</td><td>145.0</td><td>145.2</td><td>13.5</td><td>145.0</td><td>145.9</td><td>10.4</td></tr><tr><td>T02</td><td>205.0</td><td>207.5</td><td>14.9</td><td>210.0</td><td>214.4</td><td>26.6</td><td>205.0</td><td>211.0</td><td>23.3</td><td>208.0</td><td>212.1</td><td>21.7</td><td>205.0</td><td>209.7</td><td>26.8</td><td>208.0</td><td>211.2</td><td>13.5</td></tr></table>",
+      "caption": "Table 8. Results of comparative experiments.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/235"
+    },
+    "tb-4e81bd487dda5925119fd6cffd61c849-0012": {
+      "id": "tb-4e81bd487dda5925119fd6cffd61c849-0012",
+      "blockid": "7fa2ce6cf2b9e0f496a7eecf46d7ceb8",
+      "heading": "5.4. Comparative Experiments",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "dimension": [
+        12,
+        19
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Instance</td><td colspan=\"3\">IWOA</td><td colspan=\"3\">FISA_RWPS</td><td colspan=\"3\">ABC_MSE</td><td colspan=\"3\">ISA-VCLDC</td><td colspan=\"3\">MAS_HGWO</td><td colspan=\"3\">WOA</td></tr><tr><td>Best</td><td>Avg</td><td>Time</td><td>Best</td><td>Avg</td><td>Time</td><td>Best</td><td>Avg</td><td>Time</td><td>Best</td><td>Avg</td><td>Time</td><td>Best</td><td>Avg</td><td>Time</td><td>Best</td><td>Avg</td><td>Time</td></tr><tr><td>T03</td><td>199.0</td><td>204.9</td><td>22.8</td><td>208.0</td><td>213.6</td><td>39.8</td><td>205.0</td><td>209.0</td><td>34.9</td><td>208.0</td><td>210.3</td><td>30.7</td><td>199.0</td><td>205.4</td><td>48.5</td><td>206.0</td><td>210.2</td><td>19.3</td></tr><tr><td>T04</td><td>292.0</td><td>296.7</td><td>33.9</td><td>306.0</td><td>310.3</td><td>73.6</td><td>297.0</td><td>301.0</td><td>57.2</td><td>301.0</td><td>305.7</td><td>38.8</td><td>296.0</td><td>301.8</td><td>76.6</td><td>302.0</td><td>306.0</td><td>31.3</td></tr><tr><td>T05</td><td>301.0</td><td>304.9</td><td>54.3</td><td>315.0</td><td>318.4</td><td>100.1</td><td>305.0</td><td>310.7</td><td>77.9</td><td>311.0</td><td>317.0</td><td>57.3</td><td>303.0</td><td>308.2</td><td>83.1</td><td>310.0</td><td>315.1</td><td>48.3</td></tr><tr><td>T06</td><td>306.0</td><td>313.0</td><td>62.3</td><td>329.0</td><td>335.7</td><td>129.2</td><td>312.0</td><td>317.8</td><td>85.4</td><td>316.0</td><td>327.5</td><td>68.8</td><td>313.0</td><td>318.4</td><td>92.7</td><td>320.0</td><td>326.4</td><td>51.9</td></tr><tr><td>T07</td><td>318.0</td><td>328.0</td><td>77.8</td><td>349.0</td><td>362.9</td><td>159.2</td><td>327.0</td><td>340.7</td><td>79.4</td><td>332.0</td><td>341.2</td><td>85.9</td><td>325.0</td><td>335.1</td><td>122.5</td><td>336.0</td><td>343.5</td><td>69.8</td></tr><tr><td>T08</td><td>347.0</td><td>358.8</td><td>107.1</td><td>378.0</td><td>386.7</td><td>170.5</td><td>358.0</td><td>365.9</td><td>142.7</td><td>364.0</td><td>374.5</td><td>118.3</td><td>352.0</td><td>363.8</td><td>138.7</td><td>368.0</td><td>376.6</td><td>102.3</td></tr><tr><td>T09</td><td>354.0</td><td>363.1</td><td>114.7</td><td>402.0</td><td>409.0</td><td>218.3</td><td>372.0</td><td>379.8</td><td>117.1</td><td>382.0</td><td>395.1</td><td>131.6</td><td>368.0</td><td>381.6</td><td>148.8</td><td>396.0</td><td>404.5</td><td>95.6</td></tr><tr><td>T10</td><td>341.0</td><td>347.5</td><td>123.1</td><td>382.0</td><td>389.2</td><td>259.1</td><td>349.0</td><td>357.0</td><td>135.2</td><td>376.0</td><td>382.5</td><td>149.3</td><td>344.0</td><td>353.8</td><td>183.9</td><td>393.0</td><td>399.2</td><td>122.6</td></tr><tr><td>T11</td><td>326.0</td><td>338.0</td><td>129.7</td><td>356.0</td><td>376.7</td><td>277.2</td><td>339</td><td>352.2</td><td>164.8</td><td>348.0</td><td>360.5</td><td>189.1</td><td>337.0</td><td>348.8</td><td>205.4</td><td>386.0</td><td>394.2</td><td>128.1</td></tr><tr><td>T12</td><td>483.0</td><td>495.7</td><td>141.3</td><td>536.0</td><td>546.9</td><td>314.4</td><td>510.0</td><td>517.2</td><td>194.7</td><td>522.0</td><td>530.9</td><td>215.0</td><td>505.0</td><td>515.6</td><td>232.5</td><td>546.0</td><td>558.8</td><td>137.8</td></tr></table>",
+      "caption": "Table 8. Cont.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/238"
+    },
+    "tb-4e81bd487dda5925119fd6cffd61c849-0013": {
+      "id": "tb-4e81bd487dda5925119fd6cffd61c849-0013",
+      "blockid": "7fa2ce6cf2b9e0f496a7eecf46d7ceb8",
+      "heading": "5.4. Comparative Experiments",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "dimension": [
+        15,
+        11
+      ],
+      "format": "html",
+      "content": "<table><tr><td rowspan=\"2\">Instance</td><td colspan=\"2\">FISA_RWPS</td><td colspan=\"2\">ABC_MSE</td><td colspan=\"2\">ISA-VCLDC</td><td colspan=\"2\">MAS_HGWO</td><td colspan=\"2\">WOA</td></tr><tr><td>p</td><td>Win</td><td>p</td><td>Win</td><td>p</td><td>Win</td><td>p</td><td>Win</td><td>p</td><td>Win</td></tr><tr><td>T01</td><td>0.0588</td><td>=</td><td>0.4497</td><td>=</td><td>0.0588</td><td>=</td><td>1.0000</td><td>=</td><td>0.1306</td><td>=</td></tr><tr><td>T02</td><td>0.0012</td><td>+</td><td>0.0233</td><td>+</td><td>0.0058</td><td>+</td><td>0.1405</td><td>=</td><td>0.0065</td><td>+</td></tr><tr><td>T03</td><td>0.0012</td><td>+</td><td>0.0640</td><td>=</td><td>0.0046</td><td>+</td><td>0.7055</td><td>=</td><td>0.0113</td><td>+</td></tr><tr><td>T04</td><td>0.0002</td><td>+</td><td>0.1041</td><td>=</td><td>0.0006</td><td>+</td><td>0.0312</td><td>+</td><td>0.0002</td><td>+</td></tr><tr><td>T05</td><td>0.0002</td><td>+</td><td>0.0082</td><td>+</td><td>0.0004</td><td>+</td><td>0.0696</td><td>=</td><td>0.0005</td><td>+</td></tr><tr><td>T06</td><td>0.0002</td><td>+</td><td>0.0452</td><td>+</td><td>0.0003</td><td>+</td><td>0.0173</td><td>+</td><td>0.0002</td><td>+</td></tr><tr><td>T07</td><td>0.0002</td><td>+</td><td>0.0013</td><td>+</td><td>0.0003</td><td>+</td><td>0.0091</td><td>+</td><td>0.0002</td><td>+</td></tr><tr><td>T08</td><td>0.0002</td><td>+</td><td>0.0312</td><td>+</td><td>0.0003</td><td>+</td><td>0.1620</td><td>=</td><td>0.0002</td><td>+</td></tr><tr><td>T09</td><td>0.0002</td><td>+</td><td>0.0002</td><td>+</td><td>0.0002</td><td>+</td><td>0.0007</td><td>+</td><td>0.0002</td><td>+</td></tr><tr><td>T10</td><td>0.0002</td><td>+</td><td>0.0062</td><td>+</td><td>0.0002</td><td>+</td><td>0.0376</td><td>+</td><td>0.0002</td><td>+</td></tr><tr><td>T11</td><td>0.0002</td><td>+</td><td>0.0036</td><td>+</td><td>0.0002</td><td>+</td><td>0.0156</td><td>+</td><td>0.0002</td><td>+</td></tr><tr><td>T12</td><td>0.0002</td><td>+</td><td>0.0002</td><td>+</td><td>0.0002</td><td>+</td><td>0.0002</td><td>+</td><td>0.0002</td><td>+</td></tr><tr><td>+/=/-</td><td colspan=\"2\">11/1/0</td><td colspan=\"2\">9/3/0</td><td colspan=\"2\">11/1/0</td><td colspan=\"2\">7/5/0</td><td colspan=\"2\">11/1/0</td></tr></table>",
+      "caption": "Table 9. The Wilcoxon test results of the comparative experiment.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/239"
+    },
+    "tb-4e81bd487dda5925119fd6cffd61c849-0014": {
+      "id": "tb-4e81bd487dda5925119fd6cffd61c849-0014",
+      "blockid": "7fa2ce6cf2b9e0f496a7eecf46d7ceb8",
+      "heading": "5.4. Comparative Experiments",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "dimension": [
+        13,
+        8
+      ],
+      "format": "html",
+      "content": "<table><tr><td>Instance</td><td>IWOA</td><td>FISA_RWPS</td><td>ABC_MSE</td><td>ISA-VCLDC</td><td>MAS_HGWO</td><td>WOA</td><td>Rank</td></tr><tr><td>T01</td><td>0.0</td><td>2.2</td><td>1.1</td><td>1.5</td><td>0.0</td><td>1.3</td><td>1</td></tr><tr><td>T02</td><td>2.6</td><td>3.7</td><td>3.0</td><td>4.1</td><td>3.4</td><td>2.2</td><td>2</td></tr><tr><td>T03</td><td>3.7</td><td>4.2</td><td>2.6</td><td>3.2</td><td>3.7</td><td>3.6</td><td>4</td></tr><tr><td>T04</td><td>3.9</td><td>4.2</td><td>4.8</td><td>4.0</td><td>4.6</td><td>4.5</td><td>1</td></tr><tr><td>T05</td><td>4.0</td><td>4.2</td><td>5.2</td><td>4.7</td><td>4.7</td><td>4.3</td><td>1</td></tr><tr><td>T06</td><td>4.3</td><td>5.9</td><td>4.7</td><td>6.9</td><td>4.4</td><td>4.7</td><td>1</td></tr><tr><td>T07</td><td>4.8</td><td>6.0</td><td>6.3</td><td>8.7</td><td>5.3</td><td>5.3</td><td>1</td></tr><tr><td>T08</td><td>6.4</td><td>7.0</td><td>5.6</td><td>7.5</td><td>7.9</td><td>8.2</td><td>2</td></tr><tr><td>T09</td><td>6.2</td><td>5.5</td><td>5.5</td><td>8.8</td><td>11.5</td><td>6.6</td><td>3</td></tr><tr><td>T10</td><td>5.4</td><td>6.7</td><td>6.6</td><td>7.1</td><td>7.0</td><td>5.7</td><td>1</td></tr><tr><td>T11</td><td>7.6</td><td>9.4</td><td>8.7</td><td>8.6</td><td>7.9</td><td>7.2</td><td>2</td></tr><tr><td>T12</td><td>8.2</td><td>9.8</td><td>9.7</td><td>8.5</td><td>9.3</td><td>9.7</td><td>1</td></tr></table>",
+      "caption": "Table 10. Standard deviation of the comparative experiment.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/245"
+    },
+    "tb-4e81bd487dda5925119fd6cffd61c849-0015": {
+      "id": "tb-4e81bd487dda5925119fd6cffd61c849-0015",
+      "blockid": "4d4d2849893d981a21ec30828d2b493c",
+      "heading": "Abbreviations",
+      "parent_headings": [
+        "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time"
+      ],
+      "dimension": [
+        6,
+        2
+      ],
+      "format": "html",
+      "content": "<table><tr><td colspan=\"2\">The following abbreviations are used in this manuscript:</td></tr><tr><td>FJSP</td><td>Flexible Job-shop Scheduling Problem</td></tr><tr><td>BOM</td><td>Bill of Materials</td></tr><tr><td>FJSP-JPC-TST</td><td>flexible job-shop scheduling problem with job priority constraints, transportation time, and setup time</td></tr><tr><td>IWOA</td><td>Improved Whale Optimization Algorithm</td></tr><tr><td>ROV</td><td>Ranked Order Value</td></tr></table>",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/267"
+    }
+  }
+}

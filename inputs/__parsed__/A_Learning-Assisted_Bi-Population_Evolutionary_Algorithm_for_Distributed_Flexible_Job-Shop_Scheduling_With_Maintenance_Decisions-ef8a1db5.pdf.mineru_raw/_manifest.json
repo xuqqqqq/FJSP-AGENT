@@ -1,0 +1,251 @@
+{
+  "version": "1.0",
+  "engine": "mineru",
+  "api_mode": "local",
+  "engine_version": "",
+  "endpoint_signature": "",
+  "options_signature": "sha256:277b026335ce61369b2368b0d917ec71191e0e9d3f536344996696b9df7bf877",
+  "source_content_hash": "sha256:6ddf0a47a7746be9a7f6a2e1ccf782475c8d222e54ade5664531d3914237cdaa",
+  "source_size_bytes": 1798281,
+  "source_filename_at_parse": "A_Learning-Assisted_Bi-Population_Evolutionary_Algorithm_for_Distributed_Flexible_Job-Shop_Scheduling_With_Maintenance_Decisions-ef8a1db5.pdf",
+  "task_id": "precomputed-mineru",
+  "downloaded_at": "2026-08-04T11:05:15.471301+00:00",
+  "critical_file": {
+    "path": "content_list.json",
+    "size": 129504,
+    "sha256": "sha256:55755e3a56a5f35ac5d1b7b1179ca9744bccf81902144099ed0cfddbef52d701"
+  },
+  "files": [
+    {
+      "path": "ac7abe2e-5b16-423c-b513-cc5c7adea28b_content_list_v2.json",
+      "size": 237253,
+      "sha256": null
+    },
+    {
+      "path": "full.md",
+      "size": 70957,
+      "sha256": null
+    },
+    {
+      "path": "images/05823a0b3b4d3717993ebe8a7a8eb8da0104c44eda5e8fd53bb392e489afda85.jpg",
+      "size": 6179,
+      "sha256": null
+    },
+    {
+      "path": "images/0c06052cf6aad55740f47e1fe816096b4718c635df3870e988561e70759b87be.jpg",
+      "size": 8496,
+      "sha256": null
+    },
+    {
+      "path": "images/1856f048ed04d06e02bfca96768154e425282e21e1eec0536d737929b31a4ee2.jpg",
+      "size": 2259,
+      "sha256": null
+    },
+    {
+      "path": "images/247659bd89d52f906e9113a27780ef7ba2b9843cc5be24c9de51cda4ab789fc4.jpg",
+      "size": 3851,
+      "sha256": null
+    },
+    {
+      "path": "images/254c895ffa1d8d22e5292338fa52172f72dc4fcac1154b97598513ae9a21a182.jpg",
+      "size": 38790,
+      "sha256": null
+    },
+    {
+      "path": "images/2e32b26f0c86e94b9960ece270c12cea838c8161a839a538737ee499334fc9e4.jpg",
+      "size": 4874,
+      "sha256": null
+    },
+    {
+      "path": "images/305979d256604cf4940119b22791a7f4d1cdde6bf3784c92f12fbdb5aa034592.jpg",
+      "size": 6130,
+      "sha256": null
+    },
+    {
+      "path": "images/31a1887bf728922893dc9f1a46e18e0032f7276b4266d3edbbba59a7ec6c550a.jpg",
+      "size": 5448,
+      "sha256": null
+    },
+    {
+      "path": "images/35fb8103ae3b11a4c546d0959704a6d7735e24b26d0e1d4abba5a2d9572d9776.jpg",
+      "size": 4041,
+      "sha256": null
+    },
+    {
+      "path": "images/37ef2c86808197e89b30e3ed2110b08f0d0f37ab240b4d05f62df6fa7ac08f3d.jpg",
+      "size": 4739,
+      "sha256": null
+    },
+    {
+      "path": "images/38d140368fc813bcda7b7e6e4fce0fe999914b0501b384b63098d3f5c4e6d20d.jpg",
+      "size": 7400,
+      "sha256": null
+    },
+    {
+      "path": "images/4a1b8d5425fecdc14c4f1df12d45d029341ff9226e86c04fe9f49353b610a586.jpg",
+      "size": 4121,
+      "sha256": null
+    },
+    {
+      "path": "images/4a94b02a6816ac11ae71da2d8841cca8ab4119621c09671913690dc73918f1a2.jpg",
+      "size": 5720,
+      "sha256": null
+    },
+    {
+      "path": "images/4d60e604e87284680efcaba656a7f985fa9ddbcb7b4d6b7cf666dc4efd49c80b.jpg",
+      "size": 35949,
+      "sha256": null
+    },
+    {
+      "path": "images/5053fcf11ef470a1ca58a1a49a1e7b0442e36427864f321cf9436d69390d274f.jpg",
+      "size": 5453,
+      "sha256": null
+    },
+    {
+      "path": "images/50e8c98d6771506d0b622f362ed980f62cef5975a8cb97e26f1efc1bab3a3539.jpg",
+      "size": 24643,
+      "sha256": null
+    },
+    {
+      "path": "images/5aeeb5a488a441c910a04eb47cba7b60b21d2b271e3f81fda2d1d50ec144c4a0.jpg",
+      "size": 23264,
+      "sha256": null
+    },
+    {
+      "path": "images/69a55324426ecce04a15a371c54510dbc2520a9b4b74e11571cf28d3cb31217d.jpg",
+      "size": 4691,
+      "sha256": null
+    },
+    {
+      "path": "images/70c000cc5b8a8e97c795f5b9b56b5b79b1e9ddfbc075074951718cf91b2fa99b.jpg",
+      "size": 2879,
+      "sha256": null
+    },
+    {
+      "path": "images/717921b2ef67a2c6a33bb96d543d441ac1de0d0078f37f2c8f0ad81b1a67b8dd.jpg",
+      "size": 23138,
+      "sha256": null
+    },
+    {
+      "path": "images/74644651efad6c61d5da7dbfa4f90c086a74896e261d9eb7f028264d326ba1bc.jpg",
+      "size": 8092,
+      "sha256": null
+    },
+    {
+      "path": "images/75873381043993d1d3cb10eb8d3f0d1a3e56ed29179844f2b4a8b245fda15b85.jpg",
+      "size": 3291,
+      "sha256": null
+    },
+    {
+      "path": "images/86f4bc27d68e1650342be5c90af167831d5c8166263fb997df9ae2dba662af3a.jpg",
+      "size": 6826,
+      "sha256": null
+    },
+    {
+      "path": "images/922873d50e3abbfd7b70c4ffc7e983b1f8263f90b814b7cd0a972edc91ea46f6.jpg",
+      "size": 29066,
+      "sha256": null
+    },
+    {
+      "path": "images/a341c3188e2aa18c2be7ba0a93208a259f5b813283b6e376ce10b3480da1f894.jpg",
+      "size": 20019,
+      "sha256": null
+    },
+    {
+      "path": "images/a86fbfce4ccdf1dea667fca46bdf44a7d248532f5e894b400b440579a07a4943.jpg",
+      "size": 4926,
+      "sha256": null
+    },
+    {
+      "path": "images/a94c54dd850e497776013b4e2c34cf3d1f8edcbf0cdb012f724336d2714a8c7d.jpg",
+      "size": 15730,
+      "sha256": null
+    },
+    {
+      "path": "images/abbae291b4c22aa22e110923934839702c54c734345c2fcf2473a5d2589ff939.jpg",
+      "size": 3506,
+      "sha256": null
+    },
+    {
+      "path": "images/abbdfe1e81c1867de9e4d9f6121868c062c0656cffd3cac55c74e6b173a53542.jpg",
+      "size": 41154,
+      "sha256": null
+    },
+    {
+      "path": "images/ae67f32f4dba9157b3c8ed90ee5abdf06c5040b2b720ea3a9ec4988ec0d2b601.jpg",
+      "size": 1896,
+      "sha256": null
+    },
+    {
+      "path": "images/bf7041cd04d02a42600cbb17ef4a5e3f28d9ccdbbc475cd5f27d5fe9280bb46d.jpg",
+      "size": 13531,
+      "sha256": null
+    },
+    {
+      "path": "images/c48571c0509a3a5a8976675015cf3f508da27d27f984fe39e61de879808b1c38.jpg",
+      "size": 5860,
+      "sha256": null
+    },
+    {
+      "path": "images/cfeff2feebb81dd7064eca8846ef608688812bb6213f894b4422899d7adc4521.jpg",
+      "size": 21438,
+      "sha256": null
+    },
+    {
+      "path": "images/d0d9d8e91ba3147f14ebd135dfdc031c282651582c1790bde85c3113f31010d8.jpg",
+      "size": 4525,
+      "sha256": null
+    },
+    {
+      "path": "images/e05364065704c88650e9e0148cf5777e45af4db589e4e9995e88926c52d48bf4.jpg",
+      "size": 26659,
+      "sha256": null
+    },
+    {
+      "path": "images/e43bf05b8bf68f01de0c9e3d36aeb14903f2420f049fa1bd0fbd6fa665d886d4.jpg",
+      "size": 4729,
+      "sha256": null
+    },
+    {
+      "path": "images/e8a09704b5c7ea7088d0a25e32532a15f7da134bba355ebef19735ffb2124f32.jpg",
+      "size": 5092,
+      "sha256": null
+    },
+    {
+      "path": "images/e99096efe1b24cf66b66283f2f3449d6d99239ba1446f5368db4ce23aa280e63.jpg",
+      "size": 5161,
+      "sha256": null
+    },
+    {
+      "path": "images/f3eff3ce0a7195f02648b19de385a0a2208b9f57da29345883c3a8fd125dc565.jpg",
+      "size": 5147,
+      "sha256": null
+    },
+    {
+      "path": "images/f776c9f5110f4ea38a5e6e55266935d0c3b66a182a0b7014e9784d31f8bcfc25.jpg",
+      "size": 20078,
+      "sha256": null
+    },
+    {
+      "path": "images/f79665fbab942b0790e8bf07402282fb9e48a798ea80c846a55c2cba801cfa9a.jpg",
+      "size": 15752,
+      "sha256": null
+    },
+    {
+      "path": "images/f7ddee00942dd7f28e09b509b60306ac5803d89f89da474617009b2865c5495d.jpg",
+      "size": 3216,
+      "sha256": null
+    },
+    {
+      "path": "layout.json",
+      "size": 2508420,
+      "sha256": null
+    },
+    {
+      "path": "middle.json",
+      "size": 395776,
+      "sha256": null
+    }
+  ],
+  "total_size_bytes": 3829669
+}

@@ -1,0 +1,215 @@
+{
+  "version": "1.0",
+  "drawings": {
+    "im-458859b0b2943b04036593edf0f47c6d-0001": {
+      "id": "im-458859b0b2943b04036593edf0f47c6d-0001",
+      "blockid": "7988cd434c4fa4ff6e911c506b6c0bb7",
+      "heading": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation",
+      "parent_headings": [],
+      "format": "jpg",
+      "path": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation-1b3e14db.blocks.assets/f052f1437e109cd352e29c12bca394607f3f23cb2288c246e10d594677c432ce.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/4"
+    },
+    "im-458859b0b2943b04036593edf0f47c6d-0002": {
+      "id": "im-458859b0b2943b04036593edf0f47c6d-0002",
+      "blockid": "7988cd434c4fa4ff6e911c506b6c0bb7",
+      "heading": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation",
+      "parent_headings": [],
+      "format": "jpg",
+      "path": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation-1b3e14db.blocks.assets/51f1aef97884a931df1cbccc23c5513f05479dd48d1448279180b3ced3e74920.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/6"
+    },
+    "im-458859b0b2943b04036593edf0f47c6d-0003": {
+      "id": "im-458859b0b2943b04036593edf0f47c6d-0003",
+      "blockid": "7988cd434c4fa4ff6e911c506b6c0bb7",
+      "heading": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation",
+      "parent_headings": [],
+      "format": "jpg",
+      "path": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation-1b3e14db.blocks.assets/a21578ad823c7a930e5c2c7dabe7197db4afb88fecda221984456ab51c3deb82.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/8"
+    },
+    "im-458859b0b2943b04036593edf0f47c6d-0004": {
+      "id": "im-458859b0b2943b04036593edf0f47c6d-0004",
+      "blockid": "7988cd434c4fa4ff6e911c506b6c0bb7",
+      "heading": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation",
+      "parent_headings": [],
+      "format": "jpg",
+      "path": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation-1b3e14db.blocks.assets/d552273467fe1b87df82c492fc2a589ac9264f6f97bd8a8410a4da105ae06bcd.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/10"
+    },
+    "im-458859b0b2943b04036593edf0f47c6d-0005": {
+      "id": "im-458859b0b2943b04036593edf0f47c6d-0005",
+      "blockid": "7988cd434c4fa4ff6e911c506b6c0bb7",
+      "heading": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation",
+      "parent_headings": [],
+      "format": "jpg",
+      "path": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation-1b3e14db.blocks.assets/35c16be79b5bff3f84bba44a6b100a7e95912288dd243919491e8536bd9107b9.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/12"
+    },
+    "im-458859b0b2943b04036593edf0f47c6d-0006": {
+      "id": "im-458859b0b2943b04036593edf0f47c6d-0006",
+      "blockid": "7988cd434c4fa4ff6e911c506b6c0bb7",
+      "heading": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation",
+      "parent_headings": [],
+      "format": "jpg",
+      "path": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation-1b3e14db.blocks.assets/f255251da124695cc4c80b1d7523750a7df8348d54b90922fe6ada4501dbcf4e.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/14"
+    },
+    "im-458859b0b2943b04036593edf0f47c6d-0007": {
+      "id": "im-458859b0b2943b04036593edf0f47c6d-0007",
+      "blockid": "7988cd434c4fa4ff6e911c506b6c0bb7",
+      "heading": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation",
+      "parent_headings": [],
+      "format": "jpg",
+      "path": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation-1b3e14db.blocks.assets/6da10cbfcdeb1db70e5101a5d00efdcdcde561af039754ae362e06b29790ad04.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/16"
+    },
+    "im-458859b0b2943b04036593edf0f47c6d-0008": {
+      "id": "im-458859b0b2943b04036593edf0f47c6d-0008",
+      "blockid": "971e64a547cd8b9f68f5d90400a1d0a6",
+      "heading": "3.1. Problem statement",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "jpg",
+      "path": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation-1b3e14db.blocks.assets/76c495734476f48d928ea85e64df05ae7c5a7a39e2c09e667c1e87ad4d9112a1.jpg",
+      "src": "",
+      "caption": "Figure 1. Illustration of the considered distributed flexible job shop.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/77"
+    },
+    "im-458859b0b2943b04036593edf0f47c6d-0009": {
+      "id": "im-458859b0b2943b04036593edf0f47c6d-0009",
+      "blockid": "535d957c2fcb1fb7ec4657e113657358",
+      "heading": "5.1. Experimental setup",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "jpg",
+      "path": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation-1b3e14db.blocks.assets/97ececd2f9b8060f474f2d6b26e552543c0f43213ca55ce0f76f07f80a0c4542.jpg",
+      "src": "",
+      "caption": "Figure 3. Procedure of the MOEA-EM.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/204"
+    },
+    "im-458859b0b2943b04036593edf0f47c6d-0010": {
+      "id": "im-458859b0b2943b04036593edf0f47c6d-0010",
+      "blockid": "225eaf667caeab6b9b6d76ea7bd7b76c",
+      "heading": "5.5. Experimental results and analysis",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "jpg",
+      "path": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation-1b3e14db.blocks.assets/2be988be99be8c1595f5773d3ebe4387121d00efa0b76fc03a882e305c12eac9.jpg",
+      "src": "",
+      "caption": "Figure 5. Boxplot graphs offive approaches for solving test problems with six factories regarding IGD-metric.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/232"
+    },
+    "im-458859b0b2943b04036593edf0f47c6d-0011": {
+      "id": "im-458859b0b2943b04036593edf0f47c6d-0011",
+      "blockid": "6b2fe9ea8bc400a6c8a519a60bc6d3de",
+      "heading": "Notes on contributors",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "jpg",
+      "path": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation-1b3e14db.blocks.assets/6eee4fc70fc7db445acecf75973399c5236af92917ef756523c79291d3f107e9.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/274"
+    },
+    "im-458859b0b2943b04036593edf0f47c6d-0012": {
+      "id": "im-458859b0b2943b04036593edf0f47c6d-0012",
+      "blockid": "6b2fe9ea8bc400a6c8a519a60bc6d3de",
+      "heading": "Notes on contributors",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "jpg",
+      "path": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation-1b3e14db.blocks.assets/12c2a5c5aa911248ab058614dd7c0b05c68a46ad58e3c6bb78d5148d99504c2f.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/277"
+    },
+    "im-458859b0b2943b04036593edf0f47c6d-0013": {
+      "id": "im-458859b0b2943b04036593edf0f47c6d-0013",
+      "blockid": "6b2fe9ea8bc400a6c8a519a60bc6d3de",
+      "heading": "Notes on contributors",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "jpg",
+      "path": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation-1b3e14db.blocks.assets/2a2738834bb2d2d8597de809c30431b5c8780b1d656918836a558cb3a40b5ad2.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/280"
+    },
+    "im-458859b0b2943b04036593edf0f47c6d-0014": {
+      "id": "im-458859b0b2943b04036593edf0f47c6d-0014",
+      "blockid": "6b2fe9ea8bc400a6c8a519a60bc6d3de",
+      "heading": "Notes on contributors",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "jpg",
+      "path": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation-1b3e14db.blocks.assets/f753887f8ece2c52eaf217d647ee8d24de337f6af9c92c9619a7d8b96a58cc26.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/283"
+    },
+    "im-458859b0b2943b04036593edf0f47c6d-0015": {
+      "id": "im-458859b0b2943b04036593edf0f47c6d-0015",
+      "blockid": "6b2fe9ea8bc400a6c8a519a60bc6d3de",
+      "heading": "Notes on contributors",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "jpg",
+      "path": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation-1b3e14db.blocks.assets/7944bc06c9663918b916e1ec15cb5e6e230612cd1513304e7f1bcb6e19529f32.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/289"
+    },
+    "im-458859b0b2943b04036593edf0f47c6d-0016": {
+      "id": "im-458859b0b2943b04036593edf0f47c6d-0016",
+      "blockid": "6b2fe9ea8bc400a6c8a519a60bc6d3de",
+      "heading": "Notes on contributors",
+      "parent_headings": [
+        "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation"
+      ],
+      "format": "jpg",
+      "path": "Scheduling stochastic distributed flexible job shops using an multi-objective evolutionary algorithm with simulation evaluation-1b3e14db.blocks.assets/10aab8eb6a0a29e0124cc53d899af2afa8c96c19f92b332eec0d50e471084d82.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/292"
+    }
+  }
+}

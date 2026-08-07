@@ -1,0 +1,75 @@
+{
+  "version": "1.0",
+  "drawings": {
+    "im-2b3dfd7b5cbfa2a90ef71347e70c15cc-0001": {
+      "id": "im-2b3dfd7b5cbfa2a90ef71347e70c15cc-0001",
+      "blockid": "02425c51ae30cc363fecbc3f904d7aa3",
+      "heading": "check for updates",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "format": "jpg",
+      "path": "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops-1bbea6e8.blocks.assets/752dd1a8d9aaed00797e5c3ded152918f069052285cdb57ad76c85c687139405.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/14"
+    },
+    "im-2b3dfd7b5cbfa2a90ef71347e70c15cc-0002": {
+      "id": "im-2b3dfd7b5cbfa2a90ef71347e70c15cc-0002",
+      "blockid": "4933b4148e3f99c9298f23214265b6dd",
+      "heading": "4. Proposed ABC-Based Solving Approach",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "format": "jpg",
+      "path": "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops-1bbea6e8.blocks.assets/e4bb3df0ca97c2b5f53ab385d8c16179dbbcaba6ed891c9563c941d229ae6e23.jpg",
+      "src": "",
+      "caption": "Figure 1. Flow chart of the proposed ABC algorithm.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/62"
+    },
+    "im-2b3dfd7b5cbfa2a90ef71347e70c15cc-0003": {
+      "id": "im-2b3dfd7b5cbfa2a90ef71347e70c15cc-0003",
+      "blockid": "c13ae41201484d6ebb6dfcba5f3b2404",
+      "heading": "4.2. Employed Bees Phase",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "format": "jpg",
+      "path": "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops-1bbea6e8.blocks.assets/dc1c454336d2da0e2add930c6c078cd322ed24f1b440cb3f0fdb4bceee1b979b.jpg",
+      "src": "",
+      "caption": "Figure 3. Illustrative examples of One-swap and Double-swap moves.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/92"
+    },
+    "im-2b3dfd7b5cbfa2a90ef71347e70c15cc-0004": {
+      "id": "im-2b3dfd7b5cbfa2a90ef71347e70c15cc-0004",
+      "blockid": "c13ae41201484d6ebb6dfcba5f3b2404",
+      "heading": "4.2. Employed Bees Phase",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "format": "jpg",
+      "path": "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops-1bbea6e8.blocks.assets/51787b203522b1ccab5a75049ea22f24b1126899a74d3ec0b1284df50d6a2978.jpg",
+      "src": "",
+      "caption": "Figure 4. Illustrative examples of One-insert and Double-insert moves.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/102"
+    },
+    "im-2b3dfd7b5cbfa2a90ef71347e70c15cc-0005": {
+      "id": "im-2b3dfd7b5cbfa2a90ef71347e70c15cc-0005",
+      "blockid": "c13ae41201484d6ebb6dfcba5f3b2404",
+      "heading": "4.2. Employed Bees Phase",
+      "parent_headings": [
+        "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops"
+      ],
+      "format": "jpg",
+      "path": "An Artificial Bee Colony Algorithm for Coordinated Scheduling of Production Jobs and Flexible Maintenance in Permutation Flowshops-1bbea6e8.blocks.assets/0369dfaf9cf2ee5f696cfc3379ac5055f4a3b0487b514e2fb0746022fa8ec821.jpg",
+      "src": "",
+      "caption": "?????????????????????? ??????????",
+      "footnotes": [],
+      "self_ref": "content_list.json#/106"
+    }
+  }
+}

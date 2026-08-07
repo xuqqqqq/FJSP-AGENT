@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "family_id": "fjsp_machine_availability",
+  "cards": [
+    {
+      "cache_key": "4c4247edcd11873f",
+      "family_id": "fjsp_machine_availability",
+      "stage": "strategy",
+      "tags": [
+        "machine_availability",
+        "machine_calendar",
+        "maintenance",
+        "maintenance_window"
+      ],
+      "path": "knowledge/rag_generated_cards/fjsp_machine_availability/strategy/strategy_4c4247edcd11873f.md",
+      "query_hash": "915ae292df1275471aeccde9fe0c5a1bbd6eb31d3d74864f94bd6baa765763f8",
+      "working_dir": "knowledge/fjsp_kb",
+      "mode": "mix",
+      "top_k": 10,
+      "max_content_chars": 8000,
+      "created_at": "2026-07-29T05:19:19.567664+00:00"
+    },
+    {
+      "cache_key": "1140a8b4072258c1",
+      "family_id": "fjsp_machine_availability",
+      "stage": "direction",
+      "tags": [
+        "availability_aware_insertion",
+        "calendar_aware_decoder",
+        "decoder",
+        "initialization",
+        "machine_availability",
+        "machine_calendar",
+        "maintenance",
+        "maintenance_window"
+      ],
+      "path": "knowledge/rag_generated_cards/fjsp_machine_availability/direction/direction_1140a8b4072258c1.md",
+      "query_hash": "fd2d5e103644e063811d84f994a0c5c5caf51e98ae66eeaddcf9908dfc4695c2",
+      "working_dir": "knowledge/fjsp_kb",
+      "mode": "mix",
+      "top_k": 10,
+      "max_content_chars": 8000,
+      "only_need_context": false,
+      "response_type": "Actionable implementation knowledge card",
+      "created_at": "2026-07-29T05:58:11.802710+00:00"
+    },
+    {
+      "cache_key": "fa51bdf9574407fd",
+      "family_id": "fjsp_machine_availability",
+      "stage": "direction",
+      "tags": [
+        "availability_aware_insertion",
+        "calendar_aware_decoder",
+        "construction",
+        "machine_availability"
+      ],
+      "path": "knowledge/rag_generated_cards/fjsp_machine_availability/direction/direction_fa51bdf9574407fd.md",
+      "query_hash": "ae7ea6195178c4de1b592bfbe29e1a1c68637a78bef08135138d834bd77c793a",
+      "working_dir": "knowledge/fjsp_kb",
+      "mode": "mix",
+      "top_k": 10,
+      "max_content_chars": 8000,
+      "only_need_context": false,
+      "response_type": "Actionable implementation knowledge card",
+      "created_at": "2026-07-29T06:22:13.168540+00:00"
+    }
+  ]
+}

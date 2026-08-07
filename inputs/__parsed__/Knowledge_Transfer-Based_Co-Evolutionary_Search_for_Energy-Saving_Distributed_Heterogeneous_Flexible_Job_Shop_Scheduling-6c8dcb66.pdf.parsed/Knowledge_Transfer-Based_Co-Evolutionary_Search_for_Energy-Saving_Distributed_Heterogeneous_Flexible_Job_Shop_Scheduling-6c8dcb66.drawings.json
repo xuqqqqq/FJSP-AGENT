@@ -1,0 +1,91 @@
+{
+  "version": "1.0",
+  "drawings": {
+    "im-78fb975a62b0ae0a55602842d9892197-0001": {
+      "id": "im-78fb975a62b0ae0a55602842d9892197-0001",
+      "blockid": "30bc5c8945875ff7c5b474233160323b",
+      "heading": "I. INTRODUCTION",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "jpg",
+      "path": "Knowledge_Transfer-Based_Co-Evolutionary_Search_for_Energy-Saving_Distributed_Heterogeneous_Flexible_Job_Shop_Scheduling-6c8dcb66.blocks.assets/ccf108819206f818e0e7facf84074831103f4e75e8d49f1ad440efae13d91b25.jpg",
+      "src": "",
+      "caption": "Fig. 1. Overall framework of KTCE.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/19"
+    },
+    "im-78fb975a62b0ae0a55602842d9892197-0002": {
+      "id": "im-78fb975a62b0ae0a55602842d9892197-0002",
+      "blockid": "a426dc92a39923c9b10e84925e312af4",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "jpg",
+      "path": "Knowledge_Transfer-Based_Co-Evolutionary_Search_for_Energy-Saving_Distributed_Heterogeneous_Flexible_Job_Shop_Scheduling-6c8dcb66.blocks.assets/60b47cb0fb618ebffda2b610332ca7ea9407346a7074027a15bca34206a36a79.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [
+        "Tao Li received the M.S. degree in computer software and theory from Henan Normal University, Henan, China, in 2016, and the Ph.D. degree in software engineering from Harbin Engineering University, Harbin, China, in 2019. He is currently a Lecturer with the College of Computer and Information Engineering with Henan Normal University. His research interests include evolutionary computation and machine learning, and focusing on feature selection."
+      ],
+      "self_ref": "content_list.json#/306"
+    },
+    "im-78fb975a62b0ae0a55602842d9892197-0003": {
+      "id": "im-78fb975a62b0ae0a55602842d9892197-0003",
+      "blockid": "a426dc92a39923c9b10e84925e312af4",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "jpg",
+      "path": "Knowledge_Transfer-Based_Co-Evolutionary_Search_for_Energy-Saving_Distributed_Heterogeneous_Flexible_Job_Shop_Scheduling-6c8dcb66.blocks.assets/078222db9e33772501d49e9c75af4f67cacb3ac34638e84e5afac0c91a1dbf29.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/307"
+    },
+    "im-78fb975a62b0ae0a55602842d9892197-0004": {
+      "id": "im-78fb975a62b0ae0a55602842d9892197-0004",
+      "blockid": "a426dc92a39923c9b10e84925e312af4",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "jpg",
+      "path": "Knowledge_Transfer-Based_Co-Evolutionary_Search_for_Energy-Saving_Distributed_Heterogeneous_Flexible_Job_Shop_Scheduling-6c8dcb66.blocks.assets/58a178683effdde28f98756f524cc595d2bf4ffe08ce6da3731508cd9b2bd9e9.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/309"
+    },
+    "im-78fb975a62b0ae0a55602842d9892197-0005": {
+      "id": "im-78fb975a62b0ae0a55602842d9892197-0005",
+      "blockid": "a426dc92a39923c9b10e84925e312af4",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "jpg",
+      "path": "Knowledge_Transfer-Based_Co-Evolutionary_Search_for_Energy-Saving_Distributed_Heterogeneous_Flexible_Job_Shop_Scheduling-6c8dcb66.blocks.assets/6c48e7dade91c3fefd096b5619124cf5d6469350b83908bb5d8b634d93189a05.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/311"
+    },
+    "im-78fb975a62b0ae0a55602842d9892197-0006": {
+      "id": "im-78fb975a62b0ae0a55602842d9892197-0006",
+      "blockid": "a426dc92a39923c9b10e84925e312af4",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "Knowledge Transfer-Based Co-Evolutionary Search for Energy-Saving Distributed Heterogeneous Flexible Job Shop Scheduling"
+      ],
+      "format": "jpg",
+      "path": "Knowledge_Transfer-Based_Co-Evolutionary_Search_for_Energy-Saving_Distributed_Heterogeneous_Flexible_Job_Shop_Scheduling-6c8dcb66.blocks.assets/ca55418a38fa40a876b294885938cb8536572c7709c429418fc6e07b90b2b354.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/312"
+    }
+  }
+}

@@ -1,0 +1,149 @@
+{
+  "version": "1.0",
+  "drawings": {
+    "im-f0490d27025df4a1e3094e5246569dcc-0001": {
+      "id": "im-f0490d27025df4a1e3094e5246569dcc-0001",
+      "blockid": "746927f3531137068b00d9b135a4bb63",
+      "heading": "C. The Defination of Feature Space",
+      "parent_headings": [
+        "Self-Adaptive Differential Evolution-Enhanced Quality-Diversity Optimization for Distributed Flexible Job-Shop Scheduling With Transportation"
+      ],
+      "format": "jpg",
+      "path": "Self-Adaptive_Differential_Evolution-Enhanced_Quality-Diversity_Optimization_for_Distributed_Flexible_Job-Shop_Scheduling_With_Transportation-1158bd89.blocks.assets/13b3ae62d9e8074c1cafebb8bcf9798ec7c0cd1f14b54da8a92b7bad360ee7d0.jpg",
+      "src": "",
+      "caption": "Fig. 1. Gantt chart of the DFJSP-T.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/93"
+    },
+    "im-f0490d27025df4a1e3094e5246569dcc-0002": {
+      "id": "im-f0490d27025df4a1e3094e5246569dcc-0002",
+      "blockid": "66ac89f1e76fa3f3f5561bc4fb140b38",
+      "heading": "A. Initialization",
+      "parent_headings": [
+        "Self-Adaptive Differential Evolution-Enhanced Quality-Diversity Optimization for Distributed Flexible Job-Shop Scheduling With Transportation"
+      ],
+      "format": "jpg",
+      "path": "Self-Adaptive_Differential_Evolution-Enhanced_Quality-Diversity_Optimization_for_Distributed_Flexible_Job-Shop_Scheduling_With_Transportation-1158bd89.blocks.assets/b380e27703baeee866e3ab138211df3133581e0bc747f34b4c0e26b7736adc1a.jpg",
+      "src": "",
+      "caption": "Fig. 2. An example of encoding scheme.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/108"
+    },
+    "im-f0490d27025df4a1e3094e5246569dcc-0003": {
+      "id": "im-f0490d27025df4a1e3094e5246569dcc-0003",
+      "blockid": "66ac89f1e76fa3f3f5561bc4fb140b38",
+      "heading": "A. Initialization",
+      "parent_headings": [
+        "Self-Adaptive Differential Evolution-Enhanced Quality-Diversity Optimization for Distributed Flexible Job-Shop Scheduling With Transportation"
+      ],
+      "format": "jpg",
+      "path": "Self-Adaptive_Differential_Evolution-Enhanced_Quality-Diversity_Optimization_for_Distributed_Flexible_Job-Shop_Scheduling_With_Transportation-1158bd89.blocks.assets/6a1acbe182c9bc7129f6551dbcbf43fade4fcee059f1ab8931667e6b381e184a.jpg",
+      "src": "",
+      "caption": "Fig. 3. Illustration ofthree ways ofupdate in grid archive. The figure illustrates three scenarios for updating solutions in the feature space after applying the HS operators. The solution is updated in two scenarios: 1) If the corresponding cel is empty, the newly generated solution is archived directly to the cell. 2) If the targeted cell is already occupied, the new solution will only replace the existing one if it offers a better performance; otherwise, the new solution will be ignored.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/109"
+    },
+    "im-f0490d27025df4a1e3094e5246569dcc-0004": {
+      "id": "im-f0490d27025df4a1e3094e5246569dcc-0004",
+      "blockid": "5f9352e8adc27a3d676756adf7035bce",
+      "heading": "A. Benchmarks ofDFJSP-T",
+      "parent_headings": [
+        "Self-Adaptive Differential Evolution-Enhanced Quality-Diversity Optimization for Distributed Flexible Job-Shop Scheduling With Transportation"
+      ],
+      "format": "jpg",
+      "path": "Self-Adaptive_Differential_Evolution-Enhanced_Quality-Diversity_Optimization_for_Distributed_Flexible_Job-Shop_Scheduling_With_Transportation-1158bd89.blocks.assets/411efc72c2e4760b8b48131cd51c055542f5aa6f94f3706ec9a3c05b879b51c2.jpg",
+      "src": "",
+      "caption": "Fig. 4. Collaborative evolution for solutions in the grid archive.",
+      "footnotes": [],
+      "self_ref": "content_list.json#/141"
+    },
+    "im-f0490d27025df4a1e3094e5246569dcc-0005": {
+      "id": "im-f0490d27025df4a1e3094e5246569dcc-0005",
+      "blockid": "17c6c63ba3a897827c1fd855c297eec1",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "Self-Adaptive Differential Evolution-Enhanced Quality-Diversity Optimization for Distributed Flexible Job-Shop Scheduling With Transportation"
+      ],
+      "format": "jpg",
+      "path": "Self-Adaptive_Differential_Evolution-Enhanced_Quality-Diversity_Optimization_for_Distributed_Flexible_Job-Shop_Scheduling_With_Transportation-1158bd89.blocks.assets/ce78f6540fc6323de948da26d665303c334b1a40a89ed9cd482745cdc0aa86c6.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [
+        "Haoxiang Qin received the B.S. and M.S. degrees from the School of Computer Science, Liaocheng University, Liaocheng, China. He is currently working toward the Ph.D. degree in software engineering with the School of Software Engineering, South China University of Technology, Guangzhou, China. His research interests include quality-diversity optimization, flexible job shop scheduling, and deep reinforcement learning."
+      ],
+      "self_ref": "content_list.json#/310"
+    },
+    "im-f0490d27025df4a1e3094e5246569dcc-0006": {
+      "id": "im-f0490d27025df4a1e3094e5246569dcc-0006",
+      "blockid": "17c6c63ba3a897827c1fd855c297eec1",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "Self-Adaptive Differential Evolution-Enhanced Quality-Diversity Optimization for Distributed Flexible Job-Shop Scheduling With Transportation"
+      ],
+      "format": "jpg",
+      "path": "Self-Adaptive_Differential_Evolution-Enhanced_Quality-Diversity_Optimization_for_Distributed_Flexible_Job-Shop_Scheduling_With_Transportation-1158bd89.blocks.assets/ea77b795becb9af45c5f7e5a162eb2332097c2a490837f90396879e3f3aa23b8.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/311"
+    },
+    "im-f0490d27025df4a1e3094e5246569dcc-0007": {
+      "id": "im-f0490d27025df4a1e3094e5246569dcc-0007",
+      "blockid": "17c6c63ba3a897827c1fd855c297eec1",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "Self-Adaptive Differential Evolution-Enhanced Quality-Diversity Optimization for Distributed Flexible Job-Shop Scheduling With Transportation"
+      ],
+      "format": "jpg",
+      "path": "Self-Adaptive_Differential_Evolution-Enhanced_Quality-Diversity_Optimization_for_Distributed_Flexible_Job-Shop_Scheduling_With_Transportation-1158bd89.blocks.assets/c602da1df3a96431eb198577fb9906b1c89c8f438ba46a8475e8c95daf40b932.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/313"
+    },
+    "im-f0490d27025df4a1e3094e5246569dcc-0008": {
+      "id": "im-f0490d27025df4a1e3094e5246569dcc-0008",
+      "blockid": "17c6c63ba3a897827c1fd855c297eec1",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "Self-Adaptive Differential Evolution-Enhanced Quality-Diversity Optimization for Distributed Flexible Job-Shop Scheduling With Transportation"
+      ],
+      "format": "jpg",
+      "path": "Self-Adaptive_Differential_Evolution-Enhanced_Quality-Diversity_Optimization_for_Distributed_Flexible_Job-Shop_Scheduling_With_Transportation-1158bd89.blocks.assets/b33b9bdbd8343848f3e329343edd308182061864d42d5fa6b1e9a489c9190c68.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/315"
+    },
+    "im-f0490d27025df4a1e3094e5246569dcc-0009": {
+      "id": "im-f0490d27025df4a1e3094e5246569dcc-0009",
+      "blockid": "17c6c63ba3a897827c1fd855c297eec1",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "Self-Adaptive Differential Evolution-Enhanced Quality-Diversity Optimization for Distributed Flexible Job-Shop Scheduling With Transportation"
+      ],
+      "format": "jpg",
+      "path": "Self-Adaptive_Differential_Evolution-Enhanced_Quality-Diversity_Optimization_for_Distributed_Flexible_Job-Shop_Scheduling_With_Transportation-1158bd89.blocks.assets/50d0b82c224fc82e8ff283692f83e9becdb5980750b387c77fddf8914b70d34c.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [
+        "technology."
+      ],
+      "self_ref": "content_list.json#/317"
+    },
+    "im-f0490d27025df4a1e3094e5246569dcc-0010": {
+      "id": "im-f0490d27025df4a1e3094e5246569dcc-0010",
+      "blockid": "17c6c63ba3a897827c1fd855c297eec1",
+      "heading": "REFERENCES",
+      "parent_headings": [
+        "Self-Adaptive Differential Evolution-Enhanced Quality-Diversity Optimization for Distributed Flexible Job-Shop Scheduling With Transportation"
+      ],
+      "format": "jpg",
+      "path": "Self-Adaptive_Differential_Evolution-Enhanced_Quality-Diversity_Optimization_for_Distributed_Flexible_Job-Shop_Scheduling_With_Transportation-1158bd89.blocks.assets/b817516ad4b4f7aa2fda3c846894c2c8a86a6b3d2218d3945104022fd195fbfc.jpg",
+      "src": "",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/319"
+    }
+  }
+}

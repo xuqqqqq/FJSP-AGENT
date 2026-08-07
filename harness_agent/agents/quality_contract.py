@@ -52,6 +52,26 @@ def build_agent_generated_solver_quality_contract(context: dict[str, Any]) -> di
         variant_required.append("time_lag_precedence_guard")
     if "machine_calendar" in features:
         variant_required.append("machine_calendar_availability_guard")
+    if "fjsp_distributed_transfer" in features:
+        variant_required.extend(
+            [
+                "factory_assignment_guard",
+                "transfer_time_precedence_guard",
+                "factory_machine_eligibility_guard",
+                "distributed_machine_non_overlap_guard",
+                "energy_and_workload_metric_guard",
+            ]
+        )
+    if "fjsp_job_priority" in features or "job_priority" in features:
+        variant_required.extend(
+            [
+                "priority_tail_parser_guard",
+                "priority_job_identity_guard",
+                "priority_completion_metric_guard",
+                "lexicographic_priority_objective_guard",
+                "priority_aware_dispatch_guard",
+            ]
+        )
     if "batching" in features:
         variant_required.append("batch_capacity_guard")
     if "transportation" in features:
@@ -183,6 +203,46 @@ _CAPABILITY_PLAYBOOK = {
         "evidence": "Cite the check that scheduled intervals fit machine availability and do not overlap unavailable calendar windows.",
         "repair": "Decode with machine calendars/unavailability windows and reject intervals outside available time.",
     },
+    "factory_assignment_guard": {
+        "evidence": "Cite the representation and output writer that assign a 0-based factory_id to every scheduled operation.",
+        "repair": "Carry factory_id through parsing, decoding, self-check, and JSON output before optimizing the schedule.",
+    },
+    "transfer_time_precedence_guard": {
+        "evidence": "Cite the job-precedence timing code that adds 30 for same-factory different-machine successors and 60 for cross-factory successors.",
+        "repair": "Compute successor readiness from predecessor end plus the fixed DFJSPT transfer time, not from predecessor end alone.",
+    },
+    "factory_machine_eligibility_guard": {
+        "evidence": "Cite the eligibility check that validates the chosen (factory_id, machine_id) pair against the parsed candidates for that operation.",
+        "repair": "Store candidates as factory-machine pairs and reject assignments that match only machine_id but not factory_id.",
+    },
+    "distributed_machine_non_overlap_guard": {
+        "evidence": "Cite the capacity timeline keyed by (factory_id, machine_id) that prevents overlapping intervals on each factory-local machine.",
+        "repair": "Decode and validate machine capacity per factory-machine pair; do not merge machines with the same local id across factories.",
+    },
+    "energy_and_workload_metric_guard": {
+        "evidence": "Cite the calculation for processing energy, transfer energy, max_factory_workload, and total_energy_consumption.",
+        "repair": "Compute and self-check DFJSPT metrics from the final schedule using parsed unit energy and fixed transfer energy.",
+    },
+    "priority_tail_parser_guard": {
+        "evidence": "Cite the parser logic that continues after the standard FJSP body and reads the priority tail as K followed by K job ids.",
+        "repair": "After parsing all standard operations, consume the remaining tokens as priority metadata instead of ignoring trailing data.",
+    },
+    "priority_job_identity_guard": {
+        "evidence": "Cite where priority job ids are normalized and stored as 0-based job identities, not machines, operations, or ranks.",
+        "repair": "Keep priority ids in the same 0-based job_id coordinate system used by schedule records and validation.",
+    },
+    "priority_completion_metric_guard": {
+        "evidence": "Cite the metric that computes the maximum completion time over priority jobs.",
+        "repair": "Compute priority_completion_time from final schedule records for the parsed priority job set.",
+    },
+    "lexicographic_priority_objective_guard": {
+        "evidence": "Cite candidate comparison using (makespan, priority_completion_time), or a clearly user-confirmed weighted objective.",
+        "repair": "Compare candidates by makespan first and priority completion second unless the task explicitly declares a different weighting.",
+    },
+    "priority_aware_dispatch_guard": {
+        "evidence": "Cite construction or local-search scoring that gives parsed priority jobs an explicit scheduling preference.",
+        "repair": "Add priority-aware dispatch or neighborhood bias; do not only report a priority metric after makespan-only search.",
+    },
     "batch_capacity_guard": {
         "evidence": "Cite the check that every batch respects capacity, family/compatibility, and operation coverage constraints.",
         "repair": "Track batch membership and capacity during construction/decode; reject over-capacity or incompatible batches.",
@@ -273,12 +333,69 @@ def extract_variant_features(context: dict[str, Any]) -> set[str]:
             if isinstance(item, dict)
         )
     )
+    machine_calendar_from_diagnostics = (
+        int(summary.get("nfa_instance_count") or 0) > 0
+        or int(summary.get("machine_availability_instance_count") or 0) > 0
+        or int(summary.get("total_unavailability_count") or 0) > 0
+        or any(
+            str(item.get("variant") or "").lower() == "fjsp_machine_availability"
+            or bool(item.get("has_machine_availability"))
+            or int(item.get("unavailability_count") or 0) > 0
+            for item in diagnostics.get("instances") or []
+            if isinstance(item, dict)
+        )
+    )
+    distributed_from_diagnostics = (
+        int(summary.get("distributed_transfer_instance_count") or 0) > 0
+        or any(
+            str(item.get("variant") or "").lower() == "fjsp_distributed_transfer"
+            or bool(item.get("has_distributed_transfer"))
+            for item in diagnostics.get("instances") or []
+            if isinstance(item, dict)
+        )
+    )
+    priority_from_diagnostics = (
+        int(summary.get("priority_job_instance_count") or 0) > 0
+        or int(summary.get("priority_job_count_max") or 0) > 0
+        or any(
+            str(item.get("variant") or "").lower() in {"fjsp_priority", "fjsp_job_priority"}
+            or bool(item.get("has_job_priority"))
+            or int(item.get("priority_job_count") or 0) > 0
+            for item in diagnostics.get("instances") or []
+            if isinstance(item, dict)
+        )
+    )
     active_text = _active_problem_feature_text(
         context,
         include_documents=not diagnostics_available,
     )
     if setup_from_diagnostics or (not diagnostics_available and _mentions_sequence_dependent_setup(active_text)):
         features.add("sequence_dependent_setup")
+    if machine_calendar_from_diagnostics:
+        features.add("machine_calendar")
+    if distributed_from_diagnostics or (not diagnostics_available and _mentions_distributed_transfer_fjsp(active_text)):
+        features.update(
+            {
+                "fjsp_distributed_transfer",
+                "distributed_factories",
+                "factory_assignment",
+                "transfer_time",
+                "energy_consumption",
+                "factory_workload",
+            }
+        )
+    if priority_from_diagnostics or (not diagnostics_available and _mentions_job_priority_fjsp(active_text)):
+        features.update(
+            {
+                "fjsp_job_priority",
+                "fjsp_priority",
+                "job_priority",
+                "priority_jobs",
+                "priority_completion_time",
+                "multi_objective",
+                "lexicographic_objective",
+            }
+        )
     if _has_any_pattern(active_text, [r"\bno[-_\s]?wait\b"]):
         features.add("no_wait")
     if _has_any_pattern(active_text, [r"\btime[-_\s]?lag\b"]):
@@ -307,6 +424,39 @@ def _mentions_sequence_dependent_setup(text: str) -> bool:
             r"\bsequence[-_\s]?dependent[-_\s]?setup\b",
             r"\bsetup[-_\s]?matrix\b",
             r"\bsetup[-_\s]?time(?:s)?\b",
+        ],
+    )
+
+
+def _mentions_distributed_transfer_fjsp(text: str) -> bool:
+    return _has_any_pattern(
+        text,
+        [
+            r"\bdfjspt\b",
+            r"\bdistributed[-_\s]?fjsp\b",
+            r"\bdistributed[-_\s]?flexible[-_\s]?job[-_\s]?shop\b",
+            r"\bfjsp[-_\s]?distributed[-_\s]?transfer\b",
+            r"\bfactory[-_\s]?assignment\b",
+            r"\btransfer[-_\s]?time\b",
+            r"\btransportation[-_\s]?constraints\b",
+            r"\benergy[-_\s]?aware[-_\s]?distributed\b",
+            r"分布式|工厂|转移时间|运输约束|能耗",
+        ],
+    )
+
+
+def _mentions_job_priority_fjsp(text: str) -> bool:
+    return _has_any_pattern(
+        text,
+        [
+            r"\bfjsp[-_\s]?job[-_\s]?priority\b",
+            r"\bfjsp[-_\s]?priority\b",
+            r"\bpriority[-_\s]?fjsp\b",
+            r"\bjob[-_\s]?priority\b",
+            r"\bpriority[-_\s]?job(?:s)?\b",
+            r"\bpriority[-_\s]?completion[-_\s]?time\b",
+            r"\blexicographic[-_\s]?objective\b",
+            r"优先级工件|优先工件|优先完工",
         ],
     )
 

@@ -569,6 +569,244 @@ class WorkerAssignmentTests(unittest.TestCase):
         self.assertIn("knowledge/toy/operator.md", read_paths)
         self.assertNotIn("knowledge/toy/reference.py", read_paths)
 
+    def test_distributed_assignment_exposes_contract_rag_docs_and_fixed_evaluator(self) -> None:
+        evaluator_path = "examples/fjsp_distributed_transfer_evaluator.py"
+        context = {
+            "task": {
+                "problem_family": "fjsp_distributed_transfer",
+                "instances": [
+                    {
+                        "id": "DFM01",
+                        "path": (
+                            "ALL-Input-Information/10-distributed-FJSP/10-Instance/small size/"
+                            "DFM01_10x2x6.txt"
+                        ),
+                    }
+                ],
+            },
+            "evaluator_protocol": {
+                "solver_command_template": (
+                    "python examples/agent_generated_fjsp_solver.py --input {instance} "
+                    "--output {solution} --seed {seed}"
+                ),
+                "evaluator_command_template": (
+                    f"python {evaluator_path} --instance {{instance}} "
+                    "--solution {solution} --metrics {metrics}"
+                ),
+                "solution_format": "distributed_fjsp_schedule_v1",
+                "solution_contract": {
+                    "format": "distributed_fjsp_schedule_v1",
+                    "schedule_record_fields": [
+                        "job_id",
+                        "op_id",
+                        "factory_id",
+                        "machine_id",
+                        "start",
+                        "end",
+                    ],
+                },
+            },
+            "edit_policy": {
+                "allowed_paths": ["examples"],
+                "forbidden_paths": [".git"],
+            },
+            "instance_diagnostics": {
+                "status": "available",
+                "summary": {
+                    "profiled_count": 1,
+                    "distributed_transfer_instance_count": 1,
+                },
+                "instances": [
+                    {
+                        "variant": "fjsp_distributed_transfer",
+                        "has_distributed_transfer": True,
+                    }
+                ],
+            },
+            "documents": [
+                {"path": "ALL-Input-Information/10-distributed-FJSP/10-Problem description.md"},
+                {"path": "ALL-Input-Information/10-distributed-FJSP/10-Instances/README.md"},
+            ],
+            "active_direction_knowledge": {
+                "paths": [
+                    "knowledge/rag_generated_cards/fjsp_distributed_transfer/d000_factory_transfer.md"
+                ],
+            },
+            "method_package_catalog": {
+                "active_features": [
+                    "fjsp_distributed_transfer",
+                    "factory_assignment",
+                    "transfer_time",
+                    "energy_consumption",
+                ],
+                "packages": [],
+            },
+            "baseline_generation": {"source": "agent_generated"},
+        }
+        direction = {
+            "direction_id": "d000-distributed",
+            "worker_objective": "Build a distributed FJSP solver with factory transfer timing.",
+            "knowledge_query": ["factory_assignment", "transfer_time", "energy_aware_scheduling"],
+            "change_scope": ["Implement factory-aware parsing, decoding, and metrics."],
+        }
+
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan=direction,
+            loop_feedback={},
+            round_index=-1,
+            attempt_index=0,
+            max_steps=4,
+            max_runtime_seconds=300,
+        )
+        payload = assignment.to_payload()
+        runtime = payload["runtime_contract"]
+        read_paths = [item["path"] for item in payload["read_set"]]
+
+        self.assertEqual("distributed_fjsp_schedule_v1", runtime["solution_format"])
+        self.assertEqual(
+            ["job_id", "op_id", "factory_id", "machine_id", "start", "end"],
+            runtime["solution_contract"]["schedule_record_fields"],
+        )
+        self.assertIn(evaluator_path, runtime["evaluator_command_template"])
+        self.assertIn(evaluator_path, runtime["forbidden_paths"])
+        self.assertIn(evaluator_path, payload["forbidden"])
+        self.assertIn("factory_assignment_guard", runtime["variant_required_code_capabilities"])
+        self.assertIn("transfer_time_precedence_guard", runtime["variant_required_code_capabilities"])
+        self.assertIn("energy_and_workload_metric_guard", runtime["variant_required_code_capabilities"])
+        self.assertIn(
+            "knowledge/rag_generated_cards/fjsp_distributed_transfer/d000_factory_transfer.md",
+            read_paths,
+        )
+        self.assertIn(".algoforge_worker_inputs/instances/000_DFM01.txt", read_paths)
+        self.assertIn(
+            ".algoforge_worker_inputs/docs/000_10-Problem_description.md",
+            read_paths,
+        )
+        self.assertIn(".algoforge_worker_inputs/docs/001_README.md", read_paths)
+
+    def test_priority_assignment_exposes_contract_rag_docs_and_fixed_evaluator(self) -> None:
+        evaluator_path = "examples/fjsp_job_priority_evaluator.py"
+        context = {
+            "task": {
+                "problem_family": "fjsp_job_priority",
+                "instances": [
+                    {
+                        "id": "mt10c1_priority",
+                        "path": (
+                            "ALL-Input-Information/11-priority-FJSP/11-Instances/"
+                            "fjsp.barnes.mt10c1.m11j10c2.priority.seed20260722.txt"
+                        ),
+                    }
+                ],
+                "objectives": [
+                    {"name": "makespan", "direction": "minimize", "priority": 1},
+                    {"name": "priority_completion_time", "direction": "minimize", "priority": 2},
+                ],
+            },
+            "evaluator_protocol": {
+                "solver_command_template": (
+                    "python examples/agent_generated_fjsp_solver.py --input {instance} "
+                    "--output {solution} --seed {seed}"
+                ),
+                "evaluator_command_template": (
+                    f"python {evaluator_path} --instance {{instance}} "
+                    "--solution {solution} --metrics {metrics}"
+                ),
+                "solution_format": "standard_fjsp_schedule_v1",
+                "solution_contract": {
+                    "format": "standard_fjsp_schedule_v1",
+                    "schedule_record_fields": ["job_id", "op_id", "machine_id", "start", "end"],
+                    "objective_metrics": ["makespan", "priority_completion_time"],
+                },
+            },
+            "edit_policy": {
+                "allowed_paths": ["examples"],
+                "forbidden_paths": [".git"],
+            },
+            "instance_diagnostics": {
+                "status": "available",
+                "summary": {
+                    "profiled_count": 1,
+                    "priority_job_instance_count": 1,
+                    "priority_job_count_max": 3,
+                },
+                "instances": [
+                    {
+                        "variant": "fjsp_priority",
+                        "has_job_priority": True,
+                        "priority_job_count": 3,
+                        "priority_job_ids": [1, 6, 8],
+                    }
+                ],
+            },
+            "documents": [
+                {"path": "ALL-Input-Information/11-priority-FJSP/11-Problem description.md"},
+                {"path": "ALL-Input-Information/11-priority-FJSP/11-Instance format.md"},
+            ],
+            "active_direction_knowledge": {
+                "paths": [
+                    "knowledge/rag_generated_cards/fjsp_job_priority/d000_priority_tail_and_objective.md"
+                ],
+            },
+            "method_package_catalog": {
+                "active_features": [
+                    "fjsp_job_priority",
+                    "job_priority",
+                    "priority_jobs",
+                    "priority_completion_time",
+                    "multi_objective",
+                    "lexicographic_objective",
+                ],
+                "packages": [],
+            },
+            "baseline_generation": {"source": "agent_generated"},
+        }
+        direction = {
+            "direction_id": "d000-priority",
+            "worker_objective": "Build a priority-FJSP solver that reads priority tail and optimizes priority completion.",
+            "knowledge_query": ["priority_completion_time", "priority_dispatch_rule"],
+            "change_scope": ["Implement priority-tail parsing, metric calculation, and priority-aware dispatch."],
+        }
+
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan=direction,
+            loop_feedback={},
+            round_index=-1,
+            attempt_index=0,
+            max_steps=4,
+            max_runtime_seconds=300,
+        )
+        payload = assignment.to_payload()
+        runtime = payload["runtime_contract"]
+        read_paths = [item["path"] for item in payload["read_set"]]
+
+        self.assertEqual("standard_fjsp_schedule_v1", runtime["solution_format"])
+        self.assertEqual(
+            ["job_id", "op_id", "machine_id", "start", "end"],
+            runtime["solution_contract"]["schedule_record_fields"],
+        )
+        self.assertIn(
+            {"name": "priority_completion_time", "direction": "minimize", "priority": 2},
+            runtime["objectives"],
+        )
+        self.assertIn(evaluator_path, runtime["evaluator_command_template"])
+        self.assertIn(evaluator_path, runtime["forbidden_paths"])
+        self.assertIn(evaluator_path, payload["forbidden"])
+        self.assertIn("priority_tail_parser_guard", runtime["variant_required_code_capabilities"])
+        self.assertIn("priority_completion_metric_guard", runtime["variant_required_code_capabilities"])
+        self.assertIn(
+            "knowledge/rag_generated_cards/fjsp_job_priority/d000_priority_tail_and_objective.md",
+            read_paths,
+        )
+        self.assertIn(".algoforge_worker_inputs/instances/000_mt10c1_priority.txt", read_paths)
+        self.assertIn(
+            ".algoforge_worker_inputs/docs/000_11-Problem_description.md",
+            read_paths,
+        )
+        self.assertIn(".algoforge_worker_inputs/docs/001_11-Instance_format.md", read_paths)
+
 
 if __name__ == "__main__":
     unittest.main()

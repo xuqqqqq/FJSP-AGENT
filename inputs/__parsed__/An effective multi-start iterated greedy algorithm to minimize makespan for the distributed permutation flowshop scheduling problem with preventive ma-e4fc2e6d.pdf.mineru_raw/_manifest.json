@@ -1,0 +1,151 @@
+{
+  "version": "1.0",
+  "engine": "mineru",
+  "api_mode": "local",
+  "engine_version": "",
+  "endpoint_signature": "",
+  "options_signature": "sha256:277b026335ce61369b2368b0d917ec71191e0e9d3f536344996696b9df7bf877",
+  "source_content_hash": "sha256:7f9adccd2d2ea535b4b371aaf2feba86eebc71b615bce2ab377eb77cac8d23a0",
+  "source_size_bytes": 1657878,
+  "source_filename_at_parse": "An effective multi-start iterated greedy algorithm to minimize makespan for the distributed permutation flowshop scheduling problem with preventive ma-e4fc2e6d.pdf",
+  "task_id": "precomputed-mineru",
+  "downloaded_at": "2026-07-29T04:25:34.636167+00:00",
+  "critical_file": {
+    "path": "content_list.json",
+    "size": 119381,
+    "sha256": "sha256:e38284b001490846703a1e1801c815c063206a2c8012cef1c7372f8b52244ce3"
+  },
+  "files": [
+    {
+      "path": "3e2b91f2-1709-48aa-b8b6-6e5e57701cfc_content_list_v2.json",
+      "size": 214549,
+      "sha256": null
+    },
+    {
+      "path": "full.md",
+      "size": 76314,
+      "sha256": null
+    },
+    {
+      "path": "images/26891e8a7d6658f2ad8a7d949d0f0238dfdcc830cfac8d0c6e1ef48b7627ca5a.jpg",
+      "size": 24869,
+      "sha256": null
+    },
+    {
+      "path": "images/2844312dc2e39167c9424865c63848c6ad26f57cbda3774d66248a0c41e4e1d1.jpg",
+      "size": 36166,
+      "sha256": null
+    },
+    {
+      "path": "images/2dae779fb9cf94c0249f943ceb1522028b8ff7edbaec33f6cca9b754b1ba7d15.jpg",
+      "size": 34676,
+      "sha256": null
+    },
+    {
+      "path": "images/4dcf9b0c611d69074041348788425f8de9553c0eca07b150eabed44e4829f5c1.jpg",
+      "size": 29524,
+      "sha256": null
+    },
+    {
+      "path": "images/5162810089a8d9def028d5c9b2de59aede84947bc43421c1d8f342c222288cc6.jpg",
+      "size": 4698,
+      "sha256": null
+    },
+    {
+      "path": "images/63d8060bef8913ae8a7685434fb828ab7f696fa79f4d879e0fed70a707ce684d.jpg",
+      "size": 36007,
+      "sha256": null
+    },
+    {
+      "path": "images/69e6d268baf7710a385549ead26e68328484f003f3f5076b25733e6afce5b959.jpg",
+      "size": 14320,
+      "sha256": null
+    },
+    {
+      "path": "images/6e5734929c57f04b20b3ec14dfa53013e07a30a5829fa61364fd5b4b0e9d324f.jpg",
+      "size": 12265,
+      "sha256": null
+    },
+    {
+      "path": "images/707e13e50771ab4c2cc209ef3af8d3fbb5072f568104d8ec249e06c0711af0d4.jpg",
+      "size": 15607,
+      "sha256": null
+    },
+    {
+      "path": "images/7adfc5fb6cc9a256e15c9b3450e4372004f46f1e22513613596468a0d620cf4a.jpg",
+      "size": 3940,
+      "sha256": null
+    },
+    {
+      "path": "images/7c7f16bfecb453f7dd984fab90f697502a1e91be31a6506bb00ee7e395257625.jpg",
+      "size": 30530,
+      "sha256": null
+    },
+    {
+      "path": "images/8b4f9946b8e1953ac8bc3ca526f8c309aaaf34639c6fe22c5b753565dfd09937.jpg",
+      "size": 25203,
+      "sha256": null
+    },
+    {
+      "path": "images/94142c004dd91514c9f0998f6d052672b490bcde471418ef95afab9b040c6041.jpg",
+      "size": 186866,
+      "sha256": null
+    },
+    {
+      "path": "images/a40715e203e2e87faa6a28ebc3ebdd2b833a041a9a1e509d6588e0d753e593c7.jpg",
+      "size": 33396,
+      "sha256": null
+    },
+    {
+      "path": "images/a72a8d1e529803ceb17650ef7b19a4e2170adfd74c561c2fff0efb32965647a4.jpg",
+      "size": 25260,
+      "sha256": null
+    },
+    {
+      "path": "images/ac7ee746719e736ae866c340ce665b79d72ce0a0dd4cdec6493d825378ec2040.jpg",
+      "size": 11286,
+      "sha256": null
+    },
+    {
+      "path": "images/b9408040853a533c64b382110c2341aab25fb91d435a1dfc58940846c004b56f.jpg",
+      "size": 53516,
+      "sha256": null
+    },
+    {
+      "path": "images/c9b10055397e5ce6bdf54e7d49d6cd0c30bd894afe90a192035f25a2c94fc9fc.jpg",
+      "size": 4416,
+      "sha256": null
+    },
+    {
+      "path": "images/d72671d02b6870721b697621ef5a7ef3dbb7f22b6bfe3cca9b470ed70d28981a.jpg",
+      "size": 25874,
+      "sha256": null
+    },
+    {
+      "path": "images/e13b3e3dcc6c9063e1dd2670ccf6fae8347282a2c19a7058da9ca98c0e3ed336.jpg",
+      "size": 62841,
+      "sha256": null
+    },
+    {
+      "path": "images/e9f9ac764b20db93d3bc81237053dd035f8530c0d66bc1ef7b59f6e026509005.jpg",
+      "size": 2282,
+      "sha256": null
+    },
+    {
+      "path": "images/f0e74c3a592cb716b48fcbc35e7d5795034c444209e77ea3afbe0ac5789d9a71.jpg",
+      "size": 36723,
+      "sha256": null
+    },
+    {
+      "path": "layout.json",
+      "size": 2116323,
+      "sha256": null
+    },
+    {
+      "path": "middle.json",
+      "size": 335711,
+      "sha256": null
+    }
+  ],
+  "total_size_bytes": 3572543
+}

@@ -29,7 +29,7 @@ from harness_agent.orchestration.loop import DEFAULT_IN_ROUND_REPAIR_ATTEMPTS, l
 from harness_agent.context.knowledge import knowledge_query_catalog, method_family_catalog, method_package_catalog
 from harness_agent.core.cancellation import CancellationToken, TaskCancelled
 from harness_agent.agents.opencode_main import OpenCodeMainAgent
-from harness_agent.domains.io import parse_standard_fjsp
+from harness_agent.domains.io import parse_distributed_fjsp, parse_standard_fjsp
 from harness_agent.orchestration.standard import StandardWorkerLoopRequest, run_standard_worker_loop
 from harness_agent.workers.opencode_worker import (
     DEFAULT_OPENCODE_MODEL,
@@ -1003,6 +1003,9 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         "agent_generated_solver_path": str(
             payload.get("agent_generated_solver_path") or "examples/agent_generated_fjsp_solver.py"
         ),
+        "evaluator_path": str(
+            payload.get("evaluator_path") or evaluator_path_for_instance_profile(instance_profile)
+        ),
         "worker_max_steps": coerce_int(payload.get("worker_max_steps"), 4, minimum=1, maximum=20),
         "worker_max_runtime_seconds": coerce_int(
             payload.get("worker_max_runtime_seconds"),
@@ -1147,14 +1150,65 @@ def inspect_instance_profile(instance_path: Path) -> dict[str, Any]:
         "valid": False,
     }
     try:
+        distributed = parse_distributed_fjsp(instance_path)
+    except Exception as distributed_exc:  # noqa: BLE001 - fall back to the standard parser below.
+        distributed_error = str(distributed_exc)
+    else:
+        profile.update(
+            {
+                "format": "distributed_fjsp",
+                "valid": True,
+                "variant": "fjsp_distributed_transfer",
+                "job_count": distributed.job_count,
+                "factory_count": distributed.factory_count,
+                "machines_per_factory": distributed.machines_per_factory,
+                "machine_count": distributed.machine_count,
+                "operation_count": distributed.operation_count,
+                "max_candidate_count": distributed.max_candidate_count,
+                "has_sequence_dependent_setup": False,
+                "setup_time_kind": "none",
+                "has_machine_availability": False,
+                "unavailability_count": 0,
+                "has_distributed_transfer": True,
+                "has_job_priority": False,
+                "priority_job_count": 0,
+                "priority_job_ids": [],
+                "priority_job_ratio": 0.0,
+                "transfer_time_model": {
+                    "same_factory_different_machine": distributed.same_factory_transfer_time,
+                    "cross_factory": distributed.cross_factory_transfer_time,
+                    "same_factory_same_machine": 0,
+                },
+                "energy_enabled": True,
+                "transfer_unit_energy": distributed.transfer_unit_energy,
+                "scale": distributed.job_count * distributed.machine_count * distributed.operation_count,
+            }
+        )
+        profile["variant_features"] = profile_variant_features(profile)
+        portrait = instance_portrait(profile)
+        if portrait:
+            profile["instance_portrait"] = portrait
+        return profile
+    try:
         parsed = parse_standard_fjsp(instance_path)
     except Exception as exc:  # noqa: BLE001 - keep web job creation inspectable.
         profile["error"] = str(exc)
+        if distributed_error:
+            profile["distributed_parse_error"] = distributed_error
         return profile
     profile.update(
         {
             "format": "standard_fjsp",
             "valid": True,
+            "variant": (
+                "fjsp_machine_availability"
+                if parsed.has_machine_availability
+                else "fjsp_sdst"
+                if parsed.has_sequence_dependent_setup
+                else "fjsp_priority"
+                if parsed.has_job_priority
+                else "standard_fjsp"
+            ),
             "job_count": parsed.job_count,
             "machine_count": parsed.machine_count,
             "operation_count": parsed.operation_count,
@@ -1163,6 +1217,12 @@ def inspect_instance_profile(instance_path: Path) -> dict[str, Any]:
             "setup_time_kind": parsed.setup_time_kind,
             "has_machine_availability": parsed.has_machine_availability,
             "unavailability_count": parsed.unavailability_count,
+            "has_distributed_transfer": False,
+            "has_job_priority": parsed.has_job_priority,
+            "priority_job_count": len(parsed.priority_job_ids),
+            "priority_job_ids": list(parsed.priority_job_ids),
+            "priority_job_ratio": round(len(parsed.priority_job_ids) / max(1, parsed.job_count), 6),
+            "energy_enabled": False,
             "scale": parsed.job_count * parsed.machine_count * parsed.operation_count,
         }
     )
@@ -1171,6 +1231,16 @@ def inspect_instance_profile(instance_path: Path) -> dict[str, Any]:
     if portrait:
         profile["instance_portrait"] = portrait
     return profile
+
+
+def evaluator_path_for_instance_profile(profile: dict[str, Any]) -> str:
+    if bool(profile.get("has_distributed_transfer")):
+        return "examples/fjsp_distributed_transfer_evaluator.py"
+    if bool(profile.get("has_machine_availability")):
+        return "examples/nfa_machine_availability_evaluator.py"
+    if bool(profile.get("has_job_priority")):
+        return "examples/fjsp_job_priority_evaluator.py"
+    return "examples/standard_fjsp_evaluator.py"
 
 
 def latest_compatible_experience_memory(job: dict[str, Any]) -> Path | None:
@@ -1236,6 +1306,31 @@ def latest_compatible_experience_memory(job: dict[str, Any]) -> Path | None:
 
 
 def profile_variant_features(profile: dict[str, Any]) -> list[str]:
+    if bool(profile.get("has_distributed_transfer")):
+        return [
+            "fjsp_distributed_transfer",
+            "distributed_fjsp",
+            "dfjspt",
+            "distributed_factories",
+            "factory_assignment",
+            "factory_machine_assignment",
+            "transfer_time",
+            "transportation_constraints",
+            "distributed_decoder",
+            "factory_workload",
+            "energy_consumption",
+        ]
+    if bool(profile.get("has_job_priority")):
+        return [
+            "fjsp_job_priority",
+            "fjsp_priority",
+            "job_priority",
+            "priority_jobs",
+            "priority_completion_time",
+            "multi_objective",
+            "lexicographic_objective",
+            "priority_dispatch_rule",
+        ]
     features = canonical_variant_feature_set(profile)
     return sorted(features)
 
@@ -1245,10 +1340,34 @@ def method_package_features(profile: dict[str, Any]) -> list[str]:
     if raw:
         return raw
     result: list[str] = []
+    if bool(profile.get("has_distributed_transfer")):
+        result.extend(
+            [
+                "fjsp_distributed_transfer",
+                "distributed_fjsp",
+                "dfjspt",
+                "distributed_factories",
+                "factory_assignment",
+                "transfer_time",
+                "energy_consumption",
+            ]
+        )
     if bool(profile.get("has_sequence_dependent_setup")):
         result.extend(["fjsp_sdst", "sequence_dependent_setup", "setup_time"])
     if bool(profile.get("has_machine_availability")):
         result.extend(["fjsp_machine_availability", "machine_calendar", "maintenance"])
+    if bool(profile.get("has_job_priority")):
+        result.extend(
+            [
+                "fjsp_job_priority",
+                "fjsp_priority",
+                "job_priority",
+                "priority_jobs",
+                "priority_completion_time",
+                "multi_objective",
+                "lexicographic_objective",
+            ]
+        )
     return result
 
 
@@ -1269,6 +1388,35 @@ def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
         "nfa",
         "unavailability",
     }
+    distributed_aliases = {
+        "fjsp_distributed_transfer",
+        "distributed_fjsp",
+        "dfjspt",
+        "distributed_factories",
+        "distributed_fjsp_with_transfers",
+        "factory_assignment",
+        "factory_machine_assignment",
+        "transfer_time",
+        "transportation_constraints",
+        "distributed_decoder",
+        "factory_workload",
+        "energy_consumption",
+        "energy_aware_scheduling",
+    }
+    job_priority_aliases = {
+        "fjsp_job_priority",
+        "fjsp_priority",
+        "priority_fjsp",
+        "fjspjp",
+        "job_priority",
+        "job_priority_fjsp",
+        "priority_jobs",
+        "priority_completion_time",
+        "multi_objective",
+        "lexicographic_objective",
+        "weighted_dispatch",
+        "priority_dispatch_rule",
+    }
     for item in profile.get("variant_features") or []:
         text = str(item or "").strip().lower()
         if not text:
@@ -1277,12 +1425,20 @@ def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
             canonical.add("sequence_dependent_setup")
         elif text in nfa_aliases:
             canonical.add("machine_calendar")
+        elif text in distributed_aliases:
+            canonical.add("distributed_transfer")
+        elif text in job_priority_aliases:
+            canonical.add("job_priority")
         else:
             canonical.add(text)
+    if bool(profile.get("has_distributed_transfer")):
+        canonical.add("distributed_transfer")
     if bool(profile.get("has_sequence_dependent_setup")):
         canonical.add("sequence_dependent_setup")
     if bool(profile.get("has_machine_availability")):
         canonical.add("machine_calendar")
+    if bool(profile.get("has_job_priority")):
+        canonical.add("job_priority")
     return canonical
 
 
@@ -1361,14 +1517,50 @@ def append_instance_profile_events(job: dict[str, Any]) -> None:
     if not profile.get("valid"):
         append_event(job, f"算例解析失败，时间预算只能使用用户输入：{profile.get('error', '未知错误')}", level="warning")
         return
-    append_event(
-        job,
-        (
-            "已按实际算例内容解析规模："
-            f"jobs={profile.get('job_count')}，machines={profile.get('machine_count')}，"
-            f"operations={profile.get('operation_count')}，max_candidates={profile.get('max_candidate_count')}。"
-        ),
-    )
+    if bool(profile.get("has_distributed_transfer")):
+        append_event(
+            job,
+            (
+                "已识别 Distributed FJSP with transfer："
+                f"jobs={profile.get('job_count')}，factories={profile.get('factory_count')}，"
+                f"machines_per_factory={profile.get('machines_per_factory')}，"
+                f"operations={profile.get('operation_count')}，max_candidates={profile.get('max_candidate_count')}。"
+            ),
+        )
+        append_event(
+            job,
+            (
+                "已启用分布式转移验收：同工厂不同机器转移=30，跨工厂转移=60，"
+                f"转移能耗系数={profile.get('transfer_unit_energy')}，"
+                f"evaluator={job['config'].get('evaluator_path')}。"
+            ),
+        )
+    elif bool(profile.get("has_job_priority")):
+        append_event(
+            job,
+            (
+                "已识别 FJSP with job priority："
+                f"jobs={profile.get('job_count')}，machines={profile.get('machine_count')}，"
+                f"operations={profile.get('operation_count')}，"
+                f"priority_jobs={profile.get('priority_job_count')}。"
+            ),
+        )
+        append_event(
+            job,
+            (
+                "已启用工件优先级验收：合法性沿用标准 FJSP，"
+                f"额外计算 priority_completion_time，evaluator={job['config'].get('evaluator_path')}。"
+            ),
+        )
+    else:
+        append_event(
+            job,
+            (
+                "已按实际算例内容解析规模："
+                f"jobs={profile.get('job_count')}，machines={profile.get('machine_count')}，"
+                f"operations={profile.get('operation_count')}，max_candidates={profile.get('max_candidate_count')}。"
+            ),
+        )
     append_event(
         job,
         (
@@ -1494,6 +1686,7 @@ def run_job(job_id: str) -> None:
                     apply_worker_changes=True,
                     promotion_repeats=config["promotion_repeats"],
                     agent_generated_solver_path=config["agent_generated_solver_path"],
+                    evaluator_path=config["evaluator_path"],
                     experiment_id="web_agent_generated_loop",
                     hypothesis=(
                         "Read the requirement, IO documents, instance diagnostics, domain-pack metadata, and "

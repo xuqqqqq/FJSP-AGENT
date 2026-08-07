@@ -1,0 +1,486 @@
+{
+  "version": "1.0",
+  "equations": {
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0001": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0001",
+      "blockid": "3b66cb3eccfae8b5a64b71ca223d57b0",
+      "heading": "PARAMETERS",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "n \\quad \\text {   Number   of   jobs.   }",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/49"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0002": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0002",
+      "blockid": "3b66cb3eccfae8b5a64b71ca223d57b0",
+      "heading": "PARAMETERS",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "j \\quad \\text {   Index   of   jobs,   } j \\in \\{1, 2, \\dots , n \\}.",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/50"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0003": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0003",
+      "blockid": "3b66cb3eccfae8b5a64b71ca223d57b0",
+      "heading": "PARAMETERS",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "\\text {   a   } \\quad \\text {   Index   of   AGVs,   } a \\in \\{1, 2, \\dots , g \\}.",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/55"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0004": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0004",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {k = 1} ^ {| M |} \\sum_ {r = 1} ^ {h} x _ {j, i, k, r} = 1 \\quad \\forall j, i \\in \\{1, \\dots , n _ {j} \\}\\tag{2}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/86"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0005": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0005",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {j = 1} ^ {n} \\sum_ {i = 1} ^ {n _ {j}} x _ {j, i, k, r} \\leq 1, r \\in \\{1, \\dots , h \\} \\quad \\forall k\\tag{3}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/87"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0006": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0006",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {j = 1} ^ {n} \\sum_ {i = 1} ^ {n _ {j}} x _ {j, i, k, r} \\geq \\sum_ {j = 1} ^ {n} \\sum_ {i = 1} ^ {n _ {j}} x _ {j, i, k, r + 1} \\quad \\forall k, r <   h\\tag{4}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/88"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0007": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0007",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {k = 1} ^ {| M |} \\sum_ {k ^ {\\prime} = 1} ^ {| M |} y _ {j, i, k, k ^ {\\prime}} = 1 \\quad \\forall j, i \\in \\{1, \\dots , n _ {j} \\}\\tag{5}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/89"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0008": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0008",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {k = 1} ^ {| M |} y _ {j, 1, k, 0} = 1 \\quad \\forall j\\tag{6}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/90"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0009": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0009",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {k ^ {\\prime} = 1} ^ {| M |} y _ {j, i, k, k ^ {\\prime}} \\leq e _ {j, i, k} \\quad \\forall j, k, i \\in \\{1, \\dots , n _ {j} \\}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/91"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0010": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0010",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "y _ {j, 1, k, 0} \\leq e _ {j, 1, k} \\quad \\forall j, k\\tag{7}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/92"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0011": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0011",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "y _ {j, i, k, k ^ {\\prime}} \\leq \\sum_ {u = 1} ^ {| M |} y _ {j, i - 1, k ^ {\\prime}, u} \\quad \\forall j, k, k ^ {\\prime}, i \\in \\{3, \\dots , n _ {j} \\}\\tag{8}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/93"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0012": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0012",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "y _ {j, 2, k, k ^ {\\prime}} \\leq y _ {j, 1, k, 0} \\quad \\forall j, k, k ^ {\\prime}\\tag{9}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/94"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0013": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0013",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {a = 1} ^ {g} \\sum_ {r = 1} ^ {h} z _ {j, i, a, r} = 1 \\quad \\forall j, i \\in \\{1, \\ldots , n _ {j} \\}\\tag{10}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/95"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0014": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0014",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {j = 1} ^ {n} \\sum_ {i = 1} ^ {n _ {j}} z _ {j, i, a, r} \\leq 1, r \\in \\{1, \\dots , h \\} \\quad \\forall a\\tag{12}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/97"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0015": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0015",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "\\sum_ {j = 1} ^ {n} \\sum_ {i = 1} ^ {n _ {j}} z _ {j, i, a, r} \\geq \\sum_ {j = 1} ^ {n} \\sum_ {i = 1} ^ {n _ {j}} z _ {j, i, a, r + 1}, r <   h \\quad \\forall a\\tag{13}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/98"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0016": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0016",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "M C _ {k, r} \\leq C _ {j, i} + L \\cdot (1 - x _ {j, i, k, r}) \\quad \\forall j, k\\tag{14}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/99"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0017": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0017",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "C _ {j, i} \\leq M C _ {k, r} + L \\cdot (1 - x _ {j, i, k, r}) \\quad \\forall j, k\\tag{15}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/100"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0018": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0018",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "A C _ {a, r} \\geq C _ {j, i - 1} + \\frac {d _ {k ^ {\\prime} , k}}{v _ {a}} - L \\cdot \\left(2 - z _ {j, i, a, r} - y _ {j, i, k, k ^ {\\prime}}\\right), i > 1\\tag{16}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/101"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0019": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0019",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "A C _ {a, r} \\geq A C _ {a, r - 1} + \\frac {d _ {k , k ^ {\\prime}}}{v _ {a}}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/102"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0020": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0020",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "- L \\cdot \\left(4 - \\sum_ {j = 1} ^ {n} \\sum_ {i = 1} ^ {n _ {j}} \\left(z _ {j, i, a, r - 1} - z _ {j, i, a, r} + \\sum_ {u = 1} ^ {h} \\left(x _ {j, i, k, u} - x _ {j, i, k ^ {\\prime}, u}\\right)\\right)\\right), r > 1\\tag{17}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/103"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0021": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0021",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "C _ {j, i} + L \\cdot (2 - z _ {j, i, a, r} - y _ {j, i, k, k ^ {\\prime}}) \\geq A C _ {a, r} + p _ {j, i, k}\\tag{18}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/104"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0022": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0022",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "M C _ {k, r + 1} + L \\cdot (1 - x _ {j, i, k, r + 1}) \\geq M C _ {k, r} + p _ {j, i, k}, i <   n _ {j}\\tag{19}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/105"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0023": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0023",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "M C _ {k, r} + L \\cdot (1 - z _ {j, i, a, u}) \\geq A C _ {a, u} + p _ {j, i, k}, i <   n _ {j}\\tag{20}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/106"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0024": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0024",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "C _ {\\max} \\geq C _ {j, n _ {j}} + \\sum_ {k = 1} ^ {| A |} \\sum_ {k ^ {\\prime} = 1} ^ {| B |} d _ {k, k ^ {\\prime}} / v _ {a} \\cdot \\left(z _ {j, n _ {j} + 1, a, r} \\cdot y _ {j, n _ {j}, k, k ^ {\\prime}}\\right)\\tag{21}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/107"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0025": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0025",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "\\begin{array}{l} E _ {\\mathrm{mac}} = \\sum_ {k = 1} ^ {| M |} (S P _ {k} \\cdot C _ {\\max}) \\\\ + \\sum_ {k = 1} ^ {| M |} \\left((P P _ {k} - S P _ {k}) \\cdot \\sum_ {j = 1} ^ {n} \\sum_ {i = 1} ^ {n _ {j}} \\sum_ {r = 1} ^ {g} \\left(x _ {j, i, k, r} \\cdot p _ {j, i, k}\\right)\\right) \\\\ E _ {\\mathrm{agv}} = \\sum_ {a = 1} ^ {g} (A S P _ {a} \\cdot C _ {\\max}) \\end{array}\\tag{22}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/111"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0026": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0026",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "+ \\sum_ {a = 1} ^ {g} \\left(\\left(A P P _ {a} - A S P _ {a}\\right) \\cdot \\sum_ {j = 1} ^ {n} \\sum_ {i = 1} ^ {n _ {j}} \\sum_ {r = 1} ^ {g} \\left(y _ {j, i, k, k ^ {\\prime}} \\cdot z _ {j, i, a, r} \\cdot \\frac {d _ {k , k ^ {\\prime}}}{v _ {a}}\\right)\\right)\\tag{23}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/112"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0027": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0027",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "T E C = E _ {\\mathrm{mac}} + E _ {\\mathrm{agv}}\\tag{24}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/113"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0028": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0028",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "C _ {j, i} > 0, M C _ {k, r} > 0, A C _ {a, r} > 0\\tag{25}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/114"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0029": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0029",
+      "blockid": "5ecb15da7fc5c1c7c01fd091546d84dd",
+      "heading": "VARIABLES",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "x _ {j, i, k, r} \\in \\{0, 1 \\}, y _ {j, i, k, k ^ {\\prime}} \\in \\{0, 1 \\}, z _ {j, i, a, r} \\in \\{0, 1 \\}\\tag{26}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/115"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0030": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0030",
+      "blockid": "f153eb7bb839a12216534fe58d9feb6c",
+      "heading": "B. Multiobjective Optimization Techniques",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "\\text { minimize } \\boldsymbol {f} (x) = \\left(f _ {1} (x), \\dots , f _ {p} (x)\\right) ^ {T}, x \\in \\boldsymbol {\\Omega}\\tag{27}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/131"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0031": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0031",
+      "blockid": "5a46d05fa3dc9e8f4273b0f1007bea8b",
+      "heading": "F. Memetic Search With Feedback Learning",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "\\mathcal {S} _ {l} = \\left\\{u \\in R _ {+} ^ {r} | \\left\\langle u, v ^ {l} \\right\\rangle \\leq \\left\\langle u, v ^ {j} \\right\\rangle , j = 1, \\dots , K \\right\\}.\\tag{28}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/178"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0032": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0032",
+      "blockid": "5a46d05fa3dc9e8f4273b0f1007bea8b",
+      "heading": "F. Memetic Search With Feedback Learning",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "D M I _ {t} = - \\frac {1}{\\ln K} \\times \\sum_ {l} ^ {K} \\frac {\\rho_ {l}}{P S} \\times \\ln \\left(\\frac {\\rho_ {l}}{P S}\\right)\\tag{29}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/180"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0033": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0033",
+      "blockid": "5a46d05fa3dc9e8f4273b0f1007bea8b",
+      "heading": "F. Memetic Search With Feedback Learning",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "\\Delta D M I _ {t} = D M I _ {t} - D M I _ {t - 1}\\tag{30}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/181"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0034": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0034",
+      "blockid": "5a46d05fa3dc9e8f4273b0f1007bea8b",
+      "heading": "F. Memetic Search With Feedback Learning",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "Q E I _ {t} (\\boldsymbol {x}) = \\left\\{ \\begin{array}{l l} 0, & \\text { if } \\boldsymbol {x} \\text { is   updated } \\\\ Q E I _ {t - 1} (\\boldsymbol {x}) + 1, & \\text { otherwise. } \\end{array} \\right.\\tag{31}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/182"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0035": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0035",
+      "blockid": "5a46d05fa3dc9e8f4273b0f1007bea8b",
+      "heading": "F. Memetic Search With Feedback Learning",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "\\begin{array}{l} e q _ {t} ^ {1} (\\boldsymbol {x}) = \\frac {e ^ {- 1 - \\Delta D M I _ {t}} + \\tanh Q E I _ {t} (\\boldsymbol {x})}{2} \\\\ e q _ {t} ^ {2} (\\boldsymbol {x}) = e ^ {- 1 \\times Q E I _ {t} (\\boldsymbol {x})}. \\end{array}\\tag{32}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/189"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0036": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0036",
+      "blockid": "5a46d05fa3dc9e8f4273b0f1007bea8b",
+      "heading": "F. Memetic Search With Feedback Learning",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "q _ {t} (s, a) = \\frac {\\sum_ {k = 0} ^ {H L} S R _ {t - k} (s , a)}{\\sum_ {k = 0} ^ {H L} S R _ {t - k} (s , a) + \\sum_ {k = 0} ^ {H L} F R _ {t - k} (s , a)}.\\tag{34}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/192"
+    },
+    "eq-3064a959dca3e0581ecf9bc89a1a99fd-0037": {
+      "id": "eq-3064a959dca3e0581ecf9bc89a1a99fd-0037",
+      "blockid": "476f1ebf5cea1c8a7f5662cd2fc9e20d",
+      "heading": "G. Local Intensification",
+      "parent_headings": [
+        "A Feedback Learning-Based Memetic Algorithm for Energy-Aware Distributed Flexible Job-Shop Scheduling With Transportation Constraints"
+      ],
+      "format": "latex",
+      "content": "q _ {l} = \\frac {1 / \\rho_ {l}}{\\sum_ {l = 1} ^ {K} 1 / \\rho_ {l}}, l = 1, \\ldots , K.\\tag{35}",
+      "caption": "",
+      "footnotes": [],
+      "self_ref": "content_list.json#/195"
+    }
+  }
+}

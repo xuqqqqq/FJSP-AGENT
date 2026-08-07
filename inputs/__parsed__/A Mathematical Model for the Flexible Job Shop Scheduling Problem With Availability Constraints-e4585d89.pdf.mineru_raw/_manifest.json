@@ -1,0 +1,176 @@
+{
+  "version": "1.0",
+  "engine": "mineru",
+  "api_mode": "local",
+  "engine_version": "",
+  "endpoint_signature": "",
+  "options_signature": "sha256:277b026335ce61369b2368b0d917ec71191e0e9d3f536344996696b9df7bf877",
+  "source_content_hash": "sha256:2aa1408569f5c6205e429cf5498e487bec0f829e94ec383f6693dc9f14a53781",
+  "source_size_bytes": 462455,
+  "source_filename_at_parse": "A Mathematical Model for the Flexible Job Shop Scheduling Problem With Availability Constraints-e4585d89.pdf",
+  "task_id": "precomputed-mineru",
+  "downloaded_at": "2026-07-28T15:47:12.809750+00:00",
+  "critical_file": {
+    "path": "content_list.json",
+    "size": 81692,
+    "sha256": "sha256:73a8663e81ea97c4db1fc07e1e497985cda1b2ac77a4b8b9f251964b64cc543d"
+  },
+  "files": [
+    {
+      "path": "block_list.json",
+      "size": 92066,
+      "sha256": null
+    },
+    {
+      "path": "f0bd74a8-3313-44e2-ac25-71b6b9d9a0f8_content_list_v2.json",
+      "size": 128450,
+      "sha256": null
+    },
+    {
+      "path": "full.md",
+      "size": 56759,
+      "sha256": null
+    },
+    {
+      "path": "images/0cabd06fbf46bec54462684de02a91ac58c6028d62a81263483763d3dae38cfe.jpg",
+      "size": 3806,
+      "sha256": null
+    },
+    {
+      "path": "images/10b2abb2d0e38614ee04ead66becf4a72046a1ea88b92282822fe4cea63e0325.jpg",
+      "size": 3731,
+      "sha256": null
+    },
+    {
+      "path": "images/2309dd4fff92126d8f0d4851fd3e27f72b425c8d3bb6e5dd098872b5126bc1b4.jpg",
+      "size": 179111,
+      "sha256": null
+    },
+    {
+      "path": "images/2ca7a895ed16ab35b61e269767f829f25d8229eda275df59f5d613acb3be7f92.jpg",
+      "size": 4447,
+      "sha256": null
+    },
+    {
+      "path": "images/32939e1cdfa110692aba69c7eda25970d7b3e788d9fe3baee9d4ab5def6cc89d.jpg",
+      "size": 42623,
+      "sha256": null
+    },
+    {
+      "path": "images/33895d0510271ef263c69ecdc091f713752a5097726abf09cf197a05b5f6d863.jpg",
+      "size": 1837,
+      "sha256": null
+    },
+    {
+      "path": "images/4977cdd4b89abfc8113db161bfd577f09e0740935aeab863b477eb16677d0585.jpg",
+      "size": 2016,
+      "sha256": null
+    },
+    {
+      "path": "images/5764ff851f8318633b5a5f035a8ba73d7d0f8edeaddbc6b101d2b530355e76f8.jpg",
+      "size": 2244,
+      "sha256": null
+    },
+    {
+      "path": "images/5c11a0cc1d1aa4bfc468e5217f84742beadb596172d9d2cb7bd560de378c0258.jpg",
+      "size": 2177,
+      "sha256": null
+    },
+    {
+      "path": "images/5f1f24b83ee7e2ea17769fb23b0eb3480ba54dde6c3e0a1b0e07d9405b1fa556.jpg",
+      "size": 3833,
+      "sha256": null
+    },
+    {
+      "path": "images/68eba5a88f40675d31f8f38403f51f7771a852bff14e5969ad0e2c593880a264.jpg",
+      "size": 1898,
+      "sha256": null
+    },
+    {
+      "path": "images/6e43da7eca389e53023819072d761f780c6596a1e03cc59f4614e071cb9a1906.jpg",
+      "size": 122778,
+      "sha256": null
+    },
+    {
+      "path": "images/7adefa96028edc9248443e71b9a4d0b5979fdaeda4500796cf062941d6a757d6.jpg",
+      "size": 6102,
+      "sha256": null
+    },
+    {
+      "path": "images/805834e13c98d62a25204784fcbb7d1546af76b321c345f28ccc12d112650a2e.jpg",
+      "size": 1777,
+      "sha256": null
+    },
+    {
+      "path": "images/83412d71d2b4febc84f9d412b3fd07f5b8ee84d015f3cbc2689120836d6602ad.jpg",
+      "size": 2433,
+      "sha256": null
+    },
+    {
+      "path": "images/9c1e63ca8d321e4bb843f737b97a74a3dce4f822177ff75ad096666d363f837c.jpg",
+      "size": 2217,
+      "sha256": null
+    },
+    {
+      "path": "images/a1c85aec801767606a392e0f2b44e112fddbc565d845fa611b2843ee15b5c272.jpg",
+      "size": 4493,
+      "sha256": null
+    },
+    {
+      "path": "images/ac24c79df0a67d80a5b214c7206ea8c4f6612326fa4e82a6d144c035c74d51ad.jpg",
+      "size": 2469,
+      "sha256": null
+    },
+    {
+      "path": "images/ac880a44fc7f5e59e6d81147816e049c340c39f343d6609595e56987d65c4036.jpg",
+      "size": 2185,
+      "sha256": null
+    },
+    {
+      "path": "images/b084169d543d2bcd68f8a41268049a078808053ebcbf2ec738b65647acc453c4.jpg",
+      "size": 5031,
+      "sha256": null
+    },
+    {
+      "path": "images/b0e7045098a9c09aac482b545381ca7aea35c4f5a0b74b4e3f81d0876321d2a1.jpg",
+      "size": 1195,
+      "sha256": null
+    },
+    {
+      "path": "images/b6a72d9a0ebbb700dab074a644c345caaf4ede509d23be0f23a644e0044e1a8d.jpg",
+      "size": 5268,
+      "sha256": null
+    },
+    {
+      "path": "images/d6ba9b63291d416f3383452c2afe69d13e1b36542b5aab51060eb937ad87899c.jpg",
+      "size": 4368,
+      "sha256": null
+    },
+    {
+      "path": "images/daecd1edb36b49d511fcb712a53726d517f164414cfed551dd918f7db6f22baa.jpg",
+      "size": 4226,
+      "sha256": null
+    },
+    {
+      "path": "images/dd98fa9244bd37787e1a391a40d140f46fa76e853409f9fca13ccf00c88c81ca.jpg",
+      "size": 2188,
+      "sha256": null
+    },
+    {
+      "path": "images/ed1107913e0ab4cdc017b05085441130bf66bdb0b6508051c7f1150ae56908c0.jpg",
+      "size": 82335,
+      "sha256": null
+    },
+    {
+      "path": "layout.json",
+      "size": 1206467,
+      "sha256": null
+    },
+    {
+      "path": "middle.json",
+      "size": 186759,
+      "sha256": null
+    }
+  ],
+  "total_size_bytes": 2248981
+}

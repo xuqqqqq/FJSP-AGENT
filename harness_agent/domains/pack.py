@@ -193,6 +193,7 @@ class DomainPack:
     knowledge_query_default_limit: int = 6
     knowledge_query_excluded_path_markers: list[str] = field(default_factory=list)
     knowledge_query_tag_descriptions: dict[str, str] = field(default_factory=dict)
+    rag_config: dict[str, Any] = field(default_factory=dict)
     method_families: list[DomainMethodFamily] = field(default_factory=list)
     worker_implementation_skills: list[DomainWorkerImplementationSkill] = field(default_factory=list)
     method_packages: list[DomainMethodPackage] = field(default_factory=list)
@@ -308,6 +309,7 @@ def load_domain_pack(path: Path, *, project_root: Path = PROJECT_ROOT) -> Domain
             for tag, description in (knowledge_query_payload.get("tag_descriptions") or {}).items()
             if str(tag).strip() and str(description).strip()
         },
+        rag_config=dict(knowledge.get("rag") or {}),
         method_families=[
             _load_method_family(value)
             for value in payload.get("method_families") or []
