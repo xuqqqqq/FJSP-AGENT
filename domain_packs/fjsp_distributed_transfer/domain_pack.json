@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "family_id": "fjsp_distributed_transfer",
+  "aliases": ["DFJSPT", "distributed_fjsp", "distributed_fjsp_with_transfers"],
+  "capability": {
+    "display_name": "分布式可转移柔性作业车间调度",
+    "description": "联合选择工厂、机器和工序顺序，并显式计算转移时间、工厂负载与能耗。",
+    "supported_variants": ["fjsp_distributed_transfer"],
+    "canonical_objectives": [
+      {"name": "makespan", "direction": "minimize", "priority": 1},
+      {"name": "max_factory_workload", "direction": "minimize", "priority": 2},
+      {"name": "total_energy_consumption", "direction": "minimize", "priority": 3}
+    ],
+    "io_contract_notes": [
+      "输入使用五行 DFM 元数据头和按 factory 分组的候选编码。",
+      "输出 schedule 必须包含 0-based factory_id 与全局 0-based machine_id；factory 只能由显式候选组恢复。",
+      "同机转移为 0、同厂异机为 30、跨厂为 60，转移单位能耗为 6。"
+    ],
+    "evaluator_invariants": [
+      "不得修改 examples/fjsp_distributed_transfer_evaluator.py 或 harness_agent/domains/distributed_fjsp.py。",
+      "promotion 仅使用固定 evaluator 的字典序三目标。"
+    ],
+    "solver_entrypoints": ["examples/agent_generated_fjsp_solver.py"],
+    "specialization_hooks": ["requirement_feature_extraction", "method_package_retrieval", "agent_generated_solver"],
+    "knowledge_tags": ["distributed_fjsp", "factory_assignment", "transfer_time", "energy", "memetic"]
+  },
+  "agent_generated_baseline": {
+    "preserve_paths": [
+      "harness_agent/__init__.py",
+      "harness_agent/domains/__init__.py",
+      "harness_agent/domains/distributed_fjsp.py",
+      "harness_agent/core/__init__.py",
+      "examples/fjsp_distributed_transfer_evaluator.py"
+    ],
+    "hidden_reference_paths": []
+  },
+  "method_families": [
+    {
+      "family_id": "constructive_search",
+      "title": "分布式构造搜索",
+      "description": "联合比较工厂、机器、转移与负载的多起点构造。",
+      "query_tags": ["construction", "factory_assignment", "transfer_aware_decoder", "load_balance"],
+      "required_features": ["distributed_transfer"],
+      "excluded_features": [],
+      "incompatible_with": [],
+      "default_priority": 90
+    },
+    {
+      "family_id": "coupled_local_search",
+      "title": "工厂-机器-顺序耦合局部搜索",
+      "description": "在完整转移感知重解码下执行跨厂换机与关键顺序邻域。",
+      "query_tags": ["local_search", "factory_reassignment", "critical_path", "transfer_time"],
+      "required_features": ["distributed_transfer"],
+      "excluded_features": [],
+      "incompatible_with": [],
+      "default_priority": 100
+    },
+    {
+      "family_id": "population_memetic",
+      "title": "分布式模因搜索",
+      "description": "保持工厂/机器分配多样性，并用受控局部搜索精修。",
+      "query_tags": ["population", "memetic", "diversity", "factory_assignment", "energy"],
+      "required_features": ["distributed_transfer"],
+      "excluded_features": [],
+      "incompatible_with": [],
+      "default_priority": 110
+    },
+    {
+      "family_id": "exact_hybrid",
+      "title": "分布式局部精确混合",
+      "description": "围绕合法启发式 incumbent 释放小规模工厂/机器/顺序信赖域。",
+      "query_tags": ["cp_sat", "exact_method", "trust_region", "hybrid"],
+      "required_features": ["distributed_transfer"],
+      "excluded_features": [],
+      "incompatible_with": [],
+      "default_priority": 60
+    }
+  ],
+  "worker_implementation_skills": [
+    {
+      "skill_id": "fjsp-experiment-design-worker",
+      "title": "FJSP worker 实验执行",
+      "source_path": ".codex/skills/fjsp-experiment-design-worker",
+      "method_families": [],
+      "activation_tags": ["experiment"],
+      "required_features": [],
+      "excluded_features": [],
+      "default_priority": 900,
+      "always_include": true
+    },
+    {
+      "skill_id": "fjsp-solver-foundation-worker",
+      "title": "FJSP 独立求解器基础",
+      "source_path": ".codex/skills/fjsp-solver-foundation-worker",
+      "method_families": [],
+      "activation_tags": ["decoder", "agent_generated_solver"],
+      "required_features": [],
+      "excluded_features": [],
+      "default_priority": 1000,
+      "always_include": true
+    },
+    {
+      "skill_id": "fjsp-distributed-transfer-adapter-worker",
+      "title": "DFJSPT 实现适配器",
+      "source_path": ".codex/skills/fjsp-distributed-transfer-adapter-worker",
+      "method_families": ["constructive_search", "coupled_local_search", "population_memetic", "exact_hybrid"],
+      "activation_tags": ["distributed_transfer", "factory_assignment", "transfer_time", "energy"],
+      "required_features": ["distributed_transfer"],
+      "excluded_features": [],
+      "default_priority": 520,
+      "always_include": true
+    }
+  ],
+  "method_packages": [
+    {
+      "package_id": "fjsp_distributed_transfer_adaptation",
+      "title": "DFJSPT 工厂-机器-顺序联合适配",
+      "description": "跨构造、局部、模因和精确混合方法的转移感知完整实现合同。",
+      "method_families": ["constructive_search", "coupled_local_search", "population_memetic", "exact_hybrid"],
+      "selection_enabled": true,
+      "activation_tags": ["distributed_transfer", "factory_assignment", "transfer_time", "energy", "memetic"],
+      "strategy_types": ["baseline_constructor", "local_search_operator", "path_selection"],
+      "required_features": ["distributed_transfer"],
+      "excluded_features": [],
+      "assets": [
+        "knowledge/references/distributed_transfer/distributed_transfer_semantics_and_decoder.md",
+        "knowledge/references/distributed_transfer/distributed_transfer_search_adaptation.md"
+      ],
+      "semantic_assets": [
+        "knowledge/references/distributed_transfer/distributed_transfer_semantics_and_decoder.md",
+        "knowledge/references/distributed_transfer/distributed_transfer_search_adaptation.md"
+      ],
+      "implementation_contract_asset": "knowledge/method_packages/fjsp_distributed_transfer_adaptation/implementation_contract.json",
+      "default_priority": 150
+    }
+  ],
+  "semantic_review": {"cards": ["knowledge/references/distributed_transfer/distributed_transfer_semantics_and_decoder.md"]},
+  "knowledge": {
+    "base_cards": [
+      "knowledge/principles/harness_agent_design.md",
+      "knowledge/principles/fjsp_variant_domain_pack_rag.md",
+      "knowledge/references/distributed_transfer/distributed_transfer_semantics_and_decoder.md"
+    ],
+    "selection_cards": {
+      "strategy": ["knowledge/references/distributed_transfer/distributed_transfer_search_adaptation.md"],
+      "direction": ["knowledge/references/distributed_transfer/distributed_transfer_search_adaptation.md"]
+    },
+    "knowledge_query": {
+      "default_limit": 6,
+      "tag_descriptions": {
+        "construction": "从零建立合法的工厂-机器-顺序联合排程。",
+        "transfer_aware_decoder": "在完整解码中传播工序转移时间。",
+        "load_balance": "控制最大工厂加工负载。",
+        "local_search": "对完整合法解执行有界局部改进。",
+        "factory_reassignment": "将工序迁移到另一工厂并重解码。",
+        "critical_path": "提取含转移弧的关键结构。",
+        "population": "维护多个工厂/机器分配盆地。",
+        "diversity": "按 assignment/order 结构保持群体差异。",
+        "cp_sat": "完整或局部 CP-SAT 建模。",
+        "exact_method": "精确求解状态、界和合法提取。",
+        "trust_region": "只释放关键工序的小范围决策。",
+        "hybrid": "启发式与局部精确职责清晰组合。",
+        "distributed_transfer": "分布式工厂、机器和转移约束。",
+        "factory_assignment": "跨工厂分配、负载与加工时间权衡。",
+        "transfer_time": "同厂/跨厂转移时间传播。",
+        "energy": "加工与转移能耗重算。",
+        "memetic": "分布式 assignment 多样性与局部精修。"
+      },
+      "exclude_path_markers": []
+    },
+    "tagged_cards": {
+      "distributed_transfer": ["knowledge/references/distributed_transfer/distributed_transfer_semantics_and_decoder.md"],
+      "factory_assignment": ["knowledge/references/distributed_transfer/distributed_transfer_search_adaptation.md"],
+      "transfer_time": ["knowledge/references/distributed_transfer/distributed_transfer_semantics_and_decoder.md"],
+      "energy": ["knowledge/references/distributed_transfer/distributed_transfer_semantics_and_decoder.md"],
+      "memetic": ["knowledge/references/distributed_transfer/distributed_transfer_search_adaptation.md"]
+    }
+  },
+  "edit_strategies": []
+}

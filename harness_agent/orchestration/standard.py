@@ -25,6 +25,8 @@ from harness_agent.orchestration.loop import (
 from harness_agent.orchestration.loop import normalize_baseline_source
 from harness_agent.core.models import TaskContract
 from harness_agent.domains.pack import get_domain_pack
+from harness_agent.domains.distributed_fjsp import looks_like_distributed_fjsp, parse_distributed_fjsp
+from harness_agent.domains.io import parse_standard_fjsp
 from harness_agent.agents.semantic import AlgorithmSemanticReviewer
 from harness_agent.worker import CodingWorker
 
@@ -182,7 +184,7 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
 def build_standard_worker_contract_payload(request: StandardWorkerLoopRequest) -> dict[str, Any]:
     """把文档式 FJSP 请求转换为固定 Core 可执行的契约 JSON。
 
-    此处固定的是 CLI/evaluator 接口和 makespan 目标，不固定任何构造规则、
+    此处根据实际解析结果固定 CLI/evaluator 和目标，不固定任何构造规则、
     邻域或搜索算法；这些方法内容只能来自知识层并由 Coding Agent 写出。
     """
 
@@ -206,25 +208,20 @@ def build_standard_worker_contract_payload(request: StandardWorkerLoopRequest) -
     ).replace("\\", "/")
     solver = standard_solver_command(request)
     quick_test = f"python -m py_compile {solver_path}"
-    evaluator = "python examples/standard_fjsp_evaluator.py --instance {instance} --solution {solution} --metrics {metrics}"
+    problem_family, evaluator_path, objectives = fixed_problem_contract(paths)
+    evaluator = f"python {evaluator_path} --instance {{instance}} --solution {{solution}} --metrics {{metrics}}"
     if request.best_known_csv:
         best_known_csv = resolve_input_path(request.project_root, request.best_known_csv)
         resources["best_known_csv"] = str(best_known_csv)
-        evaluator += " --best-known-csv {best_known_csv}"
+        if problem_family != "fjsp_distributed_transfer":
+            evaluator += " --best-known-csv {best_known_csv}"
 
     return {
         "task_id": request.experiment_id,
-        "problem_family": "FJSP",
+        "problem_family": problem_family,
         "description": "由需求和 IO 文档驱动的 FJSP Coding Agent 闭环任务。",
         "instances": [{"id": path.stem, "path": str(path)} for path in paths],
-        "objectives": [
-            {
-                "name": "makespan",
-                "direction": "minimize",
-                "priority": 1,
-                "invalid_if_missing": True,
-            }
-        ],
+        "objectives": objectives,
         "commands": {
             "solver": solver,
             "evaluator": evaluator,
@@ -243,7 +240,7 @@ def build_standard_worker_contract_payload(request: StandardWorkerLoopRequest) -
             "forbidden_paths": [
                 ".git",
                 "outputs",
-                "examples/standard_fjsp_evaluator.py",
+                evaluator_path,
                 "harness_agent",
                 ".algoforge_worker_inputs",
                 ".algoforge_worker_runtime",
@@ -297,8 +294,76 @@ PROVIDED_PROJECT_QUARANTINE_ROOTS = frozenset(
         "trusted",
     }
 )
+
+
+def fixed_problem_contract(paths: list[Path]) -> tuple[str, str, list[dict[str, Any]]]:
+    """Select the evaluator and objectives from parsed instances, never from Web input."""
+
+    identities: set[str] = set()
+    for path in paths:
+        if looks_like_distributed_fjsp(path):
+            parse_distributed_fjsp(path)
+            identities.add("fjsp_distributed_transfer")
+        else:
+            identities.add(parse_standard_fjsp(path).variant)
+    if len(identities) != 1:
+        raise ValueError(f"all task instances must share one parsed variant, got {sorted(identities)}")
+    identity = next(iter(identities))
+    evaluator_by_variant = {
+        "standard_fjsp": "examples/standard_fjsp_evaluator.py",
+        "fjsp_sdst": "examples/standard_fjsp_evaluator.py",
+        "fjsp_min_time_lag": "examples/standard_fjsp_evaluator.py",
+        "fjsp_release_time": "examples/fjsp_release_time_evaluator.py",
+        "fjsp_machine_availability": "examples/fjsp_machine_availability_evaluator.py",
+        "fjsp_priority": "examples/fjsp_priority_evaluator.py",
+        "fjsp_distributed_transfer": "examples/fjsp_distributed_transfer_evaluator.py",
+    }
+    if identity not in evaluator_by_variant:
+        raise ValueError(f"no fixed evaluator is registered for parsed variant {identity!r}")
+    objectives = [
+        {"name": "makespan", "direction": "minimize", "priority": 1, "invalid_if_missing": True}
+    ]
+    problem_family = "FJSP"
+    if identity == "fjsp_distributed_transfer":
+        problem_family = identity
+        objectives.extend(
+            [
+                {
+                    "name": "max_factory_workload",
+                    "direction": "minimize",
+                    "priority": 2,
+                    "invalid_if_missing": True,
+                },
+                {
+                    "name": "total_energy_consumption",
+                    "direction": "minimize",
+                    "priority": 3,
+                    "invalid_if_missing": True,
+                },
+            ]
+        )
+    elif identity == "fjsp_priority":
+        objectives.append(
+            {
+                "name": "priority_completion_time",
+                "direction": "minimize",
+                "priority": 2,
+                "invalid_if_missing": True,
+            }
+        )
+    return problem_family, evaluator_by_variant[identity], objectives
+
+
 PROVIDED_PROJECT_QUARANTINE_FILES = frozenset(
-    {"evaluate.py", "evaluator.py", "standard_fjsp_evaluator.py"}
+    {
+        "evaluate.py",
+        "evaluator.py",
+        "standard_fjsp_evaluator.py",
+        "fjsp_release_time_evaluator.py",
+        "fjsp_machine_availability_evaluator.py",
+        "fjsp_priority_evaluator.py",
+        "fjsp_distributed_transfer_evaluator.py",
+    }
 )
 PROVIDED_PROJECT_READ_SUFFIXES = frozenset(
     {".cfg", ".ini", ".json", ".md", ".py", ".toml", ".yaml", ".yml"}
@@ -330,10 +395,18 @@ def prepare_provided_project_source(
         return blocked
 
     shutil.copytree(source_root, output_path, ignore=ignore)
-    pack = get_domain_pack("FJSP")
-    if pack is None:
-        raise ValueError("standard FJSP Domain Pack is unavailable")
-    for relative_text in pack.agent_generated_baseline_preserve_paths:
+    packs = [get_domain_pack("FJSP"), get_domain_pack("fjsp_distributed_transfer")]
+    if any(pack is None for pack in packs):
+        raise ValueError("required FJSP Domain Packs are unavailable")
+    preserve_paths = list(
+        dict.fromkeys(
+            relative_text
+            for pack in packs
+            if pack is not None
+            for relative_text in pack.agent_generated_baseline_preserve_paths
+        )
+    )
+    for relative_text in preserve_paths:
         relative = Path(relative_text)
         source = trusted_project_root / relative
         if not source.exists():
@@ -351,7 +424,14 @@ def provided_project_read_paths(project_root: Path, *, target_file: str | None) 
     """Expose bounded supporting project text to Worker as read-only context."""
 
     target = str(target_file or "").replace("\\", "/")
-    protected_prefixes = ("harness_agent/", "examples/standard_fjsp_evaluator.py")
+    protected_prefixes = (
+        "harness_agent/",
+        "examples/standard_fjsp_evaluator.py",
+        "examples/fjsp_release_time_evaluator.py",
+        "examples/fjsp_machine_availability_evaluator.py",
+        "examples/fjsp_priority_evaluator.py",
+        "examples/fjsp_distributed_transfer_evaluator.py",
+    )
     result: list[str] = []
     for path in sorted(project_root.rglob("*"), key=lambda item: item.as_posix().casefold()):
         if not path.is_file() or path.stat().st_size > 512_000:

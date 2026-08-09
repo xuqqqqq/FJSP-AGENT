@@ -11,11 +11,15 @@ from harness_agent.agents.main import (
     EvidenceDrivenMainAgent,
     bind_direction_plan_to_method_catalog,
     compact_main_agent_dynamic_context,
+    configure_structured_worker_lanes,
+    configure_exact_probe_tournament,
     enforce_improvement_direction_contract,
     fallback_improvement_order,
     fallback_research_context,
+    fallback_tournament_families,
     normalize_activation_checks,
     normalize_direction_plan,
+    should_reserve_exact_probe,
 )
 
 
@@ -23,6 +27,180 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class MainAgentTests(unittest.TestCase):
+    def test_low_flexibility_tournament_prioritizes_sequence_exact_and_memetic(self) -> None:
+        context = {
+            "instance_diagnostics": {
+                "summary": {
+                    "avg_candidate_count": 1.2,
+                    "avg_flexible_operation_ratio": 0.066667,
+                }
+            },
+            "method_family_catalog": {
+                "families": [
+                    {"family_id": "constructive_search"},
+                    {"family_id": "coupled_local_search"},
+                    {"family_id": "exact_hybrid"},
+                    {"family_id": "population_memetic"},
+                ]
+            },
+        }
+
+        selected = fallback_tournament_families(context)
+
+        self.assertEqual(
+            ["coupled_local_search", "exact_hybrid", "population_memetic"],
+            [item["id"] for item in selected],
+        )
+
+    def test_structured_fast_main_configures_requested_parallel_lanes(self) -> None:
+        plan = configure_structured_worker_lanes(
+            {
+                "experiment_stage": "probe",
+                "candidate_variants": [{"candidate_id": "model-supplied"}],
+                "activation_checks": [{"path": "diagnostics.moves"}],
+            },
+            round_index=0,
+            loop_feedback={"competition": {"max_competing_workers": 3}},
+        )
+
+        self.assertEqual("delegated_to_worker", plan["worker_lane_policy"]["mechanism_selection"])
+        self.assertEqual(3, plan["worker_lane_policy"]["lane_count"])
+        self.assertEqual([], plan["candidate_variants"])
+        self.assertEqual([], plan["activation_checks"])
+
+    def test_small_instance_reserves_independently_bound_exact_lane(self) -> None:
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "instance_diagnostics": {
+                "status": "available",
+                "summary": {
+                    "profiled_count": 1,
+                    "max_operation_count": 15,
+                    "avg_candidate_count": 2.2,
+                    "avg_flexible_operation_ratio": 0.933333,
+                },
+                "instances": [{"operation_count": 15}],
+            },
+            "method_family_catalog": {
+                "families": [
+                    {"family_id": "constructive_search"},
+                    {"family_id": "coupled_local_search"},
+                    {"family_id": "exact_hybrid"},
+                    {"family_id": "population_memetic"},
+                ]
+            },
+            "method_package_catalog": {
+                "active_features": ["machine_availability", "machine_calendar"]
+            },
+        }
+        base = {
+            "direction_id": "d000",
+            "method_family": "coupled_local_search",
+            "method_families": [{"id": "coupled_local_search", "role": "primary"}],
+            "method_package_id": "standard_fjsp_awls_hgtsa",
+            "hypothesis": "Improve the incumbent with coupled moves.",
+            "experiment_stage": "probe",
+        }
+
+        self.assertTrue(should_reserve_exact_probe(context, max_workers=3))
+        plan = configure_exact_probe_tournament(base, context=context, max_workers=3)
+
+        self.assertTrue(plan["exact_probe_policy"]["reserved"])
+        self.assertEqual(
+            ["coupled_local_search", "exact_hybrid", "population_memetic"],
+            [item["method_family"] for item in plan["candidate_variants"]],
+        )
+        exact = plan["candidate_variants"][1]
+        self.assertEqual("fjsp_machine_availability_adaptation", exact["method_package_id"])
+        self.assertIn("objective bound", exact["worker_objective"])
+
+    def test_large_high_flexibility_instance_does_not_force_exact_lane(self) -> None:
+        context = {
+            "instance_diagnostics": {
+                "summary": {
+                    "max_operation_count": 400,
+                    "avg_candidate_count": 4.0,
+                    "avg_flexible_operation_ratio": 1.0,
+                }
+            },
+            "method_family_catalog": {"families": [{"family_id": "exact_hybrid"}]},
+        }
+
+        self.assertFalse(should_reserve_exact_probe(context, max_workers=3))
+
+    def test_bounded_high_flexibility_downtime_model_reserves_exact_lane(self) -> None:
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "instance_diagnostics": {
+                "summary": {
+                    "max_operation_count": 240,
+                    "avg_candidate_count": 2.983333,
+                    "avg_flexible_operation_ratio": 0.920833,
+                    "max_unavailability_interval_count": 97,
+                    "sdst_instance_count": 0,
+                },
+                "instances": [
+                    {
+                        "operation_count": 240,
+                        "avg_candidate_count": 2.983333,
+                        "setup_time_kind": "none",
+                    }
+                ],
+            },
+            "method_family_catalog": {
+                "families": [
+                    {"family_id": "constructive_search"},
+                    {"family_id": "exact_hybrid"},
+                    {"family_id": "coupled_local_search"},
+                ]
+            },
+            "method_package_catalog": {
+                "active_features": ["machine_availability", "machine_calendar"]
+            },
+        }
+        base = {
+            "direction_id": "d000",
+            "method_family": "constructive_search",
+            "method_families": [{"id": "constructive_search", "role": "primary"}],
+            "experiment_stage": "probe",
+            "avoid": [
+                "Do not edit evaluator semantics.",
+                "Do not introduce CP-SAT or exact_hybrid in this constructive lane.",
+                "不要引入精确模型。",
+            ],
+        }
+
+        self.assertTrue(should_reserve_exact_probe(context, max_workers=3))
+        plan = configure_exact_probe_tournament(base, context=context, max_workers=3)
+
+        exact = next(
+            item
+            for item in plan["candidate_variants"]
+            if item["method_family"] == "exact_hybrid"
+        )
+        self.assertEqual(["Do not edit evaluator semantics."], exact["avoid"])
+        self.assertEqual(["exact_active_variant_cp_sat_probe"], exact["implementation_order"])
+        self.assertEqual("exact_active_variant_cp_sat_probe", exact["deliverables"][0]["id"])
+        self.assertIn("bounded parallel CP-SAT search", exact["deliverables"][0]["behavior"])
+        self.assertIn("num_search_workers", exact["deliverables"][0]["evidence_required"])
+        self.assertEqual("small_instance_or_bounded_exact_model", plan["exact_probe_policy"]["reason"])
+
+    def test_high_flexibility_model_above_interval_threshold_does_not_force_exact_lane(self) -> None:
+        context = {
+            "instance_diagnostics": {
+                "summary": {
+                    "max_operation_count": 250,
+                    "avg_candidate_count": 5.0,
+                    "avg_flexible_operation_ratio": 1.0,
+                    "max_unavailability_interval_count": 200,
+                },
+                "instances": [{"operation_count": 250, "avg_candidate_count": 5.0}],
+            },
+            "method_family_catalog": {"families": [{"family_id": "exact_hybrid"}]},
+        }
+
+        self.assertFalse(should_reserve_exact_probe(context, max_workers=3))
+
     def test_evidence_main_agent_writes_one_bounded_direction_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -553,6 +731,36 @@ class MainAgentTests(unittest.TestCase):
         )
 
         self.assertEqual("dispatch_rule", plan["strategy_type"])
+
+    def test_dispatch_rule_family_alias_is_normalized_for_skill_matching(self) -> None:
+        plan = normalize_direction_plan(
+            {
+                "method_family": "fjsp_dispatch_rule",
+                "strategy_type": "baseline_constructor",
+            },
+            round_index=-1,
+        )
+
+        self.assertEqual("constructive_search", plan["method_family"])
+        self.assertEqual([{"id": "constructive_search", "role": "primary"}], plan["method_families"])
+
+    def test_model_mechanism_names_map_to_canonical_method_families(self) -> None:
+        plan = normalize_direction_plan(
+            {
+                "method_families": [
+                    {"id": "fjsp_constructive_dispatch"},
+                    {"id": "fjsp_critical_block_neighborhood"},
+                ],
+                "strategy_type": "baseline_constructor",
+            },
+            round_index=-1,
+        )
+
+        self.assertEqual("constructive_search", plan["method_family"])
+        self.assertEqual(
+            ["constructive_search", "coupled_local_search"],
+            [item["id"] for item in plan["method_families"]],
+        )
 
     def test_post_baseline_probe_inherits_active_family_for_every_main_backend(self) -> None:
         plan = enforce_improvement_direction_contract(

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from harness_agent.domains.standard_fjsp import StandardFjspContextProvider
+from harness_agent.domains.distributed_context import DistributedFjspContextProvider
 from harness_agent.core.models import TaskContract
 
 
@@ -68,6 +69,10 @@ class GenericContextProvider:
 _PROVIDERS: dict[str, DomainContextProvider] = {
     "standard_fjsp": StandardFjspContextProvider(),
     "fjsp": StandardFjspContextProvider(),
+    "fjsp_release_time": StandardFjspContextProvider(),
+    "fjsp_machine_availability": StandardFjspContextProvider(),
+    "fjsp_priority": StandardFjspContextProvider(),
+    "fjsp_distributed_transfer": DistributedFjspContextProvider(),
 }
 _GENERIC_PROVIDER = GenericContextProvider()
 

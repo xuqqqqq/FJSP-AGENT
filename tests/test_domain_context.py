@@ -105,6 +105,86 @@ class DomainContextTests(unittest.TestCase):
             quality["variant_required_code_capabilities"],
         )
 
+    def test_release_time_diagnostics_flow_into_quality_contract(self) -> None:
+        contract = self._contract(
+            problem_family="FJSP",
+            instance=ROOT / "examples" / "fjsp_release_time_tiny.rtfjsp.txt",
+        )
+        provider = get_domain_context_provider(contract.problem_family)
+
+        diagnostics = provider.inspect_instances(contract, project_root=ROOT)
+        features = provider.active_features(
+            contract=contract,
+            instance_diagnostics=diagnostics,
+            contract_review_evidence={},
+        )
+
+        self.assertEqual(1, diagnostics["summary"]["release_time_instance_count"])
+        self.assertEqual("fjsp_release_time", diagnostics["instances"][0]["variant"])
+        self.assertEqual(
+            ["fjsp_release_time", "release_time", "machine_initial_availability"],
+            features,
+        )
+
+        quality = build_agent_generated_solver_quality_contract(
+            {
+                "evaluator_protocol": {
+                    "solver_command_template": "python examples/agent_generated_fjsp_solver.py",
+                    "evaluator_command_template": "python examples/fjsp_release_time_evaluator.py",
+                },
+                "instance_diagnostics": diagnostics,
+                "baseline_generation": {"source": "agent_generated"},
+            }
+        )
+        self.assertIn("release_time", quality["active_features"])
+        self.assertIn("machine_initial_availability", quality["active_features"])
+        self.assertIn(
+            "release_time_parser_and_job_ready_guard",
+            quality["variant_required_code_capabilities"],
+        )
+        self.assertIn(
+            "machine_initial_availability_guard",
+            quality["variant_required_code_capabilities"],
+        )
+
+    def test_machine_availability_diagnostics_flow_into_quality_contract(self) -> None:
+        contract = self._contract(
+            problem_family="FJSP",
+            instance=ROOT / "examples" / "FFCR_tiny.txt",
+        )
+        provider = get_domain_context_provider(contract.problem_family)
+
+        diagnostics = provider.inspect_instances(contract, project_root=ROOT)
+        features = provider.active_features(
+            contract=contract,
+            instance_diagnostics=diagnostics,
+            contract_review_evidence={},
+        )
+
+        self.assertEqual(1, diagnostics["summary"]["machine_availability_instance_count"])
+        self.assertEqual("fjsp_machine_availability", diagnostics["instances"][0]["variant"])
+        self.assertEqual(
+            ["fjsp_machine_availability", "machine_availability", "machine_calendar", "maintenance"],
+            features,
+        )
+
+        quality = build_agent_generated_solver_quality_contract(
+            {
+                "evaluator_protocol": {
+                    "solver_command_template": "python examples/agent_generated_fjsp_solver.py",
+                    "evaluator_command_template": "python examples/fjsp_machine_availability_evaluator.py",
+                },
+                "instance_diagnostics": diagnostics,
+                "baseline_generation": {"source": "agent_generated"},
+            }
+        )
+        self.assertIn("machine_availability", quality["active_features"])
+        self.assertIn("machine_calendar", quality["active_features"])
+        self.assertIn(
+            "machine_calendar_availability_guard",
+            quality["variant_required_code_capabilities"],
+        )
+
     def test_unknown_problem_family_uses_generic_provider(self) -> None:
         contract = self._contract(
             problem_family="unknown_variant",

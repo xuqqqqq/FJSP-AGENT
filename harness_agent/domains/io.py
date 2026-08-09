@@ -49,8 +49,17 @@ class MinimumTimeLag:
 
 
 @dataclass(frozen=True)
+class MachineUnavailability:
+    """A fixed half-open interval during which a machine cannot process."""
+
+    machine_id: int
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
 class StandardFjspInstance:
-    """标准 FJSP/FJSP-SDST 算例的只读结构。
+    """标准 FJSP 及兼容标准 schedule schema 变体的只读结构。
 
     这里是 parser/validator 共用的数据模型，强调“实例语义固定”。任何启发式、
     邻域、优先规则都不应塞进这个层次。
@@ -64,6 +73,10 @@ class StandardFjspInstance:
     setup_times: SetupTimes = ()
     setup_time_kind: str = "none"
     minimum_time_lags: MinimumTimeLags = ()
+    job_release_times: tuple[int, ...] = ()
+    machine_available_times: tuple[int, ...] = ()
+    unavailability_intervals: tuple[MachineUnavailability, ...] = ()
+    priority_job_ids: tuple[int, ...] = ()
     variant: str = "standard_fjsp"
 
     @property
@@ -77,6 +90,18 @@ class StandardFjspInstance:
     @property
     def has_minimum_time_lags(self) -> bool:
         return self.variant == "fjsp_min_time_lag"
+
+    @property
+    def has_release_times(self) -> bool:
+        return self.variant == "fjsp_release_time"
+
+    @property
+    def has_machine_availability(self) -> bool:
+        return self.variant == "fjsp_machine_availability"
+
+    @property
+    def has_job_priorities(self) -> bool:
+        return self.variant == "fjsp_priority"
 
 
 @dataclass(frozen=True)
@@ -175,7 +200,16 @@ def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
         jobs.append(Job(job_id=job_id, operations=tuple(ops)))
 
     operation_count = sum(len(job.operations) for job in jobs)
-    setup_times, setup_time_kind, minimum_time_lags, variant = _parse_optional_variant_tail(
+    (
+        setup_times,
+        setup_time_kind,
+        minimum_time_lags,
+        job_release_times,
+        machine_available_times,
+        unavailability_intervals,
+        priority_job_ids,
+        variant,
+    ) = _parse_optional_variant_tail(
         path=path,
         tail=numbers[idx:],
         jobs=tuple(jobs),
@@ -192,6 +226,10 @@ def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
         setup_times=setup_times,
         setup_time_kind=setup_time_kind,
         minimum_time_lags=minimum_time_lags,
+        job_release_times=job_release_times,
+        machine_available_times=machine_available_times,
+        unavailability_intervals=unavailability_intervals,
+        priority_job_ids=priority_job_ids,
         variant=variant,
     )
 
@@ -203,21 +241,57 @@ def _parse_optional_variant_tail(
     jobs: tuple[Job, ...],
     machine_count: int,
     operation_count: int,
-) -> tuple[SetupTimes, str, MinimumTimeLags, str]:
+) -> tuple[
+    SetupTimes,
+    str,
+    MinimumTimeLags,
+    tuple[int, ...],
+    tuple[int, ...],
+    tuple[MachineUnavailability, ...],
+    tuple[int, ...],
+    str,
+]:
     """严格解析可选的 SDST matrix 或 min-time-lag constraint list。
 
-    当前支持三类已确认格式：
+    当前支持已确认的 setup matrix、minimum-lag list、release rows 和
+    machine-unavailability list。文件标记优先用于消除长度碰撞；如果尾部结构
+    仍有歧义则拒绝解析。
+
+    具体编码包括：
     1. operation-pair 矩阵；
-    2. HUdata 风格的 job-pair 矩阵。
+    2. HUdata 风格的 job-pair 矩阵；
     3. `K` 后跟 K 条 `(job_id, from_op, to_op, L_min)`。
     如果尾部结构不匹配，宁可抛错，也不忽略或猜测其语义。
     """
 
-    if not tail:
-        return (), "none", (), "standard_fjsp"
     job_count = len(jobs)
-    if ".mitfjsp" in path.name.casefold():
-        return (), "none", _parse_minimum_time_lags(path=path, tail=tail, jobs=jobs), "fjsp_min_time_lag"
+    name = path.name.casefold()
+    priority_name = ".priority." in name or name.endswith(".priority.txt") or name.endswith(".priority")
+    if not tail:
+        if priority_name:
+            raise ValueError(f"{path} priority tail is missing")
+        return (), "none", (), (), (), (), (), "standard_fjsp"
+    machine_availability_name = (
+        name.startswith(("ffcr", "nfa", "fjsp_nfa"))
+        or ".nfafjsp" in name
+        or ".nfa." in name
+    )
+    if priority_name:
+        priority_job_ids = _parse_priority_jobs(path=path, tail=tail, job_count=job_count)
+        return (), "none", (), (), (), (), priority_job_ids, "fjsp_priority"
+    if ".mitfjsp" in name:
+        return (), "none", _parse_minimum_time_lags(path=path, tail=tail, jobs=jobs), (), (), (), (), "fjsp_min_time_lag"
+    if ".rtfjsp" in name:
+        job_release, machine_available = _parse_release_times(
+            path=path,
+            tail=tail,
+            job_count=job_count,
+            machine_count=machine_count,
+        )
+        return (), "none", (), job_release, machine_available, (), (), "fjsp_release_time"
+    if machine_availability_name:
+        intervals = _parse_machine_unavailability(path=path, tail=tail, machine_count=machine_count)
+        return (), "none", (), (), (), intervals, (), "fjsp_machine_availability"
     operation_pair_expected = machine_count * operation_count * operation_count
     job_pair_expected = machine_count * job_count * job_count
     if len(tail) == operation_pair_expected:
@@ -227,7 +301,20 @@ def _parse_optional_variant_tail(
         dimension = job_count
         kind = "job_pair"
     else:
-        return (), "none", _parse_minimum_time_lags(path=path, tail=tail, jobs=jobs), "fjsp_min_time_lag"
+        min_lag_match = len(tail) == 1 + 4 * tail[0] if tail and tail[0] >= 0 else False
+        availability_match = len(tail) == 1 + 3 * tail[0] if tail and tail[0] >= 0 else False
+        if min_lag_match and availability_match:
+            raise ValueError(f"{path} has an ambiguous zero-count variant tail; use a recognized variant filename")
+        if min_lag_match:
+            constraints = _parse_minimum_time_lags(path=path, tail=tail, jobs=jobs)
+            return (), "none", constraints, (), (), (), (), "fjsp_min_time_lag"
+        if availability_match:
+            intervals = _parse_machine_unavailability(path=path, tail=tail, machine_count=machine_count)
+            return (), "none", (), (), (), intervals, (), "fjsp_machine_availability"
+        raise ValueError(
+            f"{path} has trailing tokens that match no supported setup, minimum-lag, "
+            f"release-time, or machine-availability encoding: trailing={len(tail)}"
+        )
     cursor = 0
     setup_by_machine: list[tuple[tuple[int, ...], ...]] = []
     for machine_id in range(machine_count):
@@ -239,7 +326,66 @@ def _parse_optional_variant_tail(
                 raise ValueError(f"{path} has negative setup time for machine {machine_id}")
             rows.append(row)
         setup_by_machine.append(tuple(rows))
-    return tuple(setup_by_machine), kind, (), "fjsp_sdst"
+    return tuple(setup_by_machine), kind, (), (), (), (), (), "fjsp_sdst"
+
+
+def _parse_priority_jobs(*, path: Path, tail: list[int], job_count: int) -> tuple[int, ...]:
+    expected_count = (job_count + 3) // 4
+    if not tail:
+        raise ValueError(f"{path} priority tail is missing")
+    declared_count = tail[0]
+    if declared_count != expected_count:
+        raise ValueError(
+            f"{path} priority count must equal ceil(job_count/4)={expected_count}, "
+            f"got {declared_count}"
+        )
+    if len(tail) != 1 + declared_count:
+        raise ValueError(
+            f"{path} priority tail must contain exactly {1 + declared_count} integers, "
+            f"got {len(tail)}"
+        )
+    priority_job_ids = tuple(tail[1:])
+    if any(not 0 <= job_id < job_count for job_id in priority_job_ids):
+        raise ValueError(f"{path} priority job id is out of range [0, {job_count})")
+    if any(left >= right for left, right in zip(priority_job_ids, priority_job_ids[1:])):
+        raise ValueError(f"{path} priority job ids must be strictly ascending and unique")
+    return priority_job_ids
+
+
+def _parse_release_times(
+    *, path: Path, tail: list[int], job_count: int, machine_count: int
+) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    width = max(job_count, machine_count)
+    if len(tail) != 2 * width:
+        raise ValueError(f"{path} release-time tail must contain {2 * width} integers, got {len(tail)}")
+    job_row = tail[:width]
+    machine_row = tail[width:]
+    if any(value < 0 for value in job_row[:job_count]):
+        raise ValueError(f"{path} has a negative real job release time")
+    if any(value != -1 for value in job_row[job_count:]):
+        raise ValueError(f"{path} job release-time padding must be -1")
+    if any(value < 0 for value in machine_row[:machine_count]):
+        raise ValueError(f"{path} has a negative real machine available time")
+    if any(value != -1 for value in machine_row[machine_count:]):
+        raise ValueError(f"{path} machine available-time padding must be -1")
+    return tuple(job_row[:job_count]), tuple(machine_row[:machine_count])
+
+
+def _parse_machine_unavailability(
+    *, path: Path, tail: list[int], machine_count: int
+) -> tuple[MachineUnavailability, ...]:
+    count = tail[0]
+    if count < 0 or len(tail) != 1 + 3 * count:
+        raise ValueError(f"{path} has an invalid machine-availability tail")
+    intervals: list[MachineUnavailability] = []
+    for index in range(count):
+        machine_id, start, end = tail[1 + 3 * index : 4 + 3 * index]
+        if not 0 <= machine_id < machine_count:
+            raise ValueError(f"{path} availability machine id {machine_id} is out of range")
+        if start < 0 or end <= start:
+            raise ValueError(f"{path} has invalid availability interval [{start}, {end})")
+        intervals.append(MachineUnavailability(machine_id, start, end))
+    return tuple(intervals)
 
 
 def _parse_minimum_time_lags(
@@ -377,6 +523,19 @@ def write_solution(path: Path, instance: StandardFjspInstance, schedule: list[Sc
     }
     if instance.has_minimum_time_lags:
         payload["min_time_lag_policy"] = "checked_by_evaluator"
+    if instance.has_release_times:
+        payload["release_time_policy"] = "checked_by_evaluator"
+    if instance.has_machine_availability:
+        payload["machine_availability_policy"] = "checked_by_evaluator"
+    if instance.has_job_priorities:
+        completion_times = [
+            record.end
+            for record in schedule
+            if record.job_id in instance.priority_job_ids
+            and record.op_id == len(instance.jobs[record.job_id].operations) - 1
+        ]
+        payload["priority_completion_time"] = max(completion_times, default=0)
+        payload["priority_policy"] = "lexicographic_after_makespan"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -431,6 +590,24 @@ def validate_standard_schedule(
     for job_id, op_id in missing:
         errors.append(f"missing operation: job={job_id}, op={op_id}")
 
+    if instance.has_release_times:
+        for job_id, release_time in enumerate(instance.job_release_times):
+            first = seen.get((job_id, 0))
+            if first is not None and first.start < release_time:
+                errors.append(
+                    f"job release-time violation: job={job_id}, start={first.start}, "
+                    f"release_time={release_time}"
+                )
+        for record in schedule:
+            if 0 <= record.machine_id < len(instance.machine_available_times):
+                available_time = instance.machine_available_times[record.machine_id]
+                if record.start < available_time:
+                    errors.append(
+                        f"machine available-time violation: machine={record.machine_id}, "
+                        f"job={record.job_id}, op={record.op_id}, start={record.start}, "
+                        f"available_time={available_time}"
+                    )
+
     for job in instance.jobs:
         for op_idx in range(len(job.operations) - 1):
             current = seen.get((job.job_id, op_idx))
@@ -459,6 +636,16 @@ def validate_standard_schedule(
     by_machine: dict[int, list[ScheduleRecord]] = {}
     for record in schedule:
         by_machine.setdefault(record.machine_id, []).append(record)
+    machine_availability_violations = 0
+    for interval in instance.unavailability_intervals:
+        for record in by_machine.get(interval.machine_id, []):
+            if record.start < interval.end and interval.start < record.end:
+                machine_availability_violations += 1
+                errors.append(
+                    f"machine availability violation: machine={interval.machine_id}, "
+                    f"job={record.job_id}, op={record.op_id}, operation=[{record.start},{record.end}), "
+                    f"unavailable=[{interval.start},{interval.end})"
+                )
     op_index = operation_index_lookup(instance)
     total_setup_time = 0
     setup_count = 0
@@ -496,4 +683,23 @@ def validate_standard_schedule(
     if instance.has_minimum_time_lags:
         metrics["min_time_lag_constraints"] = float(len(instance.minimum_time_lags))
         metrics["min_time_lag_violations"] = float(min_time_lag_violations)
+    if instance.has_release_times:
+        metrics["max_job_release_time"] = float(max(instance.job_release_times, default=0))
+        metrics["max_machine_available_time"] = float(max(instance.machine_available_times, default=0))
+    if instance.has_machine_availability:
+        metrics["machine_availability_violations"] = float(machine_availability_violations)
+        metrics["total_unavailable_duration"] = float(
+            sum(interval.end - interval.start for interval in instance.unavailability_intervals)
+        )
+    if instance.has_job_priorities:
+        priority_completion_time = max(
+            (
+                seen[(job_id, len(instance.jobs[job_id].operations) - 1)].end
+                for job_id in instance.priority_job_ids
+                if (job_id, len(instance.jobs[job_id].operations) - 1) in seen
+            ),
+            default=0,
+        )
+        metrics["priority_completion_time"] = float(priority_completion_time)
+        metrics["priority_job_count"] = float(len(instance.priority_job_ids))
     return errors, metrics

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "contract_id": "fjsp_release_time_adaptation",
+  "mode": "complete_method_package",
+  "required_components": [
+    {"component_id": "release_tail_parser", "required_behaviors": ["Parse both fixed-width rows and validate real entries and -1 padding."]},
+    {"component_id": "release_aware_full_decoder", "required_behaviors": ["Apply job and machine release bounds in every complete decode."]},
+    {"component_id": "release_aware_candidate_validation", "required_behaviors": ["Reject candidates violating either lower-bound vector before incumbent acceptance."]}
+  ],
+  "coupled_groups": [
+    {"group_id": "release_semantics", "component_ids": ["release_tail_parser", "release_aware_full_decoder", "release_aware_candidate_validation"], "rule": "Parsing, decoding, and acceptance must use the same release vectors."}
+  ],
+  "forbidden_shortcuts": ["ignore_release_tail", "post_shift_without_full_redecode", "modify_evaluator"]
+}

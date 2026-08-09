@@ -39,11 +39,16 @@ status: curated_reference
 
 ### 1. 先出可行解
 
-优先考虑构造启发式或简单规则组合。关键不是“第一次就很强”，而是：
+先用共享 foundation 中的 ready-list 构造或简单规则组合得到 warm start。这里是在完成
+parser/decoder/合法 incumbent 合同，不是在选择正式优化方法族。关键不是“第一次就很强”，而是：
 
 - 可行性稳定；
 - 输出格式稳定；
 - 便于后续局部搜索接管。
+
+baseline 一旦合法，应立即根据实例压力重新比较方法族，不能因为 warm start 由构造器产生就
+继承 `constructive_search`。低柔性实例通常是 sequence-first：优先比较关键块 Tabu/ILS、
+表达机器顺序的 CP-SAT/CP-LNS，以及预算允许时的 sequence-oriented memetic。
 
 ### 2. 已有可行解，目标是继续降 makespan
 
@@ -124,11 +129,16 @@ profile = read(instance_diagnostics)
 history = read(incumbent_and_round_evidence)
 family = None
 query = None
+family_candidates = None
 
 if no_legal_incumbent(history):
-    pressure = construction
-    if high_flexibility(profile) and nonzero_duration_span(profile):
-        family = constructive_search
+    foundation = [construction, initialization, decoder]
+    pressure = classify_primary_pressure(profile, history)
+    if low_flexibility(profile):
+        family_candidates = [coupled_local_search, exact_hybrid, population_memetic]
+        query = [critical_path, critical_block, local_search, cp_sat, memetic]
+    elif high_flexibility(profile) and nonzero_duration_span(profile):
+        family_candidates = [constructive_search, coupled_local_search, population_memetic]
         query = [high_flexibility, idle_gap, assignment_regret, decoder]
 elif high_flexibility(profile) and not activated_exact_regret(history):
     pressure = assignment
@@ -142,13 +152,20 @@ elif high_flexibility(profile) and reliable_local_bottleneck(history):
 else:
     pressure = classify_primary_pressure(profile, history)
 
-family = family or compare_applicable_method_families(pressure, profile, budget, constraints)
+family = family or compare_applicable_method_families(
+    pressure, profile, budget, constraints, family_candidates
+)
 alternative = strongest_unselected_family(family, pressure)
 query = query or public_query_tags_for(family, pressure, active_variant)
 
 return method_family, pressure, measured_evidence, uncertainties,
        alternative_with_rejection_reason, query
 ```
+
+并行 lane 不少于 2 时另加确定性的 exact probe 配额：`operation_count <= 60` 时不区分
+柔性，至少一条 lane 使用 `exact_hybrid`；低柔性且 `operation_count <= 250` 时同样保留。
+小实例 exact lane 先尝试完整变体 CP-SAT 并返回 best bound，其余 lane 继续执行 Main 选择的
+启发式或元启发式方向。该规则是竞争配额，不是把所有方法统一改成 CP。
 
 `classify_primary_pressure` 只能引用已测字段和 evaluator 历史；不能读取文件名、BKS、
 选中的 seed 或具体 Method Package 目录。若证据不足，应把缺口写入 `uncertainties`，而不是

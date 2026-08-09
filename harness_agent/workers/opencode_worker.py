@@ -426,15 +426,15 @@ class OpenCodeWorker(CodingWorker):
             ),
             encoding="utf-8",
         )
-        timed_out_target_sync = TargetSyncResult(synced=False, reason=None, quarantine_path=None)
+        target_sync = TargetSyncResult(synced=False, reason=None, quarantine_path=None)
         if not timed_out and process.returncode == 0 and stdout.strip():
-            _sync_worker_target_from_session(
+            target_sync = _sync_worker_target_from_session(
                 session_launch.launch_dir,
                 worktree_path,
                 assignment.target_file,
             )
         elif timed_out:
-            timed_out_target_sync = _sync_worker_target_from_session(
+            target_sync = _sync_worker_target_from_session(
                 session_launch.launch_dir,
                 worktree_path,
                 assignment.target_file,
@@ -442,10 +442,17 @@ class OpenCodeWorker(CodingWorker):
                 quarantine_invalid_source=True,
             )
         observed_session_id = extract_opencode_session_id(stdout)
+        terminal_reason = opencode_terminal_reason(stdout)
+        worker_status = "timeout" if timed_out else opencode_status(process.returncode, stdout, stderr)
+        if not timed_out and session_launch.command_session_id and not stdout.strip():
+            worker_status = "failed_runtime"
         self._write_session_launch_record(
             session_path,
             session_launch,
             observed_session_id=observed_session_id,
+            terminal_reason=terminal_reason,
+            worker_status=worker_status,
+            target_synced=target_sync.synced,
         )
         # The per-attempt record is audit evidence; the lane state is what lets
         # the next Local Trial locate and safely resume the observed session.
@@ -453,6 +460,9 @@ class OpenCodeWorker(CodingWorker):
             session_launch.state_path,
             session_launch,
             observed_session_id=observed_session_id,
+            terminal_reason=terminal_reason,
+            worker_status=worker_status,
+            target_synced=target_sync.synced,
         )
         stdout_path.write_text(stdout, encoding="utf-8")
         compaction_path.write_text(
@@ -479,7 +489,7 @@ class OpenCodeWorker(CodingWorker):
             )
             return WorkerResult(
                 status="timeout",
-                changed_files=[assignment.target_file] if timed_out_target_sync.synced else [],
+                changed_files=[assignment.target_file] if target_sync.synced else [],
                 summary=timeout_summary,
                 raw_log_path=str(stdout_path),
                 artifacts={
@@ -493,8 +503,8 @@ class OpenCodeWorker(CodingWorker):
                     "worker_assignment": str(assignment_path),
                     "events": str(events_path),
                     "compaction": str(compaction_path),
-                    "target_sync_reason": timed_out_target_sync.reason or "",
-                    "target_sync_quarantine": timed_out_target_sync.quarantine_path or "",
+                    "target_sync_reason": target_sync.reason or "",
+                    "target_sync_quarantine": target_sync.quarantine_path or "",
                     **provider_retry_artifacts,
                     **session_artifacts,
                 },
@@ -503,7 +513,7 @@ class OpenCodeWorker(CodingWorker):
         if self.cancellation is not None:
             self.cancellation.raise_if_cancelled()
 
-        status = opencode_status(process.returncode, stdout, stderr)
+        status = worker_status
         if session_launch.command_session_id and not stdout.strip():
             status = "failed_runtime"
             summary = (
@@ -639,6 +649,18 @@ class OpenCodeWorker(CodingWorker):
             f"python -m py_compile {assignment.target_file}": "allow",
             f'python -m py_compile "{assignment.target_file}"': "allow",
         }
+        skill_ids = {
+            str(item.get("skill_id") or "").strip()
+            for item in assignment.implementation_skills
+            if isinstance(item, dict)
+        }
+        if "fjsp-exact-hybrid-worker" in skill_ids:
+            bash_permissions[
+                'python -c "import ortools; print(ortools.__version__)"'
+            ] = "allow"
+            bash_permissions[
+                'python -c "from ortools.sat.python import cp_model; print(hasattr(cp_model.CpModel(), \'new_fixed_size_interval_var\'))"'
+            ] = "allow"
         smoke_wrapper = Path(spec.worktree_path) / ".algoforge_worker_runtime" / "run_smoke.py"
         if smoke_wrapper.is_file():
             bash_permissions["python .algoforge_worker_runtime/run_smoke.py"] = "allow"
@@ -835,6 +857,9 @@ Runtime identifiers:
         alias_path = state_dir / SESSION_WORKSPACE_NAME
         state_path = state_dir / SESSION_STATE_FILE
         previous_state = _read_session_state(state_path)
+        previous_terminal_reason = str(previous_state.get("terminal_reason") or "").strip().lower()
+        previous_worker_status = str(previous_state.get("worker_status") or "").strip().lower()
+        previous_target_synced = previous_state.get("target_synced")
         launch_dir = worktree_path
         prompt_mode = "new_direction_session"
         prompt_note: str | None = None
@@ -866,6 +891,32 @@ Runtime identifiers:
                     f"Do not resume OpenCode session {requested_session_id} because this Harness run has no "
                     "persisted workspace binding for it. Continue from the attached assignment, refreshed "
                     "worktree, and current runtime feedback instead."
+                )
+            elif requested_session_id and previous_terminal_reason in {
+                "length",
+                "max_tokens",
+                "context_length",
+            }:
+                command_session_id = None
+                strategy = "materialized_workspace_fresh_session_after_context_limit"
+                prompt_mode = "restarted_fresh_session_after_context_limit"
+                prompt_note = (
+                    f"Do not resume OpenCode session {requested_session_id} because its previous turn "
+                    f"ended at the provider context limit ({previous_terminal_reason}). Continue in a "
+                    "fresh session from the preserved target file, current assignment, and runtime feedback."
+                )
+            elif (
+                requested_session_id
+                and previous_worker_status in {"timeout", "context_limit"}
+                and previous_target_synced is False
+            ):
+                command_session_id = None
+                strategy = "materialized_workspace_fresh_session_after_stalled_worker"
+                prompt_mode = "restarted_fresh_session_after_stalled_worker"
+                prompt_note = (
+                    f"Do not resume OpenCode session {requested_session_id} because the previous "
+                    f"{previous_worker_status} attempt made no target-file progress. Continue in a fresh "
+                    "session from the preserved target file, current assignment, and runtime feedback."
                 )
         except OSError as exc:
             alias_error = str(exc)
@@ -900,7 +951,7 @@ Runtime identifiers:
             prompt_note=prompt_note,
             strategy=strategy,
             state_path=state_path,
-            alias_path=alias_path if strategy == "materialized_session_workspace" else None,
+            alias_path=alias_path if strategy.startswith("materialized") else None,
             actual_worktree_path=worktree_path,
             alias_error=alias_error,
         )
@@ -913,12 +964,18 @@ Runtime identifiers:
         session_launch: "OpenCodeSessionLaunch",
         *,
         observed_session_id: str | None,
+        terminal_reason: str | None = None,
+        worker_status: str | None = None,
+        target_synced: bool | None = None,
     ) -> None:
         payload = {
             "schema_version": 1,
             "requested_session_id": session_launch.requested_session_id,
             "command_session_id": session_launch.command_session_id,
             "observed_session_id": observed_session_id,
+            "terminal_reason": terminal_reason,
+            "worker_status": worker_status,
+            "target_synced": target_synced,
             "resume_strategy": session_launch.strategy,
             "prompt_mode": session_launch.prompt_mode,
             "actual_worktree_path": str(session_launch.actual_worktree_path),
@@ -928,7 +985,7 @@ Runtime identifiers:
             ),
             "materialized_workspace": (
                 str(session_launch.alias_path)
-                if session_launch.strategy == "materialized_session_workspace"
+                if session_launch.strategy.startswith("materialized")
                 else None
             ),
             "alias_error": session_launch.alias_error,
@@ -1429,12 +1486,36 @@ def _top_level_compaction_status(event_type: str, raw_status: Any) -> str | None
     return None
 
 
+def opencode_terminal_reason(events_text: str) -> str | None:
+    """Return the last model step termination reason from an OpenCode JSONL stream."""
+
+    terminal_reason: str | None = None
+    for line in events_text.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict) or str(event.get("type") or "").lower() != "step_finish":
+            continue
+        part = event.get("part")
+        reason = part.get("reason") if isinstance(part, dict) else None
+        if isinstance(reason, str) and reason.strip():
+            terminal_reason = reason.strip().lower()
+    return terminal_reason
+
+
 def opencode_status(returncode: int, stdout: str, stderr: str) -> str:
     """把底层退出结果归一成 harness 可消费的 worker 状态。
 
     这里的 `authorization_required` 是编排层关心的特殊状态：它表示问题更
     可能出在 provider 登录/API key/余额，而不是候选代码逻辑本身。
     """
+    if returncode == 0 and opencode_terminal_reason(stdout) in {
+        "length",
+        "max_tokens",
+        "context_length",
+    }:
+        return "context_limit"
     if returncode == 0:
         return "completed"
     combined = f"{stdout}\n{stderr}".lower()

@@ -83,6 +83,22 @@ class DomainPackTests(unittest.TestCase):
         self.assertTrue(high_flexibility_skill.require_activation_tag_match)
         self.assertTrue((high_flexibility_skill.source_path / "SKILL.md").is_file())
 
+    def test_standard_method_families_have_neutral_default_priority(self) -> None:
+        pack = get_domain_pack("FJSP")
+        assert pack is not None
+
+        priorities = {
+            family_id: pack.method_family(family_id).default_priority
+            for family_id in (
+                "constructive_search",
+                "coupled_local_search",
+                "exact_hybrid",
+                "population_memetic",
+            )
+        }
+
+        self.assertEqual({family_id: 100 for family_id in priorities}, priorities)
+
     def test_worker_skills_match_multiple_canonical_families_without_unselected_skills(self) -> None:
         catalog = method_family_catalog(problem_family="FJSP")
         self.assertEqual("ok", catalog["status"])

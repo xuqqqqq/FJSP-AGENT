@@ -27,6 +27,132 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WorkerAssignmentTests(unittest.TestCase):
+    def test_exact_execution_failure_compiles_to_concrete_repair_deliverable(self) -> None:
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "evaluator_protocol": {
+                "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance}",
+            },
+            "edit_policy": {"allowed_paths": ["examples"], "forbidden_paths": ["outputs"]},
+        }
+        direction = {
+            "direction_id": "exact",
+            "method_family": "exact_hybrid",
+            "hypothesis": "Run a bounded CP-SAT probe.",
+        }
+        feedback = {
+            "current_round_repair": {
+                "status": "repair_required",
+                "repair_targets": {
+                    "exact_execution_failure": {
+                        "reason": "exact_hybrid_without_cp_sat_execution_evidence",
+                        "required_evidence": "Run CP-SAT and emit cp_sat_called=true.",
+                    }
+                },
+            }
+        }
+
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan=direction,
+            loop_feedback=feedback,
+            round_index=0,
+            attempt_index=1,
+            max_steps=6,
+            max_runtime_seconds=300,
+        )
+
+        self.assertEqual("repair", assignment.mode)
+        self.assertEqual("repair_exact_execution_not_exercised", assignment.deliverables[0]["id"])
+        self.assertIn("cp_sat_called=true", assignment.deliverables[0]["behavior"])
+
+    def test_illegal_exact_candidate_repair_preserves_generic_timing_invariant(self) -> None:
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "evaluator_protocol": {
+                "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance}",
+            },
+            "edit_policy": {"allowed_paths": ["examples"], "forbidden_paths": ["outputs"]},
+        }
+        feedback = {
+            "current_round_repair": {
+                "status": "repair_required",
+                "repair_targets": {
+                    "exact_execution_failure": {
+                        "reason": "exact_hybrid_candidate_illegal",
+                        "self_check_error_counts": [182],
+                        "runtime_errors": ["selected operation has inconsistent extracted timing"],
+                        "required_evidence": (
+                            "Bind optional-interval arguments by API semantic keywords and verify each "
+                            "selected operation's extracted end minus start equals its processing duration."
+                        ),
+                    }
+                },
+            }
+        }
+
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan={
+                "direction_id": "exact",
+                "method_family": "exact_hybrid",
+                "hypothesis": "Repair the bounded CP-SAT model.",
+            },
+            loop_feedback=feedback,
+            round_index=0,
+            attempt_index=1,
+            max_steps=6,
+            max_runtime_seconds=300,
+        )
+
+        behavior = assignment.deliverables[0]["behavior"]
+        self.assertIn("semantic keywords", behavior)
+        self.assertIn("end minus start", behavior)
+        self.assertNotIn("start_var", behavior)
+
+    def test_narrative_implementation_order_keeps_declared_deliverables(self) -> None:
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "evaluator_protocol": {
+                "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance}",
+            },
+            "edit_policy": {"allowed_paths": ["examples"], "forbidden_paths": ["outputs"]},
+        }
+        direction = {
+            "direction_id": "d000",
+            "method_family": "coupled_local_search",
+            "hypothesis": "Improve the incumbent with a bounded local search.",
+            "implementation_order": [
+                "local_search_improve function: identify critical blocks",
+                "release-aware timing: propagate times after each move",
+            ],
+            "deliverables": [
+                {
+                    "id": "local_search_improve",
+                    "behavior": "Add a bounded local-search function.",
+                },
+                {
+                    "id": "release_aware_timing",
+                    "behavior": "Preserve release-aware timing after moves.",
+                },
+            ],
+        }
+
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan=direction,
+            loop_feedback={},
+            round_index=0,
+            attempt_index=0,
+            max_steps=4,
+            max_runtime_seconds=300,
+        )
+
+        self.assertEqual(
+            ["local_search_improve", "release_aware_timing"],
+            [item["id"] for item in assignment.deliverables],
+        )
+
     def test_minimum_time_lag_cards_are_mandatory_for_generic_direction_query(self) -> None:
         package_catalog = method_package_catalog(
             problem_family="FJSP",
@@ -647,6 +773,131 @@ class WorkerAssignmentTests(unittest.TestCase):
             self.assertTrue(
                 redundant_names.isdisjoint(Path(item["path"]).name for item in assignment.read_set)
             )
+        self.assertTrue(any(item["role"] == "instance_sample" for item in trial_1.read_set))
+        for assignment in (trial_2, trial_3):
+            roles = {item["role"] for item in assignment.read_set}
+            self.assertNotIn("instance_sample", roles)
+            self.assertNotIn("requirement_or_io_contract", roles)
+
+    def test_variant_baseline_trial_one_keeps_required_adapter_skill(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "context.json",
+                )
+            )
+            context = load_context_dict(context_path)
+            context["method_package_catalog"]["active_features"] = ["release_time"]
+            assignment = build_worker_assignment(
+                context=context,
+                direction_plan={
+                    "direction_id": "d000-release-baseline",
+                    "method_family": "constructive_search",
+                    "method_families": [{"id": "constructive_search", "role": "primary"}],
+                    "knowledge_query": ["release_time", "release_aware_decoder"],
+                    "hypothesis": "Build a complete release-aware legal baseline.",
+                    "change_scope": ["Create a complete standalone solver."],
+                },
+                loop_feedback={},
+                round_index=-1,
+                attempt_index=0,
+                max_steps=4,
+                max_runtime_seconds=300,
+            )
+
+        skill_ids = [item["skill_id"] for item in assignment.implementation_skills]
+        self.assertIn("fjsp-solver-foundation-worker", skill_ids)
+        self.assertIn("fjsp-release-time-adapter-worker", skill_ids)
+        self.assertNotIn("fjsp-constructive-search-worker", skill_ids)
+
+    def test_release_time_quality_contract_reaches_worker_runtime_contract(self) -> None:
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "evaluator_protocol": {
+                "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance}",
+                "evaluator_command_template": "python examples/fjsp_release_time_evaluator.py",
+            },
+            "edit_policy": {"allowed_paths": ["examples"], "forbidden_paths": ["outputs"]},
+            "instance_diagnostics": {
+                "status": "available",
+                "summary": {
+                    "instance_count": 1,
+                    "profiled_count": 1,
+                    "release_time_instance_count": 1,
+                },
+                "instances": [{"variant": "fjsp_release_time"}],
+            },
+        }
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan={
+                "direction_id": "d000-release",
+                "method_family": "coupled_local_search",
+                "hypothesis": "Improve a release-aware incumbent without weakening legality.",
+            },
+            loop_feedback={},
+            round_index=0,
+            attempt_index=0,
+            max_steps=4,
+            max_runtime_seconds=300,
+        )
+
+        self.assertIn("release_time", assignment.runtime_contract["active_features"])
+        self.assertIn("machine_initial_availability", assignment.runtime_contract["active_features"])
+        self.assertIn(
+            "release_time_parser_and_job_ready_guard",
+            assignment.runtime_contract["variant_required_code_capabilities"],
+        )
+        self.assertIn(
+            "machine_initial_availability_guard",
+            assignment.runtime_contract["variant_required_code_capabilities"],
+        )
+
+    def test_machine_availability_quality_contract_reaches_worker_runtime_contract(self) -> None:
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "evaluator_protocol": {
+                "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance}",
+                "evaluator_command_template": "python examples/fjsp_machine_availability_evaluator.py",
+            },
+            "edit_policy": {"allowed_paths": ["examples"], "forbidden_paths": ["outputs"]},
+            "instance_diagnostics": {
+                "status": "available",
+                "summary": {
+                    "instance_count": 1,
+                    "profiled_count": 1,
+                    "machine_availability_instance_count": 1,
+                    "max_unavailability_interval_count": 2,
+                },
+                "instances": [
+                    {"variant": "fjsp_machine_availability", "unavailability_interval_count": 2}
+                ],
+            },
+        }
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan={
+                "direction_id": "d000-downtime",
+                "method_family": "coupled_local_search",
+                "hypothesis": "Improve the incumbent with calendar-aware reassignment and insertion.",
+            },
+            loop_feedback={},
+            round_index=0,
+            attempt_index=0,
+            max_steps=4,
+            max_runtime_seconds=300,
+        )
+
+        self.assertIn("machine_availability", assignment.runtime_contract["active_features"])
+        self.assertIn("machine_calendar", assignment.runtime_contract["active_features"])
+        self.assertIn(
+            "machine_calendar_availability_guard",
+            assignment.runtime_contract["variant_required_code_capabilities"],
+        )
+        skill_ids = [item["skill_id"] for item in assignment.implementation_skills]
+        self.assertIn("fjsp-machine-availability-adapter-worker", skill_ids)
 
     def test_incomplete_agent_generated_baseline_retries_trial_one(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

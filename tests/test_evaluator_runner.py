@@ -14,6 +14,7 @@ from harness_agent.core.evaluator import EvaluationResult
 from harness_agent.core.ledger import ExperimentRecord
 from harness_agent.core.models import ObjectiveSpec
 from harness_agent.core.runner import (
+    accepted_solver_output_errors,
     command_failure_message,
     load_solver_evidence,
     pareto_frontier,
@@ -23,6 +24,84 @@ from harness_agent.core.runner import (
 
 
 class EvaluatorRunnerTests(unittest.TestCase):
+    def test_accepted_exact_incumbent_must_match_serialized_evaluator_metrics(self) -> None:
+        errors = accepted_solver_output_errors(
+            {"makespan": 1334.0, "priority_completion_time": 671.0},
+            {
+                "diagnostics": {
+                    "solver_evidence": {
+                        "accepted": True,
+                        "objective": 938,
+                        "priority_completion_time": 923,
+                    }
+                }
+            },
+        )
+
+        self.assertEqual(2, len(errors))
+        self.assertIn("makespan accepted=938 evaluated=1334.0", errors[0])
+        self.assertIn("priority_completion_time accepted=923 evaluated=671.0", errors[1])
+
+    def test_matching_or_unaccepted_exact_evidence_does_not_reject_output(self) -> None:
+        metrics = {"makespan": 938.0, "priority_completion_time": 923.0}
+        matching = {
+            "diagnostics": {
+                "solver_evidence": {
+                    "accepted": True,
+                    "objective": 938,
+                    "priority_completion_time": 923,
+                }
+            }
+        }
+        fallback = {
+            "diagnostics": {
+                "solver_evidence": {
+                    "accepted": False,
+                    "objective": 900,
+                    "priority_completion_time": 880,
+                }
+            }
+        }
+
+        self.assertEqual([], accepted_solver_output_errors(metrics, matching))
+        self.assertEqual([], accepted_solver_output_errors(metrics, fallback))
+
+    def test_misplaced_exact_evidence_is_repaired_and_consistency_checked(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            solution = Path(tmp) / "solution.json"
+            solution.write_text(
+                json.dumps(
+                    {
+                        "makespan": 1173,
+                        "schedule": [],
+                        "best_metrics": {
+                            "solver_evidence": {
+                                "accepted": True,
+                                "diagnostics": {
+                                    "cp_sat_called": True,
+                                    "candidate_makespan": 927,
+                                    "candidate_priority_completion_time": 912,
+                                },
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            evidence = load_solver_evidence(solution)
+            errors = accepted_solver_output_errors(
+                {"makespan": 1173.0, "priority_completion_time": 1126.0},
+                evidence,
+            )
+
+        self.assertTrue(evidence["solver_evidence_path_repaired"])
+        exact = evidence["diagnostics"]["solver_evidence"]
+        self.assertTrue(exact["cp_sat_called"])
+        self.assertTrue(exact["accepted"])
+        self.assertEqual(2, len(errors))
+
+
     def test_solver_evidence_keeps_bounded_runtime_diagnostics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             solution = Path(tmp) / "solution.json"

@@ -130,6 +130,7 @@ class DeepSeekWorker(CodingWorker):
             temperature=0.2,
             max_tokens=12000,
             json_mode=True,
+            stream=True,
         )
         content = response.content
         raw_path = output_dir / "deepseek_code_edit_raw.json"
@@ -155,6 +156,20 @@ class DeepSeekWorker(CodingWorker):
             repaired = self._repair_code_edit_json(client, content, str(exc), max_tokens=12000)
             (output_dir / "deepseek_code_edit_repair_response.json").write_text(repaired, encoding="utf-8")
             raw_proposal = extract_json_object(repaired)
+        placeholder_error = code_edit_placeholder_reason(raw_proposal)
+        if placeholder_error:
+            repaired = self._regenerate_placeholder_code_edit(
+                client,
+                original_prompt=prompt,
+                rejected_response=content,
+                error=placeholder_error,
+                max_tokens=12000,
+            )
+            (output_dir / "deepseek_code_edit_placeholder_retry.json").write_text(repaired, encoding="utf-8")
+            raw_proposal = extract_json_object(repaired)
+            remaining_placeholder = code_edit_placeholder_reason(raw_proposal)
+            if remaining_placeholder:
+                raise ValueError(remaining_placeholder)
         proposal = self._normalize_code_edit_proposal(raw_proposal, context)
         proposal_path = output_dir / "proposal.json"
         proposal_path.write_text(json.dumps(proposal, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -372,6 +387,12 @@ Rules:
   `variant_handling`, `runtime_bounds`, and `incumbent_preservation` must also
   cite source symbols that appear in the proposed code; do not use those fields
   for high-level strategy text that has no matching implementation anchor.
+- Treat schedule record order as non-semantic. Check job precedence through
+  `(job_id, op_id)` predecessor lookup, but check machine non-overlap by grouping
+  records per machine and sorting each group by `(start, end, job_id, op_id)`
+  before comparing adjacent intervals. Never validate machine overlap by updating
+  one `machine_last_end[m]` inside a job/op traversal; gap insertion and full DAG
+  decoding do not emit records in machine-chronological order.
 - The declared output schema must match the actual bytes written to
   `--output`. For standard FJSP generated solvers, write a JSON object such as
   `{{"format": "...", "schedule": [...], "makespan": ...}}`; never write a bare
@@ -462,6 +483,9 @@ Rules:
 - Do not include Markdown fences or commentary outside JSON.
 - Do not include placeholders like TODO-only implementations unless the context
   explicitly requests scaffolding.
+- For `create_or_replace`, `content` must contain the literal complete file.
+  Text such as `...full file...`, `full file content`, `same as above`, or a
+  prose description of code is invalid and will be rejected before apply.
 - If no safe edit is possible, return an empty "changes" list with an explicit
   risk note.
 
@@ -498,6 +522,43 @@ Dynamic round context (incumbent, retrieved methods, and recent feedback):
             temperature=0.0,
             max_tokens=max_tokens,
             json_mode=True,
+            stream=True,
+        )
+
+    def _regenerate_placeholder_code_edit(
+        self,
+        client: DeepSeekClient,
+        *,
+        original_prompt: str,
+        rejected_response: str,
+        error: str,
+        max_tokens: int,
+    ) -> str:
+        """Regenerate a proposal whose edit body was only a placeholder."""
+
+        return client.chat(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a guarded coding agent. Return compact valid JSON only. "
+                        "Every change content field must contain literal executable source code."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"The previous response was rejected: {error}. Regenerate the complete proposal from the "
+                        "original task. Do not abbreviate, summarize, use ellipses, or refer to omitted code.\n\n"
+                        f"Original task:\n{original_prompt}\n\n"
+                        f"Rejected response summary:\n{rejected_response[:5000]}"
+                    ),
+                },
+            ],
+            temperature=0.0,
+            max_tokens=max_tokens,
+            json_mode=True,
+            stream=True,
         )
 
     def _normalize_code_edit_proposal(self, proposal: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
@@ -2080,6 +2141,33 @@ def normalize_rule_operator_hypotheses(value: Any) -> list[dict[str, Any]]:
         if len(hypotheses) >= 6:
             break
     return hypotheses
+
+
+def code_edit_placeholder_reason(proposal: dict[str, Any]) -> str | None:
+    """Return an audit reason when a model substituted prose for source code."""
+
+    placeholders = {
+        "...",
+        "...full file...",
+        "full file",
+        "full file content",
+        "same as above",
+        "omitted",
+        "code omitted",
+    }
+    for index, change in enumerate(proposal.get("changes") or []):
+        if not isinstance(change, dict):
+            continue
+        action = str(change.get("action") or "create_or_replace").strip()
+        if action not in {"create_or_replace", "replace_slot_block", "insert_before", "insert_after"}:
+            continue
+        content = change.get("content")
+        if not isinstance(content, str):
+            continue
+        normalized = " ".join(content.strip().lower().split())
+        if normalized in placeholders or normalized.startswith("...full file"):
+            return f"changes[{index}].content is a code placeholder: {content[:80]!r}"
+    return None
 
 
 def build_proposal_audit(proposal: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:

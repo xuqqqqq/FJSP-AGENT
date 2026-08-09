@@ -6,6 +6,7 @@ import difflib
 import hashlib
 import json
 import re
+import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass, replace
@@ -37,9 +38,6 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-
-from harness_agent.domains.io import load_solution, parse_standard_fjsp, validate_standard_schedule
-
 
 def main() -> int:
     runtime_dir = Path(__file__).resolve().parent
@@ -78,16 +76,34 @@ def main() -> int:
         for field in solution_contract.get("required_top_level_fields") or []:
             if field not in payload:
                 raise ValueError(f"solution is missing required field: {field}")
-        instance = parse_standard_fjsp(Path(config["instance_path"]))
-        schedule = load_solution(output_path)
-        errors, metrics = validate_standard_schedule(instance, schedule)
+        if config.get("problem_family") == "fjsp_distributed_transfer":
+            from harness_agent.domains.distributed_fjsp import (
+                load_distributed_solution,
+                parse_distributed_fjsp,
+                validate_distributed_schedule,
+            )
+
+            instance = parse_distributed_fjsp(Path(config["instance_path"]))
+            schedule = load_distributed_solution(output_path)
+            errors, metrics = validate_distributed_schedule(instance, schedule)
+        else:
+            from harness_agent.domains.io import load_solution, parse_standard_fjsp, validate_standard_schedule
+
+            instance = parse_standard_fjsp(Path(config["instance_path"]))
+            schedule = load_solution(output_path)
+            errors, metrics = validate_standard_schedule(instance, schedule)
         if errors:
             raise ValueError("; ".join(errors[:20]))
-        declared_makespan = float(payload["makespan"])
-        if declared_makespan != float(metrics["makespan"]):
-            raise ValueError(
-                f"declared makespan mismatch: declared={declared_makespan}, computed={metrics['makespan']}"
-            )
+        metric_names = ["makespan"]
+        if config.get("problem_family") == "fjsp_distributed_transfer":
+            metric_names.extend(["max_factory_workload", "total_energy_consumption"])
+        for metric_name in metric_names:
+            declared = float(payload[metric_name])
+            computed = float(metrics[metric_name])
+            if declared != computed:
+                raise ValueError(
+                    f"declared {metric_name} mismatch: declared={declared}, computed={computed}"
+                )
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         print(f"bounded worker smoke rejected candidate output: {exc}", file=sys.stderr)
         return 4
@@ -704,6 +720,7 @@ def stage_worker_runtime_controls(*, assignment_path: Path, worktree_path: Path)
         "instance_path": str(instances[0]["local_path"]),
         "output_path": ".algoforge_worker_runtime/smoke_solution.json",
         "time_limit_seconds": time_limit,
+        "problem_family": assignment.runtime_contract.get("problem_family"),
         "solution_contract": assignment.runtime_contract.get("solution_contract") or {},
     }
     (runtime_dir / "smoke_config.json").write_text(
@@ -729,7 +746,9 @@ def copy_read_only_core_dependencies(
     domain_pack = get_domain_pack(contract.problem_family)
     if domain_pack is None:
         return
-    for relative in domain_pack.agent_generated_baseline_preserve_paths:
+    relative_paths = list(domain_pack.agent_generated_baseline_preserve_paths)
+    relative_paths.extend(contract_evaluator_python_paths(contract.commands.evaluator))
+    for relative in dict.fromkeys(relative_paths):
         if not relative:
             continue
         source = project_root / relative
@@ -741,6 +760,23 @@ def copy_read_only_core_dependencies(
         else:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
+
+
+def contract_evaluator_python_paths(command: str) -> list[str]:
+    """Extract trusted project-relative Python entrypoints from the fixed evaluator command."""
+
+    result: list[str] = []
+    try:
+        tokens = shlex.split(command, posix=False)
+    except ValueError:
+        tokens = command.split()
+    for token in tokens:
+        normalized = token.strip("\"'").replace("\\", "/")
+        path = Path(normalized)
+        if path.suffix.lower() != ".py" or path.is_absolute() or ".." in path.parts:
+            continue
+        result.append(path.as_posix())
+    return result
 
 
 def stage_worker_input_files(*, contract: TaskContract, project_root: Path, worktree_path: Path) -> None:

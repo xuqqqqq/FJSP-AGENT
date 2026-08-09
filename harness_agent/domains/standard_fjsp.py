@@ -58,12 +58,20 @@ class StandardFjspContextProvider:
         )
         sdst_instances = [item for item in profiled if item.get("variant") == "fjsp_sdst"]
         min_lag_instances = [item for item in profiled if item.get("variant") == "fjsp_min_time_lag"]
+        release_instances = [item for item in profiled if item.get("variant") == "fjsp_release_time"]
+        availability_instances = [
+            item for item in profiled if item.get("variant") == "fjsp_machine_availability"
+        ]
+        priority_instances = [item for item in profiled if item.get("variant") == "fjsp_priority"]
         best_known_count = sum(1 for item in profiled if item.get("best_known_makespan") is not None)
         summary = {
             "instance_count": len(contract.instances),
             "profiled_count": len(profiled),
             "sdst_instance_count": len(sdst_instances),
             "min_time_lag_instance_count": len(min_lag_instances),
+            "release_time_instance_count": len(release_instances),
+            "machine_availability_instance_count": len(availability_instances),
+            "priority_instance_count": len(priority_instances),
             "shape_group_count": len(_instance_shape_groups(profiled)),
             "setup_time_kinds": sorted(
                 {str(item.get("setup_time_kind")) for item in profiled if item.get("setup_time_kind")}
@@ -98,6 +106,23 @@ class StandardFjspContextProvider:
             "max_min_time_lag": max(
                 (int(item.get("min_time_lag_max", 0) or 0) for item in profiled),
                 default=0,
+            ),
+            "max_job_release_time": max(
+                (int(item.get("max_job_release_time", 0) or 0) for item in release_instances), default=0
+            ),
+            "max_machine_available_time": max(
+                (int(item.get("max_machine_available_time", 0) or 0) for item in release_instances), default=0
+            ),
+            "max_unavailability_interval_count": max(
+                (int(item.get("unavailability_interval_count", 0) or 0) for item in availability_instances),
+                default=0,
+            ),
+            "max_priority_job_count": max(
+                (int(item.get("priority_job_count", 0) or 0) for item in priority_instances),
+                default=0,
+            ),
+            "avg_priority_job_ratio": _rounded_average(
+                float(item.get("priority_job_ratio", 0.0) or 0.0) for item in priority_instances
             ),
             "avg_min_time_lag_density": _rounded_average(
                 float(item.get("min_time_lag_density", 0.0) or 0.0) for item in min_lag_instances
@@ -139,11 +164,24 @@ class StandardFjspContextProvider:
             or any(kind not in {"", "none", "null"} for kind in setup_kinds)
         )
         diagnostics_show_min_lag = int(summary.get("min_time_lag_instance_count") or 0) > 0
+        diagnostics_show_release = int(summary.get("release_time_instance_count") or 0) > 0
+        diagnostics_show_availability = int(summary.get("machine_availability_instance_count") or 0) > 0
+        diagnostics_show_priority = int(summary.get("priority_instance_count") or 0) > 0
         features: list[str] = []
         if diagnostics_show_sdst:
             features.extend(["fjsp_sdst", "sequence_dependent_setup", "setup_time"])
         if diagnostics_show_min_lag:
             features.extend(["fjsp_min_time_lag", "minimum_time_lag", "time_lag"])
+        if diagnostics_show_release:
+            features.extend(["fjsp_release_time", "release_time", "machine_initial_availability"])
+        if diagnostics_show_availability:
+            features.extend(
+                ["fjsp_machine_availability", "machine_availability", "machine_calendar", "maintenance"]
+            )
+        if diagnostics_show_priority:
+            features.extend(
+                ["fjsp_priority", "job_priority", "priority_completion_time", "priority_aware_search"]
+            )
         if features:
             return features
         if diagnostics_have_shape:
@@ -160,6 +198,16 @@ class StandardFjspContextProvider:
             features.extend(["fjsp_sdst", "sequence_dependent_setup", "setup_time"])
         if re.search(r"\bfjsp[-_]?min(?:imum)?[-_\s]?time[-_\s]?lag\b|\bmin(?:imum)?[-_\s]?time[-_\s]?lag\b|最小时间(?:间隔|滞后)", text):
             features.extend(["fjsp_min_time_lag", "minimum_time_lag", "time_lag"])
+        if re.search(r"\brelease[-_\s]?time\b|工件释放时间|机器初始可用", text):
+            features.extend(["fjsp_release_time", "release_time", "machine_initial_availability"])
+        if re.search(r"\bmachine[-_\s]?(?:availability|calendar)\b|maintenance|维修时段", text):
+            features.extend(
+                ["fjsp_machine_availability", "machine_availability", "machine_calendar", "maintenance"]
+            )
+        if re.search(r"\bfjsp[-_\s]?(?:jp|priority)\b|job[-_\s]?priority|优先(?:级)?工件", text):
+            features.extend(
+                ["fjsp_priority", "job_priority", "priority_completion_time", "priority_aware_search"]
+            )
         if features:
             return list(dict.fromkeys(features))
         return []
@@ -170,6 +218,9 @@ class StandardFjspContextProvider:
         return {
             "format": "standard_fjsp_schedule_v1",
             "required_top_level_fields": ["format", "makespan", "schedule"],
+            "variant_required_top_level_fields": {
+                "fjsp_priority": ["priority_completion_time"],
+            },
             "schedule_record_fields": ["job_id", "op_id", "machine_id", "start", "end"],
             "indexing": "job_id, op_id, and machine_id are 0-based integers",
             "legality_owner": "AlgoForge Core evaluator",
@@ -291,6 +342,14 @@ def _single_instance_diagnostics(
             "min_time_lag_density": _round_float(len(lag_values) / adjacent_pair_count)
             if adjacent_pair_count
             else 0.0,
+            "max_job_release_time": max(instance.job_release_times, default=0),
+            "max_machine_available_time": max(instance.machine_available_times, default=0),
+            "unavailability_interval_count": len(instance.unavailability_intervals),
+            "total_unavailable_duration": sum(
+                interval.end - interval.start for interval in instance.unavailability_intervals
+            ),
+            "priority_job_count": len(instance.priority_job_ids),
+            "priority_job_ratio": _round_float(len(instance.priority_job_ids) / max(1, instance.job_count)),
             "best_known_makespan": best_known,
             "best_known_diagnostic_only": best_known is not None,
         }
@@ -477,6 +536,16 @@ def _instance_direction_hints(summary: dict[str, Any], profiled: list[dict[str, 
             "Measured min-lag structure: "
             f"density_avg={summary.get('avg_min_time_lag_density', 0.0)}, "
             f"max_lag={summary.get('max_min_time_lag', 0)}."
+        )
+    if int(summary.get("priority_instance_count", 0) or 0) > 0:
+        hints.append(
+            "Job priority is a soft lexicographic objective, not a precedence constraint: minimize makespan "
+            "first, then priority_completion_time without accepting a worse makespan."
+        )
+        hints.append(
+            "Measured priority structure: "
+            f"job_count_max={summary.get('max_priority_job_count', 0)}, "
+            f"ratio_avg={summary.get('avg_priority_job_ratio', 0.0)}."
         )
     hints.append(
         "Measured assignment structure: "

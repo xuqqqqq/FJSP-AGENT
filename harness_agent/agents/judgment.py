@@ -92,6 +92,7 @@ def judge_worker_result(
         "skipped",
         "failed",
         "failed_runtime",
+        "context_limit",
         "authorization_required",
     }
     if worker_result.status in unusable_worker_statuses:
@@ -190,12 +191,23 @@ def judge_worker_result(
         )
 
     hardcoded_solver_risks: list[str] = []
+    machine_overlap_validation_risks: list[str] = []
     if _contract_agent_generated_context(context):
         sources = _agent_generated_solver_sources(worktree_path, worker_result.changed_files)
-        hardcoded_solver_risks = _detect_hardcoded_agent_generated_parser_risks("\n".join(sources.values()))
+        combined_source = "\n".join(sources.values())
+        hardcoded_solver_risks = _detect_hardcoded_agent_generated_parser_risks(combined_source)
+        machine_overlap_validation_risks = _detect_job_order_machine_overlap_validation_risks(
+            combined_source
+        )
     if hardcoded_solver_risks:
         issues.append("agent_generated_solver_hardcodes_instance_data")
         suggestions.append("Derive all jobs, operations, candidates, and durations from the active input file.")
+    if machine_overlap_validation_risks:
+        issues.append("agent_generated_solver_machine_overlap_validation_order_dependent")
+        suggestions.append(
+            "Validate machine non-overlap on per-machine records sorted by start/end time; "
+            "do not update a machine-last-end clock while traversing jobs and operations."
+        )
 
     checks = {
         "worker_status": worker_result.status,
@@ -210,6 +222,7 @@ def judge_worker_result(
         "parser_rewrite_files": parser_rewrite_files,
         "agent_generated_runtime_import_risks": agent_generated_import_risks,
         "hardcoded_solver_risks": hardcoded_solver_risks,
+        "machine_overlap_validation_risks": machine_overlap_validation_risks,
     }
     # issues 仅包含确定性安全/执行问题；算法语义不在 JA 中推断。
     judgment = AgenticJudgment(
@@ -250,6 +263,50 @@ def _blocking_agent_generated_quality_risks(risks: list[str]) -> list[str]:
 
     hard_fragments = ("hardcode",)
     return [risk for risk in risks if any(fragment in risk for fragment in hard_fragments)]
+
+
+def _detect_job_order_machine_overlap_validation_risks(text: str) -> list[str]:
+    """Reject validators that confuse job iteration order with machine time order."""
+
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return []
+
+    risks: list[str] = []
+    for function in (
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and re.search(r"(?:validate|check|assert).*(?:schedule|solution|feasible|valid)", node.name, re.I)
+    ):
+        for loop in (node for node in ast.walk(function) if isinstance(node, (ast.For, ast.AsyncFor))):
+            iterator_text = ast.unparse(loop.iter).lower()
+            if "jobs" not in iterator_text:
+                continue
+            loop_names = {
+                child.id.lower()
+                for child in ast.walk(loop)
+                if isinstance(child, ast.Name)
+            }
+            machine_clock_names = sorted(
+                name
+                for name in loop_names
+                if "machine" in name and "end" in name and ("last" in name or "prev" in name)
+            )
+            if not machine_clock_names:
+                continue
+            loop_text = ast.unparse(loop).lower()
+            if "start" not in loop_text or not any(
+                token in loop_text for token in ("overlap", "< machine", "machine_last_end", "machine_prev_end")
+            ):
+                continue
+            risks.append(
+                f"{function.name}: machine overlap self-check uses {', '.join(machine_clock_names)} "
+                "inside a jobs traversal; schedule records are not guaranteed to be machine-chronological"
+            )
+            break
+    return risks
 
 
 # ---------------------------------------------------------------------------

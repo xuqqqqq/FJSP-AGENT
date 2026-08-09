@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
@@ -93,6 +94,7 @@ class DeepSeekClient:
         temperature: float = 0.2,
         max_tokens: int = 2048,
         json_mode: bool = False,
+        stream: bool = False,
     ) -> str:
         """只需要正文时使用的便捷接口。"""
 
@@ -101,6 +103,7 @@ class DeepSeekClient:
             temperature=temperature,
             max_tokens=max_tokens,
             json_mode=json_mode,
+            stream=stream,
         ).content
 
     def chat_with_usage(
@@ -110,8 +113,9 @@ class DeepSeekClient:
         temperature: float = 0.2,
         max_tokens: int = 2048,
         json_mode: bool = False,
+        stream: bool = False,
     ) -> DeepSeekChatResult:
-        """发送一次非流式请求，并保留 token/cache 使用信息。
+        """发送一次兼容请求，并保留正文与 token/cache 使用信息。
 
         `json_mode` 只要求 provider 返回 JSON 对象；调用方仍需做 schema
         归一化和证据校验，不能直接信任模型输出。
@@ -123,8 +127,10 @@ class DeepSeekClient:
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
-            "stream": False,
+            "stream": stream,
         }
+        if stream:
+            payload["stream_options"] = {"include_usage": True}
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
 
@@ -139,14 +145,34 @@ class DeepSeekClient:
             },
             method="POST",
         )
-        # HTTP 错误保留响应体摘要，方便 Web/同轮修补区分余额、鉴权和格式问题。
-        try:
-            raw = urlopen_read_with_deadline(request, timeout_seconds=self.config.timeout_seconds)
-        except urllib.error.HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"DeepSeek HTTP {exc.code}: {body[:1000]}") from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f"DeepSeek request failed: {exc}") from exc
+        # Compatible gateways can transiently lose an upstream auth slot or end
+        # a stream early. Retry only transport/server failures; deterministic
+        # client and schema errors still fail immediately.
+        raw = ""
+        max_attempts = 6
+        for attempt in range(max_attempts):
+            try:
+                if stream:
+                    return urlopen_stream_chat_with_deadline(
+                        request,
+                        timeout_seconds=self.config.timeout_seconds,
+                    )
+                raw = urlopen_read_with_deadline(request, timeout_seconds=self.config.timeout_seconds)
+                break
+            except urllib.error.HTTPError as exc:
+                body = exc.read().decode("utf-8", errors="replace")
+                if exc.code not in {429, 500, 502, 503, 504} or attempt == max_attempts - 1:
+                    raise RuntimeError(f"DeepSeek HTTP {exc.code}: {body[:1000]}") from exc
+            except urllib.error.URLError as exc:
+                if attempt == max_attempts - 1:
+                    raise RuntimeError(f"DeepSeek request failed: {exc}") from exc
+            except RuntimeError as exc:
+                message = str(exc).lower()
+                if attempt == max_attempts - 1 or not any(
+                    marker in message for marker in ("unexpected eof", "service unavailable", "temporarily unavailable")
+                ):
+                    raise
+            time.sleep(min(8, 1 << attempt))
 
         # provider 有时只返回 reasoning_content，因此正文读取提供一次兼容回退。
         data = json.loads(raw)
@@ -254,6 +280,65 @@ def urlopen_read_with_deadline(request: urllib.request.Request, *, timeout_secon
     def read_response() -> str:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return response.read().decode("utf-8")
+
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(read_response)
+    try:
+        return future.result(timeout=timeout)
+    except FutureTimeoutError as exc:
+        future.cancel()
+        raise RuntimeError(f"DeepSeek request timed out after {timeout} seconds") from exc
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
+def urlopen_stream_chat_with_deadline(
+    request: urllib.request.Request,
+    *,
+    timeout_seconds: int,
+) -> DeepSeekChatResult:
+    """Read OpenAI-compatible SSE so long generations keep gateway connections alive."""
+
+    timeout = resolve_timeout_seconds(str(timeout_seconds), default=120)
+
+    def read_response() -> DeepSeekChatResult:
+        content_parts: list[str] = []
+        reasoning_parts: list[str] = []
+        usage: dict[str, int] = {}
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            for raw_line in response:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line or line.startswith(":") or not line.startswith("data:"):
+                    continue
+                payload = line[5:].strip()
+                if payload == "[DONE]":
+                    break
+                event = json.loads(payload)
+                if isinstance(event.get("error"), dict):
+                    raise RuntimeError(
+                        "DeepSeek stream error: "
+                        + json.dumps(event["error"], ensure_ascii=False)[:1000]
+                    )
+                usage_raw = event.get("usage") if isinstance(event.get("usage"), dict) else {}
+                for key, value in usage_raw.items():
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                        usage[str(key)] = int(value)
+                for choice in event.get("choices") or []:
+                    if not isinstance(choice, dict):
+                        continue
+                    delta = choice.get("delta") or choice.get("message") or {}
+                    if not isinstance(delta, dict):
+                        continue
+                    content = delta.get("content")
+                    if isinstance(content, str):
+                        content_parts.append(content)
+                    reasoning = delta.get("reasoning_content")
+                    if isinstance(reasoning, str):
+                        reasoning_parts.append(reasoning)
+        content = "".join(content_parts).strip() or "".join(reasoning_parts).strip()
+        if not content:
+            raise RuntimeError("DeepSeek streaming response has empty content")
+        return DeepSeekChatResult(content=content, usage=usage)
 
     executor = ThreadPoolExecutor(max_workers=1)
     future = executor.submit(read_response)

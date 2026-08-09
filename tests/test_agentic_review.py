@@ -107,6 +107,49 @@ class AgenticResultVerificationTests(unittest.TestCase):
         self.assertTrue(judgment.accepted)
         self.assertIn("worker_timeout_after_code_change", judgment.checks["proposal_audit_warnings"])
 
+    def test_rejects_machine_overlap_check_that_uses_job_iteration_order(self) -> None:
+        judgment = self._judge(
+            source=(
+                "def validate_schedule(model, schedule):\n"
+                "    records = {(r['job_id'], r['op_id']): r for r in schedule}\n"
+                "    machine_last_end = [0] * model['machine_count']\n"
+                "    for job_id, operations in enumerate(model['jobs']):\n"
+                "        for op_id, _candidates in enumerate(operations):\n"
+                "            rec = records[(job_id, op_id)]\n"
+                "            machine_id = rec['machine_id']\n"
+                "            if rec['start'] < machine_last_end[machine_id]:\n"
+                "                return False, 'machine overlap'\n"
+                "            machine_last_end[machine_id] = rec['end']\n"
+                "    return True, 'ok'\n"
+            )
+        )
+
+        self.assertFalse(judgment.accepted)
+        self.assertIn(
+            "agent_generated_solver_machine_overlap_validation_order_dependent",
+            judgment.issues,
+        )
+        self.assertTrue(judgment.checks["machine_overlap_validation_risks"])
+
+    def test_accepts_machine_overlap_check_sorted_per_machine(self) -> None:
+        judgment = self._judge(
+            source=(
+                "def validate_schedule(model, schedule):\n"
+                "    by_machine = {}\n"
+                "    for rec in schedule:\n"
+                "        by_machine.setdefault(rec['machine_id'], []).append(rec)\n"
+                "    for records in by_machine.values():\n"
+                "        records.sort(key=lambda rec: (rec['start'], rec['end'], rec['job_id'], rec['op_id']))\n"
+                "        for previous, current in zip(records, records[1:]):\n"
+                "            if current['start'] < previous['end']:\n"
+                "                return False, 'machine overlap'\n"
+                "    return True, 'ok'\n"
+            )
+        )
+
+        self.assertTrue(judgment.accepted)
+        self.assertEqual([], judgment.checks["machine_overlap_validation_risks"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -37,9 +37,11 @@ from harness_agent.orchestration.loop import DEFAULT_IN_ROUND_REPAIR_ATTEMPTS, l
 from harness_agent.context.knowledge import knowledge_query_catalog, method_family_catalog, method_package_catalog
 from harness_agent.core.cancellation import CancellationToken, TaskCancelled
 from harness_agent.core.runtime import solver_runtime_status
+from harness_agent.agents.main import DeepSeekMainAgent
 from harness_agent.agents.opencode_main import OpenCodeMainAgent
 from harness_agent.agents.semantic import DeepSeekAlgorithmSemanticReviewer
 from harness_agent.domains.io import parse_standard_fjsp
+from harness_agent.domains.distributed_fjsp import looks_like_distributed_fjsp, parse_distributed_fjsp
 from harness_agent.orchestration.standard import StandardWorkerLoopRequest, run_standard_worker_loop
 from harness_agent.workers.opencode_worker import (
     DEFAULT_OPENCODE_MODEL,
@@ -47,6 +49,7 @@ from harness_agent.workers.opencode_worker import (
     opencode_openai_key_available,
     opencode_openai_key_source,
 )
+from harness_agent.workers.deepseek_worker import DeepSeekWorker
 
 
 # 路径与显示上限集中在这里，避免 HTTP handler 和任务线程各自推导目录。
@@ -59,6 +62,7 @@ MAX_STARTER_EXPANDED_BYTES = 64 * 1024 * 1024
 MAX_STARTER_FILE_BYTES = 16 * 1024 * 1024
 MAX_STARTER_ARCHIVE_ENTRIES = 2_000
 MAX_ARTIFACT_CHARS = 240_000
+STRUCTURED_API_AGENT_MODELS = frozenset({"qiming/glm-5.2"})
 MAX_RESOURCE_CHARS = 240_000
 FRONTEND_DOCUMENTS = {
     "/": "index.html",
@@ -407,10 +411,22 @@ def starter_project_instance_paths(project_root: Path) -> list[Path]:
 
 
 def is_supported_starter_instance(path: Path) -> bool:
-    """Recognize ordinary FJSP files and confirmed compound min-lag names."""
+    """Recognize ordinary FJSP files and confirmed text-encoded variants."""
 
     lowered = path.name.casefold()
-    return path.suffix.lower() in STARTER_INSTANCE_SUFFIXES or ".mitfjsp." in lowered or lowered.endswith(".mitfjsp")
+    compound_variant = any(
+        marker in lowered
+        for marker in (".mitfjsp.", ".rtfjsp.", ".nfafjsp", ".nfa.", ".priority.")
+    )
+    named_text_variant = path.suffix.lower() == ".txt" and lowered.startswith(
+        ("ffcr", "nfa", "fjsp_nfa", "dfm")
+    )
+    return (
+        path.suffix.lower() in STARTER_INSTANCE_SUFFIXES
+        or compound_variant
+        or lowered.endswith((".mitfjsp", ".rtfjsp", ".nfafjsp"))
+        or named_text_variant
+    )
 
 
 def extract_starter_project(archive: dict[str, Any], *, destination: Path) -> dict[str, Any]:
@@ -1181,6 +1197,18 @@ def normalize_opencode_variant(value: Any) -> str:
     return normalized if normalized in {"low", "medium", "high"} else ""
 
 
+def agent_backend_for_model(model: Any) -> str:
+    normalized = str(model or "").strip().lower()
+    return "structured_api" if normalized in STRUCTURED_API_AGENT_MODELS else "opencode"
+
+
+def api_model_id(model: Any) -> str:
+    """Strip the OpenCode provider prefix for direct compatible-API calls."""
+
+    normalized = str(model or "").strip()
+    return normalized.rsplit("/", 1)[-1] if normalized else ""
+
+
 def normalize_main_planning_mode(value: Any) -> str:
     normalized = str(value or "").strip().lower()
     return normalized if normalized in {"fast", "research"} else "fast"
@@ -1921,7 +1949,9 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         )
         if starter_use_project_instances:
             if not available_instances:
-                raise ValueError("starter project contains no supported .fjs/.fjsp/.mitfjsp instance files")
+                raise ValueError(
+                    "starter project contains no supported FJSP/SDST/min-lag/release/NFA/DFJSPT instance files"
+                )
             provided_instance_root = input_dir / "provided_instances"
             profiles: list[dict[str, Any]] = []
             for source in available_instances:
@@ -1959,13 +1989,18 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         or os.environ.get("OPENCODE_WORKER_MODEL")
         or legacy_opencode_model
     )
+    main_agent_backend = agent_backend_for_model(main_agent_model)
+    coding_backend = agent_backend_for_model(coding_worker_model)
     config = {
         "max_rounds": coerce_int(payload.get("max_rounds"), 2, minimum=1, maximum=20),
         "seeds": parse_seeds(payload.get("seeds", "0")),
         "timeout_seconds": coerce_int(payload.get("timeout_seconds"), 60, minimum=5, maximum=3600),
         "max_workers": coerce_int(payload.get("max_workers"), 1, minimum=1, maximum=8),
-        "deepseek_model": str(payload.get("deepseek_model") or "deepseek-v4-pro"),
-        "coding_backend": "opencode",
+        "deepseek_model": str(
+            payload.get("deepseek_model") or api_model_id(main_agent_model)
+        ),
+        "main_agent_backend": main_agent_backend,
+        "coding_backend": coding_backend,
         "opencode_executable": str(payload.get("opencode_executable") or os.environ.get("OPENCODE_EXECUTABLE") or "opencode"),
         # Keep the legacy field as the Worker model for old reports and API clients.
         "opencode_model": coding_worker_model,
@@ -2150,6 +2185,39 @@ def inspect_instance_profile(instance_path: Path) -> dict[str, Any]:
         "format": "unknown",
         "valid": False,
     }
+    if looks_like_distributed_fjsp(instance_path):
+        try:
+            parsed_distributed = parse_distributed_fjsp(instance_path)
+        except Exception as exc:  # noqa: BLE001 - keep web job creation inspectable.
+            profile["error"] = str(exc)
+            return profile
+        profile.update(
+            {
+                "format": "fjsp_distributed_transfer",
+                "problem_family": "fjsp_distributed_transfer",
+                "valid": True,
+                "variant": "fjsp_distributed_transfer",
+                "job_count": parsed_distributed.job_count,
+                "factory_count": parsed_distributed.factory_count,
+                "machines_per_factory": parsed_distributed.machines_per_factory,
+                "machine_count": parsed_distributed.machine_count,
+                "operation_count": parsed_distributed.operation_count,
+                "max_candidate_count": parsed_distributed.max_candidate_count,
+                "same_factory_transfer_time": parsed_distributed.same_factory_transfer_time,
+                "cross_factory_transfer_time": parsed_distributed.cross_factory_transfer_time,
+                "transfer_unit_energy": parsed_distributed.transfer_unit_energy,
+                "fixed_evaluator": "examples/fjsp_distributed_transfer_evaluator.py",
+                "objective_names": ["makespan", "max_factory_workload", "total_energy_consumption"],
+                "scale": (
+                    parsed_distributed.job_count
+                    * parsed_distributed.machine_count
+                    * parsed_distributed.operation_count
+                ),
+            }
+        )
+        profile["variant_features"] = profile_variant_features(profile)
+        profile["instance_portrait"] = instance_portrait(profile)
+        return profile
     try:
         parsed = parse_standard_fjsp(instance_path)
     except Exception as exc:  # noqa: BLE001 - keep web job creation inspectable.
@@ -2158,6 +2226,7 @@ def inspect_instance_profile(instance_path: Path) -> dict[str, Any]:
     profile.update(
         {
             "format": "standard_fjsp",
+            "problem_family": "FJSP",
             "valid": True,
             "variant": parsed.variant,
             "job_count": parsed.job_count,
@@ -2169,6 +2238,27 @@ def inspect_instance_profile(instance_path: Path) -> dict[str, Any]:
             "has_minimum_time_lags": parsed.has_minimum_time_lags,
             "min_time_lag_constraint_count": len(parsed.minimum_time_lags),
             "min_time_lag_max": max((constraint.lag for constraint in parsed.minimum_time_lags), default=0),
+            "has_release_times": parsed.has_release_times,
+            "max_job_release_time": max(parsed.job_release_times, default=0),
+            "max_machine_available_time": max(parsed.machine_available_times, default=0),
+            "has_machine_availability": parsed.has_machine_availability,
+            "unavailability_interval_count": len(parsed.unavailability_intervals),
+            "total_unavailable_duration": sum(
+                interval.end - interval.start for interval in parsed.unavailability_intervals
+            ),
+            "has_job_priorities": parsed.has_job_priorities,
+            "priority_job_count": len(parsed.priority_job_ids),
+            "priority_job_ratio": len(parsed.priority_job_ids) / max(1, parsed.job_count),
+            "fixed_evaluator": {
+                "fjsp_release_time": "examples/fjsp_release_time_evaluator.py",
+                "fjsp_machine_availability": "examples/fjsp_machine_availability_evaluator.py",
+                "fjsp_priority": "examples/fjsp_priority_evaluator.py",
+            }.get(parsed.variant, "examples/standard_fjsp_evaluator.py"),
+            "objective_names": (
+                ["makespan", "priority_completion_time"]
+                if parsed.has_job_priorities
+                else ["makespan"]
+            ),
             "scale": parsed.job_count * parsed.machine_count * parsed.operation_count,
         }
     )
@@ -2189,7 +2279,10 @@ def latest_compatible_experience_memory(job: dict[str, Any]) -> Path | None:
         return None
     expected_package_features = method_package_features(profile)
     expected_package_id = str(
-        method_package_catalog(problem_family="FJSP", active_features=expected_package_features).get(
+        method_package_catalog(
+            problem_family=str(profile.get("problem_family") or "FJSP"),
+            active_features=expected_package_features,
+        ).get(
             "recommended_package_id"
         )
         or ""
@@ -2254,6 +2347,20 @@ def method_package_features(profile: dict[str, Any]) -> list[str]:
         return ["fjsp_sdst", "sequence_dependent_setup", "setup_time"]
     if bool(profile.get("has_minimum_time_lags")):
         return ["fjsp_min_time_lag", "minimum_time_lag", "time_lag"]
+    if bool(profile.get("has_release_times")):
+        return ["fjsp_release_time", "release_time", "machine_initial_availability"]
+    if bool(profile.get("has_machine_availability")):
+        return ["fjsp_machine_availability", "machine_availability", "machine_calendar", "maintenance"]
+    if bool(profile.get("has_job_priorities")):
+        return ["fjsp_priority", "job_priority", "priority_completion_time", "priority_aware_search"]
+    if str(profile.get("variant") or "") == "fjsp_distributed_transfer":
+        return [
+            "fjsp_distributed_transfer",
+            "distributed_transfer",
+            "distributed_factories",
+            "transfer_time",
+            "energy_objective",
+        ]
     return []
 
 
@@ -2274,6 +2381,20 @@ def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
         "time_lag",
         "mitfjsp",
     }
+    release_aliases = {"fjsp_release_time", "release_time", "machine_initial_availability"}
+    availability_aliases = {"fjsp_machine_availability", "machine_availability", "machine_calendar", "maintenance"}
+    priority_aliases = {
+        "fjsp_priority",
+        "job_priority",
+        "priority_completion_time",
+        "priority_aware_search",
+    }
+    distributed_aliases = {
+        "fjsp_distributed_transfer",
+        "distributed_factories",
+        "transfer_time",
+        "energy_objective",
+    }
     for item in profile.get("variant_features") or []:
         text = str(item or "").strip().lower()
         if not text:
@@ -2282,12 +2403,28 @@ def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
             canonical.add("sequence_dependent_setup")
         elif text in minimum_lag_aliases:
             canonical.add("minimum_time_lag")
+        elif text in release_aliases:
+            canonical.add("release_time")
+        elif text in availability_aliases:
+            canonical.add("machine_availability")
+        elif text in priority_aliases:
+            canonical.add("job_priority")
+        elif text in distributed_aliases:
+            canonical.add("distributed_transfer")
         else:
             canonical.add(text)
     if bool(profile.get("has_sequence_dependent_setup")):
         canonical.add("sequence_dependent_setup")
     if bool(profile.get("has_minimum_time_lags")):
         canonical.add("minimum_time_lag")
+    if bool(profile.get("has_release_times")):
+        canonical.add("release_time")
+    if bool(profile.get("has_machine_availability")):
+        canonical.add("machine_availability")
+    if bool(profile.get("has_job_priorities")):
+        canonical.add("job_priority")
+    if str(profile.get("variant") or "") == "fjsp_distributed_transfer":
+        canonical.add("distributed_transfer")
     return canonical
 
 
@@ -2431,26 +2568,30 @@ def run_job(job_id: str) -> None:
             ),
         )
         write_job_status(job)
-        # OpenCode 是代码编辑运行时，model/provider 通过其配置注入；它和
-        # DeepSeek 不是两个并列修改代码的 Agent。
-        coding_worker = OpenCodeWorker(
-            executable=config["opencode_executable"],
-            model=config["coding_worker_model"] or None,
-            variant=config["coding_worker_variant"] or None,
-            timeout_seconds=config["worker_max_runtime_seconds"],
-            cancellation=cancellation,
-        )
+        if config.get("coding_backend") == "structured_api":
+            coding_worker = DeepSeekWorker(model=api_model_id(config["coding_worker_model"]))
+        else:
+            coding_worker = OpenCodeWorker(
+                executable=config["opencode_executable"],
+                model=config["coding_worker_model"] or None,
+                variant=config["coding_worker_variant"] or None,
+                timeout_seconds=config["worker_max_runtime_seconds"],
+                cancellation=cancellation,
+            )
         if not coding_worker.capabilities().supports_code_generation:
-            raise RuntimeError("OpenCode 不可用，请先安装或构建 OpenCode worker。")
-        direction_planner = OpenCodeMainAgent(
-            executable=config["opencode_executable"],
-            model=config["main_agent_model"] or None,
-            variant=config["main_agent_variant"] or None,
-            planning_mode=config["main_planning_mode"],
-            project_root=PROJECT_ROOT,
-            max_subagents=config["main_max_subagents"],
-            cancellation=cancellation,
-        )
+            raise RuntimeError("Coding Agent 不可用，请检查模型凭据与运行时配置。")
+        if config.get("main_agent_backend") == "structured_api":
+            direction_planner = DeepSeekMainAgent(model=api_model_id(config["main_agent_model"]))
+        else:
+            direction_planner = OpenCodeMainAgent(
+                executable=config["opencode_executable"],
+                model=config["main_agent_model"] or None,
+                variant=config["main_agent_variant"] or None,
+                planning_mode=config["main_planning_mode"],
+                project_root=PROJECT_ROOT,
+                max_subagents=config["main_max_subagents"],
+                cancellation=cancellation,
+            )
         if run_iterations > 1 or resume_loop_result is not None:
             round_gate = WebRoundInterventionGate(job, cancellation=cancellation)
             with _LOCK:

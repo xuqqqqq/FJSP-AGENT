@@ -18,8 +18,10 @@ from harness_agent.orchestration.loop import (
     agent_generated_baseline_is_accepted,
     agent_generated_baseline_memory_payload,
     candidate_incumbent_payload,
+    candidate_worker_budgets,
     competitive_direction_plans,
     compact_round_direction_plan,
+    collect_current_round_repair_targets,
     continue_current_direction_plan,
     continuing_direction_worker_lane,
     continuing_direction_worker_session,
@@ -37,6 +39,7 @@ from harness_agent.orchestration.loop import (
     plan_direction_with_fallback,
     run_agent_generated_baseline,
     run_competing_worker_cycles,
+    resolve_coding_worker_concurrency,
     run_algorithm_semantic_review,
     run_worker_cycle_with_in_round_repairs,
     run_worker_loop,
@@ -47,7 +50,7 @@ from harness_agent.orchestration.loop import (
     worker_proposal_diagnostics,
     worker_session_telemetry,
 )
-from harness_agent.core.models import TaskContract
+from harness_agent.core.models import ObjectiveSpec, TaskContract
 from harness_agent.orchestration.standard import (
     worker_loop_agent_quality_summary,
     worker_loop_semantic_review_summary,
@@ -1299,6 +1302,51 @@ class SafeFeasibilityProtectedEditWorker:
 
 
 class WorkerLoopTests(unittest.TestCase):
+    def test_exact_candidate_reserves_verification_steps_and_one_repair_checkpoint(self) -> None:
+        worker = MagicMock()
+        worker.capabilities.return_value = WorkerCapabilities(
+            name="exact-test",
+            supports_code_generation=True,
+            supports_repair=True,
+            supports_structured_output=True,
+            supports_session_reuse=True,
+        )
+
+        exact = candidate_worker_budgets(
+            {"method_family": "exact_hybrid"},
+            worker=worker,
+            max_steps=4,
+            repair_attempts=0,
+        )
+        heuristic = candidate_worker_budgets(
+            {"method_family": "constructive_search"},
+            worker=worker,
+            max_steps=4,
+            repair_attempts=0,
+        )
+
+        self.assertEqual((8, 2), exact)
+        self.assertEqual((4, 0), heuristic)
+
+    def test_exact_candidate_does_not_force_repair_on_worker_without_repair_support(self) -> None:
+        worker = MagicMock()
+        worker.capabilities.return_value = WorkerCapabilities(
+            name="exact-no-repair",
+            supports_code_generation=True,
+            supports_repair=False,
+            supports_structured_output=True,
+        )
+
+        self.assertEqual(
+            (8, 0),
+            candidate_worker_budgets(
+                {"method_family": "exact_hybrid"},
+                worker=worker,
+                max_steps=2,
+                repair_attempts=0,
+            ),
+        )
+
     def test_agent_generated_baseline_still_asks_main_once_in_fast_flow(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -1817,6 +1865,12 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertEqual("code_generation", judgment.stage)
         self.assertTrue(judgment.checks["result_revalidation"]["passed"])
 
+    def test_coding_worker_concurrency_limit_preserves_candidate_count(self) -> None:
+        with patch.dict("os.environ", {"ALGFORGE_CODING_WORKER_CONCURRENCY": "1"}):
+            concurrency = resolve_coding_worker_concurrency(requested=3, candidate_count=3)
+
+        self.assertEqual(1, concurrency)
+
     def test_competing_workers_execute_candidates_concurrently(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -2097,6 +2151,65 @@ class WorkerLoopTests(unittest.TestCase):
         compared = competitive_direction_plans(tournament, limit=2)[0]
         self.assertEqual("tabu", compared["method_family"])
         self.assertEqual("tabu-package", compared["method_package_id"])
+
+        exact_probe = dict(base)
+        exact_probe["worker_lane_policy"] = {
+            "mechanism_selection": "exact_probe_tournament",
+            "lane_count": 2,
+        }
+        compared = competitive_direction_plans(exact_probe, limit=2)[0]
+        self.assertEqual("tabu", compared["method_family"])
+        self.assertEqual("tabu-package", compared["method_package_id"])
+
+    def test_exact_probe_variant_overrides_primary_avoid_and_package_stage(self) -> None:
+        base = {
+            "direction_id": "downtime",
+            "experiment_stage": "probe",
+            "method_family": "coupled_local_search",
+            "avoid": ["Do not introduce CP-SAT."],
+            "candidate_variants": [
+                {
+                    "candidate_id": "exact",
+                    "method_family": "exact_hybrid",
+                    "method_package_id": "availability",
+                    "avoid": ["Do not edit evaluator semantics."],
+                    "implementation_order": ["exact_active_variant_cp_sat_probe"],
+                    "deliverables": [
+                        {
+                            "id": "exact_active_variant_cp_sat_probe",
+                            "behavior": "Run CP-SAT.",
+                            "evidence_required": "cp_sat_called=true",
+                        }
+                    ],
+                    "implementation_bundle": {
+                        "required_components": [
+                            {"component_id": "maintenance_tail_parser"},
+                            {"component_id": "exact_calendar_capacity"},
+                        ],
+                        "competition_tracks": [
+                            {
+                                "track_id": "direct_evidence",
+                                "stages": [
+                                    {
+                                        "stage_id": "parser",
+                                        "component_ids": ["maintenance_tail_parser"],
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                }
+            ],
+            "worker_lane_policy": {"mechanism_selection": "exact_probe_tournament"},
+        }
+
+        exact = competitive_direction_plans(base, limit=2)[0]
+
+        self.assertEqual("exact_hybrid", exact["method_family"])
+        self.assertEqual(["Do not edit evaluator semantics."], exact["avoid"])
+        self.assertEqual(["exact_active_variant_cp_sat_probe"], exact["implementation_order"])
+        self.assertEqual("exact_active_variant_cp_sat_probe", exact["deliverables"][0]["id"])
+        self.assertNotIn("worker_lane", exact)
 
     def test_research_tournament_compiles_each_family_to_one_package_stage(self) -> None:
         packages = {
@@ -3195,7 +3308,102 @@ class WorkerLoopTests(unittest.TestCase):
             best_experiment_id="called",
             best_metrics={
                 "solver_evidence": {
-                    "diagnostics": {"cp_sat": {"cp_sat_called": True, "solve_status": "OPTIMAL"}}
+                    "diagnostics": {
+                        "cp_sat": {
+                            "cp_sat_called": True,
+                            "solve_status": "OPTIMAL",
+                            "model_variables": 20,
+                            "model_constraints": 12,
+                            "model_intervals": 8,
+                        }
+                    }
+                }
+            },
+        )
+        runtime_error = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="runtime-error",
+            best_metrics={
+                "solver_evidence": {
+                    "diagnostics": {
+                        "cp_sat": {
+                            "cp_sat_called": True,
+                            "status": "runtime_error",
+                            "model_variables": 0,
+                            "model_constraints": 0,
+                            "model_intervals": 0,
+                            "probe_error": "missing API",
+                        }
+                    }
+                }
+            },
+        )
+        nested_model_size = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="nested-model-size",
+            best_metrics={
+                "solver_evidence": {
+                    "diagnostics": {
+                        "exact_probe": {
+                            "cp_sat_called": True,
+                            "status": "FEASIBLE",
+                            "model_size": {
+                                "variables": 1433,
+                                "constraints": 3744,
+                                "intervals": 813,
+                            },
+                            "runtime_error": None,
+                        }
+                    }
+                }
+            },
+        )
+        nested_runtime_error = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="nested-runtime-error",
+            best_metrics={
+                "solver_evidence": {
+                    "diagnostics": {
+                        "exact_probe": {
+                            "cp_sat_called": True,
+                            "status": "FEASIBLE",
+                            "model_size": {
+                                "variables": 1433,
+                                "constraints": 3744,
+                                "intervals": 813,
+                            },
+                            "runtime_error": "schedule extraction failed",
+                        }
+                    }
+                }
+            },
+        )
+        observed_exact_probe = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="observed-exact-probe",
+            best_metrics={
+                "solver_evidence": {
+                    "diagnostics": {
+                        "exact_probe": {
+                            "cp_sat_called": True,
+                            "solver_status": "FEASIBLE",
+                            "num_variables": 2149,
+                            "num_constraints": 3029,
+                            "num_intervals": 813,
+                            "num_search_workers": 8,
+                            "objective_value": 1095.0,
+                            "best_objective_bound": 806.0,
+                            "runtime_error": None,
+                        }
+                    }
                 }
             },
         )
@@ -3206,9 +3414,78 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertTrue(
             evaluate_exact_solver_execution({"method_family": "exact_hybrid"}, called)["passed"]
         )
+        nested_result = evaluate_exact_solver_execution(
+            {"method_family": "exact_hybrid"}, nested_model_size
+        )
+        self.assertTrue(nested_result["passed"])
+        self.assertIn(
+            {"variables": 1433, "constraints": 3744, "intervals": 813},
+            nested_result["observed_model_sizes"],
+        )
+        nested_error_result = evaluate_exact_solver_execution(
+            {"method_family": "exact_hybrid"}, nested_runtime_error
+        )
+        self.assertFalse(nested_error_result["passed"])
+        self.assertEqual(
+            "exact_hybrid_runtime_error_or_solve_not_called",
+            nested_error_result["reason"],
+        )
+        observed_result = evaluate_exact_solver_execution(
+            {"method_family": "exact_hybrid"}, observed_exact_probe
+        )
+        self.assertTrue(observed_result["passed"])
+        self.assertIn("feasible", observed_result["observed_statuses"])
+        self.assertIn(
+            {"variables": 2149, "constraints": 3029, "intervals": 813},
+            observed_result["observed_model_sizes"],
+        )
+        rejected = evaluate_exact_solver_execution(
+            {"method_family": "exact_hybrid"}, runtime_error
+        )
+        self.assertFalse(rejected["passed"])
+        self.assertEqual("exact_hybrid_solver_status_not_executed", rejected["reason"])
         self.assertIsNone(
             evaluate_exact_solver_execution({"method_family": "coupled_local_search"}, missing)["passed"]
         )
+
+    def test_illegal_exact_candidate_forwards_self_check_evidence_to_repair(self) -> None:
+        summary = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="illegal-exact-candidate",
+            best_metrics={
+                "solver_evidence": {
+                    "diagnostics": {
+                        "solver_evidence": {
+                            "cp_sat_called": True,
+                            "status": "candidate_illegal",
+                            "model_variables": 531,
+                            "model_constraints": 761,
+                            "model_intervals": 110,
+                            "self_check_errors": 182,
+                            "runtime_error": "selected operation has inconsistent extracted timing",
+                        }
+                    }
+                }
+            },
+        )
+
+        execution = evaluate_exact_solver_execution(
+            {"method_family": "exact_hybrid"},
+            summary,
+        )
+        targets = collect_current_round_repair_targets(
+            [{"exact_execution": execution, "agentic_judgment": {"accepted": True}}]
+        )
+
+        self.assertFalse(execution["passed"])
+        self.assertEqual("exact_hybrid_candidate_illegal", execution["reason"])
+        self.assertEqual([182], execution["self_check_error_counts"])
+        exact_target = targets["exact_execution_failure"]
+        self.assertEqual([182], exact_target["self_check_error_counts"])
+        self.assertIn("inconsistent extracted timing", exact_target["runtime_errors"][0])
+        self.assertIn("semantic keywords", exact_target["required_evidence"])
 
     def test_exact_fallback_cannot_beat_effective_heuristic_lane(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3421,6 +3698,32 @@ class WorkerLoopTests(unittest.TestCase):
                 semantic_review={"status": "pass", "accepted": True},
                 mechanism_activation={"status": "failed", "passed": False},
                 activation_required=True,
+            )
+        )
+
+    def test_failed_exact_execution_cannot_become_local_trial_parent(self) -> None:
+        cycle = SimpleNamespace(
+            summary=RunSummary(
+                total=1,
+                valid=1,
+                failed=0,
+                best_experiment_id="fallback",
+                best_metrics={"makespan": 1378.0},
+            ),
+        )
+
+        self.assertFalse(
+            local_trial_candidate_eligible(
+                cycle,
+                candidate_key=(-1378.0,),
+                semantic_review={"status": "not_required", "accepted": True},
+                mechanism_activation={"status": "not_declared", "passed": None},
+                activation_required=False,
+                exact_execution={
+                    "required": True,
+                    "passed": False,
+                    "reason": "exact_hybrid_solver_status_not_executed",
+                },
             )
         )
 
@@ -3684,6 +3987,54 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertEqual(
             "Expand critical reassignment insertion positions.",
             applied_plan["title"],
+        )
+
+    def test_exact_lane_missing_execution_evidence_consumes_repair_attempt(self) -> None:
+        cycle = SimpleNamespace(
+            worker_result=WorkerResult(
+                status="timeout",
+                changed_files=["examples/agent_generated_fjsp_solver.py"],
+                summary="Legal fallback after exact worker timeout.",
+                artifacts={"session_id": "ses-exact", "event_stream_bytes": 100},
+            ),
+            summary=RunSummary(
+                total=1,
+                valid=1,
+                failed=0,
+                best_experiment_id="candidate",
+                best_metrics={"makespan": 1453},
+            ),
+        )
+
+        self.assertTrue(
+            should_attempt_in_round_repair(
+                cycle,
+                incumbent_key=(-1453.0,),
+                semantic_review={"status": "pass", "accepted": True},
+                exact_execution={
+                    "required": True,
+                    "passed": False,
+                    "reason": "exact_hybrid_without_cp_sat_execution_evidence",
+                },
+            )
+        )
+
+        feedback = current_round_repair_feedback(
+            attempt_index=1,
+            max_repair_attempts=2,
+            previous_attempts=[
+                {
+                    "exact_execution": {
+                        "required": True,
+                        "passed": False,
+                        "reason": "exact_hybrid_without_cp_sat_execution_evidence",
+                    }
+                }
+            ],
+        )
+        self.assertEqual(
+            "exact_hybrid_without_cp_sat_execution_evidence",
+            feedback["repair_targets"]["exact_execution_failure"]["reason"],
         )
 
     def test_round_gate_continue_skips_revision_call_and_keeps_active_direction(self) -> None:
@@ -5560,6 +5911,40 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual(worktrees[2], worktree)
             self.assertEqual(2, generation["selected_attempt_index"])
             self.assertEqual(3, generation["in_round_repair"]["attempt_count"])
+
+    def test_agent_generated_baseline_prefers_better_core_result_when_review_unavailable(self) -> None:
+        def cycle(makespan: int) -> SimpleNamespace:
+            return SimpleNamespace(
+                summary=RunSummary(
+                    total=1,
+                    valid=1,
+                    failed=0,
+                    best_experiment_id=str(makespan),
+                    best_metrics={"makespan": makespan},
+                ),
+                worker_result=WorkerResult(
+                    status="ok",
+                    changed_files=["examples/agent_generated_fjsp_solver.py"],
+                    summary="test baseline",
+                ),
+                diagnostic_smoke_summary=None,
+            )
+
+        selected = select_agent_generated_baseline_cycle(
+            [
+                (0, cycle(1447), Path("reviewed"), {"status": "pass", "accepted": True}),
+                (
+                    1,
+                    cycle(842),
+                    Path("review-unavailable"),
+                    {"status": "unavailable", "accepted": False},
+                ),
+            ],
+            objectives=[ObjectiveSpec(name="makespan", direction="minimize")],
+        )
+
+        self.assertEqual(1, selected[0])
+        self.assertEqual(842, selected[1].summary.best_metrics["makespan"])
 
     def test_agent_generated_baseline_memory_reaches_first_improvement_round(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -20,6 +20,7 @@ from harness_agent.agents.main import (
     WorkerAssignmentRequest,
     activation_check_schema_errors,
     bind_direction_plan_to_method_catalog,
+    configure_exact_probe_tournament,
     deterministic_round_reflection,
     enforce_improvement_direction_contract,
     high_flexibility_query_tags,
@@ -192,6 +193,10 @@ class OpenCodeMainAgent:
                 "complementary；只有证据支持组合时才多选。knowledge_query 只能使用所选方法族覆盖且存在于 "
                 "knowledge_query_catalog 中的标签。reasoning_trace 要记录证据、"
                 "推断、决定和下一项验证，不得编造未执行的命令。所有面向用户的文字使用简体中文。"
+                "必须把共享 solver foundation 与正式优化方法族分开：无 incumbent 只要求先产出合法 warm start，"
+                "不能据此把 constructive_search 设为正式赢家。低柔性/候选机稀疏表示 sequence 压力上升，"
+                "应比较 coupled_local_search、真实 CP-SAT/CP-LNS 和预算允许的 population_memetic；"
+                "constructive 只有在构造覆盖本身有实测缺口时才继续作为优化主族。"
                 ),
                 suffix="",
                 allowed_specialist=(
@@ -629,9 +634,20 @@ class OpenCodeMainAgent:
                 int((fast_packet.get("runtime_limits") or {}).get("max_competing_workers") or 1),
             ),
         )
+        plan = configure_exact_probe_tournament(
+            plan,
+            context=context,
+            max_workers=max_workers,
+        )
+        exact_probe = (
+            isinstance(plan.get("exact_probe_policy"), dict)
+            and bool(plan["exact_probe_policy"].get("reserved"))
+        )
         plan["worker_lane_policy"] = {
             "schema_version": 1,
-            "mechanism_selection": "delegated_to_worker",
+            "mechanism_selection": (
+                "exact_probe_tournament" if exact_probe else "delegated_to_worker"
+            ),
             "lane_count": max_workers,
             "roles": [
                 "direct_evidence",
@@ -640,7 +656,8 @@ class OpenCodeMainAgent:
                 "diagnostic_value",
             ][:max_workers],
         }
-        plan["candidate_variants"] = []
+        if not exact_probe:
+            plan["candidate_variants"] = []
         plan["activation_checks"] = []
         plan["activation_contract_version"] = 0
         plan = enforce_improvement_direction_contract(
@@ -652,7 +669,7 @@ class OpenCodeMainAgent:
             "schema_version": 1,
             "status": "satisfied",
             "source": "fast_direction_delegation",
-            "mechanism_selection": "delegated_to_worker",
+            "mechanism_selection": plan["worker_lane_policy"]["mechanism_selection"],
             "maximum_worker_lanes": max_workers,
             "planned_worker_lanes": max_workers,
             "actual_started_candidates_source": "competition_result.candidates",
@@ -1084,10 +1101,23 @@ class OpenCodeMainAgent:
                 else {}
             )
             max_workers = max(1, min(4, int(competition.get("max_competing_workers") or 1)))
+            plan = configure_exact_probe_tournament(
+                plan,
+                context=context,
+                max_workers=max_workers,
+            )
+            exact_probe = (
+                isinstance(plan.get("exact_probe_policy"), dict)
+                and bool(plan["exact_probe_policy"].get("reserved"))
+            )
             plan["worker_lane_policy"] = {
                 "schema_version": 1,
                 "mechanism_selection": (
-                    "family_hypothesis_tournament" if tournament else "delegated_to_worker"
+                    "family_hypothesis_tournament"
+                    if tournament
+                    else "exact_probe_tournament"
+                    if exact_probe
+                    else "delegated_to_worker"
                 ),
                 "lane_count": max_workers,
                 "roles": [
@@ -1097,7 +1127,7 @@ class OpenCodeMainAgent:
                     "diagnostic_value",
                 ][:max_workers],
             }
-            if not tournament:
+            if not tournament and not exact_probe:
                 plan["candidate_variants"] = []
             plan["activation_checks"] = []
             plan["activation_contract_version"] = 0

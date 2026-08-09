@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import shlex
 import traceback
@@ -818,6 +819,12 @@ def run_competing_worker_cycles(
             )
             else None
         )
+        candidate_max_steps, candidate_repair_attempts = candidate_worker_budgets(
+            candidate_plan,
+            worker=worker,
+            max_steps=max_steps,
+            repair_attempts=repair_attempts,
+        )
         try:
             cycle, context_path, attempts = run_worker_cycle_with_in_round_repairs(
                 contract=contract,
@@ -827,7 +834,7 @@ def run_competing_worker_cycles(
                 base_context_packet_path=base_context_packet_path,
                 round_index=round_index,
                 experiment_id=f"{experiment_id}__{candidate_id}",
-                max_steps=max_steps,
+                max_steps=candidate_max_steps,
                 max_runtime_seconds=max_runtime_seconds,
                 apply_worker_changes=apply_worker_changes,
                 baseline_summary=baseline_summary,
@@ -837,7 +844,7 @@ def run_competing_worker_cycles(
                 ),
                 baseline_generation=baseline_generation,
                 previous_rounds=previous_rounds,
-                repair_attempts=repair_attempts,
+                repair_attempts=candidate_repair_attempts,
                 direction_plan=candidate_plan,
                 semantic_reviewer=semantic_reviewer,
                 assignment_issuer=assignment_issuer,
@@ -966,7 +973,10 @@ def run_competing_worker_cycles(
             return candidate_index, outcome, None
 
     indexed_plans = list(enumerate(candidate_plans))
-    concurrency = min(max(1, int(max_competing_workers)), len(indexed_plans))
+    concurrency = resolve_coding_worker_concurrency(
+        requested=max_competing_workers,
+        candidate_count=len(indexed_plans),
+    )
     if concurrency == 1:
         candidate_results = [run_candidate(item) for item in indexed_plans]
     else:
@@ -1081,6 +1091,19 @@ def run_competing_worker_cycles(
         encoding="utf-8",
     )
     return winner[2], winner[3], winner[4], result, selected_plan
+
+
+def resolve_coding_worker_concurrency(*, requested: int, candidate_count: int) -> int:
+    """Bound execution concurrency without reducing the number of competing candidates."""
+
+    configured = requested
+    raw = os.getenv("ALGFORGE_CODING_WORKER_CONCURRENCY", "").strip()
+    if raw:
+        try:
+            configured = int(raw)
+        except ValueError:
+            configured = requested
+    return min(max(1, configured), max(1, int(requested)), max(1, int(candidate_count)))
 
 
 def best_competition_candidate(
@@ -1502,7 +1525,7 @@ def competitive_direction_plans(
     incumbent_worktree: Path | None = None,
     incumbent_key: tuple[float, ...] | None = None,
 ) -> list[dict[str, Any]]:
-    """Expand bounded variants; only research tournaments may cross method families."""
+    """Expand bounded variants; cross-family changes require an explicit tournament policy."""
 
     limit = max(1, min(4, int(limit)))
     variants = [
@@ -1516,6 +1539,11 @@ def competitive_direction_plans(
         else {}
     )
     delegated = lane_policy.get("mechanism_selection") == "delegated_to_worker"
+    tournament_mechanism = str(lane_policy.get("mechanism_selection") or "")
+    cross_family_tournament = tournament_mechanism in {
+        "family_hypothesis_tournament",
+        "exact_probe_tournament",
+    }
     if not variants and delegated:
         return delegated_worker_lane_plans(
             direction_plan,
@@ -1545,6 +1573,7 @@ def competitive_direction_plans(
             "change_scope",
             "implementation_order",
             "deliverables",
+            "avoid",
             "knowledge_paths",
             "acceptance_checks",
             "activation_checks",
@@ -1558,7 +1587,7 @@ def competitive_direction_plans(
         # round-level research state and, when enabled, applies to every lane.
         experiment_stage = "research_tournament" if parent_stage == "research_tournament" else parent_stage
         plan["experiment_stage"] = experiment_stage
-        if experiment_stage == "research_tournament":
+        if experiment_stage == "research_tournament" or cross_family_tournament:
             for name in (
                 "method_family",
                 "method_families",
@@ -1579,7 +1608,7 @@ def competitive_direction_plans(
                 for item in bundle.get("competition_tracks") or []
                 if isinstance(item, dict)
             ]
-            if package_tracks:
+            if package_tracks and str(plan.get("method_family") or "") != "exact_hybrid":
                 track = next(
                     (
                         item
@@ -1659,7 +1688,7 @@ def competitive_direction_plans(
                         if prior_state is not None
                         else []
                     ),
-                    "mechanism_selection": "family_hypothesis_tournament",
+                    "mechanism_selection": tournament_mechanism or "family_hypothesis_tournament",
                 }
         for name in ("preserve", "avoid"):
             plan[name] = _dedupe(
@@ -2133,21 +2162,122 @@ def evaluate_exact_solver_execution(
         for item in summary.activation_evidence or []
         if isinstance(item, dict)
     ] or [summary_payload(summary)]
-    observations = [
-        value
+    evidence_rows = [
+        row
         for payload in payloads
-        for value in _values_for_key(payload, "cp_sat_called")
+        for row in _dicts_with_key(payload, "cp_sat_called")
     ]
+    observations = [row.get("cp_sat_called") for row in evidence_rows]
     called = any(value is True for value in observations)
+    accepted_statuses = {"optimal", "feasible", "unknown", "infeasible"}
+    status_values: list[str] = []
+    model_sizes: list[dict[str, int]] = []
+    qualifying_rows: list[dict[str, Any]] = []
+    runtime_errors: list[str] = []
+    self_check_error_counts: list[int] = []
+    for row in evidence_rows:
+        status = str(
+            row.get("status")
+            or row.get("solve_status")
+            or row.get("cp_sat_status")
+            or row.get("solver_status")
+            or ""
+        ).strip().lower()
+        if status:
+            status_values.append(status)
+        nested_model_size = row.get("model_size")
+        if not isinstance(nested_model_size, dict):
+            nested_model_size = {}
+        sizes = {
+            "variables": max(
+                _first_nonnegative_int(row, "model_variables", "num_variables", "variables"),
+                _first_nonnegative_int(nested_model_size, "variables", "model_variables", "num_variables"),
+            ),
+            "constraints": max(
+                _first_nonnegative_int(row, "model_constraints", "num_constraints", "constraints"),
+                _first_nonnegative_int(nested_model_size, "constraints", "model_constraints", "num_constraints"),
+            ),
+            "intervals": max(
+                _first_nonnegative_int(row, "model_intervals", "num_intervals", "intervals"),
+                _first_nonnegative_int(nested_model_size, "intervals", "model_intervals", "num_intervals"),
+            ),
+        }
+        model_sizes.append(sizes)
+        solve_called = row.get("solve_called") is not False
+        no_runtime_error = not str(
+            row.get("runtime_error") or row.get("probe_error") or row.get("error") or ""
+        ).strip()
+        runtime_error = str(
+            row.get("runtime_error") or row.get("probe_error") or row.get("error") or ""
+        ).strip()
+        if runtime_error and runtime_error not in runtime_errors:
+            runtime_errors.append(runtime_error[:1_000])
+        self_check_errors = _first_nonnegative_int(row, "self_check_errors", "validation_error_count")
+        if self_check_errors:
+            self_check_error_counts.append(self_check_errors)
+        if (
+            row.get("cp_sat_called") is True
+            and solve_called
+            and status in accepted_statuses
+            and all(value > 0 for value in sizes.values())
+            and no_runtime_error
+        ):
+            qualifying_rows.append(row)
+    passed = bool(qualifying_rows)
+    candidate_illegal = any(
+        status in {"candidate_illegal", "invalid_schedule", "failed_validation"}
+        for status in status_values
+    ) or any(value > 0 for value in self_check_error_counts)
+    if not called:
+        reason = "exact_hybrid_without_cp_sat_execution_evidence"
+    elif candidate_illegal:
+        reason = "exact_hybrid_candidate_illegal"
+    elif not any(status in accepted_statuses for status in status_values):
+        reason = "exact_hybrid_solver_status_not_executed"
+    elif not any(all(value > 0 for value in sizes.values()) for sizes in model_sizes):
+        reason = "exact_hybrid_model_size_not_observed"
+    else:
+        reason = "exact_hybrid_runtime_error_or_solve_not_called"
     return {
-        "status": "passed" if called else "failed",
+        "status": "passed" if passed else "failed",
         "required": True,
-        "passed": called,
+        "passed": passed,
         "cp_sat_called": called,
         "observed_run_count": len(payloads),
         "observed_values": observations[:16],
-        "reason": None if called else "exact_hybrid_without_cp_sat_execution_evidence",
+        "observed_statuses": status_values[:16],
+        "observed_model_sizes": model_sizes[:16],
+        "self_check_error_counts": self_check_error_counts[:16],
+        "runtime_errors": runtime_errors[:8],
+        "reason": None if passed else reason,
     }
+
+
+def _dicts_with_key(value: Any, key: str, *, depth: int = 0) -> list[dict[str, Any]]:
+    if depth >= 10:
+        return []
+    if isinstance(value, dict):
+        found = [value] if key in value else []
+        for child in value.values():
+            found.extend(_dicts_with_key(child, key, depth=depth + 1))
+        return found
+    if isinstance(value, list):
+        found: list[dict[str, Any]] = []
+        for child in value[:64]:
+            found.extend(_dicts_with_key(child, key, depth=depth + 1))
+        return found
+    return []
+
+
+def _first_nonnegative_int(mapping: dict[str, Any], *keys: str) -> int:
+    for key in keys:
+        try:
+            value = int(mapping.get(key))
+        except (TypeError, ValueError):
+            continue
+        if value >= 0:
+            return value
+    return 0
 
 
 def _values_for_key(value: Any, key: str, *, depth: int = 0) -> list[Any]:
@@ -2419,6 +2549,8 @@ def run_worker_cycle_with_in_round_repairs(
         )
         mechanism_activation = evaluate_mechanism_activation(effective_direction_plan, last_cycle.summary)
         attempt_payload["mechanism_activation"] = mechanism_activation
+        exact_execution = evaluate_exact_solver_execution(effective_direction_plan, last_cycle.summary)
+        attempt_payload["exact_execution"] = exact_execution
         attempt_payload["activation_required"] = activation_contract_required(effective_direction_plan)
         attempts.append(attempt_payload)
 
@@ -2429,6 +2561,7 @@ def run_worker_cycle_with_in_round_repairs(
             semantic_review=semantic_review,
             mechanism_activation=mechanism_activation,
             activation_required=attempt_payload["activation_required"],
+            exact_execution=exact_execution,
         )
         improved_parent = candidate_eligible and (best_key is None or candidate_key > best_key)
         if improved_parent:
@@ -2444,11 +2577,14 @@ def run_worker_cycle_with_in_round_repairs(
         if is_nonrepairable_worker_failure(last_cycle):
             termination_reason = "nonrepairable_worker_failure"
             break
-        if not session_reuse_enabled and not should_attempt_in_round_repair(
+        repair_required = should_attempt_in_round_repair(
             last_cycle,
             incumbent_key=semantic_review_floor_key or incumbent_key,
             semantic_review=semantic_review,
-        ):
+            exact_execution=exact_execution,
+        )
+        exact_repair_only = str(effective_direction_plan.get("method_family") or "") == "exact_hybrid"
+        if (not session_reuse_enabled or exact_repair_only) and not repair_required:
             termination_reason = "repair_not_required"
             break
 
@@ -2549,6 +2685,7 @@ def local_trial_candidate_eligible(
     semantic_review: dict[str, Any] | None,
     mechanism_activation: dict[str, Any],
     activation_required: bool,
+    exact_execution: dict[str, Any] | None = None,
 ) -> bool:
     """Return whether a Local Trial may become the next objective parent."""
 
@@ -2557,6 +2694,9 @@ def local_trial_candidate_eligible(
         return False
     if not candidate_key or _all_negative_infinity(candidate_key):
         return False
+    if isinstance(exact_execution, dict) and exact_execution.get("required") is True:
+        if exact_execution.get("passed") is not True:
+            return False
     # Keep the arguments in this compatibility surface because callers still
     # persist activation and semantic diagnostics, but neither gates the
     # objective parent selected inside a bounded trial series.
@@ -2581,6 +2721,25 @@ def worker_loop_repair_attempt_budget(worker: CodingWorker, requested_attempts: 
     if not capabilities.supports_repair:
         return 0
     return requested
+
+
+def candidate_worker_budgets(
+    direction_plan: dict[str, Any],
+    *,
+    worker: CodingWorker,
+    max_steps: int,
+    repair_attempts: int,
+) -> tuple[int, int]:
+    """Reserve implementation and one repair checkpoint for an exact lane."""
+
+    steps = max(1, int(max_steps))
+    repairs = max(0, int(repair_attempts))
+    if str(direction_plan.get("method_family") or "") != "exact_hybrid":
+        return steps, repairs
+    return (
+        max(steps, 8),
+        worker_loop_repair_attempt_budget(worker, max(repairs, 2)),
+    )
 
 
 def run_algorithm_semantic_review(
@@ -2728,11 +2887,16 @@ def should_attempt_in_round_repair(
     *,
     incumbent_key: tuple[float, ...] | None = None,
     semantic_review: dict[str, Any] | None = None,
+    exact_execution: dict[str, Any] | None = None,
 ) -> bool:
     """Return whether the same direction should spend another bounded attempt."""
 
     if is_nonrepairable_worker_failure(cycle):
         return False
+
+    if isinstance(exact_execution, dict) and exact_execution.get("required") is True:
+        if exact_execution.get("passed") is not True:
+            return True
 
     # Provider-level or coverage-only semantic failures are not a concrete code
     # repair target. Spend another Worker attempt only when the review contains
@@ -3021,6 +3185,24 @@ def collect_current_round_repair_targets(attempts: list[dict[str, Any]]) -> dict
             else {}
         )
         add_list("diagnostic_smoke_top_errors", diagnostic_validation.get("top_errors"))
+
+        exact_execution = attempt.get("exact_execution") if isinstance(attempt.get("exact_execution"), dict) else {}
+        if exact_execution.get("required") is True and exact_execution.get("passed") is not True:
+            targets["exact_execution_failure"] = {
+                "reason": exact_execution.get("reason") or "exact_hybrid_without_cp_sat_execution_evidence",
+                "observed_statuses": (exact_execution.get("observed_statuses") or [])[:16],
+                "self_check_error_counts": (exact_execution.get("self_check_error_counts") or [])[:16],
+                "runtime_errors": (exact_execution.get("runtime_errors") or [])[:8],
+                "required_evidence": (
+                    "Run the bounded CP-SAT path and emit diagnostics.cp_sat_called=true together with status, "
+                    "objective/bound, model size, runtime, and num_search_workers. Repair any reported exact "
+                    "candidate self-check/runtime errors before changing budget. Bind optional-interval arguments "
+                    "by OR-Tools API semantic keywords rather than positional order or solver-local variable names; "
+                    "verify that every selected operation's extracted end minus start equals its selected processing "
+                    "duration and that the extracted schedule's recomputed objectives match the model objectives. "
+                    "Preserve the incumbent on failure."
+                ),
+            }
 
         quality_contract = checks.get("agent_generated_solver_quality_contract")
         if not judgment_accepted and isinstance(quality_contract, dict) and quality_contract.get("enabled"):
@@ -3435,8 +3617,9 @@ def agent_generated_baseline_cycle_rank(
     scored_summary = summary if core_total > 0 and core_valid == core_total else diagnostic
     objective_key = summary_objective_key(scored_summary, objectives) if scored_summary is not None else ()
     if core_total > 0 and core_valid == core_total:
-        semantic_rank = 900 + 25 * semantic_review_baseline_rank(semantic_review)
-        return (semantic_rank, *objective_key, attempt_index)
+        semantic_blocked = semantic_review_blocks_baseline_acceptance(semantic_review)
+        semantic_rank = semantic_review_baseline_rank(semantic_review)
+        return (900 if semantic_blocked else 1000, *objective_key, semantic_rank, attempt_index)
     if diagnostic_total > 0 and diagnostic_valid == diagnostic_total and has_changed_files:
         return (300, *objective_key, attempt_index)
     if has_changed_files:

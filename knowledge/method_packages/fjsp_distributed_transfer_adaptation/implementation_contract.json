@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "contract_id": "fjsp_distributed_transfer_adaptation",
+  "mode": "complete_method_package",
+  "required_components": [
+    {"component_id": "grouped_dfm_parser", "required_behaviors": ["Restore every factory group and its processing/energy candidates from the DFM encoding.", "Accept a backtracking parse only after every declared operation and every token in the job row are consumed.", "Preserve global machine IDs across factory groups and validate them before 0-based conversion."]},
+    {"component_id": "factory_machine_assignment", "required_behaviors": ["Represent every resource choice as a factory-machine pair.", "Preserve repeated resource candidates and select them by factory, machine, and actual duration; use the last exact duplicate deterministically."]},
+    {"component_id": "transfer_aware_full_decoder", "required_behaviors": ["Compare factory IDs before machine IDs: different factories always incur cross-factory delay even when machine IDs are numerically equal.", "Propagate same-resource, same-factory, and cross-factory transfer delays."]},
+    {"component_id": "lexicographic_objective_tracking", "required_behaviors": ["Recompute makespan, max factory workload, and total energy in fixed priority order.", "Reject every candidate with nonempty internal self-check errors before incumbent acceptance or output."]}
+  ],
+  "coupled_groups": [
+    {"group_id": "distributed_semantics", "component_ids": ["grouped_dfm_parser", "factory_machine_assignment", "transfer_aware_full_decoder", "lexicographic_objective_tracking"], "rule": "Assignment, timing, and objective acceptance must be evaluated together."}
+  ],
+  "forbidden_shortcuts": ["collapse_factory_dimension", "ignore_transfer_delay", "weighted_sum_replaces_lexicographic_order", "modify_evaluator"]
+}

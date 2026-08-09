@@ -9,6 +9,8 @@ description: 为受控 Coding Agent 实现 FJSP assignment 与 machine sequence 
 
 - Main 已选择 `coupled_local_search` 方法族。
 - `WorkerAssignment` 授权了 `assignment_aware_local_search`、`machine_reassignment`、`assignment_search`、`critical_path`、`critical_block`、`local_search`、`ils` 或 `tabu_search` 相关知识。
+- 低柔性、候选机器稀疏或加工时间跨度小而机器顺序仍有大量组合时，本方法族应作为正式
+  sequence-first 主候选；低柔性不是拒绝局部搜索的理由。
 
 ## 读取顺序
 
@@ -31,6 +33,8 @@ description: 为受控 Coding Agent 实现 FJSP assignment 与 machine sequence 
 - `current state` 可暂时变差，但全局可行 `incumbent` 不得退化。
 - tabu key、逆移动、aspiration、停滞与扰动必须进入实际生成、选择、应用和更新路径。
 - 若同时授权构造 Skill，只消费其入口池并共享解码器与 incumbent。
+- 不要求外部预先提供高质量 incumbent；统一 foundation 的任意合法 warm start 足以启动，
+  后续质量由关键块邻域、接受、扰动和迭代闭环负责。
 
 ## 交付物
 

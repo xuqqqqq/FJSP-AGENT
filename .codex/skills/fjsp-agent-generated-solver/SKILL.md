@@ -25,12 +25,15 @@ description: 在依据需求文档与 IO 文档生成、审查或演进独立的
 ## 执行步骤
 
 1. 在写代码前先提出一个自然语言规则或 operator 假设。
-2. 仅依据活动 IO 契约生成求解器代码，不导入后端求解器内部实现、evaluator 代码或既有解文件。
-3. 实现独立 CLI，至少覆盖 `--input`、`--output`、`--seed` 与 `--time-limit-sec`。
-4. 统一 operation identity、表示、构造、邻域、解码和输出路径，确保候选 move 失败时不会污染当前状态。
-5. 提交 Core 前完成自检：活动 IO 解析、输出 schema、加工时长一致性、全工序覆盖、机器资格、precedence、non-overlap、变体约束、incumbent 保留和运行时边界。
-6. 若 Core 已确认合法，再对照活动语义审查契约核实声明的方法是否真的在代码中闭合；若项目中存在 `knowledge/references/standard_fjsp/standard_fjsp_algorithm_semantic_review_contract.md`，标准 FJSP 需补读。
-7. 若回路反馈含有 `agent_generated_quality_memory` 或 `algorithm_semantic_memory`，优先修复其反复出现的 parser、representation、constructor、decoder、variant-handling 或 self-check 缺口，再引入新的改进 operator。
+2. 把 `solver foundation` 与优化方法族分开：从零任务必须先建立合法 parser、表示、decoder、
+   self-check 和 warm-start incumbent，但这一步不构成 `constructive_search` 优于局部搜索、
+   CP-SAT 或 memetic 的证据。合法 baseline 产生后，必须根据实例压力重新选择正式优化方法族。
+3. 仅依据活动 IO 契约生成求解器代码，不导入后端求解器内部实现、evaluator 代码或既有解文件。
+4. 实现独立 CLI，至少覆盖 `--input`、`--output`、`--seed` 与 `--time-limit-sec`。
+5. 统一 operation identity、表示、构造、邻域、解码和输出路径，确保候选 move 失败时不会污染当前状态。
+6. 提交 Core 前完成自检：活动 IO 解析、输出 schema、加工时长一致性、全工序覆盖、机器资格、precedence、non-overlap、变体约束、incumbent 保留和运行时边界。
+7. 若 Core 已确认合法，再对照活动语义审查契约核实声明的方法是否真的在代码中闭合；若项目中存在 `knowledge/references/standard_fjsp/standard_fjsp_algorithm_semantic_review_contract.md`，标准 FJSP 需补读。
+8. 若回路反馈含有 `agent_generated_quality_memory` 或 `algorithm_semantic_memory`，优先修复其反复出现的 parser、representation、constructor、decoder、variant-handling 或 self-check 缺口，再引入新的改进 operator。
 
 ## 权限与边界
 
@@ -39,6 +42,8 @@ description: 在依据需求文档与 IO 文档生成、审查或演进独立的
 - 不把 FJSP-SDST 或其他变体算法硬编码进通用 pipeline、evaluator、parser、promotion 或 web 代码。
 - 可复用知识模板，但必须保持 IO 派生、实例无关；不得复制已求解排程、固定工序顺序、基准特定分数或旧输出。
 - promotion 仍只由固定的 Core evaluator 决定。
+- 不把“当前没有 incumbent”当作正式优化必须选择 `constructive_search` 的理由；CP-SAT、
+  local search 和 memetic 都可以消费统一 foundation 产生的 warm start，或在各自模块内初始化。
 
 ## 交付物
 

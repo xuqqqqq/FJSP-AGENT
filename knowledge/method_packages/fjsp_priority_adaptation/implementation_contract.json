@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "contract_id": "fjsp_priority_adaptation",
+  "mode": "complete_method_package",
+  "required_components": [
+    {
+      "component_id": "priority_tail_parser",
+      "required_behaviors": [
+        "Consume exactly K priority job IDs after the standard body.",
+        "Validate K=ceil(job_count/4), 0-based range, strict ascending order, uniqueness, and no trailing tokens."
+      ]
+    },
+    {
+      "component_id": "priority_aware_objective_tracking",
+      "required_behaviors": [
+        "Recompute makespan and max completion over the parsed priority set after every complete decode.",
+        "Rank candidates lexicographically by makespan first and priority completion second."
+      ]
+    },
+    {
+      "component_id": "priority_aware_search_pressure",
+      "required_behaviors": [
+        "Expose priority-aware dispatch or move ranking while retaining makespan-oriented exploration.",
+        "Target priority-job critical operations and their blocking machine arcs without adding hard priority constraints."
+      ]
+    },
+    {
+      "component_id": "lexicographic_candidate_acceptance",
+      "required_behaviors": [
+        "Accept an improved secondary objective only when makespan is unchanged.",
+        "Verify the complete fixed-evaluator schedule before replacing the incumbent.",
+        "Construct or refresh the serialized payload after the final incumbent decision so schedule, makespan, priority_completion_time, and accepted solver evidence all describe the same solution."
+      ]
+    }
+  ],
+  "coupled_groups": [
+    {
+      "group_id": "priority_semantics",
+      "component_ids": [
+        "priority_tail_parser",
+        "priority_aware_objective_tracking",
+        "priority_aware_search_pressure",
+        "lexicographic_candidate_acceptance"
+      ],
+      "rule": "Parsing, search pressure, objective tracking, and acceptance must use the same priority job set and strict lexicographic ordering."
+    }
+  ],
+  "forbidden_shortcuts": [
+    "ignore_priority_tail",
+    "treat_priority_as_hard_precedence",
+    "weighted_sum_that_can_worsen_makespan",
+    "trust_declared_priority_metric",
+    "serialize_cached_payload_after_incumbent_replacement",
+    "modify_evaluator"
+  ]
+}

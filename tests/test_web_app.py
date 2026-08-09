@@ -872,6 +872,20 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(3, job["config"]["main_max_subagents"])
         self.assertEqual(4, job["config"]["max_competing_workers"])
 
+    def test_create_job_routes_glm_to_structured_api_agents(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job = create_job(
+                self.job_payload(
+                    main_agent_model="qiming/glm-5.2",
+                    coding_worker_model="qiming/glm-5.2",
+                ),
+                output_root=Path(tmp),
+            )
+
+        self.assertEqual("structured_api", job["config"]["main_agent_backend"])
+        self.assertEqual("structured_api", job["config"]["coding_backend"])
+        self.assertEqual("glm-5.2", job["config"]["deepseek_model"])
+
     def test_frontend_submits_model_without_accepting_api_keys(self) -> None:
         index = (ROOT / "harness_agent" / "web" / "static" / "index.html").read_text(encoding="utf-8")
         app = (ROOT / "harness_agent" / "web" / "static" / "app.js").read_text(encoding="utf-8")
@@ -1472,6 +1486,8 @@ class WebAppTests(unittest.TestCase):
                     run_mode="awls_zi",
                     baseline_source="current_project",
                     awls_beta=999,
+                    main_agent_model="openai/gpt-5.4",
+                    coding_worker_model="deepseek/deepseek-v4-pro",
                 ),
                 output_root=Path(tmp),
             )

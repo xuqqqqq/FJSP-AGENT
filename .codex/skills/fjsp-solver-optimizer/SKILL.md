@@ -18,11 +18,15 @@ description: 面向柔性作业车间调度（FJSP）的求解器分析与自主
 ## 执行步骤
 
 1. 基于结构证据提出一个可证伪假设，不把多起点、局部搜索或 CP-SAT 无差别叠加。
-2. 将方法映射到当前仓库中的具体函数、数据结构或搜索阶段，形成真实代码差异。
-3. 用与 baseline 语义一致的局部命令比较改动前后结果，同时检查正确性、耗时和解结构变化。
-4. 按结构特征选择研究压力和方法，不按实例名、Benchmark 家族、已知最优值、历史最佳解或挑选过的 seed 路由。
-5. 形成可验证研究回路：有界 `WorkerAssignment`、短 smoke、静态门禁、Core evaluator、promotion/rollback 与经验更新。
-6. 只有当方向有可信收益时保留差异；无收益则保留失败结论并回退无效差异。
+2. 先区分 foundation 阶段与正式优化阶段：foundation 只负责合法 warm start，不绑定
+   `constructive_search`。低柔性/候选稀疏表示 assignment 压力下降、sequence 压力上升，正式
+   候选优先比较 critical-block local search、真实 CP-SAT/CP-LNS 与 sequence-oriented memetic；
+   是否选 exact 或 population 再由规模、运行环境、预算和激活证据决定。
+3. 将方法映射到当前仓库中的具体函数、数据结构或搜索阶段，形成真实代码差异。
+4. 用与 baseline 语义一致的局部命令比较改动前后结果，同时检查正确性、耗时和解结构变化。
+5. 按结构特征选择研究压力和方法，不按实例名、Benchmark 家族、已知最优值、历史最佳解或挑选过的 seed 路由。
+6. 形成可验证研究回路：有界 `WorkerAssignment`、短 smoke、静态门禁、Core evaluator、promotion/rollback 与经验更新。
+7. 只有当方向有可信收益时保留差异；无收益则保留失败结论并回退无效差异。
 
 ## 权限与边界
 

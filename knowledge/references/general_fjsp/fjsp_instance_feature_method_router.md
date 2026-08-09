@@ -46,14 +46,30 @@ Worker 提供实现代码。Main Agent 应先解释“当前实例的主要搜�
 
 ### A. 还没有合法基线
 
-优先目标是稳定可行和可解释，而不是堆叠深搜索：
+优先目标是先闭合共享 foundation，得到稳定可行、可解释、可回退的 warm start。这里的
+`construction` 是所有方法族共享的初始化职责，不等于正式优化方法族必须选择
+`constructive_search`：
 
 - 选择 `construction`、`initialization`、`decoder`。
+- 同时根据实例画像预选 baseline 后的正式方法族；CP-SAT 不需要 incumbent 才能建模，
+  local search 和 memetic 也可以从 foundation warm start 启动。
+- 低柔性/候选机稀疏时，baseline 后优先比较 `coupled_local_search`、`exact_hybrid` 和
+  `population_memetic`，因为主要组合空间在机器顺序，而不在 assignment。
+- 并行预算至少为 2 时，对不超过 60 道工序的小实例，无论柔性高低，都保留至少一条
+  `exact_hybrid` lane；对不超过 250 道工序的低柔性实例也保留该 lane。对不超过 250 道
+  工序、无 sequence-dependent setup，且按 `operation_count * avg_candidate_count` 估算的
+  optional interval 不超过 1200、加固定 downtime interval 后不超过 1400 的实例，即使高柔性
+  也保留有界 exact probe。`job_count * machine_count * operation_count` 形式的粗粒度 `scale`
+  不能替代 CP 模型变量/interval 数估算。exact lane 必须实际调用求解器并报告 objective bound。
+  它与 Main 的主方法族竞争，不替代其余启发式 lane，也不得继承主方法族中禁止 CP 的约束。
+- 大规模且高柔性实例不强制完整 CP；此时 exact 只在 Main 有额外证据时启用，或采用局部
+  精确修复/trust region，防止完整模型挤占所有竞争预算。
 - 若实例具有真实机器选择，再加入 `load_balance`。
 - 若静态画像已经确认高柔性且加工时间跨度非零，不要只发普通多规则构造；选择
   `constructive_search`，并请求 `high_flexibility`、`idle_gap`、`assignment_regret`、
   `decoder`，使初始 solver 直接建立 earliest-gap 与 assignment-first 基线。
-- 只有当构造、解码和输出合同闭合后，才进入局部搜索或群体方法。
+- 只有当 foundation、解码和输出合同闭合后，才执行正式优化；不要把 foundation 的构造代码
+  当作继续继承 constructive 方法族的证据。
 
 ### B. 排序压力主导
 
@@ -61,6 +77,9 @@ Worker 提供实现代码。Main Agent 应先解释“当前实例的主要搜�
 
 - 首选 `critical_path`、`critical_block`、`local_search`。
 - 已有稳定状态表示且需要跨越局部最优时，再请求 `tabu_search` 或 `ils`。
+- 若运行环境支持且预算允许，加入表达机器互斥顺序的完整 CP-SAT 或释放关键机器弧的 CP-LNS；
+  低柔性减少 optional assignment 分支，但不意味着只做 assignment trust region。
+- 若预算足以维护多个机器顺序盆地，可加入 sequence-oriented memetic challenger。
 - 不要把大量机器重分配当主机制。
 
 ### C. 分配压力主导

@@ -9,6 +9,8 @@ description: 为受控 Coding Agent 实现 FJSP 群体、遗传和 memetic 搜�
 
 - Main 已选择 `population_memetic` 方法族。
 - `WorkerAssignment` 授权了 `population`、`genetic`、`memetic`、`diversity` 或 `hybrid` 相关知识。
+- 低柔性实例仍有巨大的机器顺序组合空间；若预算允许维护多个 sequence basin，本方法族可作为
+  正式 challenger，个体差异应主要来自 machine-order 指纹而不是强行制造换机差异。
 
 ## 读取顺序
 
@@ -31,6 +33,8 @@ description: 为受控 Coding Agent 实现 FJSP 群体、遗传和 memetic 搜�
 - 若同时授权局部搜索 Skill，只调用共享的合法邻域实现做 memetic refinement。
 - 若同时授权构造 Skill，可把构造入口作为初始群体来源之一。
 - `global incumbent` 必须独立于当前群体保存。
+- 不要求外部先提供高质量 incumbent；foundation warm start 可作为一个种子，其余个体应由
+  合法 sequence-oriented 初始化、交叉、变异和局部改进产生。
 
 ## 交付物
 

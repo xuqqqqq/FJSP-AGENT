@@ -201,9 +201,21 @@ class HarnessRunner:
             evaluation = EvaluationResult.from_metrics_file(metrics_path, self.contract.objectives)
             solver_evidence = load_solver_evidence(solution_path)
             if solver_evidence:
+                consistency_errors = accepted_solver_output_errors(
+                    evaluation.metrics,
+                    solver_evidence,
+                )
                 evaluation = replace(
                     evaluation,
                     metrics={**evaluation.metrics, "solver_evidence": solver_evidence},
+                    valid=evaluation.valid and not consistency_errors,
+                    error_count=evaluation.error_count + len(consistency_errors),
+                    errors=[*evaluation.errors, *consistency_errors],
+                    status=(
+                        "failed_validation"
+                        if consistency_errors
+                        else evaluation.status
+                    ),
                 )
             key = objective_key(evaluation, self.contract.objectives)
             return ExperimentRecord(
@@ -390,7 +402,18 @@ def load_solver_evidence(solution_path: Path) -> dict[str, object]:
     schedule = raw.get("schedule")
     if isinstance(schedule, list):
         evidence["reported_operation_count"] = len(schedule)
-    diagnostics = bounded_solver_diagnostics(raw.get("diagnostics"))
+    raw_diagnostics = raw.get("diagnostics")
+    if raw_diagnostics in ({}, [], None, ""):
+        misplaced = raw.get("best_metrics")
+        misplaced = misplaced.get("solver_evidence") if isinstance(misplaced, dict) else None
+        if isinstance(misplaced, dict):
+            exact = misplaced.get("diagnostics")
+            if isinstance(exact, dict):
+                exact = dict(exact)
+                exact.setdefault("accepted", misplaced.get("accepted") is True)
+                raw_diagnostics = {"solver_evidence": exact}
+                evidence["solver_evidence_path_repaired"] = True
+    diagnostics = bounded_solver_diagnostics(raw_diagnostics)
     if diagnostics not in ({}, [], None, ""):
         fitted, truncated = fit_solver_diagnostics(
             diagnostics,
@@ -409,6 +432,50 @@ def load_solver_evidence(solution_path: Path) -> dict[str, object]:
     evidence["diagnostics"] = fitted
     evidence["diagnostics_truncated"] = True
     return evidence
+
+
+def accepted_solver_output_errors(
+    evaluator_metrics: dict[str, object],
+    solver_evidence: dict[str, object],
+) -> list[str]:
+    """Reject a serialized schedule that disagrees with an accepted exact incumbent."""
+
+    diagnostics = solver_evidence.get("diagnostics")
+    if not isinstance(diagnostics, dict):
+        return []
+    exact = diagnostics.get("solver_evidence")
+    if not isinstance(exact, dict) or exact.get("accepted") is not True:
+        return []
+
+    comparisons = {
+        "makespan": exact.get(
+            "makespan",
+            exact.get("objective", exact.get("candidate_makespan")),
+        ),
+        "priority_completion_time": exact.get(
+            "priority_completion_time",
+            exact.get("candidate_priority_completion_time"),
+        ),
+    }
+    errors: list[str] = []
+    for metric_name, accepted_value in comparisons.items():
+        evaluator_value = evaluator_metrics.get(metric_name)
+        if accepted_value is None or evaluator_value is None:
+            continue
+        if not _same_numeric_value(accepted_value, evaluator_value):
+            errors.append(
+                "accepted solver incumbent does not match serialized evaluator metric: "
+                f"{metric_name} accepted={accepted_value!r} evaluated={evaluator_value!r}"
+            )
+    return errors
+
+
+def _same_numeric_value(left: object, right: object) -> bool:
+    if isinstance(left, bool) or isinstance(right, bool):
+        return False
+    if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+        return False
+    return abs(float(left) - float(right)) <= 1e-9
 
 
 def activation_evidence_records(records: list[ExperimentRecord]) -> list[dict[str, object]]:

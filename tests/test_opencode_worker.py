@@ -32,6 +32,55 @@ from harness_agent.workers.opencode_worker import (
 
 
 class OpenCodeWorkerTests(unittest.TestCase):
+    def test_exact_worker_runtime_allows_only_fixed_ortools_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            worktree = tmp_path / "worktree"
+            (worktree / "examples").mkdir(parents=True)
+            target = worktree / "examples" / "agent_generated_fjsp_solver.py"
+            target.write_text("pass\n", encoding="utf-8")
+            assignment_path = _write_assignment(
+                tmp_path,
+                worktree,
+                implementation_skills=[
+                    {
+                        "skill_id": "fjsp-exact-hybrid-worker",
+                        "title": "Exact",
+                        "method_families": ["exact_hybrid"],
+                        "sandbox_path": ".opencode/skills/fjsp-exact-hybrid-worker",
+                        "required": True,
+                    }
+                ],
+            )
+            assignment = WorkerAssignment.load(assignment_path)
+            spec = ExperimentSpec(
+                task_id="test",
+                experiment_id="exact-runtime",
+                context_packet_path=str(tmp_path / "context.json"),
+                worktree_path=str(worktree),
+                max_steps=2,
+                max_runtime_seconds=30,
+                output_dir=str(tmp_path / "output"),
+                worker_assignment_path=str(assignment_path),
+            )
+
+            runtime = OpenCodeWorker()._runtime_config(
+                spec,
+                assignment=assignment,
+                attachment_paths=[],
+            )
+            bash = runtime["agent"]["algoforge-worker"]["permission"]["bash"]
+
+            self.assertEqual("allow", bash['python -c "import ortools; print(ortools.__version__)"'])
+            self.assertEqual(
+                "allow",
+                bash[
+                    'python -c "from ortools.sat.python import cp_model; print(hasattr(cp_model.CpModel(), \'new_fixed_size_interval_var\'))"'
+                ],
+            )
+            self.assertEqual("deny", bash["*"])
+            self.assertFalse(any("pip install" in command for command in bash))
+
     def test_session_lookup_requires_observed_session_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             session_root = Path(tmp)
@@ -385,6 +434,105 @@ class OpenCodeWorkerTests(unittest.TestCase):
                 session_payload["resume_strategy"],
             )
 
+    def test_context_limited_session_restarts_with_preserved_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            round_root = tmp_path / "worker_loop" / "agent_generated_baseline"
+            worktree = round_root / "repair_001" / "candidate_worktree"
+            worktree.mkdir(parents=True)
+            assignment_path = _write_assignment(tmp_path, worktree)
+            assignment = WorkerAssignment.load(assignment_path)
+            state_dir = tmp_path / "worker_loop" / ".algoforge_opencode_session" / "known-lane"
+            state_dir.mkdir(parents=True)
+            (state_dir / "session_state.json").write_text(
+                json.dumps(
+                    {
+                        "observed_session_id": "ses_direction_123",
+                        "terminal_reason": "length",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch(
+                "harness_agent.workers.opencode_worker._ensure_session_workspace_alias",
+                side_effect=_fake_session_alias,
+            ):
+                launch = OpenCodeWorker()._resolve_session_launch(
+                    ExperimentSpec(
+                        task_id="test",
+                        experiment_id="direction_lane_attempt_01",
+                        context_packet_path=str(tmp_path / "context.json"),
+                        worktree_path=str(worktree),
+                        max_steps=1,
+                        max_runtime_seconds=30,
+                        output_dir=str(round_root / "repair_001" / "worker"),
+                        worker_assignment_path=str(assignment_path),
+                        session_id="ses_direction_123",
+                        local_trial_index=1,
+                        local_trial_count=2,
+                    ),
+                    assignment=assignment,
+                    worktree_path=worktree,
+                )
+
+            self.assertIsNone(launch.command_session_id)
+            self.assertEqual(
+                "materialized_workspace_fresh_session_after_context_limit",
+                launch.strategy,
+            )
+            self.assertIn("context limit", launch.prompt_note or "")
+
+    def test_timeout_without_target_sync_restarts_with_preserved_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            worker_loop = tmp_path / "worker_loop"
+            worktree = worker_loop / "round_001" / "repair_001" / "candidate_worktree"
+            worktree.mkdir(parents=True)
+            assignment_path = _write_assignment(tmp_path, worktree)
+            assignment = WorkerAssignment.load(assignment_path)
+            state_dir = worker_loop / ".algoforge_opencode_session" / "known-lane"
+            state_dir.mkdir(parents=True)
+            (state_dir / "session_state.json").write_text(
+                json.dumps(
+                    {
+                        "observed_session_id": "ses_direction_123",
+                        "worker_status": "timeout",
+                        "target_synced": False,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch(
+                "harness_agent.workers.opencode_worker._ensure_session_workspace_alias",
+                side_effect=_fake_session_alias,
+            ):
+                launch = OpenCodeWorker()._resolve_session_launch(
+                    ExperimentSpec(
+                        task_id="test",
+                        experiment_id="direction_lane_attempt_01",
+                        context_packet_path=str(tmp_path / "context.json"),
+                        worktree_path=str(worktree),
+                        max_steps=1,
+                        max_runtime_seconds=30,
+                        output_dir=str(worktree.parent / "worker"),
+                        worker_assignment_path=str(assignment_path),
+                        session_id="ses_direction_123",
+                        local_trial_index=1,
+                        local_trial_count=2,
+                    ),
+                    assignment=assignment,
+                    worktree_path=worktree,
+                )
+
+            self.assertIsNone(launch.command_session_id)
+            self.assertEqual(
+                "materialized_workspace_fresh_session_after_stalled_worker",
+                launch.strategy,
+            )
+            self.assertIn("made no target-file progress", launch.prompt_note or "")
+
     def test_zero_event_continuation_is_not_reported_as_observed_or_completed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -445,6 +593,13 @@ class OpenCodeWorkerTests(unittest.TestCase):
         self.assertEqual("soft_target_exceeded", warning["assignment_budget_status"])
         self.assertEqual(24_000, warning["assignment_hard_limit_chars"])
         self.assertIn("remains within", warning["assignment_budget_warning"])
+
+    def test_length_step_finish_is_not_reported_as_completed(self) -> None:
+        events = json.dumps(
+            {"type": "step_finish", "part": {"reason": "length"}}
+        )
+
+        self.assertEqual("context_limit", opencode_status(0, events, ""))
 
     def test_missing_assignment_fails_closed_without_starting_opencode(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

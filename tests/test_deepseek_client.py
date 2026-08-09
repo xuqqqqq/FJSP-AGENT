@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import urllib.error
 import unittest
 from unittest.mock import patch
 
@@ -59,6 +60,26 @@ class DeepSeekClientTests(unittest.TestCase):
 
         self.assertEqual('{"summary":"ok","changes":[]}', content)
 
+    def test_streaming_chat_assembles_content_and_usage(self) -> None:
+        events = [
+            {"choices": [{"delta": {"reasoning_content": "think"}}]},
+            {"choices": [{"delta": {"content": '{"status":'}}]},
+            {"choices": [{"delta": {"content": '"ok"}'}}]},
+            {"choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 4}},
+        ]
+
+        with patch("urllib.request.urlopen", return_value=_FakeStreamResponse(events)):
+            client = DeepSeekClient(DeepSeekConfig(api_key="test-key"))
+            result = client.chat_with_usage(
+                [{"role": "user", "content": "return json"}],
+                json_mode=True,
+                stream=True,
+            )
+
+        self.assertEqual('{"status":"ok"}', result.content)
+        self.assertEqual(10, result.usage["prompt_tokens"])
+        self.assertEqual(4, result.usage["completion_tokens"])
+
     def test_from_env_honors_timeout_override(self) -> None:
         env = {
             "DEEPSEEK_API_KEY": "test-key",
@@ -68,6 +89,26 @@ class DeepSeekClientTests(unittest.TestCase):
             client = DeepSeekClient.from_env()
 
         self.assertEqual(9, client.config.timeout_seconds)
+
+    def test_chat_retries_transient_gateway_503(self) -> None:
+        unavailable = urllib.error.HTTPError(
+            "https://gateway.example/v1/chat/completions",
+            503,
+            "Service Unavailable",
+            {},
+            io.BytesIO(b'{"error":{"message":"auth_unavailable"}}'),
+        )
+        raw = {"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
+
+        with patch("urllib.request.urlopen", side_effect=[unavailable, _FakeResponse(raw)]) as urlopen, patch(
+            "harness_agent.deepseek_client.time.sleep"
+        ) as sleep:
+            client = DeepSeekClient(DeepSeekConfig(api_key="test-key"))
+            result = client.chat([{"role": "user", "content": "ping"}])
+
+        self.assertEqual("ok", result)
+        self.assertEqual(2, urlopen.call_count)
+        sleep.assert_called_once_with(1)
 
 
 class _FakeResponse:
@@ -82,6 +123,22 @@ class _FakeResponse:
 
     def read(self) -> bytes:
         return self._buffer.read()
+
+
+class _FakeStreamResponse:
+    def __init__(self, events: list[dict[str, object]]) -> None:
+        self._lines = [
+            f"data: {json.dumps(event)}\n\n".encode("utf-8") for event in events
+        ] + [b"data: [DONE]\n\n"]
+
+    def __enter__(self) -> "_FakeStreamResponse":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def __iter__(self):
+        return iter(self._lines)
 
 
 if __name__ == "__main__":

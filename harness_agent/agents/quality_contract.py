@@ -58,6 +58,10 @@ def build_agent_generated_solver_quality_contract(context: dict[str, Any]) -> di
         variant_required.append("batch_capacity_guard")
     if "transportation" in features:
         variant_required.append("transport_time_guard")
+    if "release_time" in features:
+        variant_required.append("release_time_parser_and_job_ready_guard")
+    if "machine_initial_availability" in features:
+        variant_required.append("machine_initial_availability_guard")
     if "release_dates" in features:
         variant_required.append("release_date_guard")
     if "due_dates" in features:
@@ -154,8 +158,16 @@ _CAPABILITY_PLAYBOOK = {
         "repair": "Decode schedules with job predecessor readiness and reject deadlocks instead of returning partial schedules.",
     },
     "machine_non_overlap_guard": {
-        "evidence": "Cite the machine-ready or machine-sequence logic that prevents overlapping processing intervals.",
-        "repair": "Decode each machine sequence from scratch and enforce previous machine operation completion before the next start.",
+        "evidence": (
+            "Cite either the machine-sequence decoder that enforces each predecessor machine arc, or the output "
+            "self-check that groups records by machine, sorts each group by (start, end, job_id, op_id), and checks "
+            "adjacent intervals. Schedule record order is not a resource-order guarantee."
+        ),
+        "repair": (
+            "Decode each explicit machine sequence from scratch. For output validation, group records by machine "
+            "and sort by time before checking adjacent intervals; never update machine_last_end while traversing "
+            "jobs/operations because gap-inserted records need not be machine-chronological."
+        ),
     },
     "bounded_runtime_or_iteration_guard": {
         "evidence": "Cite the CLI/runtime budget, shared deadline, inner candidate-loop checks, max restarts/iterations, and neighborhood shortlist or cap.",
@@ -186,8 +198,8 @@ _CAPABILITY_PLAYBOOK = {
         "repair": "Parse every declared adjacent-pair minimum lag and propagate it through construction, full decoding, move evaluation, and output self-check before comparing makespan.",
     },
     "machine_calendar_availability_guard": {
-        "evidence": "Cite the check that scheduled intervals fit machine availability and do not overlap unavailable calendar windows.",
-        "repair": "Decode with machine calendars/unavailability windows and reject intervals outside available time.",
+        "evidence": "Cite the downtime-tail parser, normalized per-machine calendar, non-preemptive complete-gap placement used by every candidate path, and output self-check against every original window on the selected machine. CP paths must also cite fixed maintenance intervals included in machine NoOverlap.",
+        "repair": "Parse every downtime window, share one calendar representation across construction and all move decoders, place each operation wholly in an available gap, and reject candidates intersecting any selected-machine window. Do not claim calendar awareness from append-only machine-ready logic.",
     },
     "batch_capacity_guard": {
         "evidence": "Cite the check that every batch respects capacity, family/compatibility, and operation coverage constraints.",
@@ -196,6 +208,14 @@ _CAPABILITY_PLAYBOOK = {
     "transport_time_guard": {
         "evidence": "Cite the transport/travel-time transition added between consecutive operations when machines or locations change.",
         "repair": "Parse transport data and add it to job readiness before scheduling the successor operation.",
+    },
+    "release_time_parser_and_job_ready_guard": {
+        "evidence": "Cite the release-time tail parser and the construction/full-decode path that prevents each job's first operation from starting before its parsed release time.",
+        "repair": "Parse every job release time, initialize job readiness from it, and preserve the lower bound in construction, full decoding, move evaluation, and output self-checks.",
+    },
+    "machine_initial_availability_guard": {
+        "evidence": "Cite the machine-availability tail parser and the construction/full-decode path that prevents selected-machine operations from starting before that machine's initial available time.",
+        "repair": "Parse every machine initial available time and apply it as a selected-machine start lower bound in construction, full decoding, move evaluation, and output self-checks.",
     },
     "release_date_guard": {
         "evidence": "Cite the guard that prevents an operation or job from starting before its parsed release time/date.",
@@ -288,6 +308,25 @@ def extract_variant_features(context: dict[str, Any]) -> set[str]:
             if isinstance(item, dict)
         )
     )
+    release_time_from_diagnostics = (
+        int(summary.get("release_time_instance_count") or 0) > 0
+        or any(
+            str(item.get("variant") or "").lower() == "fjsp_release_time"
+            for item in diagnostics.get("instances") or []
+            if isinstance(item, dict)
+        )
+    )
+    machine_availability_from_diagnostics = (
+        int(summary.get("machine_availability_instance_count") or 0) > 0
+        or int(summary.get("unavailability_interval_count") or 0) > 0
+        or int(summary.get("max_unavailability_interval_count") or 0) > 0
+        or any(
+            str(item.get("variant") or "").lower() == "fjsp_machine_availability"
+            or int(item.get("unavailability_interval_count") or 0) > 0
+            for item in diagnostics.get("instances") or []
+            if isinstance(item, dict)
+        )
+    )
     active_text = _active_problem_feature_text(
         context,
         include_documents=not diagnostics_available,
@@ -298,12 +337,18 @@ def extract_variant_features(context: dict[str, Any]) -> set[str]:
         not diagnostics_available and _mentions_minimum_time_lag(active_text)
     ):
         features.update({"minimum_time_lag", "time_lag"})
+    if release_time_from_diagnostics or (
+        not diagnostics_available and _mentions_release_time(active_text)
+    ):
+        features.update({"release_time", "machine_initial_availability"})
+    if machine_availability_from_diagnostics or (
+        not diagnostics_available and _mentions_machine_availability(active_text)
+    ):
+        features.update({"machine_availability", "machine_calendar"})
     if _has_any_pattern(active_text, [r"\bno[-_\s]?wait\b"]):
         features.add("no_wait")
     if _has_any_pattern(active_text, [r"\btime[-_\s]?lag\b"]):
         features.add("time_lag")
-    if _has_any_pattern(active_text, [r"\bcalendar\b", r"\bunavailability\b", r"\bunavailable\b"]):
-        features.add("machine_calendar")
     if _has_any_pattern(active_text, [r"\bbatch(?:ing)?\b", r"\bbatch[-_\s]?capacity\b"]):
         features.add("batching")
     if _has_any_pattern(active_text, [r"\btransport(?:ation)?\b"]):
@@ -338,6 +383,35 @@ def _mentions_minimum_time_lag(text: str) -> bool:
             r"\bmin(?:imum)?[-_\s]?time[-_\s]?lag\b",
             r"最小时间(?:间隔|滞后)",
             r"最小生产间隔",
+        ],
+    )
+
+
+def _mentions_release_time(text: str) -> bool:
+    return _has_any_pattern(
+        text,
+        [
+            r"\bfjsp[-_]?release[-_\s]?time\b",
+            r"\brelease[-_\s]?time(?:s)?\b",
+            r"\bmachine[-_\s]?initial[-_\s]?(?:availability|available[-_\s]?time)\b",
+            r"工件释放时间",
+            r"机器初始可用",
+        ],
+    )
+
+
+def _mentions_machine_availability(text: str) -> bool:
+    return _has_any_pattern(
+        text,
+        [
+            r"\bfjsp[-_]?machine[-_\s]?availability\b",
+            r"\bmachine[-_\s]?availability\b",
+            r"\bmachine[-_\s]?(?:calendar|unavailability)\b",
+            r"\b(?:maintenance|downtime|unavailability|unavailable)\b",
+            r"维修",
+            r"维护",
+            r"停机",
+            r"不可用",
         ],
     )
 

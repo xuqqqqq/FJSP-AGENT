@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "contract_id": "fjsp_machine_availability_adaptation",
+  "mode": "complete_method_package",
+  "required_components": [
+    {"component_id": "maintenance_tail_parser", "required_behaviors": ["Parse all fixed half-open maintenance intervals without dropping overlaps."]},
+    {"component_id": "calendar_normalization", "required_behaviors": ["Build sorted per-machine calendars with union-preserving merge semantics and share them across all candidate paths."]},
+    {"component_id": "calendar_aware_full_decoder", "required_behaviors": ["Place each nonpreemptive operation in a complete machine-calendar gap for construction and every search operator."]},
+    {"component_id": "nonpreemptive_interval_validation", "required_behaviors": ["Reject every accepted candidate that intersects any original maintenance interval on its selected machine while accepting exact half-open boundaries."]},
+    {"component_id": "exact_calendar_capacity", "required_behaviors": ["When an exact path is used, include fixed maintenance intervals in each machine NoOverlap constraint."]}
+  ],
+  "coupled_groups": [
+    {"group_id": "calendar_semantics", "component_ids": ["maintenance_tail_parser", "calendar_normalization", "calendar_aware_full_decoder", "nonpreemptive_interval_validation"], "rule": "Every candidate path must share the fixed machine calendar and pass the same boundary semantics before comparison."}
+  ],
+  "forbidden_shortcuts": ["ignore_maintenance_tail", "append_only_machine_ready_claimed_as_calendar_aware", "validate_only_final_output", "split_operation_at_window", "modify_evaluator"]
+}

@@ -185,6 +185,7 @@ def build_worker_assignment(
         context,
         direction_plan=direction_plan,
         baseline_trial=baseline_trial,
+        quality_active_features=quality_contract.get("active_features") or [],
     )
     if repair_deliverables:
         completion_rule = (
@@ -428,14 +429,18 @@ def _assignment_implementation_skills(
     *,
     direction_plan: dict[str, Any],
     baseline_trial: int | None = None,
+    quality_active_features: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     task = context.get("task") if isinstance(context.get("task"), dict) else {}
     catalog = context.get("method_package_catalog") if isinstance(context.get("method_package_catalog"), dict) else {}
     declared_families = direction_plan.get("method_families") or [direction_plan.get("method_family")]
+    active_features = _unique_strings(
+        list(catalog.get("active_features") or []) + list(quality_active_features or [])
+    )
     selection = resolve_worker_implementation_skills(
         problem_family=str(task.get("problem_family") or ""),
         method_families=declared_families,
-        active_features=[str(item) for item in catalog.get("active_features") or []],
+        active_features=active_features,
         knowledge_query_tags=[
             str(item)
             for item in direction_plan.get("knowledge_query") or []
@@ -468,7 +473,11 @@ def _assignment_implementation_skills(
         skill_id = str(item.get("skill_id") or "").strip().lower()
         if not skill_id or any(row["skill_id"] == skill_id for row in result):
             continue
-        if baseline_trial == 1 and skill_id != "fjsp-solver-foundation-worker":
+        if (
+            baseline_trial == 1
+            and skill_id != "fjsp-solver-foundation-worker"
+            and not (item.get("always_include") and item.get("required_features"))
+        ):
             continue
         if baseline_trial == 2 and skill_id == "fjsp-experiment-design-worker":
             continue
@@ -527,10 +536,13 @@ def _assignment_read_set(
         mode == "improvement"
         and lane_policy.get("mechanism_selection") == "delegated_to_worker"
     )
+    focused_retry = mode == "repair" or (
+        baseline_trial is not None and baseline_trial > 1
+    )
     for path in _unique_strings(evaluator_protocol.get("provided_project_read_paths") or [])[:200]:
         safe_path = _safe_read_path(path)
         if (
-            delegated_improvement
+            (delegated_improvement or focused_retry)
             and safe_path
             and safe_path
             not in {
@@ -647,8 +659,11 @@ def _assignment_read_set(
             "required": True,
         }
     )
-    rows.extend(_staged_instance_read_set(context))
-    if mode == "baseline" or lane_policy.get("mechanism_selection") != "delegated_to_worker":
+    if not focused_retry:
+        rows.extend(_staged_instance_read_set(context))
+    if not focused_retry and (
+        mode == "baseline" or lane_policy.get("mechanism_selection") != "delegated_to_worker"
+    ):
         rows.extend(_staged_document_read_set(context))
     if high_flexibility and baseline_trial is not None:
         rows = [
@@ -838,6 +853,11 @@ def _assignment_deliverables(
     declared = [item for item in direction_plan.get("deliverables") or [] if isinstance(item, dict)]
     if declared:
         remaining = set(implementation_order)
+        declared_ids = {
+            str(item.get("id") or item.get("component_id") or f"deliverable_{index}")
+            for index, item in enumerate(declared[:20])
+        }
+        selected_ids = declared_ids.intersection(remaining)
         return [
             {
                 "id": str(item.get("id") or item.get("component_id") or f"deliverable_{index}"),
@@ -845,8 +865,8 @@ def _assignment_deliverables(
                 "evidence_required": str(item.get("evidence_required") or "Reachable source and bounded check.")[:800],
             }
             for index, item in enumerate(declared[:20])
-            if not remaining
-            or str(item.get("id") or item.get("component_id") or f"deliverable_{index}") in remaining
+            if not selected_ids
+            or str(item.get("id") or item.get("component_id") or f"deliverable_{index}") in selected_ids
         ]
     by_id = {str(item.get("component_id") or ""): item for item in component_rows}
     result = []
@@ -892,6 +912,24 @@ def _repair_deliverables(feedback: dict[str, Any]) -> list[dict[str, str]]:
     suggestions = _strings(targets.get("agentic_judgment_suggestions"), limit=4)
     compile_errors = targets.get("python_compile_errors") if isinstance(targets.get("python_compile_errors"), dict) else {}
     rows: list[dict[str, str]] = []
+    exact_failure = (
+        targets.get("exact_execution_failure")
+        if isinstance(targets.get("exact_execution_failure"), dict)
+        else {}
+    )
+    if exact_failure:
+        rows.append(
+            {
+                "id": "repair_exact_execution_not_exercised",
+                "behavior": str(
+                    exact_failure.get("required_evidence")
+                    or "Implement and run the assigned bounded exact solver path."
+                )[:800],
+                "evidence_required": (
+                    "The bounded smoke reports diagnostics.cp_sat_called=true and exact solver status/model/runtime evidence."
+                ),
+            }
+        )
     concrete_errors = _error_strings(
         targets.get("result_revalidation_top_errors")
         or targets.get("diagnostic_smoke_top_errors"),

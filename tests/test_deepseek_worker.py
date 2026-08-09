@@ -12,6 +12,7 @@ from harness_agent.workers.deepseek_worker import (
     compact_algorithm_semantic_review_for_prompt,
     compact_loop_feedback_for_prompt,
     compact_priority_knowledge_cards,
+    code_edit_placeholder_reason,
     extract_json_object,
     incumbent_method_stage_for_worker,
     insert_after_anchor,
@@ -24,6 +25,21 @@ from harness_agent.workers.deepseek_worker import (
 
 
 class DeepSeekWorkerProposalAuditTests(unittest.TestCase):
+    def test_full_file_placeholder_is_rejected_before_apply(self) -> None:
+        reason = code_edit_placeholder_reason(
+            {
+                "changes": [
+                    {
+                        "path": "examples/agent_generated_fjsp_solver.py",
+                        "action": "create_or_replace",
+                        "content": "...full file...",
+                    }
+                ]
+            }
+        )
+
+        self.assertIn("code placeholder", reason or "")
+
     def test_semantic_review_compaction_preserves_incomplete_method_coverage(self) -> None:
         compact = compact_algorithm_semantic_review_for_prompt(
             {

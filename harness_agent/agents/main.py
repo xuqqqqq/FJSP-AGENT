@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from harness_agent.context.compaction import compact_json, compact_source_records, stable_worker_context_json
+from harness_agent.context.knowledge import method_package_catalog
 from harness_agent.context.loader import load_context_dict
 from harness_agent.context.planning_packet import project_research_state
 from harness_agent.context.worker import build_worker_assignment, write_worker_assignment
@@ -206,6 +207,12 @@ class EvidenceDrivenMainAgent:
             round_index=request.round_index,
             loop_feedback=request.loop_feedback,
         )
+        plan = configure_structured_worker_lanes(
+            plan,
+            round_index=request.round_index,
+            loop_feedback=request.loop_feedback,
+            context=context,
+        )
         plan["planning_contract_status"] = fallback_planning_contract_status(
             plan,
             loop_feedback=request.loop_feedback,
@@ -280,11 +287,23 @@ def fallback_tournament_families(context: dict[str, Any], *, limit: int = 3) -> 
     """Expose compatible catalog hypotheses without selecting a family winner."""
 
     catalog = context.get("method_family_catalog") if isinstance(context.get("method_family_catalog"), dict) else {}
+    families = [item for item in catalog.get("families") or [] if isinstance(item, dict)]
+    preference = _fallback_method_family_preference(context)
+    if preference:
+        rank = {family_id: index for index, family_id in enumerate(preference)}
+        families = [
+            item
+            for _index, item in sorted(
+                enumerate(families),
+                key=lambda pair: (
+                    rank.get(str(pair[1].get("family_id") or ""), len(rank)),
+                    pair[0],
+                ),
+            )
+        ]
     chosen: list[dict[str, str]] = []
     chosen_ids: set[str] = set()
-    for item in catalog.get("families") or []:
-        if not isinstance(item, dict):
-            continue
+    for item in families:
         family_id = str(item.get("family_id") or "").strip()
         if not family_id or family_id in chosen_ids:
             continue
@@ -296,6 +315,61 @@ def fallback_tournament_families(context: dict[str, Any], *, limit: int = 3) -> 
         if len(chosen) >= max(2, min(4, limit)):
             break
     return chosen
+
+
+def _fallback_method_family_preference(context: dict[str, Any]) -> list[str]:
+    """Provide orthogonal fallback challengers from measurable search pressure."""
+
+    diagnostics = context.get("instance_diagnostics")
+    diagnostics = diagnostics if isinstance(diagnostics, dict) else {}
+    summary = diagnostics.get("summary") if isinstance(diagnostics.get("summary"), dict) else {}
+    instances = [item for item in diagnostics.get("instances") or [] if isinstance(item, dict)]
+
+    avg_candidates = _first_float(summary, "avg_candidate_count", "average_candidate_count")
+    flexible_ratio = _first_float(
+        summary,
+        "avg_flexible_operation_ratio",
+        "flexible_operation_ratio",
+    )
+    if avg_candidates is None:
+        avg_candidates = _average_instance_metric(instances, "avg_candidate_count")
+    if flexible_ratio is None:
+        flexible_ratio = _average_instance_metric(instances, "flexible_operation_ratio")
+
+    low_flexibility = bool(
+        (avg_candidates is not None and avg_candidates <= 1.75)
+        or (flexible_ratio is not None and flexible_ratio <= 0.25)
+    )
+    if low_flexibility:
+        return [
+            "coupled_local_search",
+            "exact_hybrid",
+            "population_memetic",
+            "constructive_search",
+        ]
+    return []
+
+
+def _first_float(mapping: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value = mapping.get(key)
+        if value is None:
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _average_instance_metric(instances: list[dict[str, Any]], key: str) -> float | None:
+    values = []
+    for item in instances:
+        try:
+            values.append(float(item[key]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return sum(values) / len(values) if values else None
 
 
 def fallback_tournament_variants(
@@ -420,8 +494,9 @@ class DeepSeekMainAgent:
                 {"role": "user", "content": prompt},
             ],
             temperature=0.15,
-            max_tokens=3500,
+            max_tokens=7000,
             json_mode=True,
+            stream=True,
         )
         usage = response.usage
         try:
@@ -444,8 +519,9 @@ class DeepSeekMainAgent:
                     },
                 ],
                 temperature=0.0,
-                max_tokens=3500,
+                max_tokens=7000,
                 json_mode=True,
+                stream=True,
             )
             (request.output_dir / "main_agent_json_retry.json").write_text(retry.content, encoding="utf-8")
             usage = _merge_usage(response.usage, retry.usage)
@@ -461,6 +537,12 @@ class DeepSeekMainAgent:
             plan,
             round_index=request.round_index,
             loop_feedback=request.loop_feedback,
+        )
+        plan = configure_structured_worker_lanes(
+            plan,
+            round_index=request.round_index,
+            loop_feedback=request.loop_feedback,
+            context=context,
         )
         plan["planner"] = "deepseek_main_agent"
         request.output_dir.mkdir(parents=True, exist_ok=True)
@@ -485,6 +567,298 @@ class DeepSeekMainAgent:
 
     def reflect_on_round(self, request: RoundReflectionRequest) -> dict[str, Any]:
         return self.fallback.reflect_on_round(request)
+
+
+def configure_structured_worker_lanes(
+    plan: dict[str, Any],
+    *,
+    round_index: int,
+    loop_feedback: dict[str, Any],
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Give structured-API Fast Main the same bounded lane contract as OpenCode Fast Main."""
+
+    if round_index < 0:
+        return plan
+    competition = (
+        loop_feedback.get("competition")
+        if isinstance(loop_feedback.get("competition"), dict)
+        else {}
+    )
+    max_workers = max(1, min(4, _positive_int(competition.get("max_competing_workers"), default=1)))
+    if context is not None:
+        plan = configure_exact_probe_tournament(
+            plan,
+            context=context,
+            max_workers=max_workers,
+        )
+    tournament = str(plan.get("experiment_stage") or "") == "research_tournament"
+    exact_probe = (
+        isinstance(plan.get("exact_probe_policy"), dict)
+        and bool(plan["exact_probe_policy"].get("reserved"))
+    )
+    plan["worker_lane_policy"] = {
+        "schema_version": 1,
+        "mechanism_selection": (
+            "family_hypothesis_tournament"
+            if tournament
+            else "exact_probe_tournament"
+            if exact_probe
+            else "delegated_to_worker"
+        ),
+        "lane_count": max_workers,
+        "roles": [
+            "direct_evidence",
+            "minimal_risk",
+            "orthogonal_mechanism",
+            "diagnostic_value",
+        ][:max_workers],
+    }
+    if not tournament and not exact_probe:
+        plan["candidate_variants"] = []
+    plan["activation_checks"] = []
+    plan["activation_contract_version"] = 0
+    plan["planning_contract_status"] = {
+        "schema_version": 1,
+        "status": "satisfied",
+        "source": "structured_fast_direction_delegation",
+        "mechanism_selection": plan["worker_lane_policy"]["mechanism_selection"],
+        "maximum_worker_lanes": max_workers,
+        "planned_worker_lanes": max_workers,
+        "actual_started_candidates_source": "competition_result.candidates",
+        "activation_mode": "worker_owned_advisory",
+        "promotion_policy": "core_and_semantic_gates",
+    }
+    return plan
+
+
+def should_reserve_exact_probe(context: dict[str, Any], *, max_workers: int) -> bool:
+    """Reserve bounded exact evidence where a full or local CP model is plausibly cheap."""
+
+    if max_workers < 2:
+        return False
+    diagnostics = context.get("instance_diagnostics") if isinstance(context.get("instance_diagnostics"), dict) else {}
+    summary = diagnostics.get("summary") if isinstance(diagnostics.get("summary"), dict) else {}
+    instances = [item for item in diagnostics.get("instances") or [] if isinstance(item, dict)]
+    max_operations = int(summary.get("max_operation_count") or 0)
+    if max_operations <= 0:
+        max_operations = max((int(item.get("operation_count") or 0) for item in instances), default=0)
+    avg_candidates = _first_float(summary, "avg_candidate_count", "average_candidate_count")
+    flexible_ratio = _first_float(summary, "avg_flexible_operation_ratio", "flexible_operation_ratio")
+    if avg_candidates is None:
+        avg_candidates = _average_instance_metric(instances, "avg_candidate_count")
+    if flexible_ratio is None:
+        flexible_ratio = _average_instance_metric(instances, "flexible_operation_ratio")
+    low_flexibility = bool(
+        (avg_candidates is not None and avg_candidates <= 1.75)
+        or (flexible_ratio is not None and flexible_ratio <= 0.25)
+    )
+    estimated_optional_intervals = max(
+        (
+            int(item.get("operation_count") or 0)
+            * float(item.get("avg_candidate_count") or avg_candidates or 0.0)
+            for item in instances
+        ),
+        default=max_operations * float(avg_candidates or 0.0),
+    )
+    max_unavailability_intervals = int(summary.get("max_unavailability_interval_count") or 0)
+    has_sequence_dependent_setup = bool(
+        int(summary.get("sdst_instance_count") or 0) > 0
+        or any(
+            str(item.get("setup_time_kind") or "none").strip().lower() != "none"
+            for item in instances
+        )
+    )
+    small_instance = 0 < max_operations <= 60
+    bounded_low_flexibility = 0 < max_operations <= 250 and low_flexibility
+    bounded_interval_model = bool(
+        0 < max_operations <= 250
+        and 0 < estimated_optional_intervals <= 1200
+        and estimated_optional_intervals + max_unavailability_intervals <= 1400
+        and not has_sequence_dependent_setup
+    )
+    family_catalog = (
+        context.get("method_family_catalog")
+        if isinstance(context.get("method_family_catalog"), dict)
+        else {}
+    )
+    exact_available = any(
+        isinstance(item, dict) and str(item.get("family_id") or "") == "exact_hybrid"
+        for item in family_catalog.get("families") or []
+    )
+    return exact_available and (small_instance or bounded_low_flexibility or bounded_interval_model)
+
+
+def _exact_lane_avoid(avoid: Any) -> list[str]:
+    """Do not let a primary family's CP exclusion disable an exact challenger."""
+
+    exact_markers = (
+        "cp-sat",
+        "cp_sat",
+        "cpsat",
+        "exact_hybrid",
+        "exact method",
+        "exact model",
+        "exact solver",
+        "精确模型",
+        "精确求解",
+    )
+    return [
+        text
+        for item in (avoid if isinstance(avoid, list) else [])
+        if (text := str(item).strip()) and not any(marker in text.lower() for marker in exact_markers)
+    ]
+
+
+def configure_exact_probe_tournament(
+    plan: dict[str, Any],
+    *,
+    context: dict[str, Any],
+    max_workers: int,
+) -> dict[str, Any]:
+    """Compile one independently bound exact lane without replacing Main's primary family."""
+
+    primary = str(plan.get("method_family") or "").strip()
+    if (
+        primary == "exact_hybrid"
+        or str(plan.get("experiment_stage") or "") == "research_tournament"
+        or not should_reserve_exact_probe(context, max_workers=max_workers)
+    ):
+        return plan
+    family_catalog = (
+        context.get("method_family_catalog")
+        if isinstance(context.get("method_family_catalog"), dict)
+        else {}
+    )
+    available = [
+        str(item.get("family_id") or "").strip()
+        for item in family_catalog.get("families") or []
+        if isinstance(item, dict) and str(item.get("family_id") or "").strip()
+    ]
+    ordered = [primary, "exact_hybrid"]
+    ordered.extend(
+        family for family in ("coupled_local_search", "population_memetic", "constructive_search")
+        if family not in ordered
+    )
+    selected = [family for family in ordered if family in available][:max_workers]
+    if "exact_hybrid" not in selected:
+        selected[-1:] = ["exact_hybrid"]
+    active_catalog = (
+        context.get("method_package_catalog")
+        if isinstance(context.get("method_package_catalog"), dict)
+        else {}
+    )
+    active_features = [str(item) for item in active_catalog.get("active_features") or []]
+    task = context.get("task") if isinstance(context.get("task"), dict) else {}
+    variants: list[dict[str, Any]] = []
+    for index, family in enumerate(selected):
+        if family == primary:
+            bound = dict(plan)
+        else:
+            query = [family, *active_features]
+            catalog = method_package_catalog(
+                problem_family=str(task.get("problem_family") or ""),
+                active_features=active_features,
+                knowledge_query_tags=query,
+            )
+            package_id = str(catalog.get("recommended_package_id") or "")
+            package_context = dict(context)
+            package_context["method_package_catalog"] = catalog
+            bound = bind_direction_plan_to_method_catalog(
+                {
+                    **plan,
+                    "method_family": family,
+                    "method_families": [{"id": family, "role": "primary"}],
+                    "method_package_id": package_id,
+                    "knowledge_query": query,
+                    "candidate_variants": [],
+                },
+                context=package_context,
+            )
+        variant = {
+            "candidate_id": f"family-{index:02d}-{family}",
+            "title": f"{family} bounded probe",
+            "hypothesis": (
+                "A bounded CP-SAT model or exact neighborhood can close a useful lower bound quickly on this instance."
+                if family == "exact_hybrid"
+                else str(plan.get("hypothesis") or f"Probe {family} against the incumbent.")
+            ),
+            "worker_objective": (
+                "Build and actually run a bounded exact model. When the estimated interval model is bounded, try the complete active-variant model first; report solver status, objective bound, model size, runtime, and fixed-evaluator legality. Preserve the incumbent on timeout or unavailable dependency."
+                if family == "exact_hybrid"
+                else str(plan.get("worker_objective") or plan.get("hypothesis") or "Implement one bounded family probe.")
+            ),
+            "strategy_type": (
+                "path_selection"
+                if family == "exact_hybrid"
+                else str(plan.get("strategy_type") or "family_research_probe")
+            ),
+            "method_family": family,
+            "method_families": [{"id": family, "role": "primary"}],
+            "knowledge_query": bound.get("knowledge_query") or [],
+            "method_package_id": bound.get("method_package_id") or "",
+            "experiment_stage": str(plan.get("experiment_stage") or "probe"),
+            "change_scope": [
+                "Implement one bounded family-specific probe while preserving the legal incumbent fallback."
+            ],
+            "implementation_order": (
+                ["exact_active_variant_cp_sat_probe"] if family == "exact_hybrid" else []
+            ),
+            "deliverables": (
+                [
+                    {
+                        "id": "exact_active_variant_cp_sat_probe",
+                        "behavior": (
+                            "Build and run one bounded complete active-variant CP-SAT probe, including fixed "
+                            "machine downtime intervals in NoOverlap, while retaining the legal incumbent fallback. "
+                            "Use bounded parallel CP-SAT search when multiple CPU cores are available; do not force "
+                            "single-thread search solely for deterministic replay."
+                        ),
+                        "evidence_required": (
+                            "Report cp_sat_called=true, solver status, objective/bound, model variable/constraint/"
+                            "interval counts, runtime, num_search_workers, and fixed-evaluator legality."
+                        ),
+                    }
+                ]
+                if family == "exact_hybrid"
+                else []
+            ),
+            "avoid": (
+                _exact_lane_avoid(plan.get("avoid"))
+                if family == "exact_hybrid"
+                else list(plan.get("avoid") or [])
+            ),
+            "activation_checks": [],
+        }
+        for field in (
+            "implementation_order",
+            "deliverables",
+            "knowledge_paths",
+            "implementation_bundle",
+            "method_package_selection",
+            "acceptance_checks",
+            "checkpoint_checks",
+        ):
+            if family == "exact_hybrid" and field in {"implementation_order", "deliverables"}:
+                continue
+            if bound.get(field) not in (None, "", [], {}):
+                variant[field] = bound[field]
+        variants.append(variant)
+    result = dict(plan)
+    result["candidate_variants"] = variants
+    result["exact_probe_policy"] = {
+        "reserved": True,
+        "reason": "small_instance_or_bounded_exact_model",
+        "operation_threshold_small": 60,
+        "operation_threshold_low_flexibility": 250,
+        "operation_threshold_interval_model": 250,
+        "optional_interval_threshold": 1200,
+        "interval_plus_downtime_threshold": 1400,
+        "exact_candidate_id": next(
+            item["candidate_id"] for item in variants if item["method_family"] == "exact_hybrid"
+        ),
+    }
+    return result
 
 
 def normalize_direction_plan(value: Any, *, round_index: int) -> dict[str, Any]:
@@ -604,12 +978,35 @@ def normalize_candidate_variants(value: Any, *, limit: int = 4) -> list[dict[str
 def normalize_method_families(value: Any, legacy_primary: Any = None, *, limit: int = 4) -> list[dict[str, str]]:
     """Keep ordered canonical family IDs while accepting legacy single-family plans."""
 
+    aliases = {
+        "baseline_constructor": "constructive_search",
+        "constructive": "constructive_search",
+        "dispatch_rule": "constructive_search",
+        "dispatch_rules": "constructive_search",
+        "fjsp_dispatch_rule": "constructive_search",
+    }
     rows = value if isinstance(value, list) else [legacy_primary] if legacy_primary else []
     result: list[dict[str, str]] = []
     for item in rows:
         family_id = str(
             (item.get("id") or item.get("family_id")) if isinstance(item, dict) else item or ""
         ).strip().lower()[:80]
+        family_id = aliases.get(family_id, family_id)
+        if family_id not in {
+            "constructive_search",
+            "coupled_local_search",
+            "exact_hybrid",
+            "population_memetic",
+        }:
+            terms = set(filter(None, re.split(r"[^a-z0-9]+", family_id)))
+            if terms.intersection({"constructive", "construction", "dispatch", "beam"}):
+                family_id = "constructive_search"
+            elif terms.intersection({"critical", "neighborhood", "local", "tabu", "vnd", "ils"}):
+                family_id = "coupled_local_search"
+            elif terms.intersection({"exact", "hybrid", "cp", "cpsat", "sat"}):
+                family_id = "exact_hybrid"
+            elif terms.intersection({"population", "genetic", "memetic", "evolutionary"}):
+                family_id = "population_memetic"
         if not family_id or any(row["id"] == family_id for row in result):
             continue
         result.append({"id": family_id, "role": "primary" if not result else "complementary"})

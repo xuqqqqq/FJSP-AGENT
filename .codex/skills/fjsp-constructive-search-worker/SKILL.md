@@ -29,6 +29,11 @@ description: 为受控 Coding Agent 实现 FJSP 多规则构造、空闲间隙�
 
 - 不照抄模板的固定结构、评分或宽度。
 - 不把占位宽度或名义多起点当作“已实现搜索”。
+- 不因“没有 incumbent”或“柔性低”自动选择本方法族。没有 incumbent 只要求 foundation
+  先产出合法 warm start；低柔性通常意味着机器分配近似固定、机器顺序压力更强，应优先让
+  coupled local search、真实 CP-SAT/CP-LNS 或 sequence-oriented memetic 进入正式竞争。
+- 合法 baseline 已存在且构造候选连续无提升时，本方法族不得仅凭默认优先级继续继承；除非
+  有实测证据表明 ready-list、gap、Beam 覆盖或入口多样性仍是主要缺口。
 - 若同时授权局部搜索 Skill，只输出结构不同的可行入口池，不重复实现后续局部改进。
 
 ## 交付物

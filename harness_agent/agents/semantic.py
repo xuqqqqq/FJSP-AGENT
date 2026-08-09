@@ -179,6 +179,7 @@ class DeepSeekAlgorithmSemanticReviewer:
                 temperature=0.05,
                 max_tokens=9000,
                 json_mode=True,
+                stream=True,
             )
             raw_path.write_text(response.content + "\n", encoding="utf-8")
             usage = response.usage
@@ -208,6 +209,7 @@ class DeepSeekAlgorithmSemanticReviewer:
                     temperature=0.0,
                     max_tokens=9000,
                     json_mode=True,
+                    stream=True,
                 )
                 retry_path.write_text(retry.content + "\n", encoding="utf-8")
                 artifacts["json_retry_response"] = str(retry_path.resolve())

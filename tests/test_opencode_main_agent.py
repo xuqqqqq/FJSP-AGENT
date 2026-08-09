@@ -518,11 +518,15 @@ class OpenCodeMainAgentTests(unittest.TestCase):
             self.assertEqual("constructive_search", plan["method_family"])
             self.assertEqual(["initialization", "decoder"], plan["knowledge_query"])
             self.assertEqual("快速构造实验", plan["title"])
-            self.assertEqual([], plan["candidate_variants"])
+            self.assertEqual(4, len(plan["candidate_variants"]))
+            self.assertIn(
+                "exact_hybrid",
+                [item["method_family"] for item in plan["candidate_variants"]],
+            )
             self.assertEqual([], plan["activation_checks"])
             self.assertEqual(0, plan["activation_contract_version"])
             self.assertEqual(
-                "delegated_to_worker",
+                "exact_probe_tournament",
                 plan["worker_lane_policy"]["mechanism_selection"],
             )
             self.assertEqual(4, plan["worker_lane_policy"]["lane_count"])
@@ -769,9 +773,16 @@ class OpenCodeMainAgentTests(unittest.TestCase):
                 )
 
             self.assertEqual("evidence_fallback", plan["planner"])
-            self.assertEqual("delegated_to_worker", plan["worker_lane_policy"]["mechanism_selection"])
+            self.assertEqual(
+                "exact_probe_tournament",
+                plan["worker_lane_policy"]["mechanism_selection"],
+            )
             self.assertEqual(3, plan["worker_lane_policy"]["lane_count"])
-            self.assertEqual([], plan["candidate_variants"])
+            self.assertEqual(3, len(plan["candidate_variants"]))
+            self.assertIn(
+                "exact_hybrid",
+                [item["method_family"] for item in plan["candidate_variants"]],
+            )
             self.assertEqual([], plan["activation_checks"])
             self.assertEqual("standard_fjsp_awls_hgtsa", plan["method_package_id"])
             self.assertEqual(
