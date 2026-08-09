@@ -3407,6 +3407,47 @@ class WorkerLoopTests(unittest.TestCase):
                 }
             },
         )
+        interval_count_alias = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="interval-count-alias",
+            best_metrics={
+                "solver_evidence": {
+                    "diagnostics": {
+                        "exact_probe": {
+                            "cp_sat_called": True,
+                            "solver_status": "OPTIMAL",
+                            "model_variables": 331,
+                            "model_constraints": 452,
+                            "interval_count": 115,
+                            "estimated_interval_count": 115,
+                            "runtime_error": None,
+                        }
+                    }
+                }
+            },
+        )
+        estimated_intervals_only = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="estimated-intervals-only",
+            best_metrics={
+                "solver_evidence": {
+                    "diagnostics": {
+                        "exact_probe": {
+                            "cp_sat_called": True,
+                            "solver_status": "OPTIMAL",
+                            "model_variables": 331,
+                            "model_constraints": 452,
+                            "estimated_interval_count": 115,
+                            "runtime_error": None,
+                        }
+                    }
+                }
+            },
+        )
 
         self.assertFalse(
             evaluate_exact_solver_execution({"method_family": "exact_hybrid"}, missing)["passed"]
@@ -3438,6 +3479,21 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertIn(
             {"variables": 2149, "constraints": 3029, "intervals": 813},
             observed_result["observed_model_sizes"],
+        )
+        alias_result = evaluate_exact_solver_execution(
+            {"method_family": "exact_hybrid"}, interval_count_alias
+        )
+        self.assertTrue(alias_result["passed"])
+        self.assertIn(
+            {"variables": 331, "constraints": 452, "intervals": 115},
+            alias_result["observed_model_sizes"],
+        )
+        estimated_result = evaluate_exact_solver_execution(
+            {"method_family": "exact_hybrid"}, estimated_intervals_only
+        )
+        self.assertFalse(estimated_result["passed"])
+        self.assertEqual(
+            "exact_hybrid_model_size_not_observed", estimated_result["reason"]
         )
         rejected = evaluate_exact_solver_execution(
             {"method_family": "exact_hybrid"}, runtime_error

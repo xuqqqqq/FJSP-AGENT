@@ -69,6 +69,10 @@ description: 为受控 Coding Agent 实现 FJSP 的 CP-SAT、局部精确修复�
 - `cp_sat_called=true` 只能表示代码已到达 `CpSolver.solve/Solve` 调用；仅导入 OR-Tools、创建
   `CpModel` 或在建模阶段异常都必须报告 `cp_sat_called=false`。同时报告非零模型变量、约束、
   interval 数量和 `optimal/feasible/unknown/infeasible` 状态；`runtime_error` 不算 exact 已执行。
+- 模型规模优先使用规范结构
+  `model_size={"variables": ..., "constraints": ..., "intervals": ...}`。兼容字段
+  `interval_count` 必须表示实际创建的 interval 数量；只有 `estimated_interval_count` 而没有实际
+  interval 计数时，不得声称 exact 模型已完整执行。
 - 整个可选 exact probe（建模、`Solve`、状态读取和 schedule 提取）必须由异常边界保护；任何
   API、模型或提取异常都记录为 `runtime_error` 并返回 `schedule=None`，继续输出进入 probe 前
   已验证的 incumbent。exact 模块自身异常不得令独立 solver 进程退出非零。

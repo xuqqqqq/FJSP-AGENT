@@ -2198,8 +2198,20 @@ def evaluate_exact_solver_execution(
                 _first_nonnegative_int(nested_model_size, "constraints", "model_constraints", "num_constraints"),
             ),
             "intervals": max(
-                _first_nonnegative_int(row, "model_intervals", "num_intervals", "intervals"),
-                _first_nonnegative_int(nested_model_size, "intervals", "model_intervals", "num_intervals"),
+                _first_nonnegative_int(
+                    row,
+                    "model_intervals",
+                    "num_intervals",
+                    "intervals",
+                    "interval_count",
+                ),
+                _first_nonnegative_int(
+                    nested_model_size,
+                    "intervals",
+                    "model_intervals",
+                    "num_intervals",
+                    "interval_count",
+                ),
             ),
         }
         model_sizes.append(sizes)
@@ -3195,7 +3207,9 @@ def collect_current_round_repair_targets(attempts: list[dict[str, Any]]) -> dict
                 "runtime_errors": (exact_execution.get("runtime_errors") or [])[:8],
                 "required_evidence": (
                     "Run the bounded CP-SAT path and emit diagnostics.cp_sat_called=true together with status, "
-                    "objective/bound, model size, runtime, and num_search_workers. Repair any reported exact "
+                    "objective/bound, model_size={variables,constraints,intervals}, runtime, and "
+                    "num_search_workers. The legacy interval_count key is also accepted, but an estimated "
+                    "interval count alone is not execution evidence. Repair any reported exact "
                     "candidate self-check/runtime errors before changing budget. Bind optional-interval arguments "
                     "by OR-Tools API semantic keywords rather than positional order or solver-local variable names; "
                     "verify that every selected operation's extracted end minus start equals its selected processing "
