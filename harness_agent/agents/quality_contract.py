@@ -62,6 +62,8 @@ def build_agent_generated_solver_quality_contract(context: dict[str, Any]) -> di
         variant_required.append("release_time_parser_and_job_ready_guard")
     if "machine_initial_availability" in features:
         variant_required.append("machine_initial_availability_guard")
+    if "reentrant_route" in features or "loop_expansion" in features:
+        variant_required.append("reentrant_loop_parser_and_expansion_guard")
     if "release_dates" in features:
         variant_required.append("release_date_guard")
     if "due_dates" in features:
@@ -217,6 +219,10 @@ _CAPABILITY_PLAYBOOK = {
         "evidence": "Cite the machine-availability tail parser and the construction/full-decode path that prevents selected-machine operations from starting before that machine's initial available time.",
         "repair": "Parse every machine initial available time and apply it as a selected-machine start lower bound in construction, full decoding, move evaluation, and output self-checks.",
     },
+    "reentrant_loop_parser_and_expansion_guard": {
+        "evidence": "Cite the exact job_count*3 tail parser, loop boundary/repeat validation, pre + body*repeat + post expansion, continuous expanded op_id assignment, and complete expanded-operation output guard.",
+        "repair": "Consume every loop triple after the standard body, validate its job-local bounds, expand every pass before construction/search, and require exactly one output record for every expanded (job_id, op_id). Never ignore trailing loop tokens or schedule only the original route.",
+    },
     "release_date_guard": {
         "evidence": "Cite the guard that prevents an operation or job from starting before its parsed release time/date.",
         "repair": "Initialize readiness from release dates and validate every output start against the parsed release constraint.",
@@ -327,6 +333,15 @@ def extract_variant_features(context: dict[str, Any]) -> set[str]:
             if isinstance(item, dict)
         )
     )
+    reentrant_from_diagnostics = (
+        int(summary.get("reentrant_instance_count") or 0) > 0
+        or any(
+            str(item.get("variant") or "").lower() == "fjsp_reentrant"
+            or int(item.get("reentrant_loop_count") or 0) > 0
+            for item in diagnostics.get("instances") or []
+            if isinstance(item, dict)
+        )
+    )
     active_text = _active_problem_feature_text(
         context,
         include_documents=not diagnostics_available,
@@ -345,6 +360,10 @@ def extract_variant_features(context: dict[str, Any]) -> set[str]:
         not diagnostics_available and _mentions_machine_availability(active_text)
     ):
         features.update({"machine_availability", "machine_calendar"})
+    if reentrant_from_diagnostics or (
+        not diagnostics_available and _mentions_reentrant(active_text)
+    ):
+        features.update({"reentrant_route", "loop_expansion"})
     if _has_any_pattern(active_text, [r"\bno[-_\s]?wait\b"]):
         features.add("no_wait")
     if _has_any_pattern(active_text, [r"\btime[-_\s]?lag\b"]):
@@ -412,6 +431,18 @@ def _mentions_machine_availability(text: str) -> bool:
             r"维护",
             r"停机",
             r"不可用",
+        ],
+    )
+
+
+def _mentions_reentrant(text: str) -> bool:
+    return _has_any_pattern(
+        text,
+        [
+            r"\bfjsp[-_]?reentrant\b",
+            r"\breentrant[-_\s]?(?:fjsp|route|loop|scheduling)\b",
+            r"\bre[-_\s]?entrant\b",
+            r"可重入",
         ],
     )
 

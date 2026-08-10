@@ -72,6 +72,8 @@ _PROVIDERS: dict[str, DomainContextProvider] = {
     "fjsp_release_time": StandardFjspContextProvider(),
     "fjsp_machine_availability": StandardFjspContextProvider(),
     "fjsp_priority": StandardFjspContextProvider(),
+    "fjsp_reentrant": StandardFjspContextProvider(),
+    "reentrant_fjsp": StandardFjspContextProvider(),
     "fjsp_distributed_transfer": DistributedFjspContextProvider(),
 }
 _GENERIC_PROVIDER = GenericContextProvider()

@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "contract_id": "fjsp_reentrant_adaptation",
+  "mode": "complete_method_package",
+  "required_components": [
+    {
+      "component_id": "reentrant_tail_parser",
+      "required_behaviors": [
+        "Consume exactly job_count triples after the standard body and reject all missing or trailing tokens.",
+        "Validate each job-local loop boundary and repeat count against the original route."
+      ]
+    },
+    {
+      "component_id": "expanded_route_identity",
+      "required_behaviors": [
+        "Expand every route as pre plus loop_body repeated repeat times plus post before search.",
+        "Assign continuous expanded op_id values and preserve independent machine choice per pass."
+      ]
+    },
+    {
+      "component_id": "expanded_complete_decoder",
+      "required_behaviors": [
+        "Construct and fully decode every expanded operation under job precedence and machine capacity.",
+        "Reject partial, duplicate, original-route-only, or stale cached schedules before scoring."
+      ]
+    },
+    {
+      "component_id": "reentrant_search_pressure",
+      "required_behaviors": [
+        "Use at least one bounded repeated-pass-aware pressure in construction or search.",
+        "Retain complementary generic FJSP rules and complete fixed-evaluator verification."
+      ]
+    }
+  ],
+  "coupled_groups": [
+    {
+      "group_id": "reentrant_route_semantics",
+      "component_ids": [
+        "reentrant_tail_parser",
+        "expanded_route_identity",
+        "expanded_complete_decoder",
+        "reentrant_search_pressure"
+      ],
+      "rule": "Parsing, expanded identities, decoding, search, and output coverage must describe the same expanded route."
+    }
+  ],
+  "forbidden_shortcuts": [
+    "ignore_reentrant_tail",
+    "schedule_only_original_operations",
+    "reuse_source_op_id_across_passes",
+    "force_all_passes_to_one_machine",
+    "invent_uncontracted_rework_or_batch_constraints",
+    "modify_evaluator"
+  ]
+}

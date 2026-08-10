@@ -416,7 +416,7 @@ def is_supported_starter_instance(path: Path) -> bool:
     lowered = path.name.casefold()
     compound_variant = any(
         marker in lowered
-        for marker in (".mitfjsp.", ".rtfjsp.", ".nfafjsp", ".nfa.", ".priority.")
+        for marker in (".mitfjsp.", ".rtfjsp.", ".nfafjsp", ".nfa.", ".priority.", ".rjsp.")
     )
     named_text_variant = path.suffix.lower() == ".txt" and lowered.startswith(
         ("ffcr", "nfa", "fjsp_nfa", "dfm")
@@ -2249,10 +2249,20 @@ def inspect_instance_profile(instance_path: Path) -> dict[str, Any]:
             "has_job_priorities": parsed.has_job_priorities,
             "priority_job_count": len(parsed.priority_job_ids),
             "priority_job_ratio": len(parsed.priority_job_ids) / max(1, parsed.job_count),
+            "has_reentrant_routes": parsed.has_reentrant_routes,
+            "original_operation_count": parsed.original_operation_count,
+            "reentrant_added_operation_count": parsed.operation_count - parsed.original_operation_count,
+            "reentrant_expansion_ratio": parsed.operation_count / max(1, parsed.original_operation_count),
+            "reentrant_loop_count": len(parsed.reentrant_loops),
+            "reentrant_loop_body_max": max(
+                (loop.loop_body_size for loop in parsed.reentrant_loops), default=0
+            ),
+            "reentrant_repeat_max": max((loop.repeat for loop in parsed.reentrant_loops), default=0),
             "fixed_evaluator": {
                 "fjsp_release_time": "examples/fjsp_release_time_evaluator.py",
                 "fjsp_machine_availability": "examples/fjsp_machine_availability_evaluator.py",
                 "fjsp_priority": "examples/fjsp_priority_evaluator.py",
+                "fjsp_reentrant": "examples/fjsp_reentrant_evaluator.py",
             }.get(parsed.variant, "examples/standard_fjsp_evaluator.py"),
             "objective_names": (
                 ["makespan", "priority_completion_time"]
@@ -2353,6 +2363,8 @@ def method_package_features(profile: dict[str, Any]) -> list[str]:
         return ["fjsp_machine_availability", "machine_availability", "machine_calendar", "maintenance"]
     if bool(profile.get("has_job_priorities")):
         return ["fjsp_priority", "job_priority", "priority_completion_time", "priority_aware_search"]
+    if bool(profile.get("has_reentrant_routes")):
+        return ["fjsp_reentrant", "reentrant_route", "loop_expansion", "reentrant_aware_search"]
     if str(profile.get("variant") or "") == "fjsp_distributed_transfer":
         return [
             "fjsp_distributed_transfer",
@@ -2389,6 +2401,13 @@ def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
         "priority_completion_time",
         "priority_aware_search",
     }
+    reentrant_aliases = {
+        "fjsp_reentrant",
+        "reentrant_fjsp",
+        "reentrant_route",
+        "loop_expansion",
+        "reentrant_aware_search",
+    }
     distributed_aliases = {
         "fjsp_distributed_transfer",
         "distributed_factories",
@@ -2409,6 +2428,8 @@ def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
             canonical.add("machine_availability")
         elif text in priority_aliases:
             canonical.add("job_priority")
+        elif text in reentrant_aliases:
+            canonical.add("reentrant_route")
         elif text in distributed_aliases:
             canonical.add("distributed_transfer")
         else:
@@ -2423,6 +2444,8 @@ def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
         canonical.add("machine_availability")
     if bool(profile.get("has_job_priorities")):
         canonical.add("job_priority")
+    if bool(profile.get("has_reentrant_routes")):
+        canonical.add("reentrant_route")
     if str(profile.get("variant") or "") == "fjsp_distributed_transfer":
         canonical.add("distributed_transfer")
     return canonical

@@ -6,7 +6,9 @@
     "fjsp",
     "fjsp_release_time",
     "fjsp_machine_availability",
-    "fjsp_priority"
+    "fjsp_priority",
+    "fjsp_reentrant",
+    "reentrant_fjsp"
   ],
   "capability": {
     "display_name": "标准柔性作业车间调度",
@@ -18,7 +20,8 @@
       "fjsp_min_time_lag",
       "fjsp_release_time",
       "fjsp_machine_availability",
-      "fjsp_priority"
+      "fjsp_priority",
+      "fjsp_reentrant"
     ],
     "canonical_objectives": [
       {
@@ -68,7 +71,10 @@
       "awls",
       "job_priority",
       "priority_completion_time",
-      "priority_aware_search"
+      "priority_aware_search",
+      "reentrant_route",
+      "loop_expansion",
+      "reentrant_aware_search"
     ]
   },
   "agent_generated_baseline": {
@@ -79,7 +85,8 @@
       "harness_agent/core/__init__.py",
       "harness_agent/core/bounds.py",
       "examples/standard_fjsp_evaluator.py",
-      "examples/fjsp_priority_evaluator.py"
+      "examples/fjsp_priority_evaluator.py",
+      "examples/fjsp_reentrant_evaluator.py"
     ],
     "hidden_reference_paths": []
   },
@@ -389,6 +396,18 @@
       "excluded_features": ["sequence_dependent_setup", "minimum_time_lag", "release_time", "machine_availability"],
       "default_priority": 525,
       "always_include": true
+    },
+    {
+      "skill_id": "fjsp-reentrant-adapter-worker",
+      "title": "Re-entrant FJSP 实现适配器",
+      "description": "为已选方法族提供严格 loop 尾部解析、完整路线展开和可重入瓶颈搜索合同。",
+      "source_path": ".codex/skills/fjsp-reentrant-adapter-worker",
+      "method_families": ["constructive_search", "coupled_local_search", "exact_hybrid", "population_memetic"],
+      "activation_tags": ["reentrant_route", "loop_expansion", "reentrant_aware_search"],
+      "required_features": ["reentrant_route"],
+      "excluded_features": ["sequence_dependent_setup", "minimum_time_lag", "release_time", "machine_availability", "job_priority"],
+      "default_priority": 530,
+      "always_include": true
     }
   ],
   "method_packages": [
@@ -564,6 +583,27 @@
       ],
       "implementation_contract_asset": "knowledge/method_packages/fjsp_priority_adaptation/implementation_contract.json",
       "default_priority": 155
+    },
+    {
+      "package_id": "fjsp_reentrant_adaptation",
+      "title": "Re-entrant FJSP 横切适配",
+      "description": "将严格 loop 展开、expanded identity、完整解码和重复访问瓶颈压力注入已选方法族。",
+      "method_families": ["constructive_search", "coupled_local_search", "exact_hybrid", "population_memetic"],
+      "selection_enabled": true,
+      "activation_tags": ["reentrant_route", "loop_expansion", "reentrant_aware_search", "critical_path", "bottleneck"],
+      "strategy_types": ["baseline_constructor", "dispatch_rule", "local_search_operator", "path_selection"],
+      "required_features": ["reentrant_route"],
+      "excluded_features": ["sequence_dependent_setup", "minimum_time_lag", "release_time", "machine_availability", "job_priority"],
+      "assets": [
+        "knowledge/references/reentrant/reentrant_semantics_and_expansion.md",
+        "knowledge/references/reentrant/reentrant_search_adaptation.md"
+      ],
+      "semantic_assets": [
+        "knowledge/references/reentrant/reentrant_semantics_and_expansion.md",
+        "knowledge/references/reentrant/reentrant_search_adaptation.md"
+      ],
+      "implementation_contract_asset": "knowledge/method_packages/fjsp_reentrant_adaptation/implementation_contract.json",
+      "default_priority": 160
     },
     {
       "package_id": "fjsp_sdst_awls_adaptation",
@@ -837,6 +877,16 @@
       ],
       "priority_aware_search": [
         "knowledge/references/priority/priority_search_adaptation.md"
+      ],
+      "reentrant_route": [
+        "knowledge/references/reentrant/reentrant_semantics_and_expansion.md",
+        "knowledge/references/reentrant/reentrant_search_adaptation.md"
+      ],
+      "loop_expansion": [
+        "knowledge/references/reentrant/reentrant_semantics_and_expansion.md"
+      ],
+      "reentrant_aware_search": [
+        "knowledge/references/reentrant/reentrant_search_adaptation.md"
       ],
       "release_time": [
         "knowledge/references/release_time/release_time_semantics_and_decoder.md",

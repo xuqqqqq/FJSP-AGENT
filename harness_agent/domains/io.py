@@ -11,6 +11,7 @@ from typing import Any
 OpKey = tuple[int, int]
 SetupTimes = tuple[tuple[tuple[int, ...], ...], ...]
 MinimumTimeLags = tuple["MinimumTimeLag", ...]
+ReentrantLoops = tuple["ReentrantLoop", ...]
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,25 @@ class MachineUnavailability:
 
 
 @dataclass(frozen=True)
+class ReentrantLoop:
+    """One contiguous operation segment repeated within a job route."""
+
+    job_id: int
+    loop_start: int
+    loop_end: int
+    repeat: int
+    original_operation_count: int
+
+    @property
+    def loop_body_size(self) -> int:
+        return self.loop_end - self.loop_start + 1
+
+    @property
+    def expanded_operation_count(self) -> int:
+        return self.original_operation_count + self.loop_body_size * (self.repeat - 1)
+
+
+@dataclass(frozen=True)
 class StandardFjspInstance:
     """标准 FJSP 及兼容标准 schedule schema 变体的只读结构。
 
@@ -77,6 +97,7 @@ class StandardFjspInstance:
     machine_available_times: tuple[int, ...] = ()
     unavailability_intervals: tuple[MachineUnavailability, ...] = ()
     priority_job_ids: tuple[int, ...] = ()
+    reentrant_loops: ReentrantLoops = ()
     variant: str = "standard_fjsp"
 
     @property
@@ -102,6 +123,16 @@ class StandardFjspInstance:
     @property
     def has_job_priorities(self) -> bool:
         return self.variant == "fjsp_priority"
+
+    @property
+    def has_reentrant_routes(self) -> bool:
+        return self.variant == "fjsp_reentrant"
+
+    @property
+    def original_operation_count(self) -> int:
+        if not self.reentrant_loops:
+            return self.operation_count
+        return sum(loop.original_operation_count for loop in self.reentrant_loops)
 
 
 @dataclass(frozen=True)
@@ -208,6 +239,7 @@ def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
         machine_available_times,
         unavailability_intervals,
         priority_job_ids,
+        reentrant_loops,
         variant,
     ) = _parse_optional_variant_tail(
         path=path,
@@ -216,6 +248,8 @@ def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
         machine_count=machine_count,
         operation_count=operation_count,
     )
+    if reentrant_loops:
+        jobs = list(_expand_reentrant_jobs(tuple(jobs), reentrant_loops))
 
     return StandardFjspInstance(
         name=path.stem,
@@ -230,6 +264,7 @@ def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
         machine_available_times=machine_available_times,
         unavailability_intervals=unavailability_intervals,
         priority_job_ids=priority_job_ids,
+        reentrant_loops=reentrant_loops,
         variant=variant,
     )
 
@@ -249,6 +284,7 @@ def _parse_optional_variant_tail(
     tuple[int, ...],
     tuple[MachineUnavailability, ...],
     tuple[int, ...],
+    ReentrantLoops,
     str,
 ]:
     """严格解析可选的 SDST matrix 或 min-time-lag constraint list。
@@ -267,10 +303,13 @@ def _parse_optional_variant_tail(
     job_count = len(jobs)
     name = path.name.casefold()
     priority_name = ".priority." in name or name.endswith(".priority.txt") or name.endswith(".priority")
+    reentrant_name = ".rjsp." in name or name.endswith(".rjsp.txt") or name.endswith(".rjsp")
     if not tail:
         if priority_name:
             raise ValueError(f"{path} priority tail is missing")
-        return (), "none", (), (), (), (), (), "standard_fjsp"
+        if reentrant_name:
+            raise ValueError(f"{path} reentrant loop tail is missing")
+        return (), "none", (), (), (), (), (), (), "standard_fjsp"
     machine_availability_name = (
         name.startswith(("ffcr", "nfa", "fjsp_nfa"))
         or ".nfafjsp" in name
@@ -278,9 +317,12 @@ def _parse_optional_variant_tail(
     )
     if priority_name:
         priority_job_ids = _parse_priority_jobs(path=path, tail=tail, job_count=job_count)
-        return (), "none", (), (), (), (), priority_job_ids, "fjsp_priority"
+        return (), "none", (), (), (), (), priority_job_ids, (), "fjsp_priority"
+    if reentrant_name:
+        loops = _parse_reentrant_loops(path=path, tail=tail, jobs=jobs)
+        return (), "none", (), (), (), (), (), loops, "fjsp_reentrant"
     if ".mitfjsp" in name:
-        return (), "none", _parse_minimum_time_lags(path=path, tail=tail, jobs=jobs), (), (), (), (), "fjsp_min_time_lag"
+        return (), "none", _parse_minimum_time_lags(path=path, tail=tail, jobs=jobs), (), (), (), (), (), "fjsp_min_time_lag"
     if ".rtfjsp" in name:
         job_release, machine_available = _parse_release_times(
             path=path,
@@ -288,10 +330,10 @@ def _parse_optional_variant_tail(
             job_count=job_count,
             machine_count=machine_count,
         )
-        return (), "none", (), job_release, machine_available, (), (), "fjsp_release_time"
+        return (), "none", (), job_release, machine_available, (), (), (), "fjsp_release_time"
     if machine_availability_name:
         intervals = _parse_machine_unavailability(path=path, tail=tail, machine_count=machine_count)
-        return (), "none", (), (), (), intervals, (), "fjsp_machine_availability"
+        return (), "none", (), (), (), intervals, (), (), "fjsp_machine_availability"
     operation_pair_expected = machine_count * operation_count * operation_count
     job_pair_expected = machine_count * job_count * job_count
     if len(tail) == operation_pair_expected:
@@ -307,10 +349,10 @@ def _parse_optional_variant_tail(
             raise ValueError(f"{path} has an ambiguous zero-count variant tail; use a recognized variant filename")
         if min_lag_match:
             constraints = _parse_minimum_time_lags(path=path, tail=tail, jobs=jobs)
-            return (), "none", constraints, (), (), (), (), "fjsp_min_time_lag"
+            return (), "none", constraints, (), (), (), (), (), "fjsp_min_time_lag"
         if availability_match:
             intervals = _parse_machine_unavailability(path=path, tail=tail, machine_count=machine_count)
-            return (), "none", (), (), (), intervals, (), "fjsp_machine_availability"
+            return (), "none", (), (), (), intervals, (), (), "fjsp_machine_availability"
         raise ValueError(
             f"{path} has trailing tokens that match no supported setup, minimum-lag, "
             f"release-time, or machine-availability encoding: trailing={len(tail)}"
@@ -326,7 +368,62 @@ def _parse_optional_variant_tail(
                 raise ValueError(f"{path} has negative setup time for machine {machine_id}")
             rows.append(row)
         setup_by_machine.append(tuple(rows))
-    return tuple(setup_by_machine), kind, (), (), (), (), (), "fjsp_sdst"
+    return tuple(setup_by_machine), kind, (), (), (), (), (), (), "fjsp_sdst"
+
+
+def _parse_reentrant_loops(
+    *, path: Path, tail: list[int], jobs: tuple[Job, ...]
+) -> ReentrantLoops:
+    expected = 3 * len(jobs)
+    if len(tail) != expected:
+        raise ValueError(
+            f"{path} reentrant tail must contain exactly {expected} integers, got {len(tail)}"
+        )
+    loops: list[ReentrantLoop] = []
+    for job_id, job in enumerate(jobs):
+        loop_start, loop_end, repeat = tail[3 * job_id : 3 * job_id + 3]
+        op_count = len(job.operations)
+        if not 0 < loop_start < op_count - 1:
+            raise ValueError(
+                f"{path} job {job_id} loop_start must satisfy 0 < start < {op_count - 1}, "
+                f"got {loop_start}"
+            )
+        if not loop_start <= loop_end < op_count - 1:
+            raise ValueError(
+                f"{path} job {job_id} loop_end must satisfy {loop_start} <= end < "
+                f"{op_count - 1}, got {loop_end}"
+            )
+        if repeat < 2:
+            raise ValueError(f"{path} job {job_id} repeat must be at least 2, got {repeat}")
+        loops.append(
+            ReentrantLoop(
+                job_id=job_id,
+                loop_start=loop_start,
+                loop_end=loop_end,
+                repeat=repeat,
+                original_operation_count=op_count,
+            )
+        )
+    return tuple(loops)
+
+
+def _expand_reentrant_jobs(jobs: tuple[Job, ...], loops: ReentrantLoops) -> tuple[Job, ...]:
+    loop_by_job = {loop.job_id: loop for loop in loops}
+    expanded_jobs: list[Job] = []
+    for job in jobs:
+        loop = loop_by_job[job.job_id]
+        body = job.operations[loop.loop_start : loop.loop_end + 1]
+        route = (
+            list(job.operations[: loop.loop_start])
+            + list(body) * loop.repeat
+            + list(job.operations[loop.loop_end + 1 :])
+        )
+        operations = tuple(
+            Operation(job_id=job.job_id, op_id=op_id, candidates=source.candidates)
+            for op_id, source in enumerate(route)
+        )
+        expanded_jobs.append(Job(job_id=job.job_id, operations=operations))
+    return tuple(expanded_jobs)
 
 
 def _parse_priority_jobs(*, path: Path, tail: list[int], job_count: int) -> tuple[int, ...]:
@@ -527,6 +624,8 @@ def write_solution(path: Path, instance: StandardFjspInstance, schedule: list[Sc
         payload["release_time_policy"] = "checked_by_evaluator"
     if instance.has_machine_availability:
         payload["machine_availability_policy"] = "checked_by_evaluator"
+    if instance.has_reentrant_routes:
+        payload["reentrant_policy"] = "expanded_route_checked_by_evaluator"
     if instance.has_job_priorities:
         completion_times = [
             record.end
@@ -677,6 +776,11 @@ def validate_standard_schedule(
         "scheduled_operations": float(len(schedule)),
         "operation_count": float(instance.operation_count),
     }
+    if instance.has_reentrant_routes:
+        metrics["original_operation_count"] = float(instance.original_operation_count)
+        metrics["reentrant_added_operation_count"] = float(
+            instance.operation_count - instance.original_operation_count
+        )
     if instance.has_sequence_dependent_setup:
         metrics["setup_time"] = float(total_setup_time)
         metrics["setup_count"] = float(setup_count)

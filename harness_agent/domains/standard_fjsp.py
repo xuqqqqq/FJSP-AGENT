@@ -63,6 +63,7 @@ class StandardFjspContextProvider:
             item for item in profiled if item.get("variant") == "fjsp_machine_availability"
         ]
         priority_instances = [item for item in profiled if item.get("variant") == "fjsp_priority"]
+        reentrant_instances = [item for item in profiled if item.get("variant") == "fjsp_reentrant"]
         best_known_count = sum(1 for item in profiled if item.get("best_known_makespan") is not None)
         summary = {
             "instance_count": len(contract.instances),
@@ -72,6 +73,7 @@ class StandardFjspContextProvider:
             "release_time_instance_count": len(release_instances),
             "machine_availability_instance_count": len(availability_instances),
             "priority_instance_count": len(priority_instances),
+            "reentrant_instance_count": len(reentrant_instances),
             "shape_group_count": len(_instance_shape_groups(profiled)),
             "setup_time_kinds": sorted(
                 {str(item.get("setup_time_kind")) for item in profiled if item.get("setup_time_kind")}
@@ -124,6 +126,22 @@ class StandardFjspContextProvider:
             "avg_priority_job_ratio": _rounded_average(
                 float(item.get("priority_job_ratio", 0.0) or 0.0) for item in priority_instances
             ),
+            "max_original_operation_count": max(
+                (int(item.get("original_operation_count", 0) or 0) for item in reentrant_instances),
+                default=0,
+            ),
+            "max_reentrant_added_operation_count": max(
+                (int(item.get("reentrant_added_operation_count", 0) or 0) for item in reentrant_instances),
+                default=0,
+            ),
+            "max_reentrant_expansion_ratio": max(
+                (float(item.get("reentrant_expansion_ratio", 0.0) or 0.0) for item in reentrant_instances),
+                default=0.0,
+            ),
+            "max_reentrant_repeat": max(
+                (int(item.get("reentrant_repeat_max", 0) or 0) for item in reentrant_instances),
+                default=0,
+            ),
             "avg_min_time_lag_density": _rounded_average(
                 float(item.get("min_time_lag_density", 0.0) or 0.0) for item in min_lag_instances
             ),
@@ -167,6 +185,7 @@ class StandardFjspContextProvider:
         diagnostics_show_release = int(summary.get("release_time_instance_count") or 0) > 0
         diagnostics_show_availability = int(summary.get("machine_availability_instance_count") or 0) > 0
         diagnostics_show_priority = int(summary.get("priority_instance_count") or 0) > 0
+        diagnostics_show_reentrant = int(summary.get("reentrant_instance_count") or 0) > 0
         features: list[str] = []
         if diagnostics_show_sdst:
             features.extend(["fjsp_sdst", "sequence_dependent_setup", "setup_time"])
@@ -181,6 +200,10 @@ class StandardFjspContextProvider:
         if diagnostics_show_priority:
             features.extend(
                 ["fjsp_priority", "job_priority", "priority_completion_time", "priority_aware_search"]
+            )
+        if diagnostics_show_reentrant:
+            features.extend(
+                ["fjsp_reentrant", "reentrant_route", "loop_expansion", "reentrant_aware_search"]
             )
         if features:
             return features
@@ -207,6 +230,10 @@ class StandardFjspContextProvider:
         if re.search(r"\bfjsp[-_\s]?(?:jp|priority)\b|job[-_\s]?priority|优先(?:级)?工件", text):
             features.extend(
                 ["fjsp_priority", "job_priority", "priority_completion_time", "priority_aware_search"]
+            )
+        if re.search(r"\b(?:fjsp[-_]?reentrant|reentrant[-_\s]?fjsp|re[-_\s]?entrant)\b|可重入", text):
+            features.extend(
+                ["fjsp_reentrant", "reentrant_route", "loop_expansion", "reentrant_aware_search"]
             )
         if features:
             return list(dict.fromkeys(features))
@@ -350,6 +377,16 @@ def _single_instance_diagnostics(
             ),
             "priority_job_count": len(instance.priority_job_ids),
             "priority_job_ratio": _round_float(len(instance.priority_job_ids) / max(1, instance.job_count)),
+            "original_operation_count": instance.original_operation_count,
+            "reentrant_added_operation_count": instance.operation_count - instance.original_operation_count,
+            "reentrant_expansion_ratio": _round_float(
+                instance.operation_count / max(1, instance.original_operation_count)
+            ),
+            "reentrant_loop_count": len(instance.reentrant_loops),
+            "reentrant_loop_body_max": max(
+                (loop.loop_body_size for loop in instance.reentrant_loops), default=0
+            ),
+            "reentrant_repeat_max": max((loop.repeat for loop in instance.reentrant_loops), default=0),
             "best_known_makespan": best_known,
             "best_known_diagnostic_only": best_known is not None,
         }
@@ -403,6 +440,8 @@ def _instance_shape_key(item: dict[str, Any]) -> str:
     )
     if str(item.get("variant") or "") == "fjsp_min_time_lag":
         key += "_min_time_lag"
+    if str(item.get("variant") or "") == "fjsp_reentrant":
+        key += "_reentrant"
     return key
 
 
@@ -546,6 +585,18 @@ def _instance_direction_hints(summary: dict[str, Any], profiled: list[dict[str, 
             "Measured priority structure: "
             f"job_count_max={summary.get('max_priority_job_count', 0)}, "
             f"ratio_avg={summary.get('avg_priority_job_ratio', 0.0)}."
+        )
+    if int(summary.get("reentrant_instance_count", 0) or 0) > 0:
+        hints.append(
+            "Re-entrant routes are expanded before search; every constructor, move decoder, exact model, "
+            "and output guard must use expanded operation identities rather than the original route length."
+        )
+        hints.append(
+            "Measured re-entry structure: "
+            f"original_ops_max={summary.get('max_original_operation_count', 0)}, "
+            f"added_ops_max={summary.get('max_reentrant_added_operation_count', 0)}, "
+            f"expansion_ratio_max={summary.get('max_reentrant_expansion_ratio', 0.0)}, "
+            f"repeat_max={summary.get('max_reentrant_repeat', 0)}."
         )
     hints.append(
         "Measured assignment structure: "
