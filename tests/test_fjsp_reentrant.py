@@ -11,6 +11,7 @@ from harness_agent.agents.quality_contract import build_agent_generated_solver_q
 from harness_agent.context.worker import build_worker_assignment
 from harness_agent.domains.pack import get_domain_pack
 from harness_agent.domains.io import ScheduleRecord, parse_standard_fjsp, validate_standard_schedule
+from harness_agent.orchestration.standard import fixed_problem_contract
 from harness_agent.web.server import inspect_instance_profile
 
 
@@ -100,6 +101,14 @@ class ReentrantFjspTests(unittest.TestCase):
         self.assertEqual(8, profile["original_operation_count"])
         self.assertEqual(12, profile["operation_count"])
         self.assertIn("reentrant_route", profile["variant_features"])
+
+    def test_standard_loop_registers_reentrant_evaluator(self) -> None:
+        family, evaluator, objectives = fixed_problem_contract(
+            [ROOT / "examples" / "fjsp_reentrant_tiny.rjsp.txt"]
+        )
+        self.assertEqual("FJSP", family)
+        self.assertEqual("examples/fjsp_reentrant_evaluator.py", evaluator)
+        self.assertEqual(["makespan"], [item["name"] for item in objectives])
 
     def test_domain_pack_exposes_reentrant_skill_and_method_package(self) -> None:
         domain_pack = get_domain_pack("fjsp_reentrant")

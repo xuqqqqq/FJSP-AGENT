@@ -316,6 +316,7 @@ def fixed_problem_contract(paths: list[Path]) -> tuple[str, str, list[dict[str, 
         "fjsp_release_time": "examples/fjsp_release_time_evaluator.py",
         "fjsp_machine_availability": "examples/fjsp_machine_availability_evaluator.py",
         "fjsp_priority": "examples/fjsp_priority_evaluator.py",
+        "fjsp_reentrant": "examples/fjsp_reentrant_evaluator.py",
         "fjsp_distributed_transfer": "examples/fjsp_distributed_transfer_evaluator.py",
     }
     if identity not in evaluator_by_variant:
@@ -362,6 +363,7 @@ PROVIDED_PROJECT_QUARANTINE_FILES = frozenset(
         "fjsp_release_time_evaluator.py",
         "fjsp_machine_availability_evaluator.py",
         "fjsp_priority_evaluator.py",
+        "fjsp_reentrant_evaluator.py",
         "fjsp_distributed_transfer_evaluator.py",
     }
 )
@@ -430,6 +432,7 @@ def provided_project_read_paths(project_root: Path, *, target_file: str | None) 
         "examples/fjsp_release_time_evaluator.py",
         "examples/fjsp_machine_availability_evaluator.py",
         "examples/fjsp_priority_evaluator.py",
+        "examples/fjsp_reentrant_evaluator.py",
         "examples/fjsp_distributed_transfer_evaluator.py",
     )
     result: list[str] = []
