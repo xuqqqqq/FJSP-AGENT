@@ -1,6 +1,6 @@
 ---
 name: fjsp-experiment-design-worker
-description: 为受控 Coding Agent 执行 Main 已批准的 FJSP 可证伪实验，包括最小插桩、activation checks、局部 pilot、消融开关和完整证据回报。始终受 WorkerAssignment 的方向、文件、命令和预算约束，不自行选择方法族或把局部结果当正式 Core 证据。
+description: 为受控编码代理执行 Main 已批准的 FJSP 可证伪实验，包括最小插桩、激活检查、局部试点、消融开关和完整证据回报。始终受 WorkerAssignment 的方向、文件、命令和预算约束，不自行选择方法族或把局部结果当正式 Core 证据。
 ---
 
 # FJSP 实验设计执行器
@@ -30,7 +30,7 @@ description: 为受控 Coding Agent 执行 Main 已批准的 FJSP 可证伪实�
 - `activation check` 证明执行路径，Core 证明正式结果，两者不可互相替代。
 - 多因素只有在无法独立实现或交互本身就是假设时才允许耦合；否则用可关闭的最小开关保持可归因。
 - 只有 `WorkerAssignment.read_set` 明确授权且证据级别清楚时，才可使用历史失败经验。
-- 不扩大方法族、参数搜索、文件范围或其他 Skill 权限。
+- 不扩大方法族、参数搜索、文件范围或其他技能权限。
 
 ## 交付物
 

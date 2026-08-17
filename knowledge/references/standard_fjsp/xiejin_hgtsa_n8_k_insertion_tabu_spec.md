@@ -63,7 +63,7 @@ k-insertion 用于 FJSP 的机器柔性：
 
 ## 禁忌对象
 
-当前代码只禁 `(move_type, op, from_machine, to_machine)`，过于粗糙。更接近论文和经典 TS 的禁忌属性应按 move 类型区分：
+当前代码只禁 `(move_type, op, from_machine, to_machine)`，过于粗糙。更接近论文和经典 TS 的禁忌属性应按移动类型区分：
 
 1. N8 同机移动：禁忌该工序在同一机器上被立即移回原相邻关系，例如 `(op, machine, old_prev, old_next)`。
 2. k-insertion 换机：禁忌关键工序短期内回到原机器，例如 `(op, previous_machine)` 或 `(op, previous_machine, previous_prev, previous_next)`。
@@ -81,10 +81,10 @@ L = 15 + n / m
 
 ## 近似评价/增量评价方向
 
-当前 solver 对每个 move 都完整 `decode_state()`，成本高，导致无法评估足够多的 N8/k-insertion 候选。应增加两层评价：
+当前 solver 对每个移动都完整 `decode_state()`，成本高，导致无法评估足够多的 N8/k-insertion 候选。应增加两层评价：
 
 1. 快速可行性过滤：用析取图前向 head、后向 tail、工序前后继和机器相邻关系判断是否可能成环或明显不改善。
-2. 近似 makespan 排序：只估计被移动工序及其局部机器弧影响的最长路径下界/上界，将候选排序后只重解码 top-k。
+2. 近似 makespan 排序：只估计被移动工序及其局部机器弧影响的最长路径下界/上界，将候选排序后只重解码前 k 个。
 
 推荐的候选评分字段：
 
@@ -105,12 +105,12 @@ proxy_score =
 1. N8 只实现了关键块首尾扰动和随机同机重插入，没有完整“关键块内外移动”规则。
 2. k-insertion 只按时间 pivot 和随机位置枚举，未使用论文中的插入点集合思想。
 3. 禁忌属性偏粗，不能精确阻止反向弧或回到原机器。
-4. 邻域候选全部完整解码，缺少近似评价和 top-k 解码机制。
+4. 邻域候选全部完整解码，缺少近似评价和前 k 个重解码机制。
 
 ## 推荐实现顺序
 
 1. 在 decoded state 中计算 `head`、`tail`、关键块编号、每个工序的机器前驱/后继。
 2. 实现 `generate_n8_neighbors()`，按 N8 规则枚举关键块内外移动，并加入裁剪规则。
-3. 实现 `generate_k_insertion_neighbors()`，先枚举目标机器候选插入点，再用 proxy 选 top-k。
+3. 实现 `generate_k_insertion_neighbors()`，先枚举目标机器候选插入点，再用 proxy 选前 k 个。
 4. 重构 tabu key，使 N8、相邻交换、k-insertion 分别禁反向弧、回迁机器和原相邻关系。
 5. 将新邻域作为 `--neighborhood-profile hgtsa-lite` 暴露给 agent，让 harness 与 `combined` 交叉评估。

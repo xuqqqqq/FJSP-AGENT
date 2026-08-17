@@ -1,0 +1,4 @@
+interface:
+  display_name: "多特性 FJSP-JPC-TST 适配"
+  short_description: "联合处理 BOM 前置、机器运输和工序准备时间"
+  default_prompt: "在固定 IO 与 evaluator 下，联合实现 job_precedence、machine_transport 和 operation_setup，不得把硬 BOM 约束误作软优先级，也不得把 operation setup 误作 SDST。"

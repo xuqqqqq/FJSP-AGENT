@@ -1,18 +1,18 @@
 ---
 name: fjsp-sdst-adapter-worker
-description: 为受控 Coding Agent 把已选 FJSP 方法族适配到 sequence-dependent setup time（SDST）。仅在 runtime contract 明确激活 sequence_dependent_setup 且 Harness 授权本 Skill 时使用。
+description: 为受控编码代理把已选 FJSP 方法族适配到序列相关换型时间（SDST）。仅在运行时契约明确激活 `sequence_dependent_setup` 且 Harness 授权本技能时使用。
 ---
 
 # FJSP SDST 适配执行器
 
 ## 触发条件
 
-- runtime contract 已明确激活 `sequence_dependent_setup`。
-- Harness 已授权本 Skill，且当前任务是在既定方法族上补入 SDST 语义，而不是重新选方法。
+- 运行时契约已明确激活 `sequence_dependent_setup`。
+- Harness 已授权本技能，且当前任务是在既定方法族上补入 SDST 语义，而不是重新选方法。
 
 ## 读取顺序
 
-1. 先加载其他已获准的 Worker Skill。
+1. 先加载其他已获准的 Worker 技能。
 2. 再读取 `read_set` 中的 setup IO、解码和 move 契约。
 3. 需要 setup-aware 解码或 move 重算模板时，再参考 `knowledge/references/sdst/setup_aware_decoder_implementation_template.md`。
 
@@ -26,8 +26,8 @@ description: 为受控 Coding Agent 把已选 FJSP 方法族适配到 sequence-d
 
 ## 权限与边界
 
-- 本 Skill 是横切适配层，不自行选择构造、局部搜索、精确或群体方法。
-- `incumbent`、deadline、输出和合法性不变量仍由基础 Skill 统一维护。
+- 本技能是横切适配层，不自行选择构造、局部搜索、精确或群体方法。
+- `incumbent`、deadline、输出和合法性不变量仍由基础技能统一维护。
 - 缺少 setup contract 或样本时必须报告阻断，不猜测矩阵索引或首工序语义。
 
 ## 交付物

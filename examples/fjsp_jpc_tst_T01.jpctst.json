@@ -1,0 +1,25 @@
+{
+  "format": "fjsp_jpc_tst_instance_v1",
+  "source": {
+    "paper": "Research on the Flexible Job Shop Scheduling Problem with Job Priorities Considering Transportation Time and Setup Time",
+    "doi": "10.3390/axioms14120914",
+    "repository": "https://gitee.com/zhengchuchu0807/fjsp-jpc-tst",
+    "instance": "T01"
+  },
+  "machine_count": 4,
+  "jobs": [
+    {"operations": [[[2, 8], [0, 10], [3, 15]], [[1, 12]], [[0, 1], [3, 14]], [[2, 14]], [[3, 5], [0, 1], [1, 14]]]},
+    {"operations": [[[2, 6]], [[2, 17], [0, 3], [1, 12]], [[3, 16]], [[0, 3], [2, 14]]]},
+    {"operations": [[[0, 5], [2, 3]], [[2, 7]], [[2, 11]], [[0, 10]], [[1, 7], [0, 17]]]},
+    {"operations": [[[0, 5], [3, 19], [2, 12]], [[0, 2]], [[3, 11]], [[0, 10], [3, 12]], [[1, 6]]]},
+    {"operations": [[[0, 11]], [[1, 18], [0, 5]], [[0, 7], [1, 20]], [[2, 9]], [[2, 11], [1, 6]]]},
+    {"operations": [[[0, 8], [2, 5]], [[2, 8], [0, 1], [3, 9]], [[3, 17], [1, 3]], [[3, 13]], [[0, 16]]]},
+    {"operations": [[[2, 12]], [[3, 20], [0, 15]], [[0, 20]], [[1, 5]], [[1, 20]]]},
+    {"operations": [[[2, 4], [1, 20]], [[1, 17], [3, 11]]]},
+    {"operations": [[[2, 4]], [[3, 20], [2, 7]]]},
+    {"operations": [[[0, 10]]]}
+  ],
+  "operation_setup_rule": {"processing_time_ratio": 0.3, "minimum": 2},
+  "transport_times": [[0, 1, 1, 2], [1, 0, 1, 1], [1, 1, 0, 1], [2, 1, 1, 0]],
+  "job_precedences": [[0, 7], [1, 7], [2, 7], [3, 8], [4, 8], [5, 8], [6, 9], [7, 9], [8, 9]]
+}

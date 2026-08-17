@@ -6,30 +6,30 @@
     {
       "component_id": "priority_tail_parser",
       "required_behaviors": [
-        "Consume exactly K priority job IDs after the standard body.",
-        "Validate K=ceil(job_count/4), 0-based range, strict ascending order, uniqueness, and no trailing tokens."
+        "在标准主体后精确消费 K 个优先作业 ID。",
+        "校验 K=ceil(job_count/4)、0-based 取值范围、严格升序、唯一性以及不存在尾随 token。"
       ]
     },
     {
       "component_id": "priority_aware_objective_tracking",
       "required_behaviors": [
-        "Recompute makespan and max completion over the parsed priority set after every complete decode.",
-        "Rank candidates lexicographically by makespan first and priority completion second."
+        "每次完整解码后，都要基于解析出的优先作业集合重新计算 makespan 和最大完工时间。",
+        "按字典序对候选排序：先比较 makespan，再比较 priority completion。"
       ]
     },
     {
       "component_id": "priority_aware_search_pressure",
       "required_behaviors": [
-        "Expose priority-aware dispatch or move ranking while retaining makespan-oriented exploration.",
-        "Target priority-job critical operations and their blocking machine arcs without adding hard priority constraints."
+        "在保留面向 makespan 的探索同时，暴露 priority-aware 的 dispatch 或 move 排序。",
+        "在不增加硬性优先级约束的前提下，针对优先作业的关键工序及其阻塞机器弧。"
       ]
     },
     {
       "component_id": "lexicographic_candidate_acceptance",
       "required_behaviors": [
-        "Accept an improved secondary objective only when makespan is unchanged.",
-        "Verify the complete fixed-evaluator schedule before replacing the incumbent.",
-        "Construct or refresh the serialized payload after the final incumbent decision so schedule, makespan, priority_completion_time, and accepted solver evidence all describe the same solution."
+        "只有在 makespan 不变时，才可接受更优的次级目标。",
+        "在替换 incumbent 前，验证完整的固定 evaluator 排程。",
+        "在最终 incumbent 决策之后构建或刷新序列化载荷，确保 schedule、makespan、priority_completion_time 与被接受的求解器证据描述的是同一个解。"
       ]
     }
   ],
@@ -42,7 +42,7 @@
         "priority_aware_search_pressure",
         "lexicographic_candidate_acceptance"
       ],
-      "rule": "Parsing, search pressure, objective tracking, and acceptance must use the same priority job set and strict lexicographic ordering."
+      "rule": "解析、搜索压力、目标跟踪与接受逻辑必须使用同一组优先作业，并遵守严格的字典序。"
     }
   ],
   "forbidden_shortcuts": [

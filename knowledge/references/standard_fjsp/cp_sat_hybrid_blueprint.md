@@ -13,7 +13,7 @@ status: curated_reference
 
 ## 1. 完整模型的最小闭环
 
-对每道工序建立一个主 start/end 和多个候选机器 optional interval：
+对每道工序建立一个主 `start/end` 和多个候选机器可选区间：
 
 ```python
 for op in operations:
@@ -35,14 +35,14 @@ minimize(max(end[last_operation[job]] for job in jobs))
 必须检查 `OPTIMAL`、`FEASIBLE`、`UNKNOWN`、`INFEASIBLE` 等状态。只有可行状态可以导出
 调度；其余状态返回原 incumbent。
 
-## 2. 使用 incumbent hint
+## 2. 使用 incumbent 提示
 
-- 为已选机器的 presence literal 提供 hint。
-- 为 start/end 提供一致 hint。
-- hint 不是约束；模型仍需自行验证可行性。
+- 为已选机器的 presence literal 提供提示。
+- 为 `start/end` 提供一致提示。
+- 提示不是约束；模型仍需自行验证可行性。
 - 导出结果后重新走独立 schedule validator。
 
-## 3. Assignment trust region
+## 3. 机器分配信任域
 
 大型实例不宜无条件释放所有机器选择。选择关键、近关键、过载机器上的少量柔性工序：
 
@@ -62,15 +62,15 @@ add(sum(changed) <= max_changes)
 
 ## 4. 时间控制
 
-- 所有 CP 调用共享 solver 总 deadline。
+- 所有 CP 调用共享 solver 总时间上限。
 - 启动前检查剩余时间是否覆盖建模、求解、导出和验证。
-- 短 probe 只判断入口响应，不直接替代正式 evaluator。
+- 短探测只判断入口响应，不直接替代正式 evaluator。
 - 主要最终入口应获得连续预算，避免大量极短调用重复支付建模成本。
 
 ## 5. 与启发式的职责边界
 
-- 构造法提供合法 hint 和 fallback。
-- 关键结构诊断选择 trust region。
+- 构造法提供合法提示和 fallback。
+- 关键结构诊断选择信任域。
 - CP-SAT 负责区域内联合分配与排序。
 - 独立 decoder/validator 负责最终合法性。
 - incumbent 永远独立保存，`UNKNOWN` 或异常不能清空它。
@@ -81,7 +81,7 @@ add(sum(changed) <= max_changes)
 - optional interval 的 start/end 与主工序变量没有一致绑定。
 - 只建 precedence，没有每台机器 `NoOverlap`。
 - 把 `UNKNOWN` 当成可行结果读取。
-- 每次局部 move 都重建完整模型且没有 deadline。
+- 每次局部 move 都重建完整模型且没有时间上限。
 - 使用已知最优值固定 makespan 上界，形成答案泄漏。
 
 ## 7. 验收证据

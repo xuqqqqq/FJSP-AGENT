@@ -10,25 +10,25 @@
 
 DOAGNN 是一个面向 FJSP 的强化学习方向。它与本项目相关的关键点在于，FJSP 的决策天然具有图结构：
 
-- operations 之间存在 precedence arcs；
-- candidate machines 形成 assignment alternatives；
-- machine conflicts 形成 disjunctive relations；
-- dispatching actions 可以基于图特征进行学习。
+- 工序之间存在前驱约束弧；
+- 候选机器构成机器分配备选项；
+- 机器冲突形成析取关系；
+- 派工动作可以基于图特征进行学习。
 
 ## 对 FJSP Harness Agent 的影响
 
-harness 不应只把标量 heuristic 参数硬编码进去。
-它应为使用结构化 FJSP state 的学习型 policy worker 留出空间。
+`harness` 不应只把标量启发式参数硬编码进去。
+它应为使用结构化 FJSP 状态的学习型策略 worker 留出空间。
 
-对 MVP 来说，实际落地可以保持克制：
+对最小可行版本来说，实际落地可以保持克制：
 
-- 在 Context Packet 中暴露解析后的 FJSP state 特征；
-- 允许 worker 用 critical path、machine block、operation readiness、remaining workload 等图概念提出规则修改；
-- 后续再允许 policy backend 输出 action score。
+- 在 `Context Packet` 中暴露解析后的 FJSP 状态特征；
+- 允许 worker 用关键路径、机器块、工序就绪性、剩余工作量等图概念提出规则修改；
+- 后续再允许策略后端输出动作评分。
 
 ## 模块映射
 
-- `FJSP Parser`：构建 operation-machine candidate graph。
-- `Context Builder`：导出紧凑的 graph/state 摘要。
-- `PolicyWorker`：未来用于 PPO/GNN 风格 policy 的 backend。
+- `FJSP Parser`：构建工序-机器候选图。
+- `Context Builder`：导出紧凑的图/状态摘要。
+- `PolicyWorker`：未来用于 PPO/GNN 风格策略的后端。
 - `Evaluator`：无论 policy 类型如何，始终是最终裁判。

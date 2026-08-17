@@ -1,23 +1,23 @@
-# Job-Priority FJSP Semantics And Objectives
+# 工件优先级 FJSP 语义与目标
 
-## Fixed instance contract
+## 固定实例契约
 
-The standard FJSP body is followed by `K` and exactly `K` priority job IDs. The IDs are 0-based, strictly ascending, unique, and in range. The confirmed benchmark contract requires `K = ceil(job_count / 4)`. A parser must consume the whole tail; silently ignoring extra values changes the instance.
+标准 FJSP 主体之后依次给出 `K` 和恰好 `K` 个优先工件 ID。这些 ID 使用 0 基编号，必须严格递增、互不重复且不越界。已确认的基准契约要求 `K = ceil(job_count / 4)`。解析器必须消费完整尾部；静默忽略多余值会改变实例含义。
 
-Priority is soft. It does not create a due date, release time, precedence arc, or privileged machine access. Therefore the feasible set is exactly the standard FJSP feasible set.
+优先级是软约束。它不会产生交期、释放时间、前驱弧或优先机器使用权。因此，可行域与标准 FJSP 完全相同。
 
-## Objective contract
+## 目标契约
 
-For job completion `C_j` and priority set `P`, report:
+设工件完成时间为 `C_j`，优先工件集合为 `P`，报告：
 
 - `makespan = max_j C_j`
 - `priority_completion_time = max_{j in P} C_j`
 
-Candidate ranking is strict lexicographic minimization of `(makespan, priority_completion_time)`. An improvement in the second value cannot compensate for any increase in makespan. The fixed evaluator recomputes both values from the complete schedule and rejects a mismatched declared priority metric.
+候选解严格按 `(makespan, priority_completion_time)` 的词典序最小化排序。第二个值的改进不能抵消最大完工时间的任何增加。固定 evaluator 从完整调度中重算两个值，并拒绝声明的优先级指标不一致的结果。
 
-## Implementation invariants
+## 实现不变量
 
-- Store the parsed priority set once and reuse it throughout construction, search, output, and diagnostics.
-- Recompute completion from each priority job's final operation after a full legal decode.
-- Keep ordinary standard-FJSP legality checks unchanged.
-- Activation evidence should show the parsed IDs and both objective values, not only a boolean priority flag.
+- 只保存一次解析后的优先工件集合，并在构造、搜索、输出和诊断中复用。
+- 完整合法解码后，根据每个优先工件的最后一道工序重算完成时间。
+- 保持普通标准 FJSP 合法性检查不变。
+- 激活证据应展示解析得到的 ID 和两个目标值，不能只给出优先级布尔标志。

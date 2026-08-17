@@ -1,4 +1,4 @@
-# 标准 FJSP Agent-Generated 邻域模板
+# 标准 FJSP Agent 生成邻域模板
 
 只有当生成的 solver 已经具备可达的
 `assignment + machine_sequences + decode_state(...)` 路径后，才应使用本卡。
@@ -22,7 +22,7 @@ solver 预先应提供：
 - `makespan(schedule) -> int`
 - `clone_state(assignment, machine_sequences)`
 
-## Move 记录
+## 移动记录
 
 ```python
 def schedule_by_machine(schedule: list[dict]) -> dict[int, list[dict]]:
@@ -64,7 +64,7 @@ def critical_tail_windows(schedule: list[dict]) -> list[dict]:
     return blocks
 ```
 
-## 应用 Move
+## 应用移动
 
 ```python
 def apply_sequence_move(
@@ -163,7 +163,7 @@ def generate_critical_tail_moves(
     return moves
 ```
 
-## Tabu / Best-Improvement 搜索循环
+## 禁忌 / 最佳改进搜索循环
 
 ```python
 def move_signature(move: dict) -> tuple:
@@ -285,7 +285,7 @@ def tabu_best_improvement(
 
 ## 接受规则
 
-- 在 `decode_state` 返回完整 schedule 之前，绝不要给 move 打分。
+- 在 `decode_state` 返回完整 schedule 之前，绝不要给移动打分。
 - 在 makespan 相同或更差时，绝不要替换 incumbent。
 - 上面的关键尾部窗口选择器只是一个有界启发式，不构成精确 critical-path、
   critical-block、N7、N8 或 k-insertion 语义的证明。
@@ -294,4 +294,4 @@ def tabu_best_improvement(
   critical-block / N7 / N8 / k-insertion。
 - 一个自称 tabu loop 的实现，必须存储逆向 signature，证明在 tenure 到期前无法立即回
   退，并返回全局最优状态。
-- candidate cap 与 deadline 要足够小，能够通过 evaluator smoke。
+- 候选上限与 deadline 要足够小，能够通过 evaluator 轻量验证。

@@ -1,24 +1,24 @@
 ---
 name: fjsp-machine-availability-adapter-worker
-description: 为已选 FJSP 方法族适配固定机器维修、downtime 与不可用窗口，并实现日历感知解码、搜索和验收。仅在 runtime contract 激活 machine_availability 或 machine_calendar 时使用。
+description: 为已选 FJSP 方法族适配固定机器维修、停机窗口与不可用时间窗，并实现日历感知解码、搜索和验收。仅在运行时契约激活 `machine_availability` 或 `machine_calendar` 时使用。
 ---
 
-# Machine-Availability FJSP Adapter
+# 机器可用性 FJSP 适配器
 
-## Contract
+## 契约
 
-- This Skill is a variant adapter, not the formal optimization family. Preserve the assigned constructive, coupled-local, population-memetic, or exact-hybrid family.
-- Parse the IO tail `K + K*(machine_id,start,end)` as half-open intervals `[start,end)`; overlapping or touching intervals may be merged only with identical union semantics.
-- Operations are non-preemptive and must lie wholly outside every interval on their selected machine.
-- Preserve the fixed CLI and evaluator.
+- 本技能是变体适配层，不是正式的优化方法族。必须保留已分配的 `constructive_search`、`coupled_local_search`、`population_memetic` 或 `exact_hybrid` 方法族。
+- 将 IO 尾部 `K + K*(machine_id,start,end)` 解析为半开区间 `[start,end)`；只有在并集语义完全相同的前提下，重叠或相邻区间才能合并。
+- 工序不可抢占，且必须完整落在所选机器的所有不可用区间之外。
+- 保持固定的 CLI 和 evaluator 不变。
 
-## Implementation
+## 实现
 
-1. Normalize each machine calendar once into sorted merged intervals and share it across construction, decoding, neighborhoods, population operators, exact repair, and self-checks.
-2. Earliest placement must scan scheduled operations and maintenance windows until a complete processing gap fits. Append-only `machine_ready` logic is not calendar-aware.
-3. Constructive paths score complete calendar gaps. Coupled local search re-decodes reassignment/insertion/swap moves. Population or memetic paths re-decode crossover, mutation, and local improvement. Never compare a candidate before calendar validation.
-4. CP-SAT paths add fixed maintenance intervals to each machine's `NoOverlap`; a heuristic fallback must still enforce the same calendar contract.
-5. Before reporting success, self-check every operation against every original downtime window on its selected machine. Equality at `end == downtime_start` and `start == downtime_end` is legal; spanning or intersecting a window is illegal.
-6. Report activation evidence for the tail parser, normalized calendars, every reachable candidate path, a machine with multiple windows, both legal boundaries, and one rejected intersection.
+1. 每台机器的日历只做一次标准化，得到排序且合并后的区间，并在构造、解码、邻域、种群算子、精确修复和自检之间共享。
+2. 最早放置逻辑必须同时扫描已排工序和维修窗口，直到找到能容纳完整加工时长的空隙。只追加的 `machine_ready` 逻辑不具备日历感知能力。
+3. 构造路径应按完整日历空隙打分。耦合局部搜索要对重分配、插入、交换 move 做完整重解码。群体或模因路径要对交叉、变异和局部改进做完整重解码。未经日历校验，不得比较候选。
+4. CP-SAT 路径必须把固定维修区间加入每台机器的 `NoOverlap`；启发式回退路径也必须执行同样的日历契约。
+5. 在报告成功前，必须对每道工序和它所选机器上的每个原始停机窗口进行自检。`end == downtime_start` 与 `start == downtime_end` 属于合法边界；跨越或相交窗口均为非法。
+6. 报告以下激活证据：尾部解析器、标准化后的日历、每条可达候选路径、一台拥有多个窗口的机器、两种合法边界情况，以及一个被拒绝的相交案例。
 
-Read the two machine-availability knowledge cards and the assigned Method Package before editing.
+编辑前先阅读两张机器可用性知识卡和已分配的方法包。

@@ -1,0 +1,188 @@
+{
+  "schema_version": 1,
+  "contract_id": "fjsp_alternative_path_exact_hybrid",
+  "mode": "complete_method_package",
+  "completion_rule": "只有真正的路线感知 CP-SAT 模型或局部精确修复被执行、提取并经 Core 复核后，才可声明当前 exact-hybrid 阶段完成。",
+  "variant_rule": "精确/混合方法必须用真实的路线独热约束、可选区间与条件前驱约束来表达可选工艺路线语义；每个工件恰选一条路线，且只有所选路线上的工序可以出现在调度中。",
+  "diagnostics_serialization_rule": "写入 solution diagnostics 前，solver status 必须转换为 status_name 字符串或其他 JSON 原生标量；不得直接序列化 CpSolverStatus、变量、interval 或绑定对象。",
+  "activation_evidence": {
+    "required_fields": {
+      "diagnostics.cp_sat_called": "truthy",
+      "diagnostics.solver_evidence.route_one_hot_constraints_posted": "> 0",
+      "diagnostics.solver_evidence.route_optional_intervals_posted": "> 0",
+      "diagnostics.solver_evidence.route_conditional_precedences_posted": "> 0"
+    },
+    "rule": "三类 route 模型计数缺一不可，且必须来自本次实际提交的 CP-SAT 模型；固定 route_id、没有 presence 的普通 intervals、无条件发布所有路线 precedence，或仅在输出中写 selected_routes，都不算激活。"
+  },
+  "required_components": [
+    {
+      "component_id": "route_one_hot_model",
+      "title": "路线 one-hot 精确建模",
+      "required_behaviors": [
+        "为每个 job-route 建立布尔 route 选择变量，并强制每个 job 恰好选择一条路线。",
+        "当 parsed alternative route count 大于 0 时，posted route-choice 约束数必须为非零。"
+      ],
+      "evidence_required": "路线变量数量、独热约束计数与非空的已添加路线选择日志。"
+    },
+    {
+      "component_id": "optional_intervals_for_route_machine_pairs",
+      "title": "路线条件下的可选 interval",
+      "required_behaviors": [
+        "为路线中的 operation-machine assignment 建立可选的 processing interval。",
+        "未被所选路线激活的工序不得被强制纳入机器 NoOverlap 中。"
+      ],
+      "evidence_required": "optional interval 计数、presence 连接以及机器约束计数。"
+    },
+    {
+      "component_id": "conditional_route_precedence",
+      "title": "条件化路线 precedence",
+      "required_behaviors": [
+        "只对所选路线中的相邻工序顺序施加 precedence。",
+        "不同路线的 precedence 必须通过 route selector 或 presence literal 做条件控制，而不是全部同时生效。"
+      ],
+      "evidence_required": "条件 precedence 计数与 route-conditioned 约束证据。"
+    },
+    {
+      "component_id": "incumbent_bridge_and_local_release",
+      "title": "合法 incumbent 桥接与局部释放",
+      "required_behaviors": [
+        "将当前合法解作为 hint、上界或变量固定的来源。",
+        "在大实例上只释放少量 jobs 的 route choice、关键机器顺序和少量 assignment，失败时保留父 incumbent。"
+      ],
+      "evidence_required": "hint/上界加载、固定/释放变量数量与回退证据。"
+    },
+    {
+      "component_id": "cp_sat_execution_and_extraction",
+      "title": "CP-SAT 执行与 selected_routes 提取",
+      "required_behaviors": [
+        "记录非空的 solver status、求解时间、objective，以及是否走了 alternative-path exact 分支。",
+        "提取完整 schedule 与 selected_routes，并在输出前重新执行所选路线的完整验证。"
+      ],
+      "evidence_required": "求解器状态、求解时间、提取出的 selected_routes 与最终违反计数。"
+    }
+  ],
+  "component_dependencies": [
+    {
+      "component_id": "optional_intervals_for_route_machine_pairs",
+      "depends_on": [
+        "route_one_hot_model"
+      ]
+    },
+    {
+      "component_id": "conditional_route_precedence",
+      "depends_on": [
+        "route_one_hot_model",
+        "optional_intervals_for_route_machine_pairs"
+      ]
+    },
+    {
+      "component_id": "incumbent_bridge_and_local_release",
+      "depends_on": [
+        "route_one_hot_model",
+        "optional_intervals_for_route_machine_pairs",
+        "conditional_route_precedence"
+      ]
+    },
+    {
+      "component_id": "cp_sat_execution_and_extraction",
+      "depends_on": [
+        "route_one_hot_model",
+        "optional_intervals_for_route_machine_pairs",
+        "conditional_route_precedence",
+        "incumbent_bridge_and_local_release"
+      ]
+    }
+  ],
+  "competition_tracks": [
+    {
+      "track_id": "direct_evidence",
+      "title": "路线局部精确修复",
+      "stages": [
+        {
+          "stage_id": "route_exact_repair",
+          "component_ids": [
+            "route_one_hot_model",
+            "optional_intervals_for_route_machine_pairs",
+            "conditional_route_precedence",
+            "incumbent_bridge_and_local_release",
+            "cp_sat_execution_and_extraction"
+          ]
+        }
+      ]
+    },
+    {
+      "track_id": "minimal_risk",
+      "title": "Hint 与受限路线释放",
+      "stages": [
+        {
+          "stage_id": "bounded_route_model",
+          "component_ids": [
+            "route_one_hot_model",
+            "optional_intervals_for_route_machine_pairs",
+            "conditional_route_precedence",
+            "cp_sat_execution_and_extraction"
+          ]
+        },
+        {
+          "stage_id": "local_release",
+          "component_ids": [
+            "incumbent_bridge_and_local_release"
+          ]
+        }
+      ]
+    },
+    {
+      "track_id": "orthogonal_mechanism",
+      "title": "小规模真实全局模型",
+      "stages": [
+        {
+          "stage_id": "full_route_model",
+          "component_ids": [
+            "route_one_hot_model",
+            "optional_intervals_for_route_machine_pairs",
+            "conditional_route_precedence",
+            "incumbent_bridge_and_local_release",
+            "cp_sat_execution_and_extraction"
+          ]
+        }
+      ]
+    }
+  ],
+  "checkpoint_checks": [
+    {
+      "check_id": "true_route_one_hot",
+      "component_ids": [
+        "route_one_hot_model"
+      ],
+      "requirement": "源码必须出现每个 job 恰选一条路线的真实 one-hot 约束，不能只写 selected_routes 日志或固定 route_id=0。"
+    },
+    {
+      "check_id": "optional_interval_presence",
+      "component_ids": [
+        "optional_intervals_for_route_machine_pairs"
+      ],
+      "requirement": "源码必须使用 presence-controlled optional intervals，未选路线工序不得强制进入 NoOverlap。"
+    },
+    {
+      "check_id": "conditional_precedence",
+      "component_ids": [
+        "conditional_route_precedence"
+      ],
+      "requirement": "源码必须让 precedence 受所选路线条件控制，不能让所有路线顺序同时生效。"
+    },
+    {
+      "check_id": "cp_sat_execution_evidence",
+      "component_ids": [
+        "cp_sat_execution_and_extraction"
+      ],
+      "requirement": "必须记录非空的 solver status、求解时间和 extracted selected_routes，不能只有名义上的 exact 标志。"
+    },
+    {
+      "check_id": "parent_fallback",
+      "component_ids": [
+        "incumbent_bridge_and_local_release"
+      ],
+      "requirement": "无合法严格改善或求解失败时必须保留父 incumbent。"
+    }
+  ]
+}

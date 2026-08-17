@@ -1,11 +1,11 @@
-# Machine-Availability FJSP Search Adaptation
+# 机器可用性 FJSP 搜索适配
 
-Maintenance fragments machine capacity and can invalidate ordinary append-only or gap insertion decoders. Construction should score the earliest complete calendar gap, not raw machine-ready time. Useful tie breakers include post-maintenance delay, residual gap waste, and downstream critical work.
+维修窗口会切割机器容量，并可能使普通的尾部追加或空闲间隙插入解码器失效。构造阶段应按最早可完整容纳工序的日历间隙评分，而不是按原始机器就绪时间评分。可用的平局判定因素包括维修后延迟、剩余间隙浪费和下游关键工作量。
 
-Local and memetic search should include reassignment away from calendar bottlenecks, insertion into maintenance-created gaps, and critical-block moves followed by calendar-aware full decode. Tabu attributes remain assignment/order based; do not freeze decoded times as the search representation.
+局部搜索和模因搜索应包含：绕开日历瓶颈的换机、插入维修形成的空闲间隙，以及关键块移动后的日历感知完整解码。禁忌属性仍应基于分配或顺序；不得把解码后的时间冻结为搜索表示。
 
-Exact hybrids can add fixed maintenance intervals to each machine `NoOverlap`. For large instances, a heuristic calendar decoder plus bounded trust region is often more scalable than a full exact model.
+精确混合方法可把固定维修区间加入每台机器的 `NoOverlap`。对于大型实例，启发式日历解码器配合有界信赖域通常比完整精确模型更易扩展。
 
-## Research Basis
+## 研究依据
 
-The supplied core papers include mathematical models for FJSP with availability constraints and an effective maintenance-aware FJSP heuristic. The decoder and neighborhood rules above retain their fixed-calendar, nonpreemptive semantics while keeping algorithm choice with the Coding Agent.
+给定的核心论文包含带可用性约束 FJSP 的数学模型，以及有效的维修感知 FJSP 启发式方法。上述解码器和邻域规则保留其固定日历、不可抢占语义，同时继续由 Coding Agent 选择具体算法。

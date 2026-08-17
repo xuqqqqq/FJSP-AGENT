@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "contract_id": "fjsp_jpc_tst_adaptation",
+  "mode": "complete_method_package",
+  "required_components": [
+    {"component_id": "jpc_tst_parser", "required_behaviors": ["解析公开规范化实例中的候选机器、BOM 边、运输矩阵和准备规则。"]},
+    {"component_id": "joint_ready_decoder", "required_behaviors": ["联合传播工件内运输、跨工件前置和机器准备占用。"]},
+    {"component_id": "transactional_redecode", "required_behaviors": ["每次换机或排序移动后完整重算三个耦合特征。"]}
+  ],
+  "coupled_groups": [
+    {"group_id": "multi_feature_legality", "component_ids": ["jpc_tst_parser", "joint_ready_decoder", "transactional_redecode"], "rule": "解析、解码和移动验收必须使用同一组联合约束。"}
+  ],
+  "forbidden_shortcuts": [
+    "把 BOM 硬前置当作软优先级",
+    "把工序准备时间误写成序列相关 setup",
+    "换机后不重算运输和准备",
+    "未调用 OR-Tools 却声明 CP-SAT 已运行"
+  ]
+}

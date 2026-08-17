@@ -1,7 +1,7 @@
-# Machine-Availability FJSP Semantics And Decoder
+# 机器可用性 FJSP 语义与解码器
 
-Each maintenance record is a fixed half-open interval `[u_start,u_end)`. A non-preemptive operation `[s,e)` is legal only when `e <= u_start` or `s >= u_end` for every interval on its selected machine. Equality at either boundary is legal.
+每条维修记录都是固定的左闭右开区间 `[u_start,u_end)`。不可抢占工序 `[s,e)` 只有在对所选机器的每个区间都满足 `e <= u_start` 或 `s >= u_end` 时才合法。与区间任一边界相等均合法。
 
-For search, sort and merge overlapping/touching windows into an equivalent union. Earliest-gap placement scans scheduled operations and blocked windows together. If an operation intersects a window, advance its candidate start to the end of that window and continue scanning; never split processing around maintenance.
+搜索时，可以排序并合并重叠或首尾相接的窗口，得到等价并集。最早间隙放置应同时扫描已排工序和阻塞窗口。如果工序与窗口相交，则把候选开始时间推进到该窗口末端并继续扫描；不得把一次加工拆分到维修窗口两侧。
 
-The fixed evaluator checks the original interval list and reports violation count and total listed unavailable duration. Solver-side interval merging must not alter evaluator metrics or semantics.
+固定 evaluator 使用原始区间列表检查，并报告违反次数和列表中不可用时长总和。求解器侧的区间合并不得改变 evaluator 指标或语义。

@@ -1,9 +1,9 @@
 ---
 name: fjsp-population-memetic-worker
-description: 为受控 Coding Agent 实现 FJSP 群体、遗传和 memetic 搜索，包括 assignment/order 双层编码、合法交叉变异、结构多样性和有界局部改进。用于 Main 已选择 population_memetic 方法族时。
+description: 为受控编码代理实现 FJSP 群体、遗传和模因搜索，包括分配/顺序双层编码、合法交叉变异、结构多样性和有界局部改进。用于 Main 已选择 `population_memetic` 方法族时。
 ---
 
-# FJSP 群体与 Memetic 执行器
+# FJSP 群体与模因执行器
 
 ## 触发条件
 
@@ -30,8 +30,8 @@ description: 为受控 Coding Agent 实现 FJSP 群体、遗传和 memetic 搜�
 ## 权限与边界
 
 - 不能用名义上的“跑过几代”冒充群体搜索已实现。
-- 若同时授权局部搜索 Skill，只调用共享的合法邻域实现做 memetic refinement。
-- 若同时授权构造 Skill，可把构造入口作为初始群体来源之一。
+- 若同时授权局部搜索技能，只调用共享的合法邻域实现做模因式细化。
+- 若同时授权构造技能，可把构造入口作为初始群体来源之一。
 - `global incumbent` 必须独立于当前群体保存。
 - 不要求外部先提供高质量 incumbent；foundation warm start 可作为一个种子，其余个体应由
   合法 sequence-oriented 初始化、交叉、变异和局部改进产生。
@@ -40,8 +40,14 @@ description: 为受控 Coding Agent 实现 FJSP 群体、遗传和 memetic 搜�
 
 - 一个可执行的 population/memetic 搜索闭环。
 - assignment 允许时的激活证据：每代 unique fingerprints、交叉/变异/解码成功数、局部改进激活、重启和 best trajectory。
+- 必须在最终结果的 `diagnostics.activation.population_memetic` 下报告实际执行计数。
+  `population_size` 是进入选择循环的有效个体数，`generations_completed` 是完成选择、变异/交叉、
+  合法解码与替换的一整代数量；二者不能填写配置值或计划值。可同时报告 unique fingerprints、
+  offspring decoded/accepted、restarts 与 local improvements。
 
 ## 验证与停止条件
 
 - 只有在解码、选择、重启和局部精修都进入真实迭代路径时，才可声称方法已闭合。
 - 若多样性、合法解码或独立 incumbent 无法保持，停止扩大群体搜索主张。
+- 当 assignment 要求 `population_size > 1` 和 `generations_completed > 0` 时，任一检查缺失或失败都
+  表示群体机制没有形成有效竞争，不得凭一个构造解或名义 population 参数晋升。

@@ -20,25 +20,25 @@
    - 当前状态：OpenReview/ACM 页面可读，建议下载 PDF 和代码。
 
 4. `Job Shop Scheduling Benchmark: Environments and Instances for Learning and Optimization`
-   - 方向：benchmark environment
+   - 方向：基准环境
    - 用途：设计自演进框架的评估协议
    - 当前状态：arXiv PDF 可访问，建议保存本地。
 
 ## 代码
 
 1. `https://github.com/guillaumebour/flexible-job-shop`
-   - 方向：Python GA for FJSP
+   - 方向：面向 FJSP 的 Python 遗传算法
    - 建议动作：克隆后跑通 Mk02 示例。
 
 2. `https://github.com/thxiwilldoit/DOAGNN`
-   - 方向：FJSP RL/GNN
+   - 方向：FJSP 强化学习 / 图神经网络
    - 建议动作：克隆后只先阅读数据格式和环境，不急于训练。
 
 3. `https://github.com/google/or-tools/blob/stable/examples/python/flexible_job_shop_sat.py`
-   - 方向：CP-SAT 精确建模 baseline
-   - 建议动作：若本地未安装 OR-Tools，先不要加入主依赖；可放到可选 baseline。
+   - 方向：CP-SAT 精确建模基线
+   - 建议动作：若本地未安装 OR-Tools，先不要加入主依赖；可放到可选基线。
 
 4. `https://github.com/mcfadd/Job_Shop_Schedule_Problem`
-   - 方向：TS/GA + sequence-dependent setup
-   - 建议动作：后续研究华为 setup 局部搜索时再深入。
+   - 方向：禁忌搜索 / 遗传算法 + 顺序相关 setup
+   - 建议动作：后续研究华为顺序相关 setup 局部搜索时再深入。
 

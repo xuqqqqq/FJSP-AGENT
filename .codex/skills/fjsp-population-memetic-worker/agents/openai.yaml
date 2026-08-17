@@ -1,4 +1,4 @@
 interface:
-  display_name: "FJSP 群体与 Memetic 执行器"
-  short_description: "实现 FJSP 群体与 Memetic 搜索"
-  default_prompt: "研读已选的群体搜索材料，并实现 assignment 指定的方法族。"
+  display_name: "FJSP 群体与模因执行器"
+  short_description: "实现 FJSP 群体与模因搜索"
+  default_prompt: "研读已选的群体搜索材料，并实现任务分配中指定的方法族。"

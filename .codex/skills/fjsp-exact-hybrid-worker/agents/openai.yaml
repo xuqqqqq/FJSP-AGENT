@@ -1,4 +1,4 @@
 interface:
   display_name: "FJSP 精确混合执行器"
   short_description: "实现有界精确与混合 FJSP 搜索"
-  default_prompt: "研读已选的精确混合材料，并实现 assignment 指定的方法族。"
+  default_prompt: "研读已选的精确混合材料，并实现任务分配中指定的方法族。"

@@ -1,4 +1,4 @@
-# 群体与 Memetic 搜索模板
+# 群体与模因搜索模板
 
 来源依据：`knowledge/references/standard_fjsp/population_memetic_blueprint.md`。
 
@@ -32,4 +32,4 @@ while before_deadline():
 return best
 ```
 
-记录每代 unique fingerprints、交叉/变异/解码成功数、局部精修次数、重启和 best trajectory。种群大小和代数必须由每代实测成本与 deadline 共同限制。
+记录每代唯一指纹数、交叉/变异/解码成功数、局部精修次数、重启和 best trajectory。种群大小和代数必须由每代实测成本与 deadline 共同限制。

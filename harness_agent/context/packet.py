@@ -1172,9 +1172,6 @@ def activate_method_package_context(
         if isinstance(context.get("method_package_catalog"), dict)
         else {}
     )
-    if catalog.get("status") != "ok":
-        context.pop("active_method_package", None)
-        return None
     active_features = [str(item) for item in catalog.get("active_features") or []]
     requested_id = str((direction_plan or {}).get("method_package_id") or "").strip()
     if not requested_id:

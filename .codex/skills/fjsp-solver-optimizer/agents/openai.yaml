@@ -1,4 +1,4 @@
 interface:
   display_name: "FJSP 求解器优化"
   short_description: "诊断并改进 FJSP 求解器搜索"
-  default_prompt: "使用 $fjsp-solver-optimizer 诊断当前 FJSP 结构，选择一个可验证的求解器改进方向，并在冻结 evaluator 下验证它。"
+  default_prompt: "使用 `$fjsp-solver-optimizer` 诊断当前 FJSP 结构，选择一个可验证的求解器改进方向，并在冻结评测器下验证它。"

@@ -9,7 +9,7 @@ status: seed
 
 ## 仓库定位
 
-该仓库是 FJSP 遗传算法 Python 实现，并在 README 中引用 Li & Gao 的 hybrid GA + tabu search 方法。适合作为编码方式、种群生成和 GA 主循环的参考。
+该仓库是 FJSP 遗传算法 Python 实现，并在 README 中引用 Li & Gao 的混合遗传算法 + 禁忌搜索方法。适合作为编码方式、种群生成和 GA 主循环的参考。
 
 ## 可复用模块
 

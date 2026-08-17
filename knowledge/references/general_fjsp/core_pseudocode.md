@@ -5,10 +5,10 @@
 ## 目录
 
 - [按结构选择研究方向](#1-按结构选择研究方向)
-- [解码 assignment 与机器顺序](#2-解码-assignment-与机器顺序)
-- [带绝对 deadline 的分层求解](#3-带绝对-deadline-的分层求解)
+- [解码机器分配与机器顺序](#2-解码机器分配与机器顺序)
+- [带绝对时间上限的分层求解](#3-带绝对时间上限的分层求解)
 - [生成有界关键邻域](#4-生成有界关键邻域)
-- [Assignment trust region](#5-assignment-trust-region)
+- [分配信任域](#5-分配信任域)
 - [探测和最终入口选择](#6-探测和最终入口选择)
 
 ## 1. 按结构选择研究方向
@@ -36,7 +36,7 @@ def characterize(problem, incumbent=None):
 
 用这些特征提出和比较算法方向，不要返回固定的全局策略枚举。阈值只能是当前语料和实验的可调整起点。
 
-## 2. 解码 assignment 与机器顺序
+## 2. 解码机器分配与机器顺序
 
 建立同时包含作业优先边和相邻机器顺序边的图，用拓扑最长路计算最早开始时间。
 
@@ -85,9 +85,9 @@ def decode(problem, assignment, machine_orders):
     )
 ```
 
-assignment 或顺序改变后必须重新解码，不能用旧 start time 给 move 打分。
+机器分配或顺序改变后必须重新解码，不能沿用旧的开始时间为 move 打分。
 
-## 3. 带绝对 deadline 的分层求解
+## 3. 带绝对时间上限的分层求解
 
 ```python
 def solve(problem, time_limit):
@@ -164,7 +164,7 @@ def critical_neighborhood(problem, solution, limits):
 
 生成入口而不是复制完整 tabu 轨迹。通过限制关键块、位置、替代机器和总入口数保持预算可解释。
 
-## 5. Assignment trust region
+## 5. 分配信任域
 
 ```python
 def trust_region_cp(problem, entry, candidate_ops, max_changes, seconds):
@@ -243,4 +243,4 @@ def select_final_entries(pool, incumbent, probes, limit=3):
     return selected
 ```
 
-主要最终入口属于 incumbent 或探测后接近它的胜者。不要因为一个很差入口的短期 gain 大，就把最大预算交给它。
+主要最终入口应来自 incumbent，或探测后已接近 incumbent 的候选。不要因为一个很差入口的短期增益大，就把最大预算交给它。

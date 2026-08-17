@@ -1,4 +1,4 @@
 interface:
   display_name: "FJSP 最小时间间隔适配执行器"
-  short_description: "将选定 FJSP 方法适配到 machine-free minimum time lag"
-  default_prompt: "研读已激活的最小时间间隔契约，并把 assignment 指定的方法族适配为 lag-aware 实现。"
+  short_description: "将选定 FJSP 方法适配到与机器无关的最小时间间隔"
+  default_prompt: "研读已激活的最小时间间隔契约，并把任务分配中指定的方法族适配为具备时间间隔感知的实现。"

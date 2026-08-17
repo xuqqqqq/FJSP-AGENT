@@ -74,15 +74,33 @@ class DeepSeekClient:
         """按优先级读取本地 env/密钥文件并构建客户端。"""
 
         load_local_env()
-        api_key = resolve_secret(api_key_env, file_env=f"{api_key_env}_FILE")
+        requested_model = str(model or os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro"))
+        normalized_model = normalize_deepseek_model(requested_model.rsplit("/", 1)[-1])
+        qiming_key = resolve_secret("QIMING_API_KEY", file_env="QIMING_API_KEY_FILE")
+        use_qiming = bool(qiming_key) and (
+            requested_model.lower().startswith("qiming/")
+            or normalized_model in {"glm-5.2", "deepseek-v4-flash"}
+        )
+        resolved_api_key_env = "QIMING_API_KEY" if use_qiming else api_key_env
+        api_key = qiming_key if use_qiming else resolve_secret(
+            api_key_env,
+            file_env=f"{api_key_env}_FILE",
+        )
         if not api_key:
-            raise DeepSeekUnavailable(f"environment variable {api_key_env} is not set")
+            raise DeepSeekUnavailable(f"environment variable {resolved_api_key_env} is not set")
         timeout = resolve_timeout_seconds(os.environ.get("DEEPSEEK_TIMEOUT_SECONDS"), default=timeout_seconds)
         return DeepSeekClient(
             DeepSeekConfig(
                 api_key=api_key,
-                model=normalize_deepseek_model(model or os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")),
-                base_url=base_url or os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+                model=normalized_model,
+                base_url=(
+                    base_url
+                    or (
+                        os.environ.get("QIMING_BASE_URL", "https://cpa.qiming.zone/v1")
+                        if use_qiming
+                        else os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+                    )
+                ),
                 timeout_seconds=timeout,
             )
         )
@@ -185,6 +203,11 @@ class DeepSeekClient:
             content = message.get("reasoning_content")
         if not isinstance(content, str) or not content.strip():
             raise RuntimeError(f"DeepSeek response has empty content: {raw[:1000]}")
+        content = normalize_provider_content(
+            content,
+            model=self.config.model,
+            finish_reason=str(choices[0].get("finish_reason") or ""),
+        )
         usage_raw = data.get("usage") if isinstance(data.get("usage"), dict) else {}
         usage = {
             str(key): int(value)
@@ -198,7 +221,10 @@ def is_deepseek_configured(api_key_env: str = "DEEPSEEK_API_KEY") -> bool:
     """Return whether a DeepSeek key is available without exposing the key."""
 
     load_local_env()
-    return bool(resolve_secret(api_key_env, file_env=f"{api_key_env}_FILE"))
+    return bool(
+        resolve_secret(api_key_env, file_env=f"{api_key_env}_FILE")
+        or resolve_secret("QIMING_API_KEY", file_env="QIMING_API_KEY_FILE")
+    )
 
 
 def load_local_env() -> None:
@@ -305,6 +331,7 @@ def urlopen_stream_chat_with_deadline(
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         usage: dict[str, int] = {}
+        finish_reason = ""
         with urllib.request.urlopen(request, timeout=timeout) as response:
             for raw_line in response:
                 line = raw_line.decode("utf-8", errors="replace").strip()
@@ -326,6 +353,8 @@ def urlopen_stream_chat_with_deadline(
                 for choice in event.get("choices") or []:
                     if not isinstance(choice, dict):
                         continue
+                    if choice.get("finish_reason"):
+                        finish_reason = str(choice["finish_reason"])
                     delta = choice.get("delta") or choice.get("message") or {}
                     if not isinstance(delta, dict):
                         continue
@@ -338,7 +367,14 @@ def urlopen_stream_chat_with_deadline(
         content = "".join(content_parts).strip() or "".join(reasoning_parts).strip()
         if not content:
             raise RuntimeError("DeepSeek streaming response has empty content")
-        return DeepSeekChatResult(content=content, usage=usage)
+        return DeepSeekChatResult(
+            content=normalize_provider_content(
+                content,
+                model=str(json.loads(request.data or b"{}").get("model") or ""),
+                finish_reason=finish_reason,
+            ),
+            usage=usage,
+        )
 
     executor = ThreadPoolExecutor(max_workers=1)
     future = executor.submit(read_response)
@@ -359,3 +395,18 @@ def normalize_deepseek_model(model: str) -> str:
         "deepseek-4-flash": "deepseek-v4-flash",
     }
     return aliases.get(model, model)
+
+
+def normalize_provider_content(content: str, *, model: str, finish_reason: str = "") -> str:
+    """Return provider final content while rejecting truncated GLM reasoning."""
+
+    normalized = content.strip()
+    if normalize_deepseek_model(model.rsplit("/", 1)[-1]) != "glm-5.2":
+        return normalized
+    if "</think>" in normalized:
+        final = normalized.rsplit("</think>", 1)[-1].strip()
+        if final:
+            return final
+    if finish_reason.lower() == "length":
+        raise RuntimeError("GLM response ended at the token limit before producing a final answer")
+    return normalized

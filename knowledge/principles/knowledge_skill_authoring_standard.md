@@ -1,4 +1,4 @@
-# Skill 与知识库编写规范
+# Skill（技能）与知识库编写规范
 
 更新时间：2026-07-24。
 
@@ -48,7 +48,7 @@
 ### Skill 不应包含
 
 - 某次运行的 makespan、seed、日志路径、失败猜测和临时结论。
-- 大段论文综述、Benchmark 数值表、通用算法原理或实例画像。
+- 大段论文综述、基准数值表、通用算法原理或实例画像。
 - 可被多个方法族复用的算法代码模板。
 - Domain Pack 注册关系、模型选择、任意文件权限或 evaluator 结论。
 - `README.md`、安装指南、变更日志等与 Agent 执行无关的附属文档。
@@ -94,7 +94,7 @@ description: 完成某项明确能力。用于出现某类输入、任务或已�
 | 类型 | 目录 | 内容 |
 | --- | --- | --- |
 | 原则与契约 | `knowledge/principles/` | 架构边界、质量合同、问题族建模原则 |
-| Benchmark 事实 | `knowledge/benchmarks/` | IO 格式、数据集范围、LB/UB/BKS 来源和口径 |
+| 基准事实 | `knowledge/benchmarks/` | IO 格式、数据集范围、LB/UB/BKS 来源和口径 |
 | 稳定方法知识 | `knowledge/references/<problem_family>/` | 方法原理、适用画像、状态表示、伪代码、实现选择、失败边界和验证 |
 | 完整方法包 | `knowledge/method_packages/` | 必须整体协调的方法合同、行为合同和实例无关参考实现 |
 | 能力快照 | `knowledge/capabilities/` | 当前可复核能力和缺口；只保留最新有效快照 |
@@ -147,7 +147,7 @@ created_at: "2026-07-24T00:00:00Z"
 - 文件存在不等于运行时可见。
 - 稳定知识卡需要按标签注册到 `domain_packs/<family>/domain_pack.json` 的 `knowledge.tagged_cards`，才会进入二阶段检索。
 - Worker Implementation Skill 需要注册到 `worker_implementation_skills`，并声明可覆盖的方法族和激活标签，才会进入 Worker 自动匹配。
-- 前端创建界面可以执行上述注册，但默认禁止覆盖同名资产；实验记忆、原则、Benchmark 和导入材料不能直接加入自动检索。
+- 前端创建界面可以执行上述注册，但默认禁止覆盖同名资产；实验记忆、原则、基准和导入材料不能直接加入自动检索。
 
 ## 6. 当前仓库审计结论
 

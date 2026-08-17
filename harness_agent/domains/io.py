@@ -11,7 +11,13 @@ from typing import Any
 OpKey = tuple[int, int]
 SetupTimes = tuple[tuple[tuple[int, ...], ...], ...]
 MinimumTimeLags = tuple["MinimumTimeLag", ...]
+MaximumTimeLags = tuple["MaximumTimeLag", ...]
 ReentrantLoops = tuple["ReentrantLoop", ...]
+AlternativeRoutes = tuple[tuple[tuple[int, ...], ...], ...]
+OperationSetupTimes = tuple[tuple[int, int, int, int], ...]
+TransportTimes = tuple[tuple[int, ...], ...]
+JobPrecedences = tuple[tuple[int, int], ...]
+BatchMachineCapacities = tuple[tuple[int, int], ...]
 
 
 @dataclass(frozen=True)
@@ -50,6 +56,16 @@ class MinimumTimeLag:
 
 
 @dataclass(frozen=True)
+class MaximumTimeLag:
+    """Upper bound on waiting from one job operation's end to a later start."""
+
+    job_id: int
+    from_op: int
+    to_op: int
+    lag: int
+
+
+@dataclass(frozen=True)
 class MachineUnavailability:
     """A fixed half-open interval during which a machine cannot process."""
 
@@ -78,6 +94,14 @@ class ReentrantLoop:
 
 
 @dataclass(frozen=True)
+class StandardFjspSolution:
+    """Parsed schedule plus variant metadata from the solution document."""
+
+    schedule: list[ScheduleRecord]
+    selected_routes: dict[int, int] | None = None
+
+
+@dataclass(frozen=True)
 class StandardFjspInstance:
     """标准 FJSP 及兼容标准 schedule schema 变体的只读结构。
 
@@ -93,11 +117,18 @@ class StandardFjspInstance:
     setup_times: SetupTimes = ()
     setup_time_kind: str = "none"
     minimum_time_lags: MinimumTimeLags = ()
+    maximum_time_lags: MaximumTimeLags = ()
     job_release_times: tuple[int, ...] = ()
     machine_available_times: tuple[int, ...] = ()
     unavailability_intervals: tuple[MachineUnavailability, ...] = ()
     priority_job_ids: tuple[int, ...] = ()
     reentrant_loops: ReentrantLoops = ()
+    alternative_routes: AlternativeRoutes = ()
+    operation_setup_times: OperationSetupTimes = ()
+    transport_times: TransportTimes = ()
+    job_precedences: JobPrecedences = ()
+    batch_machine_capacities: BatchMachineCapacities = ()
+    job_family_ids: tuple[int, ...] = ()
     variant: str = "standard_fjsp"
 
     @property
@@ -111,6 +142,10 @@ class StandardFjspInstance:
     @property
     def has_minimum_time_lags(self) -> bool:
         return self.variant == "fjsp_min_time_lag"
+
+    @property
+    def has_maximum_time_lags(self) -> bool:
+        return self.variant == "fjsp_max_time_lag"
 
     @property
     def has_release_times(self) -> bool:
@@ -129,6 +164,31 @@ class StandardFjspInstance:
         return self.variant == "fjsp_reentrant"
 
     @property
+    def has_alternative_routes(self) -> bool:
+        return self.variant == "fjsp_alternative_path"
+
+    @property
+    def has_operation_setup_times(self) -> bool:
+        return bool(self.operation_setup_times)
+
+    @property
+    def has_transport_times(self) -> bool:
+        return bool(self.transport_times)
+
+    @property
+    def has_job_precedences(self) -> bool:
+        return bool(self.job_precedences)
+
+    @property
+    def has_batch_processing(self) -> bool:
+        return self.variant == "fjsp_pbpm"
+
+    def route_options(self, job_id: int) -> tuple[tuple[int, ...], ...]:
+        original = tuple(range(len(self.jobs[job_id].operations)))
+        alternatives = self.alternative_routes[job_id] if self.alternative_routes else ()
+        return (original, *alternatives)
+
+    @property
     def original_operation_count(self) -> int:
         if not self.reentrant_loops:
             return self.operation_count
@@ -144,6 +204,7 @@ class ScheduleRecord:
     machine_id: int
     start: int
     end: int
+    batch_id: int | None = None
 
     @property
     def duration(self) -> int:
@@ -165,6 +226,11 @@ def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
     (`machine_count * operation_count * operation_count`) or a HUdata job-pair
     setup matrix (`machine_count * job_count * job_count`).
     """
+
+    if path.name.casefold().endswith(".jpctst.json"):
+        return _parse_jpc_tst_json(path)
+    if ".pbpm." in path.name.casefold() or path.name.casefold().endswith(".pbpm"):
+        return _parse_pbpm_fjsp(path)
 
     numbers = [int(token) for token in path.read_text(encoding="utf-8").split()]
     if len(numbers) < 3:
@@ -231,23 +297,42 @@ def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
         jobs.append(Job(job_id=job_id, operations=tuple(ops)))
 
     operation_count = sum(len(job.operations) for job in jobs)
-    (
-        setup_times,
-        setup_time_kind,
-        minimum_time_lags,
-        job_release_times,
-        machine_available_times,
-        unavailability_intervals,
-        priority_job_ids,
-        reentrant_loops,
-        variant,
-    ) = _parse_optional_variant_tail(
-        path=path,
-        tail=numbers[idx:],
-        jobs=tuple(jobs),
-        machine_count=machine_count,
-        operation_count=operation_count,
-    )
+    alternative_routes: AlternativeRoutes = ()
+    if ".apfjsp" in path.name.casefold():
+        alternative_routes = _parse_alternative_routes(
+            path=path,
+            tail=numbers[idx:],
+            jobs=tuple(jobs),
+        )
+        setup_times = ()
+        setup_time_kind = "none"
+        minimum_time_lags = ()
+        maximum_time_lags = ()
+        job_release_times = ()
+        machine_available_times = ()
+        unavailability_intervals = ()
+        priority_job_ids = ()
+        reentrant_loops = ()
+        variant = "fjsp_alternative_path"
+    else:
+        (
+            setup_times,
+            setup_time_kind,
+            minimum_time_lags,
+            maximum_time_lags,
+            job_release_times,
+            machine_available_times,
+            unavailability_intervals,
+            priority_job_ids,
+            reentrant_loops,
+            variant,
+        ) = _parse_optional_variant_tail(
+            path=path,
+            tail=numbers[idx:],
+            jobs=tuple(jobs),
+            machine_count=machine_count,
+            operation_count=operation_count,
+        )
     if reentrant_loops:
         jobs = list(_expand_reentrant_jobs(tuple(jobs), reentrant_loops))
 
@@ -260,12 +345,175 @@ def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
         setup_times=setup_times,
         setup_time_kind=setup_time_kind,
         minimum_time_lags=minimum_time_lags,
+        maximum_time_lags=maximum_time_lags,
         job_release_times=job_release_times,
         machine_available_times=machine_available_times,
         unavailability_intervals=unavailability_intervals,
         priority_job_ids=priority_job_ids,
         reentrant_loops=reentrant_loops,
+        alternative_routes=alternative_routes,
         variant=variant,
+    )
+
+
+def _parse_jpc_tst_json(path: Path) -> StandardFjspInstance:
+    """解析论文 FJSP-JPC-TST 的规范化公开算例。"""
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("format") != "fjsp_jpc_tst_instance_v1":
+        raise ValueError(f"{path} has an unsupported FJSP-JPC-TST format")
+    job_rows = payload.get("jobs")
+    if not isinstance(job_rows, list) or not job_rows:
+        raise ValueError(f"{path} must contain a non-empty jobs array")
+    machine_count = int(payload["machine_count"])
+    jobs: list[Job] = []
+    setup_rows: list[tuple[int, int, int, int]] = []
+    setup_rule = payload.get("operation_setup_rule") or {}
+    setup_ratio = float(setup_rule.get("processing_time_ratio", 0))
+    setup_minimum = int(setup_rule.get("minimum", 0))
+    max_candidate_count = 0
+    for job_id, raw_job in enumerate(job_rows):
+        raw_ops = raw_job.get("operations") if isinstance(raw_job, dict) else None
+        if not isinstance(raw_ops, list) or not raw_ops:
+            raise ValueError(f"{path} job {job_id} must contain operations")
+        operations: list[Operation] = []
+        for op_id, raw_candidates in enumerate(raw_ops):
+            if not isinstance(raw_candidates, list) or not raw_candidates:
+                raise ValueError(f"{path} job {job_id} operation {op_id} has no candidates")
+            candidates: list[MachineOption] = []
+            max_candidate_count = max(max_candidate_count, len(raw_candidates))
+            for raw_candidate in raw_candidates:
+                machine_id = int(raw_candidate[0])
+                duration = int(raw_candidate[1])
+                if not 0 <= machine_id < machine_count or duration < 0:
+                    raise ValueError(
+                        f"{path} invalid candidate for job {job_id} operation {op_id}"
+                    )
+                candidates.append(MachineOption(machine_id=machine_id, duration=duration))
+                setup = max(setup_minimum, round(duration * setup_ratio))
+                setup_rows.append((job_id, op_id, machine_id, setup))
+            operations.append(Operation(job_id=job_id, op_id=op_id, candidates=tuple(candidates)))
+        jobs.append(Job(job_id=job_id, operations=tuple(operations)))
+
+    raw_transport = payload.get("transport_times")
+    if not isinstance(raw_transport, list) or len(raw_transport) != machine_count:
+        raise ValueError(f"{path} transport_times must be a square machine matrix")
+    transport_times = tuple(tuple(int(value) for value in row) for row in raw_transport)
+    if any(len(row) != machine_count or any(value < 0 for value in row) for row in transport_times):
+        raise ValueError(f"{path} transport_times must be square and non-negative")
+
+    precedences: list[tuple[int, int]] = []
+    for raw_edge in payload.get("job_precedences") or []:
+        predecessor, successor = int(raw_edge[0]), int(raw_edge[1])
+        if not 0 <= predecessor < len(jobs) or not 0 <= successor < len(jobs):
+            raise ValueError(f"{path} has an out-of-range job precedence edge")
+        if predecessor == successor:
+            raise ValueError(f"{path} has a self job precedence edge")
+        precedences.append((predecessor, successor))
+
+    return StandardFjspInstance(
+        name=path.name.removesuffix(".jpctst.json"),
+        job_count=len(jobs),
+        machine_count=machine_count,
+        max_candidate_count=max_candidate_count,
+        jobs=tuple(jobs),
+        operation_setup_times=tuple(setup_rows),
+        transport_times=transport_times,
+        job_precedences=tuple(precedences),
+        variant="fjsp_jpc_tst",
+    )
+
+
+def _parse_pbpm_fjsp(path: Path) -> StandardFjspInstance:
+    """Parse the frozen Fattahi-prefix PBPM-FJSP text contract."""
+
+    numbers = [int(token) for token in path.read_text(encoding="utf-8").split()]
+    if len(numbers) < 2:
+        raise ValueError(f"{path} is too short to be a PBPM-FJSP instance")
+    idx = 0
+    job_count, machine_count = numbers[idx : idx + 2]
+    idx += 2
+    if job_count <= 0 or machine_count <= 0:
+        raise ValueError(f"{path} must declare positive job and machine counts")
+
+    jobs: list[Job] = []
+    max_candidate_count = 0
+    for job_id in range(job_count):
+        if idx >= len(numbers):
+            raise ValueError(f"{path} ended before job {job_id}")
+        operation_count = numbers[idx]
+        idx += 1
+        if operation_count <= 0:
+            raise ValueError(f"{path} job {job_id} has no operations")
+        operations: list[Operation] = []
+        for op_id in range(operation_count):
+            if idx >= len(numbers):
+                raise ValueError(f"{path} ended before job {job_id} operation {op_id}")
+            candidate_count = numbers[idx]
+            idx += 1
+            if candidate_count <= 0:
+                raise ValueError(f"{path} job {job_id} operation {op_id} has no candidates")
+            max_candidate_count = max(max_candidate_count, candidate_count)
+            candidates: list[MachineOption] = []
+            for _ in range(candidate_count):
+                if idx + 1 >= len(numbers):
+                    raise ValueError(f"{path} ended inside a candidate list")
+                machine_id, duration = numbers[idx : idx + 2]
+                idx += 2
+                if not 0 <= machine_id < machine_count:
+                    raise ValueError(f"{path} has out-of-range machine id {machine_id}")
+                if duration < 0:
+                    raise ValueError(f"{path} has negative duration {duration}")
+                candidates.append(MachineOption(machine_id=machine_id, duration=duration))
+            operations.append(Operation(job_id=job_id, op_id=op_id, candidates=tuple(candidates)))
+        jobs.append(Job(job_id=job_id, operations=tuple(operations)))
+
+    if idx >= len(numbers):
+        raise ValueError(f"{path} is missing the batch-machine tail")
+    batch_machine_count = numbers[idx]
+    idx += 1
+    if batch_machine_count <= 0:
+        raise ValueError(f"{path} must declare at least one batch-processing machine")
+    batch_capacities: list[tuple[int, int]] = []
+    seen_machines: set[int] = set()
+    for _ in range(batch_machine_count):
+        if idx + 1 >= len(numbers):
+            raise ValueError(f"{path} ended inside the batch-machine tail")
+        machine_id, capacity = numbers[idx : idx + 2]
+        idx += 2
+        if not 0 <= machine_id < machine_count:
+            raise ValueError(f"{path} has out-of-range batch machine {machine_id}")
+        if machine_id in seen_machines:
+            raise ValueError(f"{path} repeats batch machine {machine_id}")
+        if capacity < 2:
+            raise ValueError(f"{path} batch machine {machine_id} has capacity below 2")
+        seen_machines.add(machine_id)
+        batch_capacities.append((machine_id, capacity))
+
+    if idx >= len(numbers):
+        raise ValueError(f"{path} is missing the job-family tail")
+    family_count = numbers[idx]
+    idx += 1
+    if family_count <= 0:
+        raise ValueError(f"{path} must declare at least one job family")
+    if idx + job_count != len(numbers):
+        raise ValueError(
+            f"{path} PBPM tail size mismatch: expected {job_count} family ids, "
+            f"got {len(numbers) - idx}"
+        )
+    job_family_ids = tuple(numbers[idx : idx + job_count])
+    if any(not 0 <= family_id < family_count for family_id in job_family_ids):
+        raise ValueError(f"{path} has an out-of-range job family id")
+
+    return StandardFjspInstance(
+        name=path.name.split(".pbpm", 1)[0],
+        job_count=job_count,
+        machine_count=machine_count,
+        max_candidate_count=max_candidate_count,
+        jobs=tuple(jobs),
+        batch_machine_capacities=tuple(batch_capacities),
+        job_family_ids=job_family_ids,
+        variant="fjsp_pbpm",
     )
 
 
@@ -280,6 +528,7 @@ def _parse_optional_variant_tail(
     SetupTimes,
     str,
     MinimumTimeLags,
+    MaximumTimeLags,
     tuple[int, ...],
     tuple[int, ...],
     tuple[MachineUnavailability, ...],
@@ -287,7 +536,7 @@ def _parse_optional_variant_tail(
     ReentrantLoops,
     str,
 ]:
-    """严格解析可选的 SDST matrix 或 min-time-lag constraint list。
+    """严格解析已注册的标准 FJSP 变体尾部。
 
     当前支持已确认的 setup matrix、minimum-lag list、release rows 和
     machine-unavailability list。文件标记优先用于消除长度碰撞；如果尾部结构
@@ -309,7 +558,7 @@ def _parse_optional_variant_tail(
             raise ValueError(f"{path} priority tail is missing")
         if reentrant_name:
             raise ValueError(f"{path} reentrant loop tail is missing")
-        return (), "none", (), (), (), (), (), (), "standard_fjsp"
+        return (), "none", (), (), (), (), (), (), (), "standard_fjsp"
     machine_availability_name = (
         name.startswith(("ffcr", "nfa", "fjsp_nfa"))
         or ".nfafjsp" in name
@@ -317,12 +566,14 @@ def _parse_optional_variant_tail(
     )
     if priority_name:
         priority_job_ids = _parse_priority_jobs(path=path, tail=tail, job_count=job_count)
-        return (), "none", (), (), (), (), priority_job_ids, (), "fjsp_priority"
+        return (), "none", (), (), (), (), (), priority_job_ids, (), "fjsp_priority"
     if reentrant_name:
         loops = _parse_reentrant_loops(path=path, tail=tail, jobs=jobs)
-        return (), "none", (), (), (), (), (), loops, "fjsp_reentrant"
+        return (), "none", (), (), (), (), (), (), loops, "fjsp_reentrant"
     if ".mitfjsp" in name:
-        return (), "none", _parse_minimum_time_lags(path=path, tail=tail, jobs=jobs), (), (), (), (), (), "fjsp_min_time_lag"
+        return (), "none", _parse_minimum_time_lags(path=path, tail=tail, jobs=jobs), (), (), (), (), (), (), "fjsp_min_time_lag"
+    if ".tlfjsp" in name:
+        return (), "none", (), _parse_maximum_time_lags(path=path, tail=tail, jobs=jobs), (), (), (), (), (), "fjsp_max_time_lag"
     if ".rtfjsp" in name:
         job_release, machine_available = _parse_release_times(
             path=path,
@@ -330,10 +581,10 @@ def _parse_optional_variant_tail(
             job_count=job_count,
             machine_count=machine_count,
         )
-        return (), "none", (), job_release, machine_available, (), (), (), "fjsp_release_time"
+        return (), "none", (), (), job_release, machine_available, (), (), (), "fjsp_release_time"
     if machine_availability_name:
         intervals = _parse_machine_unavailability(path=path, tail=tail, machine_count=machine_count)
-        return (), "none", (), (), (), intervals, (), (), "fjsp_machine_availability"
+        return (), "none", (), (), (), (), intervals, (), (), "fjsp_machine_availability"
     operation_pair_expected = machine_count * operation_count * operation_count
     job_pair_expected = machine_count * job_count * job_count
     if len(tail) == operation_pair_expected:
@@ -349,10 +600,10 @@ def _parse_optional_variant_tail(
             raise ValueError(f"{path} has an ambiguous zero-count variant tail; use a recognized variant filename")
         if min_lag_match:
             constraints = _parse_minimum_time_lags(path=path, tail=tail, jobs=jobs)
-            return (), "none", constraints, (), (), (), (), (), "fjsp_min_time_lag"
+            return (), "none", constraints, (), (), (), (), (), (), "fjsp_min_time_lag"
         if availability_match:
             intervals = _parse_machine_unavailability(path=path, tail=tail, machine_count=machine_count)
-            return (), "none", (), (), (), intervals, (), (), "fjsp_machine_availability"
+            return (), "none", (), (), (), (), intervals, (), (), "fjsp_machine_availability"
         raise ValueError(
             f"{path} has trailing tokens that match no supported setup, minimum-lag, "
             f"release-time, or machine-availability encoding: trailing={len(tail)}"
@@ -368,7 +619,7 @@ def _parse_optional_variant_tail(
                 raise ValueError(f"{path} has negative setup time for machine {machine_id}")
             rows.append(row)
         setup_by_machine.append(tuple(rows))
-    return tuple(setup_by_machine), kind, (), (), (), (), (), (), "fjsp_sdst"
+    return tuple(setup_by_machine), kind, (), (), (), (), (), (), (), "fjsp_sdst"
 
 
 def _parse_reentrant_loops(
@@ -405,6 +656,57 @@ def _parse_reentrant_loops(
             )
         )
     return tuple(loops)
+
+
+def _parse_alternative_routes(
+    *,
+    path: Path,
+    tail: list[int],
+    jobs: tuple[Job, ...],
+) -> AlternativeRoutes:
+    """Parse per-job alternative operation sequences after the standard body."""
+
+    if not tail:
+        raise ValueError(f"{path} alternative-route tail is missing")
+    cursor = 0
+    all_alternatives: list[tuple[tuple[int, ...], ...]] = []
+    for job in jobs:
+        if cursor >= len(tail):
+            raise ValueError(f"{path} is missing alternative-route count for job {job.job_id}")
+        alternative_count = tail[cursor]
+        cursor += 1
+        if alternative_count < 0:
+            raise ValueError(f"{path} job {job.job_id} has negative alternative-route count")
+        routes: list[tuple[int, ...]] = []
+        seen_routes = {tuple(range(len(job.operations)))}
+        for route_index in range(alternative_count):
+            if cursor >= len(tail):
+                raise ValueError(f"{path} job {job.job_id} route {route_index + 1} is missing")
+            operation_count = tail[cursor]
+            cursor += 1
+            if not 2 <= operation_count <= len(job.operations):
+                raise ValueError(
+                    f"{path} job {job.job_id} route {route_index + 1} has invalid operation_count={operation_count}"
+                )
+            if cursor + operation_count > len(tail):
+                raise ValueError(f"{path} ended inside job {job.job_id} route {route_index + 1}")
+            route = tuple(tail[cursor : cursor + operation_count])
+            cursor += operation_count
+            if len(set(route)) != len(route):
+                raise ValueError(f"{path} job {job.job_id} route {route_index + 1} repeats an operation")
+            invalid = [op_id for op_id in route if not 0 <= op_id < len(job.operations)]
+            if invalid:
+                raise ValueError(
+                    f"{path} job {job.job_id} route {route_index + 1} has out-of-range operation ids {invalid}"
+                )
+            if route in seen_routes:
+                raise ValueError(f"{path} job {job.job_id} has duplicate route {route}")
+            seen_routes.add(route)
+            routes.append(route)
+        all_alternatives.append(tuple(routes))
+    if cursor != len(tail):
+        raise ValueError(f"{path} alternative-route tail has {len(tail) - cursor} trailing tokens")
+    return tuple(all_alternatives)
 
 
 def _expand_reentrant_jobs(jobs: tuple[Job, ...], loops: ReentrantLoops) -> tuple[Job, ...]:
@@ -526,6 +828,40 @@ def _parse_minimum_time_lags(
     return tuple(constraints)
 
 
+def _parse_maximum_time_lags(
+    *,
+    path: Path,
+    tail: list[int],
+    jobs: tuple[Job, ...],
+) -> MaximumTimeLags:
+    """Parse sparse same-job upper bounds, including non-adjacent operation pairs."""
+
+    constraint_count = tail[0]
+    if constraint_count < 0 or len(tail) != 1 + 4 * constraint_count:
+        raise ValueError(f"{path} has an invalid maximum-time-lag tail")
+    constraints: list[MaximumTimeLag] = []
+    seen: set[tuple[int, int, int]] = set()
+    for index in range(constraint_count):
+        offset = 1 + index * 4
+        job_id, from_op, to_op, lag = tail[offset : offset + 4]
+        if not 0 <= job_id < len(jobs):
+            raise ValueError(f"{path} maximum-time-lag {index} has out-of-range job_id={job_id}")
+        operation_count = len(jobs[job_id].operations)
+        if not (0 <= from_op < to_op < operation_count):
+            raise ValueError(
+                f"{path} maximum-time-lag {index} has invalid ordered operation pair "
+                f"job={job_id}, from_op={from_op}, to_op={to_op}"
+            )
+        if lag < 0:
+            raise ValueError(f"{path} maximum-time-lag {index} has negative lag={lag}")
+        key = (job_id, from_op, to_op)
+        if key in seen:
+            raise ValueError(f"{path} has duplicate maximum-time-lag constraint for {key}")
+        seen.add(key)
+        constraints.append(MaximumTimeLag(job_id, from_op, to_op, lag))
+    return tuple(constraints)
+
+
 def operation_index_lookup(instance: StandardFjspInstance) -> dict[OpKey, int]:
     """建立 `(job_id, op_id)` 到全局工序索引的映射。
 
@@ -564,6 +900,12 @@ def load_solution(path: Path) -> list[ScheduleRecord]:
     统一判断。
     """
 
+    return load_solution_document(path).schedule
+
+
+def load_solution_document(path: Path) -> StandardFjspSolution:
+    """Load the schedule and optional route-choice metadata."""
+
     raw = json.loads(path.read_text(encoding="utf-8"))
     records = raw.get("schedule")
     if not isinstance(records, list):
@@ -578,11 +920,33 @@ def load_solution(path: Path) -> list[ScheduleRecord]:
                     machine_id=int(_solution_field(item, "machine_id", "machine")),
                     start=int(item["start"]),
                     end=int(item["end"]),
+                    batch_id=int(item["batch_id"]) if item.get("batch_id") is not None else None,
                 )
             )
         except Exception as exc:  # noqa: BLE001 - convert malformed records into validation errors.
             raise ValueError(f"schedule record {index} is malformed: {item!r}") from exc
-    return parsed
+    raw_routes = raw.get("selected_routes")
+    selected_routes: dict[int, int] | None = None
+    if raw_routes is not None:
+        if not isinstance(raw_routes, dict):
+            raise ValueError("solution field 'selected_routes' must be an object")
+        selected_routes = {}
+        for raw_job_id, raw_route_id in raw_routes.items():
+            if isinstance(raw_job_id, bool) or isinstance(raw_route_id, bool):
+                raise ValueError("selected_routes job and route ids must be integers")
+            if not isinstance(raw_route_id, int):
+                raise ValueError("selected_routes route ids must be JSON integers")
+            try:
+                job_id = int(raw_job_id)
+                route_id = int(raw_route_id)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("selected_routes job and route ids must be integers") from exc
+            if str(job_id) != str(raw_job_id).strip() and not isinstance(raw_job_id, int):
+                raise ValueError(f"selected_routes has non-canonical job id {raw_job_id!r}")
+            if job_id in selected_routes:
+                raise ValueError(f"selected_routes repeats job id {job_id}")
+            selected_routes[job_id] = route_id
+    return StandardFjspSolution(schedule=parsed, selected_routes=selected_routes)
 
 
 def _solution_field(item: dict[str, Any], canonical: str, alias: str) -> Any:
@@ -593,7 +957,14 @@ def _solution_field(item: dict[str, Any], canonical: str, alias: str) -> Any:
     return item[alias]
 
 
-def write_solution(path: Path, instance: StandardFjspInstance, schedule: list[ScheduleRecord], strategy: str) -> None:
+def write_solution(
+    path: Path,
+    instance: StandardFjspInstance,
+    schedule: list[ScheduleRecord],
+    strategy: str,
+    *,
+    selected_routes: dict[int, int] | None = None,
+) -> None:
     """按固定 JSON 协议输出解。
 
     输出里只记录 evaluator 需要的排产事实和少量来源元数据，不嵌入任何“自证最优”
@@ -614,18 +985,35 @@ def write_solution(path: Path, instance: StandardFjspInstance, schedule: list[Sc
                 "machine_id": record.machine_id,
                 "start": record.start,
                 "end": record.end,
+                **({"batch_id": record.batch_id} if record.batch_id is not None else {}),
             }
             for record in schedule
         ],
     }
     if instance.has_minimum_time_lags:
         payload["min_time_lag_policy"] = "checked_by_evaluator"
+    if instance.has_maximum_time_lags:
+        payload["max_time_lag_policy"] = "checked_by_evaluator"
+    if instance.has_alternative_routes:
+        choices = selected_routes if selected_routes is not None else {job.job_id: 0 for job in instance.jobs}
+        payload["selected_routes"] = {str(job_id): route_id for job_id, route_id in sorted(choices.items())}
+        payload["alternative_path_policy"] = "selected_route_checked_by_evaluator"
     if instance.has_release_times:
         payload["release_time_policy"] = "checked_by_evaluator"
     if instance.has_machine_availability:
         payload["machine_availability_policy"] = "checked_by_evaluator"
     if instance.has_reentrant_routes:
         payload["reentrant_policy"] = "expanded_route_checked_by_evaluator"
+    if instance.has_batch_processing:
+        batch_machine_ids = {machine_id for machine_id, _ in instance.batch_machine_capacities}
+        payload["batch_count"] = len(
+            {
+                (record.machine_id, record.batch_id)
+                for record in schedule
+                if record.machine_id in batch_machine_ids and record.batch_id is not None
+            }
+        )
+        payload["batch_processing_policy"] = "capacity_family_and_max_duration_checked_by_evaluator"
     if instance.has_job_priorities:
         completion_times = [
             record.end
@@ -642,8 +1030,10 @@ def write_solution(path: Path, instance: StandardFjspInstance, schedule: list[Sc
 def validate_standard_schedule(
     instance: StandardFjspInstance,
     schedule: list[ScheduleRecord],
+    *,
+    selected_routes: dict[int, int] | None = None,
 ) -> tuple[list[str], dict[str, float]]:
-    """验证标准 FJSP、FJSP-SDST 和 Min Time-Lag FJSP 解。
+    """验证标准 FJSP 及共用 schedule schema 的已注册变体解。
 
     这是 parser/validator 层的关键边界：它只判断“这份 schedule 是否满足实例 IO
     语义”，并返回基础指标；不负责比较算法优劣，也不决定是否 promotion。
@@ -652,24 +1042,57 @@ def validate_standard_schedule(
     errors: list[str] = []
     seen: dict[tuple[int, int], ScheduleRecord] = {}
 
-    if len(schedule) != instance.operation_count:
-        errors.append(f"operation count mismatch: expected={instance.operation_count}, got={len(schedule)}")
-
     candidate_duration: dict[tuple[int, int, int], int] = {}
-    expected_ops: set[tuple[int, int]] = set()
+    batch_capacities = dict(instance.batch_machine_capacities)
+    all_ops: set[tuple[int, int]] = set()
     for job in instance.jobs:
         for op in job.operations:
-            expected_ops.add((job.job_id, op.op_id))
+            all_ops.add((job.job_id, op.op_id))
             for candidate in op.candidates:
                 candidate_duration[(job.job_id, op.op_id, candidate.machine_id)] = candidate.duration
+
+    selected_sequences: dict[int, tuple[int, ...]] = {
+        job.job_id: tuple(range(len(job.operations))) for job in instance.jobs
+    }
+    if instance.has_alternative_routes:
+        choices = selected_routes
+        if choices is None:
+            errors.append("solution must contain selected_routes for every job")
+            choices = {}
+        unknown_jobs = sorted(set(choices) - set(range(instance.job_count)))
+        for job_id in unknown_jobs:
+            errors.append(f"selected_routes contains unknown job={job_id}")
+        for job in instance.jobs:
+            if job.job_id not in choices:
+                errors.append(f"selected_routes is missing job={job.job_id}")
+                continue
+            route_id = choices[job.job_id]
+            options = instance.route_options(job.job_id)
+            if not 0 <= route_id < len(options):
+                errors.append(
+                    f"selected route is out of range: job={job.job_id}, route={route_id}, "
+                    f"available=0..{len(options) - 1}"
+                )
+                continue
+            selected_sequences[job.job_id] = options[route_id]
+
+    expected_ops = {
+        (job_id, op_id)
+        for job_id, sequence in selected_sequences.items()
+        for op_id in sequence
+    }
+    if len(schedule) != len(expected_ops):
+        errors.append(f"operation count mismatch: expected={len(expected_ops)}, got={len(schedule)}")
 
     for record in schedule:
         key = (record.job_id, record.op_id)
         if key in seen:
             errors.append(f"duplicate operation: job={record.job_id}, op={record.op_id}")
         seen[key] = record
-        if key not in expected_ops:
+        if key not in all_ops:
             errors.append(f"unknown operation: job={record.job_id}, op={record.op_id}")
+        elif key not in expected_ops:
+            errors.append(f"operation is not on selected route: job={record.job_id}, op={record.op_id}")
         if record.start < 0:
             errors.append(f"negative start: job={record.job_id}, op={record.op_id}, start={record.start}")
         if record.end < record.start:
@@ -679,7 +1102,7 @@ def validate_standard_schedule(
             errors.append(
                 f"machine is not a candidate: job={record.job_id}, op={record.op_id}, machine={record.machine_id}"
             )
-        elif record.duration != duration:
+        elif record.machine_id not in batch_capacities and record.duration != duration:
             errors.append(
                 f"duration mismatch: job={record.job_id}, op={record.op_id}, "
                 f"machine={record.machine_id}, expected={duration}, got={record.duration}"
@@ -707,15 +1130,42 @@ def validate_standard_schedule(
                         f"available_time={available_time}"
                     )
 
+    transport_violations = 0
     for job in instance.jobs:
-        for op_idx in range(len(job.operations) - 1):
-            current = seen.get((job.job_id, op_idx))
-            nxt = seen.get((job.job_id, op_idx + 1))
-            if current and nxt and nxt.start < current.end:
+        route = selected_sequences[job.job_id]
+        for from_op, to_op in zip(route, route[1:]):
+            current = seen.get((job.job_id, from_op))
+            nxt = seen.get((job.job_id, to_op))
+            transport = (
+                instance.transport_times[current.machine_id][nxt.machine_id]
+                if current and nxt and instance.has_transport_times
+                else 0
+            )
+            if current and nxt and nxt.start < current.end + transport:
+                if transport:
+                    transport_violations += 1
                 errors.append(
-                    f"precedence violation: job={job.job_id}, op={op_idx} ends at {current.end}, "
-                    f"op={op_idx + 1} starts at {nxt.start}"
+                    f"precedence violation: job={job.job_id}, op={from_op} ends at {current.end}, "
+                    f"op={to_op} starts at {nxt.start}, transport={transport}"
                 )
+
+    job_precedence_violations = 0
+    for predecessor, successor in instance.job_precedences:
+        predecessor_record = seen.get((predecessor, len(instance.jobs[predecessor].operations) - 1))
+        successor_record = seen.get((successor, 0))
+        if predecessor_record is None or successor_record is None:
+            continue
+        transport = instance.transport_times[predecessor_record.machine_id][successor_record.machine_id]
+        required_start = predecessor_record.end + transport
+        if successor_record.start < required_start:
+            job_precedence_violations += 1
+            if transport:
+                transport_violations += 1
+            errors.append(
+                f"job precedence/transport violation: predecessor={predecessor}, "
+                f"successor={successor}, required_start={required_start}, "
+                f"actual_start={successor_record.start}, transport={transport}"
+            )
 
     min_time_lag_violations = 0
     for constraint in instance.minimum_time_lags:
@@ -732,9 +1182,106 @@ def validate_standard_schedule(
                 f"required_gap={constraint.lag}, actual_gap={actual_gap}"
             )
 
+    max_time_lag_violations = 0
+    for constraint in instance.maximum_time_lags:
+        previous = seen.get((constraint.job_id, constraint.from_op))
+        successor = seen.get((constraint.job_id, constraint.to_op))
+        if previous is None or successor is None:
+            continue
+        actual_gap = successor.start - previous.end
+        if actual_gap > constraint.lag:
+            max_time_lag_violations += 1
+            errors.append(
+                f"maximum time-lag violation: job={constraint.job_id}, "
+                f"from_op={constraint.from_op}, to_op={constraint.to_op}, "
+                f"maximum_gap={constraint.lag}, actual_gap={actual_gap}"
+            )
+
     by_machine: dict[int, list[ScheduleRecord]] = {}
     for record in schedule:
         by_machine.setdefault(record.machine_id, []).append(record)
+    batch_count = 0
+    grouped_batch_count = 0
+    family_violations = 0
+    batch_capacity_violations = 0
+    batch_synchronization_violations = 0
+    batch_duration_violations = 0
+    machine_activities = {machine_id: list(records) for machine_id, records in by_machine.items()}
+    if instance.has_batch_processing:
+        for machine_id, capacity in batch_capacities.items():
+            groups: dict[int, list[ScheduleRecord]] = {}
+            ungrouped: list[ScheduleRecord] = []
+            for record in by_machine.get(machine_id, []):
+                if record.batch_id is None:
+                    errors.append(
+                        f"batch id is required on batch machine: machine={machine_id}, "
+                        f"job={record.job_id}, op={record.op_id}"
+                    )
+                    ungrouped.append(record)
+                    continue
+                if record.batch_id < 0:
+                    errors.append(
+                        f"negative batch id: machine={machine_id}, batch={record.batch_id}"
+                    )
+                groups.setdefault(record.batch_id, []).append(record)
+
+            activities = list(ungrouped)
+            for batch_id, members in groups.items():
+                batch_count += 1
+                grouped_batch_count += int(len(members) > 1)
+                starts = {record.start for record in members}
+                ends = {record.end for record in members}
+                if len(starts) != 1 or len(ends) != 1:
+                    batch_synchronization_violations += 1
+                    errors.append(
+                        f"batch synchronization violation: machine={machine_id}, batch={batch_id}"
+                    )
+                if len(members) > capacity:
+                    batch_capacity_violations += 1
+                    errors.append(
+                        f"batch capacity violation: machine={machine_id}, batch={batch_id}, "
+                        f"capacity={capacity}, members={len(members)}"
+                    )
+                families = {
+                    instance.job_family_ids[record.job_id]
+                    for record in members
+                    if 0 <= record.job_id < len(instance.job_family_ids)
+                }
+                if len(families) > 1:
+                    family_violations += 1
+                    errors.append(
+                        f"batch family violation: machine={machine_id}, batch={batch_id}, "
+                        f"families={sorted(families)}"
+                    )
+                if len({record.job_id for record in members}) != len(members):
+                    errors.append(
+                        f"batch repeats a job: machine={machine_id}, batch={batch_id}"
+                    )
+                processing_times = [
+                    candidate_duration[(record.job_id, record.op_id, machine_id)]
+                    for record in members
+                    if (record.job_id, record.op_id, machine_id) in candidate_duration
+                ]
+                expected_duration = max(processing_times, default=0)
+                actual_durations = {record.duration for record in members}
+                if actual_durations != {expected_duration}:
+                    batch_duration_violations += 1
+                    errors.append(
+                        f"batch duration violation: machine={machine_id}, batch={batch_id}, "
+                        f"expected={expected_duration}, got={sorted(actual_durations)}"
+                    )
+                representative = members[0]
+                activities.append(
+                    ScheduleRecord(
+                        job_id=representative.job_id,
+                        op_id=representative.op_id,
+                        machine_id=machine_id,
+                        start=min(record.start for record in members),
+                        end=max(record.end for record in members),
+                        batch_id=batch_id,
+                    )
+                )
+            machine_activities[machine_id] = activities
     machine_availability_violations = 0
     for interval in instance.unavailability_intervals:
         for record in by_machine.get(interval.machine_id, []):
@@ -746,17 +1293,35 @@ def validate_standard_schedule(
                     f"unavailable=[{interval.start},{interval.end})"
                 )
     op_index = operation_index_lookup(instance)
+    operation_setup = {
+        (job_id, op_id, machine_id): setup
+        for job_id, op_id, machine_id, setup in instance.operation_setup_times
+    }
     total_setup_time = 0
     setup_count = 0
-    for machine_id, records in by_machine.items():
+    for machine_id, records in machine_activities.items():
         sorted_records = sorted(records, key=lambda item: (item.start, item.end, item.job_id, item.op_id))
+        if sorted_records and instance.has_operation_setup_times:
+            first = sorted_records[0]
+            first_setup = operation_setup.get((first.job_id, first.op_id, machine_id), 0)
+            total_setup_time += first_setup
+            setup_count += int(first_setup > 0)
+            if first.start < first_setup:
+                errors.append(
+                    f"operation setup violation: machine={machine_id}, job={first.job_id}, "
+                    f"op={first.op_id}, setup={first_setup}, start={first.start}"
+                )
         for left, right in zip(sorted_records, sorted_records[1:]):
-            setup_time = setup_time_between(
-                instance,
-                machine_id,
-                (left.job_id, left.op_id),
-                (right.job_id, right.op_id),
-                op_index,
+            setup_time = (
+                operation_setup.get((right.job_id, right.op_id, machine_id), 0)
+                if instance.has_operation_setup_times
+                else setup_time_between(
+                    instance,
+                    machine_id,
+                    (left.job_id, left.op_id),
+                    (right.job_id, right.op_id),
+                    op_index,
+                )
             )
             total_setup_time += setup_time
             if setup_time:
@@ -774,8 +1339,13 @@ def validate_standard_schedule(
     metrics = {
         "makespan": float(makespan),
         "scheduled_operations": float(len(schedule)),
-        "operation_count": float(instance.operation_count),
+        "operation_count": float(len(expected_ops)),
     }
+    if instance.has_alternative_routes:
+        metrics["operation_pool_count"] = float(instance.operation_count)
+        metrics["selected_alternative_route_count"] = float(
+            sum(1 for route_id in (selected_routes or {}).values() if route_id > 0)
+        )
     if instance.has_reentrant_routes:
         metrics["original_operation_count"] = float(instance.original_operation_count)
         metrics["reentrant_added_operation_count"] = float(
@@ -784,9 +1354,20 @@ def validate_standard_schedule(
     if instance.has_sequence_dependent_setup:
         metrics["setup_time"] = float(total_setup_time)
         metrics["setup_count"] = float(setup_count)
+    if instance.has_operation_setup_times:
+        metrics["operation_setup_time"] = float(total_setup_time)
+        metrics["operation_setup_count"] = float(setup_count)
+    if instance.has_transport_times:
+        metrics["transport_violations"] = float(transport_violations)
+    if instance.has_job_precedences:
+        metrics["job_precedence_constraints"] = float(len(instance.job_precedences))
+        metrics["job_precedence_violations"] = float(job_precedence_violations)
     if instance.has_minimum_time_lags:
         metrics["min_time_lag_constraints"] = float(len(instance.minimum_time_lags))
         metrics["min_time_lag_violations"] = float(min_time_lag_violations)
+    if instance.has_maximum_time_lags:
+        metrics["max_time_lag_constraints"] = float(len(instance.maximum_time_lags))
+        metrics["max_time_lag_violations"] = float(max_time_lag_violations)
     if instance.has_release_times:
         metrics["max_job_release_time"] = float(max(instance.job_release_times, default=0))
         metrics["max_machine_available_time"] = float(max(instance.machine_available_times, default=0))
@@ -806,4 +1387,12 @@ def validate_standard_schedule(
         )
         metrics["priority_completion_time"] = float(priority_completion_time)
         metrics["priority_job_count"] = float(len(instance.priority_job_ids))
+    if instance.has_batch_processing:
+        metrics["batch_count"] = float(batch_count)
+        metrics["grouped_batch_count"] = float(grouped_batch_count)
+        metrics["batch_machine_count"] = float(len(batch_capacities))
+        metrics["family_violations"] = float(family_violations)
+        metrics["batch_capacity_violations"] = float(batch_capacity_violations)
+        metrics["batch_synchronization_violations"] = float(batch_synchronization_violations)
+        metrics["batch_duration_violations"] = float(batch_duration_violations)
     return errors, metrics

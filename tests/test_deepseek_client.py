@@ -60,6 +60,35 @@ class DeepSeekClientTests(unittest.TestCase):
 
         self.assertEqual('{"summary":"ok","changes":[]}', content)
 
+    def test_glm_content_keeps_only_text_after_think_marker(self) -> None:
+        raw = {
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {"content": "private reasoning</think>OK"},
+                }
+            ]
+        }
+        with patch("urllib.request.urlopen", return_value=_FakeResponse(raw)):
+            client = DeepSeekClient(DeepSeekConfig(api_key="test-key", model="glm-5.2"))
+            content = client.chat([{"role": "user", "content": "reply OK"}])
+
+        self.assertEqual("OK", content)
+
+    def test_glm_rejects_length_truncation_before_final_answer(self) -> None:
+        raw = {
+            "choices": [
+                {
+                    "finish_reason": "length",
+                    "message": {"content": "unfinished private reasoning"},
+                }
+            ]
+        }
+        with patch("urllib.request.urlopen", return_value=_FakeResponse(raw)):
+            client = DeepSeekClient(DeepSeekConfig(api_key="test-key", model="glm-5.2"))
+            with self.assertRaisesRegex(RuntimeError, "token limit"):
+                client.chat([{"role": "user", "content": "reply OK"}])
+
     def test_streaming_chat_assembles_content_and_usage(self) -> None:
         events = [
             {"choices": [{"delta": {"reasoning_content": "think"}}]},
@@ -89,6 +118,23 @@ class DeepSeekClientTests(unittest.TestCase):
             client = DeepSeekClient.from_env()
 
         self.assertEqual(9, client.config.timeout_seconds)
+
+    def test_from_env_uses_shared_qiming_gateway_for_both_models(self) -> None:
+        env = {
+            "QIMING_API_KEY": "shared-qiming-key",
+            "QIMING_BASE_URL": "https://gateway.example/v1",
+            "DEEPSEEK_API_KEY": "official-deepseek-key",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            glm = DeepSeekClient.from_env(model="qiming/glm-5.2")
+            deepseek = DeepSeekClient.from_env(model="qiming/deepseek-v4-flash")
+
+        self.assertEqual("shared-qiming-key", glm.config.api_key)
+        self.assertEqual("glm-5.2", glm.config.model)
+        self.assertEqual("https://gateway.example/v1", glm.config.base_url)
+        self.assertEqual("shared-qiming-key", deepseek.config.api_key)
+        self.assertEqual("deepseek-v4-flash", deepseek.config.model)
+        self.assertEqual("https://gateway.example/v1", deepseek.config.base_url)
 
     def test_chat_retries_transient_gateway_503(self) -> None:
         unavailable = urllib.error.HTTPError(

@@ -17,6 +17,7 @@ from harness_agent.agents.opencode_main import (
     build_fast_planning_packet,
     build_implementation_planning_packet,
     build_planning_packet,
+    bind_fallback_tournament_variants,
     bounded_timeout_seconds,
     compact_round_competition_result,
     extract_planned_direction,
@@ -38,6 +39,179 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class OpenCodeMainAgentTests(unittest.TestCase):
+    def _variant_context(self, *, features: list[str]) -> dict:
+        return {
+            "task": {"problem_family": "FJSP"},
+            "method_package_catalog": {
+                "status": "ok",
+                "active_features": features,
+                "packages": [],
+                "recommended_package_id": None,
+            },
+        }
+
+    def test_fallback_tournament_binds_variant_packages_after_pending_catalog(self) -> None:
+        cases = (
+            (
+                ["fjsp_max_time_lag", "maximum_time_lag", "time_lag"],
+                "fjsp_max_time_lag_coupled_local_search",
+                "fjsp_max_time_lag_exact_hybrid",
+            ),
+            (
+                ["fjsp_alternative_path", "alternative_path", "route_choice"],
+                "fjsp_alternative_path_coupled_local_search",
+                "fjsp_alternative_path_exact_hybrid",
+            ),
+        )
+        for features, local_package, exact_package in cases:
+            with self.subTest(features=features):
+                plan = {
+                    "direction_id": "d000",
+                    "experiment_stage": "research_tournament",
+                    "planner": "evidence_fallback",
+                    "candidate_variants": [
+                        {
+                            "candidate_id": "local",
+                            "method_family": "coupled_local_search",
+                            "method_families": [{"id": "coupled_local_search", "role": "primary"}],
+                            "knowledge_query": ["local_search"],
+                        },
+                        {
+                            "candidate_id": "exact",
+                            "method_family": "exact_hybrid",
+                            "method_families": [{"id": "exact_hybrid", "role": "primary"}],
+                            "knowledge_query": ["cp_sat"],
+                        },
+                        {
+                            "candidate_id": "population",
+                            "method_family": "population_memetic",
+                            "method_families": [{"id": "population_memetic", "role": "primary"}],
+                            "knowledge_query": ["memetic"],
+                        },
+                    ],
+                }
+
+                bound = bind_fallback_tournament_variants(
+                    context=self._variant_context(features=features),
+                    plan=plan,
+                    loop_feedback={},
+                )
+                variants = {item["candidate_id"]: item for item in bound["candidate_variants"]}
+
+                self.assertEqual(local_package, variants["local"]["method_package_id"])
+                self.assertEqual(exact_package, variants["exact"]["method_package_id"])
+                self.assertTrue(variants["local"]["implementation_bundle"]["required_components"])
+                self.assertTrue(variants["exact"]["deliverables"])
+                self.assertEqual("", variants["population"]["method_package_id"])
+                self.assertTrue(variants["local"]["activation_checks"])
+                self.assertTrue(variants["exact"]["activation_checks"])
+                self.assertTrue(variants["population"]["activation_checks"])
+                self.assertTrue(
+                    all(item["activation_contract_version"] == 1 for item in variants.values())
+                )
+                self.assertEqual(
+                    "no_compatible_package",
+                    variants["population"]["method_package_selection"]["selection_source"],
+                )
+
+    def test_full_planning_fallback_binds_packages_for_baseline_and_tournament(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = tmp_path / "context.json"
+            context_path.write_text(
+                json.dumps(
+                    {
+                        **self._variant_context(
+                            features=["fjsp_max_time_lag", "maximum_time_lag", "time_lag"]
+                        ),
+                        "method_family_catalog": {
+                            "families": [
+                                {"family_id": "constructive_search"},
+                                {"family_id": "coupled_local_search"},
+                                {"family_id": "exact_hybrid"},
+                            ]
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            executable = tmp_path / "opencode.exe"
+            executable.write_text("placeholder", encoding="utf-8")
+            agent = OpenCodeMainAgent(executable=str(executable), project_root=ROOT)
+
+            baseline_fallback = {
+                "direction_id": "baseline",
+                "strategy_type": "baseline_constructor",
+                "experiment_stage": "probe",
+                "method_family": "constructive_search",
+                "method_families": [{"id": "constructive_search", "role": "primary"}],
+                "knowledge_query": ["initialization", "decoder"],
+                "method_package_id": "",
+                "planner": "evidence_fallback",
+            }
+            with patch.object(agent.fallback, "plan_direction", return_value=baseline_fallback):
+                baseline = agent._fallback(
+                    DirectionPlanRequest(
+                        round_index=-1,
+                        context_packet_path=context_path,
+                        loop_feedback={"round_type": "agent_generated_baseline"},
+                        output_dir=tmp_path / "baseline",
+                    ),
+                    reason="malformed implementation planning",
+                )
+
+            self.assertEqual(
+                "fjsp_max_time_lag_constructive_adaptation",
+                baseline["method_package_id"],
+            )
+            self.assertTrue(baseline["implementation_bundle"]["required_components"])
+
+            tournament_fallback = {
+                "direction_id": "d000",
+                "experiment_stage": "research_tournament",
+                "method_package_id": "",
+                "candidate_variants": [
+                    {
+                        "candidate_id": "local",
+                        "method_family": "coupled_local_search",
+                        "method_families": [{"id": "coupled_local_search", "role": "primary"}],
+                        "knowledge_query": ["local_search"],
+                    },
+                    {
+                        "candidate_id": "exact",
+                        "method_family": "exact_hybrid",
+                        "method_families": [{"id": "exact_hybrid", "role": "primary"}],
+                        "knowledge_query": ["cp_sat"],
+                    },
+                ],
+                "planner": "evidence_fallback",
+            }
+            with patch.object(agent.fallback, "plan_direction", return_value=tournament_fallback):
+                tournament = agent._fallback(
+                    DirectionPlanRequest(
+                        round_index=0,
+                        context_packet_path=context_path,
+                        loop_feedback={"competition": {"max_competing_workers": 2}},
+                        output_dir=tmp_path / "round",
+                    ),
+                    reason="malformed implementation planning",
+                )
+
+            variants = {item["candidate_id"]: item for item in tournament["candidate_variants"]}
+            self.assertEqual("", tournament["method_package_id"])
+            self.assertEqual(
+                "fjsp_max_time_lag_coupled_local_search",
+                variants["local"]["method_package_id"],
+            )
+            self.assertEqual(
+                "fjsp_max_time_lag_exact_hybrid",
+                variants["exact"]["method_package_id"],
+            )
+            self.assertEqual(
+                "family_hypothesis_tournament",
+                tournament["worker_lane_policy"]["mechanism_selection"],
+            )
+
     def test_method_package_query_tags_include_selected_family_after_fast_fallback(self) -> None:
         self.assertEqual(
             ["initialization", "decoder", "constructive_search"],

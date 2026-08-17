@@ -66,6 +66,8 @@ class WebAppTests(unittest.TestCase):
                 "DEEPSEEK_API_KEY",
                 "DEEPSEEK_API_KEY_FILE",
                 "DEEPSEEK_BASE_URL",
+                "QIMING_API_KEY",
+                "QIMING_API_KEY_FILE",
                 "OPENAI_API_KEY",
                 "OPENAI_API_KEY_FILE",
                 "OPENCODE_MODEL",
@@ -75,6 +77,8 @@ class WebAppTests(unittest.TestCase):
         os.environ.pop("DEEPSEEK_API_KEY", None)
         os.environ.pop("DEEPSEEK_API_KEY_FILE", None)
         os.environ.pop("DEEPSEEK_BASE_URL", None)
+        os.environ.pop("QIMING_API_KEY", None)
+        os.environ.pop("QIMING_API_KEY_FILE", None)
         os.environ.pop("OPENAI_API_KEY", None)
         os.environ.pop("OPENAI_API_KEY_FILE", None)
         os.environ.pop("OPENCODE_MODEL", None)
@@ -364,6 +368,27 @@ class WebAppTests(unittest.TestCase):
         self.assertTrue(profile["has_minimum_time_lags"])
         self.assertEqual(1, profile["min_time_lag_constraint_count"])
         self.assertEqual(["minimum_time_lag"], profile["variant_features"])
+
+    def test_profile_recognizes_maximum_time_lag_instance(self) -> None:
+        profile = inspect_instance_profile(ROOT / "examples" / "fjsp_max_time_lag_tiny.tlfjsp")
+
+        self.assertTrue(profile["valid"])
+        self.assertEqual("fjsp_max_time_lag", profile["variant"])
+        self.assertTrue(profile["has_maximum_time_lags"])
+        self.assertFalse(profile["has_minimum_time_lags"])
+        self.assertEqual(2, profile["max_time_lag_constraint_count"])
+        self.assertEqual(["maximum_time_lag"], profile["variant_features"])
+        self.assertEqual("examples/standard_fjsp_evaluator.py", profile["fixed_evaluator"])
+
+    def test_profile_recognizes_alternative_path_instance(self) -> None:
+        profile = inspect_instance_profile(ROOT / "examples" / "fjsp_alternative_path_tiny.apfjsp")
+
+        self.assertTrue(profile["valid"])
+        self.assertEqual("fjsp_alternative_path", profile["variant"])
+        self.assertTrue(profile["has_alternative_routes"])
+        self.assertEqual(2, profile["alternative_route_count"])
+        self.assertEqual(["alternative_path"], profile["variant_features"])
+        self.assertEqual("examples/fjsp_alternative_path_evaluator.py", profile["fixed_evaluator"])
 
     def test_create_job_rejects_wrapper_as_algorithm_target(self) -> None:
         archive = self.zip_payload(
@@ -790,6 +815,7 @@ class WebAppTests(unittest.TestCase):
             '<option value="qiming/deepseek-v4-flash">DeepSeek V4 Flash</option>',
             models_view,
         )
+        self.assertNotIn('openai/gpt-5.4', models_view)
 
     def test_browser_safe_json_replaces_non_finite_numbers(self) -> None:
         safe = browser_safe_json({"key": [float("-inf"), float("inf"), 1.0]})
@@ -822,7 +848,7 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("standard_fjsp_schedule_v1", demo["io"]["text"])
         self.assertIn('"2057","2127"', demo["best_known_csv"]["text"])
         self.assertEqual(10, config["max_rounds"])
-        self.assertEqual(120, config["worker_max_runtime_seconds"])
+        self.assertEqual(600, config["worker_max_runtime_seconds"])
         self.assertEqual(1, config["promotion_repeats"])
         self.assertFalse(any(key.startswith("awls_") for key in config))
         for removed in ("solver", "run_mode", "evolution_mode", "baseline_source", "profile_mode"):
@@ -837,6 +863,24 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual("openai/gpt-5.4", status["opencode_model"])
         self.assertTrue(status["provider_keys"]["openai"])
         self.assertNotIn("test-secret-must-not-leak", json.dumps(status))
+
+    def test_provider_status_keeps_qiming_deepseek_and_openai_independent(self) -> None:
+        env = {
+            "QIMING_API_KEY": "qiming-secret",
+            "DEEPSEEK_API_KEY": "deepseek-secret",
+            "OPENAI_API_KEY": "openai-secret",
+        }
+        with patch.dict(os.environ, env, clear=False), patch(
+            "harness_agent.web.server.load_local_env"
+        ):
+            status = deepseek_status_payload()
+
+        self.assertEqual(
+            {"qiming": True, "deepseek": True, "openai": True},
+            status["provider_keys"],
+        )
+        for secret in env.values():
+            self.assertNotIn(secret, json.dumps(status))
 
     def test_provider_status_accepts_explicit_openai_compatible_gateway(self) -> None:
         os.environ["DEEPSEEK_API_KEY"] = "compatible-secret-must-not-leak"
@@ -1215,6 +1259,41 @@ class WebAppTests(unittest.TestCase):
             {"Main Agent": "waiting", "Main Subagent · plan-critic": "completed", "Coding Agent · c01": "completed", "Coding Agent · c02": "running"},
             {agent["name"]: agent["status"] for agent in snapshot["agents"]},
         )
+
+    def test_agent_status_snapshot_does_not_treat_tool_error_as_worker_failure(self) -> None:
+        job = {
+            "status": "running",
+            "updated_at": "2026-08-12T00:00:00Z",
+            "config": {"coding_worker_model": "qiming/deepseek-v4-flash"},
+            "main_agent_trace": [],
+            "coding_agent_trace": [
+                {
+                    "id": "read-error",
+                    "agent_key": "round_000:exact:primary",
+                    "display_name": "exact",
+                    "round": "round_000",
+                    "timestamp": 100,
+                    "kind": "tool",
+                    "tool": "read",
+                    "status": "error",
+                    "text": "read / error",
+                },
+                {
+                    "id": "continued",
+                    "agent_key": "round_000:exact:primary",
+                    "display_name": "exact",
+                    "round": "round_000",
+                    "timestamp": 110,
+                    "kind": "commentary",
+                    "text": "Continuing with the staged inputs.",
+                },
+            ],
+        }
+
+        snapshot = agent_status_snapshot(job)
+
+        exact = next(agent for agent in snapshot["agents"] if agent["name"] == "Coding Agent · exact")
+        self.assertEqual("running", exact["status"])
 
     def test_frontend_renders_structured_agent_status_bar(self) -> None:
         html = (ROOT / "harness_agent" / "web" / "static" / "index.html").read_text(encoding="utf-8")

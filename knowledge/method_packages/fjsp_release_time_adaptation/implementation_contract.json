@@ -3,12 +3,39 @@
   "contract_id": "fjsp_release_time_adaptation",
   "mode": "complete_method_package",
   "required_components": [
-    {"component_id": "release_tail_parser", "required_behaviors": ["Parse both fixed-width rows and validate real entries and -1 padding."]},
-    {"component_id": "release_aware_full_decoder", "required_behaviors": ["Apply job and machine release bounds in every complete decode."]},
-    {"component_id": "release_aware_candidate_validation", "required_behaviors": ["Reject candidates violating either lower-bound vector before incumbent acceptance."]}
+    {
+      "component_id": "release_tail_parser",
+      "required_behaviors": [
+        "同时解析固定宽度行，并校验真实条目与 `-1` 填充。"
+      ]
+    },
+    {
+      "component_id": "release_aware_full_decoder",
+      "required_behaviors": [
+        "在每次完整解码中同时应用作业与机器的 release 下界。"
+      ]
+    },
+    {
+      "component_id": "release_aware_candidate_validation",
+      "required_behaviors": [
+        "在接受 incumbent 前，拒绝违反任一下界向量的候选。"
+      ]
+    }
   ],
   "coupled_groups": [
-    {"group_id": "release_semantics", "component_ids": ["release_tail_parser", "release_aware_full_decoder", "release_aware_candidate_validation"], "rule": "Parsing, decoding, and acceptance must use the same release vectors."}
+    {
+      "group_id": "release_semantics",
+      "component_ids": [
+        "release_tail_parser",
+        "release_aware_full_decoder",
+        "release_aware_candidate_validation"
+      ],
+      "rule": "解析、解码与接受必须使用同一组 release 向量。"
+    }
   ],
-  "forbidden_shortcuts": ["ignore_release_tail", "post_shift_without_full_redecode", "modify_evaluator"]
+  "forbidden_shortcuts": [
+    "ignore_release_tail",
+    "post_shift_without_full_redecode",
+    "modify_evaluator"
+  ]
 }

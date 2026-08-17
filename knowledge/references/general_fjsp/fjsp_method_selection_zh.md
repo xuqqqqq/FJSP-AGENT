@@ -29,7 +29,7 @@ status: curated_reference
 
 | 方法族 | 适用场景 | 优势 | 主要风险 | 何时优先 |
 | --- | --- | --- | --- | --- |
-| 构造启发式 / 构造式 Beam | 需要先快速得到稳定可行解；工程上需要强可解释性；或已有明确 Beam 覆盖假设 | 可用空闲间隙、规则组合或有界多状态搜索形成分配与顺序 | 规则上界可能一般；Beam 宽度和分支设计不当会耗时或过早剪枝 | 首轮建基线；需要 warm start；assignment-first 已激活但仍有明确构造覆盖缺口 |
+| 构造启发式 / 构造式束搜索 | 需要先快速得到稳定可行解；工程上需要强可解释性；或已有明确束搜索覆盖假设 | 可用空闲间隙、规则组合或有界多状态搜索形成分配与顺序 | 规则上界可能一般；束宽和分支设计不当会耗时或过早剪枝 | 首轮建基线；需要热启动解；assignment-first 已激活但仍有明确构造覆盖缺口 |
 | 局部搜索 / 禁忌 / ILS | 已有可行解，希望继续压 makespan；单目标或少量目标 | 改进能力强，工程实现边界清楚，适合围绕关键路径/机器块做迭代 | 很依赖解表示、邻域质量和增量评估；容易过拟合少数实例 | 有稳定基线、需要中短时预算内持续改进 |
 | 群体方法 / GA / DE / PSO / 蚁群等 | 解空间粗糙、需要更强多样性；想同时探索多种编码/调度偏好 | 全局探索更强，适合与局部搜索做混合 | 编码设计和可行性维护复杂，预算不足时波动大 | 需要多样性、允许较长预算、可承受更多调参 |
 | CP-SAT / MILP / 精确方法 | 规模较小或结构规整；需要高质量证明或强下界 | 对小中型实例可能直接给出很强结果；可做精确校验 | 大规模 FJSP 常很快变慢；复杂变体建模成本高 | 小规模、高价值实例；需要验证建模正确性 |
@@ -39,16 +39,16 @@ status: curated_reference
 
 ### 1. 先出可行解
 
-先用共享 foundation 中的 ready-list 构造或简单规则组合得到 warm start。这里是在完成
+先用共享基础能力中的 ready-list 构造或简单规则组合得到热启动解。这里是在完成
 parser/decoder/合法 incumbent 合同，不是在选择正式优化方法族。关键不是“第一次就很强”，而是：
 
 - 可行性稳定；
 - 输出格式稳定；
 - 便于后续局部搜索接管。
 
-baseline 一旦合法，应立即根据实例压力重新比较方法族，不能因为 warm start 由构造器产生就
-继承 `constructive_search`。低柔性实例通常是 sequence-first：优先比较关键块 Tabu/ILS、
-表达机器顺序的 CP-SAT/CP-LNS，以及预算允许时的 sequence-oriented memetic。
+基线一旦合法，应立即根据实例压力重新比较方法族，不能因为热启动解由构造器产生就
+继承 `constructive_search`。低柔性实例通常是顺序优先：优先比较关键块 Tabu/ILS、
+表达机器顺序的 CP-SAT/CP-LNS，以及预算允许时的面向顺序的 memetic。
 
 ### 2. 已有可行解，目标是继续降 makespan
 
@@ -60,8 +60,8 @@ baseline 一旦合法，应立即根据实例压力重新比较方法族，不�
 
 ### 3. 高柔性，但还没有局部瓶颈证据
 
-不要仅因为候选机器多，就直接做浅层 assignment local search，也不要默认跳到 Beam。高柔性且
-候选加工时间跨度非零时，先建立 assignment-first 构造基线：使用 earliest-gap，在 start-first
+不要仅因为候选机器多，就直接做浅层 assignment local search，也不要默认跳到束搜索。高柔性且
+候选加工时间跨度非零时，先建立先分配后排序的构造基线：使用 earliest-gap，在 start-first
 之后按精确定义的
 `pressure = (candidate_count - 1) * duration_span` 区分工序；高 pressure 工序再按
 `assignment_regret = assignment_cost - theoretical_fastest_duration` 细化机器选择，低 pressure
@@ -94,11 +94,11 @@ baseline 一旦合法，应立即根据实例压力重新比较方法族，不�
 | 特征 | 更偏好的方法族 | 备注 |
 | --- | --- | --- |
 | 仅标准 FJSP、目标单一、需要快 | 构造启发式 + 轻量局部搜索 | 先求稳，再决定是否加深搜索 |
-| 标准 FJSP、高柔性、缺少稳定关键结构 | earliest-gap + pressure/regret assignment-first 构造 | 先验证精确 regret；有关键/近关键证据后再进入 trust-region 与保序重解码 |
+| 标准 FJSP、高柔性、缺少稳定关键结构 | earliest-gap + pressure/regret 先分配后排序构造 | 先验证精确 regret；有关键/近关键证据后再进入 trust-region 与保序重解码 |
 | 有 setup time / 顺序相关代价 | 局部搜索或混合方法 | 需要把序列变化的影响纳入评价，单纯规则法常不够 |
 | 有 batching / transport / reentrant | 混合方法 | 状态表示和可行性维护通常比标准 FJSP 更难 |
 | 小规模但质量要求高 | CP-SAT / 精确 + 启发式热启动 | 精确方法可当主方法或校验器 |
-| 预算长、希望保留多样策略 | 群体方法 + 局部搜索 | 群体负责探索，局部搜索负责 exploitation |
+| 预算长、希望保留多样策略 | 群体方法 + 局部搜索 | 群体负责探索，局部搜索负责强化利用 |
 
 ## 不要过早下结论的信号
 
@@ -115,7 +115,7 @@ baseline 一旦合法，应立即根据实例压力重新比较方法族，不�
 
 第一阶段 Main 只维护下面的选择状态，不维护任何具体算法实现：
 
-- `phase`：当前是建立 baseline，还是改进合法 incumbent。
+- `phase`：当前是建立基线，还是改进合法 incumbent。
 - `instance_evidence`：从 `instance_diagnostics` 读取的规模、柔性、加工时间跨度、
   机器集中度和变体特征。
 - `incumbent_evidence`：只有已有合法解时才存在的关键结构、负载、多样性和历史结果。
@@ -162,9 +162,9 @@ return method_family, pressure, measured_evidence, uncertainties,
        alternative_with_rejection_reason, query
 ```
 
-并行 lane 不少于 2 时另加确定性的 exact probe 配额：`operation_count <= 60` 时不区分
-柔性，至少一条 lane 使用 `exact_hybrid`；低柔性且 `operation_count <= 250` 时同样保留。
-小实例 exact lane 先尝试完整变体 CP-SAT 并返回 best bound，其余 lane 继续执行 Main 选择的
+并行分支不少于 2 时另加确定性的精确探测配额：`operation_count <= 60` 时不区分
+柔性，至少一条分支使用 `exact_hybrid`；低柔性且 `operation_count <= 250` 时同样保留。
+小实例精确求解分支先尝试完整变体 CP-SAT 并返回 best bound，其余分支继续执行 Main 选择的
 启发式或元启发式方向。该规则是竞争配额，不是把所有方法统一改成 CP。
 
 `classify_primary_pressure` 只能引用已测字段和 evaluator 历史；不能读取文件名、BKS、

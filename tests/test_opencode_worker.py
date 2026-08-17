@@ -1634,6 +1634,113 @@ class OpenCodeWorkerTests(unittest.TestCase):
         )
         self.assertTrue(available)
 
+    def test_qiming_gateway_registers_both_models_without_embedding_secret(self) -> None:
+        keys = (
+            "QIMING_API_KEY",
+            "QIMING_BASE_URL",
+            "OPENCODE_CONFIG_CONTENT",
+        )
+        previous = {key: os.environ.get(key) for key in keys}
+        try:
+            os.environ["QIMING_API_KEY"] = "shared-qiming-key"
+            os.environ["QIMING_BASE_URL"] = "https://gateway.example/v1"
+            os.environ.pop("OPENCODE_CONFIG_CONTENT", None)
+            with patch("harness_agent.workers.opencode_worker.load_local_env"):
+                environment = opencode_subprocess_environment(runtime_config={"agent": {}})
+        finally:
+            for key, value in previous.items():
+                os.environ.pop(key, None)
+                if value is not None:
+                    os.environ[key] = value
+
+        config = json.loads(environment["OPENCODE_CONFIG_CONTENT"])
+        provider = config["provider"]["qiming"]
+        self.assertEqual("shared-qiming-key", environment["QIMING_API_KEY"])
+        self.assertEqual("{env:QIMING_API_KEY}", provider["options"]["apiKey"])
+        self.assertEqual("https://gateway.example/v1", provider["options"]["baseURL"])
+        self.assertEqual({"glm-5.2", "deepseek-v4-flash"}, set(provider["models"]))
+        self.assertNotIn("shared-qiming-key", environment["OPENCODE_CONFIG_CONTENT"])
+
+    def test_all_configured_providers_are_isolated_and_do_not_embed_secrets(self) -> None:
+        keys = (
+            "QIMING_API_KEY",
+            "QIMING_BASE_URL",
+            "DEEPSEEK_API_KEY",
+            "DEEPSEEK_BASE_URL",
+            "OPENAI_API_KEY",
+            "OPENAI_BASE_URL",
+            "OPENCODE_CONFIG_CONTENT",
+        )
+        previous = {key: os.environ.get(key) for key in keys}
+        try:
+            os.environ.update(
+                {
+                    "QIMING_API_KEY": "qiming-secret",
+                    "QIMING_BASE_URL": "https://qiming.example/v1",
+                    "DEEPSEEK_API_KEY": "deepseek-secret",
+                    "DEEPSEEK_BASE_URL": "https://deepseek.example/v1",
+                    "OPENAI_API_KEY": "openai-secret",
+                    "OPENAI_BASE_URL": "https://gpt-test.example/v1",
+                }
+            )
+            os.environ.pop("OPENCODE_CONFIG_CONTENT", None)
+            with patch("harness_agent.workers.opencode_worker.load_local_env"):
+                environment = opencode_subprocess_environment(runtime_config={"agent": {}})
+        finally:
+            for key, value in previous.items():
+                os.environ.pop(key, None)
+                if value is not None:
+                    os.environ[key] = value
+
+        raw_config = environment["OPENCODE_CONFIG_CONTENT"]
+        config = json.loads(raw_config)
+        providers = config["provider"]
+        self.assertEqual(
+            {"deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"},
+            set(providers["deepseek"]["models"]),
+        )
+        self.assertEqual(
+            {"glm-5.2", "deepseek-v4-flash"},
+            set(providers["qiming"]["models"]),
+        )
+        self.assertEqual("https://gpt-test.example/v1", providers["openai"]["options"]["baseURL"])
+        self.assertEqual("{env:DEEPSEEK_API_KEY}", providers["deepseek"]["options"]["apiKey"])
+        self.assertEqual("{env:OPENAI_API_KEY}", providers["openai"]["options"]["apiKey"])
+        for secret in ("qiming-secret", "deepseek-secret", "openai-secret"):
+            self.assertNotIn(secret, raw_config)
+
+    def test_environment_provider_overrides_inherited_hardcoded_secret(self) -> None:
+        inherited = {
+            "provider": {
+                "deepseek": {
+                    "options": {
+                        "apiKey": "inherited-hardcoded-secret",
+                        "baseURL": "https://stale.example/v1",
+                    }
+                }
+            }
+        }
+        keys = ("DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "OPENCODE_CONFIG_CONTENT")
+        previous = {key: os.environ.get(key) for key in keys}
+        try:
+            os.environ["DEEPSEEK_API_KEY"] = "current-secret"
+            os.environ["DEEPSEEK_BASE_URL"] = "https://current.example/v1"
+            os.environ["OPENCODE_CONFIG_CONTENT"] = json.dumps(inherited)
+            with patch("harness_agent.workers.opencode_worker.load_local_env"):
+                environment = opencode_subprocess_environment(runtime_config={"agent": {}})
+        finally:
+            for key, value in previous.items():
+                os.environ.pop(key, None)
+                if value is not None:
+                    os.environ[key] = value
+
+        raw_config = environment["OPENCODE_CONFIG_CONTENT"]
+        provider = json.loads(raw_config)["provider"]["deepseek"]
+        self.assertEqual("{env:DEEPSEEK_API_KEY}", provider["options"]["apiKey"])
+        self.assertEqual("https://current.example/v1", provider["options"]["baseURL"])
+        self.assertNotIn("inherited-hardcoded-secret", raw_config)
+        self.assertNotIn("current-secret", raw_config)
+
     def test_opencode_status_classifies_authorization_failures(self) -> None:
         self.assertEqual(
             "authorization_required",

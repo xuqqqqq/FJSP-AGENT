@@ -10,6 +10,10 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from harness_agent.context.packet import ContextPacketRequest, write_context_packet
+from harness_agent.agents.main import (
+    ensure_direction_activation_contracts,
+    method_family_activation_checks,
+)
 from harness_agent.orchestration.loop import (
     CandidateIncumbent,
     LaneDevelopmentState,
@@ -17,6 +21,7 @@ from harness_agent.orchestration.loop import (
     apply_user_direction_revision,
     agent_generated_baseline_is_accepted,
     agent_generated_baseline_memory_payload,
+    activation_contract_required,
     candidate_incumbent_payload,
     candidate_worker_budgets,
     competitive_direction_plans,
@@ -29,6 +34,7 @@ from harness_agent.orchestration.loop import (
     direction_revision_base,
     evaluate_exact_solver_execution,
     evaluate_mechanism_activation,
+    evaluate_promotion_check,
     evaluate_lane_checkpoint,
     load_worker_loop_result,
     lane_development_state_for_incumbent,
@@ -36,11 +42,13 @@ from harness_agent.orchestration.loop import (
     round_attempt_payload,
     normalize_user_intervention,
     plan_agent_generated_baseline_direction,
+    bind_variant_baseline_exact_rescue_method_package,
     plan_direction_with_fallback,
     run_agent_generated_baseline,
     run_competing_worker_cycles,
     resolve_coding_worker_concurrency,
     run_algorithm_semantic_review,
+    semantic_review_direction_plan,
     run_worker_cycle_with_in_round_repairs,
     run_worker_loop,
     reusable_lane_development_state,
@@ -1328,6 +1336,44 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertEqual((8, 2), exact)
         self.assertEqual((4, 0), heuristic)
 
+    def test_required_activation_candidate_reserves_runtime_wiring_repair(self) -> None:
+        worker = MagicMock()
+        worker.capabilities.return_value = WorkerCapabilities(
+            name="activation-test",
+            supports_code_generation=True,
+            supports_repair=True,
+            supports_structured_output=True,
+            supports_session_reuse=True,
+        )
+
+        budget = candidate_worker_budgets(
+            {
+                "method_family": "coupled_local_search",
+                "activation_contract_version": 1,
+                "activation_checks": [
+                    {
+                        "id": "moves_evaluated",
+                        "path": "diagnostics.activation.coupled_local_search.moves_evaluated",
+                        "operator": "gt",
+                        "expected": 0,
+                        "required": True,
+                    },
+                    {
+                        "id": "route_switch_moves_evaluated",
+                        "path": "diagnostics.activation.alternative_path.route_switch_moves_evaluated",
+                        "operator": "gt",
+                        "expected": 0,
+                        "required": True,
+                    }
+                ],
+            },
+            worker=worker,
+            max_steps=4,
+            repair_attempts=1,
+        )
+
+        self.assertEqual((6, 2), budget)
+
     def test_exact_candidate_does_not_force_repair_on_worker_without_repair_support(self) -> None:
         worker = MagicMock()
         worker.capabilities.return_value = WorkerCapabilities(
@@ -1368,6 +1414,279 @@ class WorkerLoopTests(unittest.TestCase):
         request = planner.plan_direction.call_args.args[0]
         self.assertEqual(-1, request.round_index)
         self.assertEqual("agent_generated_baseline", request.loop_feedback["round_type"])
+
+    def test_variant_agent_generated_baseline_rebinds_successful_main_plan_to_constructive_package(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = tmp_path / "context.json"
+            context_path.write_text(
+                json.dumps(
+                    {
+                        "task": {"problem_family": "FJSP"},
+                        "method_package_catalog": {
+                            "active_features": ["fjsp_max_time_lag", "maximum_time_lag", "time_lag"],
+                            "packages": [],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            planner = SimpleNamespace(
+                plan_direction=MagicMock(
+                    return_value={
+                        "direction_id": "baseline-selected-local",
+                        "strategy_type": "baseline_constructor",
+                        "method_family": "coupled_local_search",
+                        "method_families": [{"id": "coupled_local_search", "role": "primary"}],
+                        "method_package_id": "fjsp_max_time_lag_coupled_local_search",
+                        "knowledge_query": ["critical_path", "maximum_time_lag"],
+                    }
+                )
+            )
+
+            actual = plan_agent_generated_baseline_direction(
+                planner=planner,
+                context_packet_path=context_path,
+                output_dir=tmp_path / "main",
+            )
+
+        self.assertEqual("constructive_search", actual["method_family"])
+        self.assertEqual(
+            "fjsp_max_time_lag_constructive_adaptation",
+            actual["method_package_id"],
+        )
+        self.assertEqual(
+            "fjsp_max_time_lag_coupled_local_search",
+            actual["baseline_package_rebinding"]["source_method_package_id"],
+        )
+        self.assertEqual(
+            "baseline_constructive_rebinding",
+            actual["method_package_selection"]["selection_source"],
+        )
+        self.assertTrue(actual["implementation_bundle"]["required_components"])
+
+    def test_failed_variant_baseline_rebinds_final_attempt_to_exact_feasibility(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = tmp_path / "context.json"
+            context_path.write_text(
+                json.dumps(
+                    {
+                        "task": {"problem_family": "FJSP"},
+                        "method_package_catalog": {
+                            "active_features": ["fjsp_max_time_lag", "maximum_time_lag", "time_lag"],
+                            "packages": [],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            constructive = {
+                "direction_id": "max-lag-baseline",
+                "strategy_type": "baseline_constructor",
+                "method_family": "constructive_search",
+                "method_families": [{"id": "constructive_search", "role": "primary"}],
+                "method_package_id": "fjsp_max_time_lag_constructive_adaptation",
+                "knowledge_query": ["constructive_search", "maximum_time_lag"],
+                "baseline_package_rebinding": {
+                    "reason": "variant_baseline_requires_constructive_package"
+                },
+            }
+
+            rescue = bind_variant_baseline_exact_rescue_method_package(
+                constructive,
+                context_packet_path=context_path,
+            )
+
+        self.assertEqual("exact_hybrid", rescue["method_family"])
+        self.assertEqual("fjsp_max_time_lag_exact_hybrid", rescue["method_package_id"])
+        self.assertEqual(
+            "fjsp_max_time_lag_constructive_adaptation",
+            rescue["baseline_feasibility_rescue"]["from_method_package_id"],
+        )
+        self.assertTrue(rescue["baseline_feasibility_rescue"]["fresh_command_session_required"])
+        self.assertIn("cp_sat_max_lag_model", rescue["implementation_order"])
+        self.assertEqual(
+            "baseline_exact_feasibility_rescue",
+            rescue["method_package_selection"]["selection_source"],
+        )
+
+    def test_failed_exact_baseline_rescue_gets_one_fresh_session_wiring_repair(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract_path = _write_standard_agent_generated_contract(tmp_path)
+            contract = TaskContract.load(contract_path)
+            context_path = _write_test_context(tmp_path, contract_path=contract_path)
+            context = json.loads(context_path.read_text(encoding="utf-8"))
+            context["method_package_catalog"] = {
+                "active_features": ["fjsp_max_time_lag", "maximum_time_lag", "time_lag"],
+                "packages": [],
+            }
+            context_path.write_text(json.dumps(context, ensure_ascii=False, indent=2), encoding="utf-8")
+            direction = {
+                "direction_id": "max-lag-baseline",
+                "strategy_type": "baseline_constructor",
+                "method_family": "constructive_search",
+                "method_families": [{"id": "constructive_search", "role": "primary"}],
+                "method_package_id": "fjsp_max_time_lag_constructive_adaptation",
+                "knowledge_query": ["constructive_search", "maximum_time_lag"],
+                "baseline_package_rebinding": {
+                    "reason": "variant_baseline_requires_constructive_package"
+                },
+            }
+            project_roots: list[Path] = []
+            worktrees: list[Path] = []
+            requested_sessions: list[str | None] = []
+
+            class SessionCapableWorker(NullWorker):
+                def capabilities(self) -> WorkerCapabilities:
+                    return WorkerCapabilities(
+                        name="session-worker",
+                        supports_code_generation=True,
+                        supports_repair=True,
+                        supports_structured_output=False,
+                        supports_session_reuse=True,
+                    )
+
+            def fake_run_worker_cycle(**kwargs):  # noqa: ANN001 - mirrors worker-cycle API.
+                attempt_index = len(project_roots)
+                project_roots.append(Path(kwargs["project_root"]))
+                requested_sessions.append(kwargs.get("session_id"))
+                output_dir = Path(kwargs["output_dir"])
+                output_dir.mkdir(parents=True, exist_ok=True)
+                worktree = output_dir / "candidate_worktree"
+                worktree.mkdir(parents=True, exist_ok=True)
+                worktrees.append(worktree)
+                patch_path = output_dir / "worker_changes.patch"
+                delta_path = output_dir / "worker_worktree_delta.json"
+                patch_path.write_text(f"attempt {attempt_index}\n", encoding="utf-8")
+                delta_path.write_text("{}\n", encoding="utf-8")
+                exact_repair_passed = attempt_index == 3
+                evidence = (
+                    [{
+                        "diagnostics": {
+                            "solver_evidence": {
+                                "cp_sat_called": True,
+                                "solver_status": "feasible",
+                                "model_size": {"variables": 10, "constraints": 20, "intervals": 5},
+                            }
+                        }
+                    }]
+                    if exact_repair_passed
+                    else None
+                )
+                summary = RunSummary(
+                    total=1,
+                    valid=1 if exact_repair_passed else 0,
+                    failed=0 if exact_repair_passed else 1,
+                    best_experiment_id="exact" if exact_repair_passed else None,
+                    best_metrics={"makespan": 927} if exact_repair_passed else {},
+                    activation_evidence=evidence,
+                )
+                return SimpleNamespace(
+                    worker_result=WorkerResult(
+                        status="completed",
+                        changed_files=["examples/agent_generated_fjsp_solver.py"],
+                        summary=f"attempt {attempt_index}",
+                        artifacts={"observed_session_id": f"ses_{attempt_index}", "event_stream_bytes": "100"},
+                    ),
+                    summary=summary,
+                    worktree_path=worktree,
+                    harness_output_dir=output_dir / "harness",
+                    delta_path=delta_path,
+                    patch_path=patch_path,
+                    agentic_judgment=AgenticJudgment(
+                        accepted=True,
+                        right=True,
+                        stage="candidate_result_revalidation",
+                        issues=[],
+                        suggestions=[],
+                        checks={
+                            "result_revalidation": {
+                                "passed": exact_repair_passed,
+                                "top_errors": [] if exact_repair_passed else ["construction failed"],
+                            }
+                        },
+                    ),
+                    agentic_error_analysis=None,
+                    smoke_summary=summary,
+                    smoke_output_dir=output_dir / "harness_smoke",
+                    diagnostic_smoke_summary=None,
+                    diagnostic_smoke_output_dir=None,
+                    full_evaluation_started=exact_repair_passed,
+                )
+
+            with (
+                patch("harness_agent.orchestration.loop.run_worker_cycle", side_effect=fake_run_worker_cycle),
+                patch(
+                    "harness_agent.orchestration.loop.run_algorithm_semantic_review",
+                    return_value={"status": "pass", "accepted": True, "summary": "source shape accepted"},
+                ),
+            ):
+                summary, worktree, generation = run_agent_generated_baseline(
+                    contract=contract,
+                    project_root=ROOT,
+                    output_dir=tmp_path / "loop",
+                    context_packet_path=context_path,
+                    worker=SessionCapableWorker(),
+                    experiment_id="test_exact_rescue_wiring_repair",
+                    max_steps=2,
+                    max_runtime_seconds=30,
+                    direction_plan=direction,
+                    repair_attempts=2,
+                )
+
+            self.assertEqual(4, len(project_roots))
+            self.assertEqual([None, "ses_0", None, None], requested_sessions)
+            self.assertEqual(worktrees[2], project_roots[3])
+            self.assertEqual(1, summary.valid)
+            self.assertEqual(927, summary.best_metrics["makespan"])
+            self.assertEqual(3, generation["selected_attempt_index"])
+            self.assertEqual(worktree, Path(generation["worktree"]))
+            repair_assignment = json.loads(
+                (tmp_path / "loop" / "agent_generated_baseline" / "repair_003" / "assignment_revision_003.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual("repair", repair_assignment["mode"])
+            self.assertEqual("repair_exact_execution_not_exercised", repair_assignment["implementation_order"][0])
+
+    def test_semantic_review_scope_uses_only_assigned_package_components(self) -> None:
+        direction = {
+            "implementation_bundle": {
+                "mode": "complete_method_package",
+                "required_components": [
+                    {"component_id": "decoder"},
+                    {"component_id": "search"},
+                ],
+                "coupled_groups": [
+                    {"group_id": "all", "component_ids": ["decoder", "search"]},
+                    {"group_id": "decoder_only", "component_ids": ["decoder"]},
+                ],
+            }
+        }
+        assignment = {
+            "assignment_id": "baseline-a00",
+            "implementation_order": ["decoder", "verified_legal_incumbent"],
+            "deliverables": [{"id": "decoder"}, {"id": "verified_legal_incumbent"}],
+            "completion_rule": "Stop after Core validates one legal incumbent.",
+        }
+
+        scoped = semantic_review_direction_plan(direction, worker_assignment=assignment)
+
+        self.assertEqual("assigned_stage", scoped["implementation_bundle"]["mode"])
+        self.assertEqual(
+            ["decoder"],
+            [item["component_id"] for item in scoped["implementation_bundle"]["required_components"]],
+        )
+        self.assertEqual(
+            ["decoder_only"],
+            [item["group_id"] for item in scoped["implementation_bundle"]["coupled_groups"]],
+        )
+        self.assertEqual(
+            ["decoder", "verified_legal_incumbent"],
+            scoped["semantic_review_scope"]["assigned_components"],
+        )
 
     def test_session_reuse_requires_command_observation_and_nonempty_stream(self) -> None:
         requested = "ses_direction_123"
@@ -1626,6 +1945,43 @@ class WorkerLoopTests(unittest.TestCase):
 
         self.assertEqual("research_tournament", continued["experiment_stage"])
         self.assertEqual(previous["candidate_variants"], continued["candidate_variants"])
+
+    def test_continued_pbpm_tournament_restores_exact_feasible_status(self) -> None:
+        previous = {
+            "direction_id": "d000",
+            "experiment_stage": "research_tournament",
+            "candidate_variants": [
+                {
+                    "candidate_id": "exact",
+                    "method_family": "exact_hybrid",
+                    "knowledge_query": ["exact_hybrid", "fjsp_pbpm", "batching"],
+                    "activation_checks": [
+                        {
+                            "id": "exact_cp_sat_called",
+                            "path": "diagnostics.cp_sat_called",
+                            "operator": "truthy",
+                            "expected": True,
+                            "required": True,
+                        }
+                    ],
+                }
+            ],
+        }
+
+        continued = continue_current_direction_plan(
+            previous_direction_plan=previous,
+            proposed_direction_plan={"direction_id": "d001-proposed"},
+            round_index=1,
+        )
+        continued = ensure_direction_activation_contracts(continued)
+
+        exact_ids = {
+            item["id"] for item in continued["candidate_variants"][0]["activation_checks"]
+        }
+        self.assertEqual(
+            {"exact_cp_sat_called", "pbpm_exact_feasible_status", "pbpm_grouped_batch_count"},
+            exact_ids,
+        )
 
     def test_user_pivot_applies_only_declared_fields_and_rejects_protected_clear(self) -> None:
         original = {
@@ -1958,7 +2314,13 @@ class WorkerLoopTests(unittest.TestCase):
             best_experiment_id="candidate",
             best_metrics={
                 "makespan": 100,
-                "solver_evidence": {"diagnostics": {"expanded_states": 12, "modes": ["beam"]}},
+                "solver_evidence": {
+                    "diagnostics": {
+                        "expanded_states": 12,
+                        "modes": ["beam"],
+                        "solver_status": "FEASIBLE",
+                    }
+                },
             },
         )
         activation = evaluate_mechanism_activation(
@@ -1975,6 +2337,12 @@ class WorkerLoopTests(unittest.TestCase):
                         "path": "best_metrics.solver_evidence.diagnostics.modes",
                         "operator": "contains",
                         "expected": "beam",
+                    },
+                    {
+                        "id": "solver_status",
+                        "path": "diagnostics.solver_status",
+                        "operator": "one_of",
+                        "expected": ["FEASIBLE", "OPTIMAL"],
                     },
                 ]
             },
@@ -2104,6 +2472,39 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertEqual(2, any_seed["evaluated_run_count"])
         self.assertFalse(all_seeds["passed"])
 
+    def test_mechanism_activation_reads_core_best_metrics_when_runtime_evidence_exists(self) -> None:
+        summary = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="candidate",
+            best_metrics={"grouped_batch_count": 1.0},
+            activation_evidence=[
+                {
+                    "experiment_id": "candidate",
+                    "diagnostics": {"cp_sat_called": True},
+                }
+            ],
+        )
+
+        activation = evaluate_mechanism_activation(
+            {
+                "activation_checks": [
+                    {
+                        "id": "pbpm_grouped_batch_count",
+                        "path": "best_metrics.grouped_batch_count",
+                        "operator": "gt",
+                        "expected": 0,
+                    }
+                ]
+            },
+            summary,
+        )
+
+        self.assertTrue(activation["passed"])
+        self.assertEqual(1.0, activation["checks"][0]["observed"])
+        self.assertEqual("best_metrics.grouped_batch_count", activation["checks"][0]["resolved_path"])
+
     def test_mechanism_activation_without_declared_checks_is_unknown(self) -> None:
         activation = evaluate_mechanism_activation(
             {},
@@ -2210,6 +2611,115 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertEqual(["exact_active_variant_cp_sat_probe"], exact["implementation_order"])
         self.assertEqual("exact_active_variant_cp_sat_probe", exact["deliverables"][0]["id"])
         self.assertNotIn("worker_lane", exact)
+
+    def test_competing_variant_preserves_required_activation_contract_version(self) -> None:
+        base = {
+            "direction_id": "activation-tournament",
+            "experiment_stage": "probe",
+            "activation_contract_version": 0,
+            "candidate_variants": [
+                {
+                    "candidate_id": "coupled",
+                    "method_family": "coupled_local_search",
+                    "activation_contract_version": 1,
+                    "activation_checks": [
+                        {
+                            "id": "moves_evaluated",
+                            "path": "diagnostics.activation.coupled_local_search.moves_evaluated",
+                            "operator": "gt",
+                            "expected": 0,
+                        }
+                    ],
+                },
+                {
+                    "candidate_id": "constructive",
+                    "method_family": "constructive_search",
+                },
+            ],
+            "worker_lane_policy": {
+                "mechanism_selection": "family_hypothesis_tournament",
+                "lane_count": 2,
+            },
+        }
+
+        coupled = competitive_direction_plans(base, limit=2)[0]
+
+        self.assertEqual(1, coupled["activation_contract_version"])
+        self.assertEqual("moves_evaluated", coupled["activation_checks"][0]["id"])
+        self.assertTrue(activation_contract_required(coupled))
+
+    def test_delegated_variant_lanes_keep_canonical_variant_activation_checks(self) -> None:
+        contract = json.loads(
+            (
+                ROOT
+                / "knowledge"
+                / "method_packages"
+                / "fjsp_alternative_path_exact_hybrid"
+                / "implementation_contract.json"
+            ).read_text(encoding="utf-8")
+        )
+        base = {
+            "direction_id": "alternative-exact",
+            "method_family": "exact_hybrid",
+            "method_package_id": "fjsp_alternative_path_exact_hybrid",
+            "implementation_bundle": contract,
+            "candidate_variants": [],
+            "activation_checks": [
+                {
+                    "id": "weak_exact_marker",
+                    "path": "diagnostics.cp_sat_called",
+                    "operator": "truthy",
+                    "expected": True,
+                }
+            ],
+            "worker_lane_policy": {
+                "mechanism_selection": "delegated_to_worker",
+                "lane_count": 1,
+            },
+        }
+
+        expanded = competitive_direction_plans(base, limit=1)
+
+        self.assertEqual(1, len(expanded))
+        required_ids = {
+            "exact_cp_sat_called",
+            "route_one_hot_constraints_posted",
+            "route_optional_intervals_posted",
+            "route_conditional_precedences_posted",
+        }
+        for plan in expanded:
+            self.assertTrue(required_ids.issubset({item["id"] for item in plan["activation_checks"]}))
+
+    def test_alternative_exact_activation_fails_when_route_evidence_is_partial(self) -> None:
+        direction = {
+            "activation_checks": method_family_activation_checks(
+                "exact_hybrid",
+                active_features=["alternative_path"],
+            )
+        }
+        partial = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="candidate",
+            best_metrics={
+                "solver_evidence": {
+                    "diagnostics": {
+                        "cp_sat_called": True,
+                        "solver_evidence": {
+                            "route_one_hot_constraints_posted": 2,
+                            "route_optional_intervals_posted": 12,
+                            "route_conditional_precedences_posted": 0,
+                        },
+                    },
+                }
+            },
+        )
+
+        activation = evaluate_mechanism_activation(direction, partial)
+
+        self.assertFalse(activation["passed"])
+        self.assertEqual(1, activation["required_failure_count"])
 
     def test_research_tournament_compiles_each_family_to_one_package_stage(self) -> None:
         packages = {
@@ -3136,6 +3646,58 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertEqual("pass", semantic["status"])
         self.assertTrue(semantic["accepted"])
 
+    def test_compacted_exact_tournament_keeps_lane_package_and_deliverable_on_continue(self) -> None:
+        original = {
+            "direction_id": "d001",
+            "experiment_stage": "probe",
+            "method_family": "coupled_local_search",
+            "method_package_id": "standard_fjsp_awls_hgtsa",
+            "worker_lane_policy": {
+                "mechanism_selection": "exact_probe_tournament",
+                "lane_count": 2,
+            },
+            "exact_probe_policy": {"reserved": True, "scope": "complete_or_bounded"},
+            "candidate_variants": [
+                {
+                    "candidate_id": "exact",
+                    "method_family": "exact_hybrid",
+                    "method_families": [{"id": "exact_hybrid", "role": "primary"}],
+                    "method_package_id": "fjsp_pbpm_adaptation",
+                    "worker_objective": "Run the PBPM exact model.",
+                    "implementation_order": ["exact_active_variant_cp_sat_probe"],
+                    "deliverables": [
+                        {
+                            "id": "exact_active_variant_cp_sat_probe",
+                            "behavior": "Call Solve from the CLI path.",
+                        }
+                    ],
+                    "activation_checks": method_family_activation_checks(
+                        "exact_hybrid",
+                        active_features=["fjsp_pbpm", "batching"],
+                    ),
+                }
+            ],
+        }
+
+        compacted = compact_round_direction_plan(original)
+        continued = continue_current_direction_plan(
+            previous_direction_plan=compacted,
+            proposed_direction_plan={"direction_id": "d002-proposed"},
+            round_index=2,
+        )
+        exact = competitive_direction_plans(continued, limit=2)[0]
+
+        self.assertEqual("exact_probe_tournament", continued["worker_lane_policy"]["mechanism_selection"])
+        self.assertTrue(continued["exact_probe_policy"]["reserved"])
+        self.assertEqual("exact_hybrid", exact["method_family"])
+        self.assertEqual("fjsp_pbpm_adaptation", exact["method_package_id"])
+        self.assertEqual(["exact_active_variant_cp_sat_probe"], exact["implementation_order"])
+        self.assertEqual("exact_active_variant_cp_sat_probe", exact["deliverables"][0]["id"])
+        self.assertIn(
+            "pbpm_exact_feasible_status",
+            {item["id"] for item in exact["activation_checks"]},
+        )
+
     def test_competing_workers_select_best_core_candidate_with_semantic_advisory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -3282,13 +3844,12 @@ class WorkerLoopTests(unittest.TestCase):
                     max_competing_workers=4,
                 )
 
-            self.assertEqual("selected", advisory_result["status"])
-            self.assertEqual("c1", advisory_result["selected_candidate_id"])
-            self.assertEqual([-80.0], advisory_result["selected_objective_key"])
-            self.assertEqual("c1", advisory_result["measured_candidate_id"])
+            self.assertEqual("no_eligible_candidate", advisory_result["status"])
+            self.assertIsNone(advisory_result["selected_candidate_id"])
+            self.assertFalse(advisory_result["selected_for_promotion"])
             self.assertEqual("c1", advisory_result["best_legal_candidate"]["candidate_id"])
             self.assertIsNone(advisory_result["best_activated_candidate"])
-            self.assertTrue(advisory_result["activation_advisory_only"])
+            self.assertFalse(advisory_result["activation_advisory_only"])
             self.assertTrue(
                 all(not item["activation_eligible"] for item in advisory_result["candidates"])
             )
@@ -3358,6 +3919,30 @@ class WorkerLoopTests(unittest.TestCase):
                             },
                             "runtime_error": None,
                         }
+                    }
+                }
+            },
+        )
+        sibling_nested_solver_evidence = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="nested-solver-evidence",
+            best_metrics={
+                "solver_evidence": {
+                    "diagnostics": {
+                        "cp_sat_called": True,
+                        "solver_evidence": {
+                            "accepted": True,
+                            "solver_status": "OPTIMAL",
+                            "model_size": {
+                                "variables": 531,
+                                "constraints": 804,
+                                "intervals": 110,
+                            },
+                            "solve_time_sec": 10.0,
+                            "runtime_error": None,
+                        },
                     }
                 }
             },
@@ -3463,6 +4048,15 @@ class WorkerLoopTests(unittest.TestCase):
             {"variables": 1433, "constraints": 3744, "intervals": 813},
             nested_result["observed_model_sizes"],
         )
+        nested_sibling_result = evaluate_exact_solver_execution(
+            {"method_family": "exact_hybrid"}, sibling_nested_solver_evidence
+        )
+        self.assertTrue(nested_sibling_result["passed"])
+        self.assertIn("optimal", nested_sibling_result["observed_statuses"])
+        self.assertIn(
+            {"variables": 531, "constraints": 804, "intervals": 110},
+            nested_sibling_result["observed_model_sizes"],
+        )
         nested_error_result = evaluate_exact_solver_execution(
             {"method_family": "exact_hybrid"}, nested_runtime_error
         )
@@ -3541,7 +4135,10 @@ class WorkerLoopTests(unittest.TestCase):
         exact_target = targets["exact_execution_failure"]
         self.assertEqual([182], exact_target["self_check_error_counts"])
         self.assertIn("inconsistent extracted timing", exact_target["runtime_errors"][0])
-        self.assertIn("semantic keywords", exact_target["required_evidence"])
+        self.assertIn("new_optional_interval_var", exact_target["required_evidence"])
+        self.assertIn("never pass end=", exact_target["required_evidence"])
+        self.assertIn("never sum alternative", exact_target["required_evidence"])
+        self.assertIn("Create all operation/alternative variables first", exact_target["required_evidence"])
 
     def test_exact_fallback_cannot_beat_effective_heuristic_lane(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3728,7 +4325,7 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertFalse(noop["eligible"])
             self.assertFalse(noop["target_changed"])
 
-    def test_failed_activation_is_advisory_for_local_trial_parent(self) -> None:
+    def test_failed_required_activation_cannot_become_local_trial_parent(self) -> None:
         cycle = SimpleNamespace(
             agentic_judgment=AgenticJudgment(
                 accepted=True,
@@ -3747,7 +4344,7 @@ class WorkerLoopTests(unittest.TestCase):
             ),
         )
 
-        self.assertTrue(
+        self.assertFalse(
             local_trial_candidate_eligible(
                 cycle,
                 candidate_key=(12.0,),
@@ -3783,7 +4380,7 @@ class WorkerLoopTests(unittest.TestCase):
             )
         )
 
-    def test_failed_activation_does_not_block_final_promotion(self) -> None:
+    def test_failed_required_activation_blocks_final_promotion(self) -> None:
         class UnactivatedPlanner:
             def plan_direction(self, request):  # noqa: ANN001 - follows planner protocol.
                 return {
@@ -3828,10 +4425,10 @@ class WorkerLoopTests(unittest.TestCase):
                 max_competing_workers=1,
             )
 
-        self.assertEqual("promoted", result.rounds[0].decision)
+        self.assertEqual("rolled_back", result.rounds[0].decision)
         self.assertFalse(result.rounds[0].mechanism_activation["passed"])
-        self.assertNotEqual(
-            "mechanism_not_activated",
+        self.assertEqual(
+            "no_eligible_competition_candidate",
             result.rounds[0].promotion_check.get("reason"),
         )
 
@@ -4092,6 +4689,65 @@ class WorkerLoopTests(unittest.TestCase):
             "exact_hybrid_without_cp_sat_execution_evidence",
             feedback["repair_targets"]["exact_execution_failure"]["reason"],
         )
+
+    def test_required_mechanism_activation_failure_consumes_repair_attempt(self) -> None:
+        cycle = SimpleNamespace(
+            worker_result=WorkerResult(
+                status="ok",
+                changed_files=["examples/agent_generated_fjsp_solver.py"],
+                summary="Legal inherited incumbent without family execution.",
+            ),
+            summary=RunSummary(
+                total=1,
+                valid=1,
+                failed=0,
+                best_experiment_id="candidate",
+                best_metrics={"makespan": 927},
+            ),
+        )
+        activation = {
+            "status": "failed",
+            "passed": False,
+            "required_failure_count": 1,
+            "checks": [
+                {
+                    "id": "moves_evaluated",
+                    "path": "diagnostics.activation.coupled_local_search.moves_evaluated",
+                    "operator": "gt",
+                    "expected": 0,
+                    "observed": None,
+                    "required": True,
+                    "passed": False,
+                }
+            ],
+        }
+
+        self.assertTrue(
+            should_attempt_in_round_repair(
+                cycle,
+                incumbent_key=(-927.0,),
+                semantic_review={"status": "pass", "accepted": True},
+                mechanism_activation=activation,
+                activation_required=True,
+            )
+        )
+        feedback = current_round_repair_feedback(
+            attempt_index=1,
+            max_repair_attempts=2,
+            previous_attempts=[
+                {
+                    "activation_required": True,
+                    "mechanism_activation": activation,
+                }
+            ],
+        )
+        self.assertEqual(
+            "moves_evaluated",
+            feedback["repair_targets"]["mechanism_activation_failure"]["failed_checks"][0]["id"],
+        )
+        required_evidence = feedback["repair_targets"]["mechanism_activation_failure"]["required_evidence"]
+        self.assertIn("real CLI entrypoint", required_evidence)
+        self.assertIn("final solution.json", required_evidence)
 
     def test_round_gate_continue_skips_revision_call_and_keeps_active_direction(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -4357,6 +5013,113 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual(worktrees[0], cycle.worktree_path)
             self.assertEqual(["selected", "rejected", "rejected"], [item["disposition"] for item in attempts])
             self.assertEqual([False, True, True], [item["session_reused"] for item in attempts])
+            self.assertEqual("checkpoint_interval_reached", attempts[-1]["termination_reason"])
+
+    def test_exact_session_budget_runs_initial_attempt_plus_two_activation_repairs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+            call_count = 0
+
+            session_worker = SimpleNamespace(
+                capabilities=lambda: WorkerCapabilities(
+                    name="exact-session-worker",
+                    supports_code_generation=True,
+                    supports_repair=True,
+                    supports_structured_output=False,
+                    supports_session_reuse=True,
+                )
+            )
+
+            def fake_run_worker_cycle(**kwargs):  # noqa: ANN001 - mirrors worker-cycle API.
+                nonlocal call_count
+                call_count += 1
+                output_dir = Path(kwargs["output_dir"])
+                output_dir.mkdir(parents=True, exist_ok=True)
+                worktree = output_dir / "candidate_worktree"
+                worktree.mkdir(parents=True, exist_ok=True)
+                patch_path = output_dir / "worker_changes.patch"
+                delta_path = output_dir / "worker_worktree_delta.json"
+                patch_path.write_text("", encoding="utf-8")
+                delta_path.write_text("{}", encoding="utf-8")
+                return SimpleNamespace(
+                    worker_result=WorkerResult(
+                        status="completed",
+                        changed_files=["examples/dummy_solver.py"],
+                        summary="legal fallback without exact activation",
+                        artifacts={"session_id": "ses-exact"},
+                    ),
+                    summary=RunSummary(
+                        total=1,
+                        valid=1,
+                        failed=0,
+                        best_experiment_id=f"exact-{call_count}",
+                        best_metrics={"completed_weight": 10.0, "runtime_seconds": 0.01},
+                    ),
+                    worktree_path=worktree,
+                    harness_output_dir=output_dir / "harness",
+                    delta_path=delta_path,
+                    patch_path=patch_path,
+                    agentic_judgment=AgenticJudgment(
+                        accepted=True,
+                        right=True,
+                        stage="candidate_result_revalidation",
+                        issues=[],
+                        suggestions=[],
+                        checks={},
+                    ),
+                    agentic_error_analysis=None,
+                    smoke_summary=None,
+                    smoke_output_dir=None,
+                    diagnostic_smoke_summary=None,
+                    diagnostic_smoke_output_dir=None,
+                    full_evaluation_started=True,
+                )
+
+            direction = {
+                "direction_id": "exact-three-attempts",
+                "method_family": "exact_hybrid",
+                "worker_objective": "Run and wire CP-SAT.",
+                "implementation_order": ["exact_active_variant_cp_sat_probe"],
+                "deliverables": [
+                    {
+                        "id": "exact_active_variant_cp_sat_probe",
+                        "behavior": "Run and wire CP-SAT.",
+                        "evidence_required": "Observed exact diagnostics.",
+                    }
+                ],
+                "activation_checks": method_family_activation_checks("exact_hybrid"),
+            }
+            with patch("harness_agent.orchestration.loop.run_worker_cycle", side_effect=fake_run_worker_cycle):
+                _cycle, _context, attempts = run_worker_cycle_with_in_round_repairs(
+                    contract=contract,
+                    project_root=ROOT,
+                    output_dir=tmp_path / "round_000",
+                    base_context_packet_path=context_path,
+                    round_index=0,
+                    worker=session_worker,
+                    experiment_id="exact-three-attempts",
+                    max_steps=8,
+                    max_runtime_seconds=30,
+                    apply_worker_changes=True,
+                    baseline_summary=RunSummary(
+                        total=1,
+                        valid=1,
+                        failed=0,
+                        best_experiment_id="baseline",
+                        best_metrics={"completed_weight": 10.0, "runtime_seconds": 0.01},
+                    ),
+                    incumbent_key=(10.0, -0.01),
+                    baseline_generation=None,
+                    previous_rounds=[],
+                    repair_attempts=2,
+                    direction_plan=direction,
+                )
+
+            self.assertEqual(3, call_count)
+            self.assertEqual(3, len(attempts))
+            self.assertTrue(all(item["mechanism_activation"]["passed"] is False for item in attempts))
             self.assertEqual("checkpoint_interval_reached", attempts[-1]["termination_reason"])
 
     def test_same_direction_reuses_winning_session_across_checkpoint_batches(self) -> None:
@@ -6396,6 +7159,102 @@ class WorkerLoopTests(unittest.TestCase):
 
             loop_result = json.loads((tmp_path / "loop" / "loop_result.json").read_text(encoding="utf-8"))
             self.assertEqual("failed", loop_result["rounds"][0]["promotion_check"]["status"])
+
+    def test_equal_objective_promotes_only_for_new_required_capability(self) -> None:
+        contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+        activation_plan = {
+            "activation_checks": [
+                {
+                    "id": "grouped_batch",
+                    "path": "best_metrics.grouped_batch_count",
+                    "operator": "gt",
+                    "expected": 0,
+                    "required": True,
+                }
+            ]
+        }
+        candidate_activation = {
+            "status": "passed",
+            "passed": True,
+            "required_check_count": 1,
+            "required_failure_count": 0,
+            "checks": [],
+        }
+        incumbent_summary = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="incumbent",
+            best_metrics={"grouped_batch_count": 0},
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "harness_agent.orchestration.loop._run_harness",
+            return_value=incumbent_summary,
+        ):
+            result = evaluate_promotion_check(
+                contract=contract,
+                incumbent_worktree=Path(tmp) / "incumbent",
+                candidate_worktree=Path(tmp) / "candidate",
+                output_dir=Path(tmp) / "promotion",
+                incumbent_key=(516.0,),
+                candidate_key=(516.0,),
+                promotion_repeats=1,
+                activation_plan=activation_plan,
+                candidate_activation=candidate_activation,
+            )
+
+        self.assertTrue(result["promoted"])
+        self.assertEqual("required_capability_activation_gain", result["reason"])
+        self.assertFalse(result["incumbent_activation"]["passed"])
+
+    def test_equal_objective_does_not_promote_when_incumbent_has_capability(self) -> None:
+        contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+        activation_plan = {
+            "activation_checks": [
+                {
+                    "id": "grouped_batch",
+                    "path": "best_metrics.grouped_batch_count",
+                    "operator": "gt",
+                    "expected": 0,
+                    "required": True,
+                }
+            ]
+        }
+        candidate_activation = {
+            "status": "passed",
+            "passed": True,
+            "required_check_count": 1,
+            "required_failure_count": 0,
+            "checks": [],
+        }
+        incumbent_summary = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="incumbent",
+            best_metrics={"grouped_batch_count": 1},
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "harness_agent.orchestration.loop._run_harness",
+            return_value=incumbent_summary,
+        ):
+            result = evaluate_promotion_check(
+                contract=contract,
+                incumbent_worktree=Path(tmp) / "incumbent",
+                candidate_worktree=Path(tmp) / "candidate",
+                output_dir=Path(tmp) / "promotion",
+                incumbent_key=(516.0,),
+                candidate_key=(516.0,),
+                promotion_repeats=1,
+                activation_plan=activation_plan,
+                candidate_activation=candidate_activation,
+            )
+
+        self.assertFalse(result["promoted"])
+        self.assertEqual(
+            "incumbent_already_satisfies_required_activation",
+            result["reason"],
+        )
 
     def test_candidate_smoke_gate_blocks_full_evaluation_on_runtime_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

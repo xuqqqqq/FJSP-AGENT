@@ -2,13 +2,13 @@
   "schema_version": 1,
   "contract_id": "fjsp_min_time_lag_exact_hybrid",
   "mode": "complete_method_package",
-  "completion_rule": "只有 lag-aware 精确模型或局部精确修复真实求解、提取并经 Core 复核后，才可声明当前 exact-hybrid 阶段完成。",
-  "variant_rule": "Minimum lag 只进入相邻工序 start-after-end 约束，不进入机器 interval 长度或 NoOverlap 占用。",
+  "completion_rule": "只有 lag 感知精确模型或局部精确修复真实求解、提取并经 Core 复核后，才可声明当前 exact-hybrid 阶段完成。",
+  "variant_rule": "最小时间间隔只进入相邻工序的完工后开工约束，不进入机器区间长度或 NoOverlap 占用。",
   "required_components": [
-    {"component_id": "lag_exact_model", "title": "Lag-aware 精确模型", "required_behaviors": ["为 operation-machine assignment 建立可选 interval。", "加入 start[v] >= end[u] + lag，机器 NoOverlap 仅覆盖 processing interval。"], "evidence_required": "模型变量、lag 约束和机器约束计数。"},
+    {"component_id": "lag_exact_model", "title": "lag 感知精确模型", "required_behaviors": ["为工序-机器分配建立可选 interval。", "加入 start[v] >= end[u] + lag，机器 NoOverlap 仅覆盖加工 interval。"], "evidence_required": "模型变量、lag 约束和机器约束计数。"},
     {"component_id": "legal_incumbent_bridge", "title": "合法 incumbent 桥接", "required_behaviors": ["将当前合法解作为 hint 或上界。", "求解失败或无解时保留父 incumbent。"], "evidence_required": "hint/上界加载和回退证据。"},
     {"component_id": "bounded_trust_region", "title": "有界精确信赖域", "required_behaviors": ["仅释放关键块、lag 边界或少量 assignment。", "按 deadline 与规模限制变量和求解时间。"], "evidence_required": "固定/释放变量数与求解状态。"},
-    {"component_id": "solution_extract_and_verify", "title": "解提取与完整复核", "required_behaviors": ["只提取完整可行解。", "输出前重新执行 lag-aware 完整验证。"], "evidence_required": "solver status、objective、提取数量和最终违反计数。"}
+    {"component_id": "solution_extract_and_verify", "title": "解提取与完整复核", "required_behaviors": ["只提取完整可行解。", "输出前重新执行 lag 感知完整验证。"], "evidence_required": "solver status、objective、提取数量和最终违反计数。"}
   ],
   "component_dependencies": [
     {"component_id": "legal_incumbent_bridge", "depends_on": ["lag_exact_model"]},
@@ -17,11 +17,11 @@
   ],
   "competition_tracks": [
     {"track_id": "direct_evidence", "title": "局部精确修复", "stages": [{"stage_id": "trust_region", "component_ids": ["lag_exact_model", "legal_incumbent_bridge", "bounded_trust_region", "solution_extract_and_verify"]}]},
-    {"track_id": "minimal_risk", "title": "Hint 与小邻域", "stages": [{"stage_id": "incumbent_bridge", "component_ids": ["lag_exact_model", "legal_incumbent_bridge", "solution_extract_and_verify"]}, {"stage_id": "trust_region", "component_ids": ["bounded_trust_region"]}]},
+    {"track_id": "minimal_risk", "title": "hint 与小邻域", "stages": [{"stage_id": "incumbent_bridge", "component_ids": ["lag_exact_model", "legal_incumbent_bridge", "solution_extract_and_verify"]}, {"stage_id": "trust_region", "component_ids": ["bounded_trust_region"]}]},
     {"track_id": "orthogonal_mechanism", "title": "全局模型受限探测", "stages": [{"stage_id": "bounded_exact", "component_ids": ["lag_exact_model", "legal_incumbent_bridge", "solution_extract_and_verify"]}]}
   ],
   "checkpoint_checks": [
-    {"check_id": "machine_free_lag", "component_ids": ["lag_exact_model"], "requirement": "lag 只能出现在 precedence 下界，不得扩张 processing interval。"},
+        {"check_id": "machine_free_lag", "component_ids": ["lag_exact_model"], "requirement": "时间间隔只能出现在前驱下界中，不得扩张加工区间。"},
     {"check_id": "solver_executed", "component_ids": ["bounded_trust_region", "solution_extract_and_verify"], "requirement": "必须记录非空 solver status、求解时间和完整提取结果。"},
     {"check_id": "parent_fallback", "component_ids": ["legal_incumbent_bridge"], "requirement": "无合法严格改善时必须保留父 incumbent。"}
   ]

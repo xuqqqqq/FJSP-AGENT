@@ -102,6 +102,33 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-v4-pro
 ```
 
+自建 Qiming 网关只需一套共享凭据；同一个 provider 下同时注册 GLM 与
+DeepSeek，不需要复制成 `OPENAI_*`、`DEEPSEEK_*` 或手写
+`OPENCODE_CONFIG_CONTENT`：
+
+```text
+QIMING_API_KEY=你的网关密钥
+QIMING_BASE_URL=https://cpa.qiming.zone/v1
+OPENCODE_MODEL=qiming/deepseek-v4-flash
+OPENCODE_MAIN_MODEL=qiming/deepseek-v4-flash
+OPENCODE_WORKER_MODEL=qiming/deepseek-v4-flash
+```
+
+网页中可分别为 Main 与 Worker 选择 `qiming/glm-5.2` 或
+`qiming/deepseek-v4-flash`；二者自动复用同一个 `QIMING_API_KEY`。
+
+官方 DeepSeek 保持自己的凭据及 Base URL，不与 Qiming 混用：
+
+```text
+DEEPSEEK_API_KEY=官方 DeepSeek 密钥
+DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+```
+
+当前产品模型 ID 分别为 `qiming/glm-5.2`、
+`qiming/deepseek-v4-flash` 和 `deepseek/deepseek-v4-pro`。
+`OPENCODE_MAIN_MODEL` 与 `OPENCODE_WORKER_MODEL` 只指定默认选择，
+不限制网页端在三个模型间切换。
+
 OpenCode 由 `OPENCODE_EXECUTABLE` 和 `OPENCODE_MODEL` 配置。未设置模型时默认使用
 `deepseek/deepseek-v4-pro`，避免非交互任务在新 worktree 中等待模型选择。OpenCode 是
 Coding Agent 运行时，DeepSeek 是其中使用的模型/provider，两者不是两个并列 Coding Agent。

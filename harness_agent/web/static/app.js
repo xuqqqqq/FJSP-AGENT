@@ -489,8 +489,7 @@ function setModelSelectValue(select, model) {
 }
 
 function selectedProvider(model) {
-  const provider = String(model || "").trim().split("/", 1)[0].toLowerCase();
-  return provider === "qiming" ? "openai" : provider;
+  return String(model || "").trim().split("/", 1)[0].toLowerCase();
 }
 
 function selectedAgentModel(role) {
@@ -714,7 +713,7 @@ function buildPayload() {
     max_competing_workers: Number($("max-competing-workers").value || 4),
     timeout_seconds: Number($("timeout-seconds").value || 60),
     worker_max_steps: Number($("worker-max-steps").value || 4),
-    worker_max_runtime_seconds: Number($("worker-max-runtime-seconds").value || 120),
+    worker_max_runtime_seconds: Number($("worker-max-runtime-seconds").value || 600),
     in_round_repair_attempts: Number($("in-round-repair-attempts").value || 0),
     promotion_repeats: Number($("promotion-repeats").value || 1),
     pause_between_rounds: $("pause-between-rounds").checked,

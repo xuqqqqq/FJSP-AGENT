@@ -14,9 +14,12 @@ from harness_agent.agents.main import (
     configure_structured_worker_lanes,
     configure_exact_probe_tournament,
     enforce_improvement_direction_contract,
+    ensure_method_family_activation_contract,
+    ensure_direction_activation_contracts,
     fallback_improvement_order,
     fallback_research_context,
     fallback_tournament_families,
+    method_family_activation_checks,
     normalize_activation_checks,
     normalize_direction_plan,
     should_reserve_exact_probe,
@@ -50,6 +53,167 @@ class MainAgentTests(unittest.TestCase):
         self.assertEqual(
             ["coupled_local_search", "exact_hybrid", "population_memetic"],
             [item["id"] for item in selected],
+        )
+
+    def test_variant_fallback_tournament_uses_only_adapted_families_first(self) -> None:
+        for feature in ("maximum_time_lag", "alternative_path"):
+            with self.subTest(feature=feature):
+                context = {
+                    "instance_diagnostics": {
+                        "summary": {
+                            "avg_candidate_count": 1.1,
+                            "avg_flexible_operation_ratio": 0.1,
+                        }
+                    },
+                    "method_family_catalog": {
+                        "active_features": [feature],
+                        "families": [
+                            {"family_id": "constructive_search"},
+                            {"family_id": "coupled_local_search"},
+                            {"family_id": "exact_hybrid"},
+                            {"family_id": "population_memetic"},
+                        ],
+                    },
+                }
+
+                selected = fallback_tournament_families(context)
+
+                self.assertEqual(
+                    ["coupled_local_search", "exact_hybrid", "constructive_search"],
+                    [item["id"] for item in selected],
+                )
+
+    def test_formal_method_families_have_canonical_activation_contracts(self) -> None:
+        for family in (
+            "constructive_search",
+            "coupled_local_search",
+            "exact_hybrid",
+            "population_memetic",
+        ):
+            with self.subTest(family=family):
+                plan = ensure_method_family_activation_contract({"method_family": family})
+                self.assertEqual(1, plan["activation_contract_version"])
+                self.assertEqual(method_family_activation_checks(family), plan["activation_checks"])
+
+    def test_weak_custom_check_cannot_override_canonical_variant_check(self) -> None:
+        plan = ensure_method_family_activation_contract(
+            {
+                "method_family": "exact_hybrid",
+                "method_package_id": "fjsp_max_time_lag_exact_hybrid",
+                "activation_checks": [
+                    {
+                        "id": "max_lag_constraints_posted",
+                        "path": "diagnostics.solver_evidence.max_lag_constraints_posted",
+                        "operator": "gte",
+                        "expected": 0,
+                        "required": False,
+                    }
+                ],
+            }
+        )
+
+        by_id = {item["id"]: item for item in plan["activation_checks"]}
+        self.assertEqual("gt", by_id["max_lag_constraints_posted"]["operator"])
+        self.assertEqual(0, by_id["max_lag_constraints_posted"]["expected"])
+        self.assertTrue(by_id["max_lag_constraints_posted"]["required"])
+        self.assertIn("exact_cp_sat_called", by_id)
+
+    def test_alternative_path_exact_requires_complete_route_model_evidence(self) -> None:
+        checks = method_family_activation_checks(
+            "exact_hybrid",
+            active_features=["alternative_path"],
+        )
+
+        self.assertEqual(
+            {
+                "exact_cp_sat_called",
+                "route_one_hot_constraints_posted",
+                "route_optional_intervals_posted",
+                "route_conditional_precedences_posted",
+            },
+            {item["id"] for item in checks},
+        )
+
+    def test_max_lag_exact_requires_posted_variant_constraints(self) -> None:
+        checks = method_family_activation_checks(
+            "exact_hybrid",
+            active_features=["maximum_time_lag"],
+        )
+
+        self.assertEqual(
+            {"exact_cp_sat_called", "max_lag_constraints_posted"},
+            {item["id"] for item in checks},
+        )
+
+    def test_max_lag_package_alias_requires_posted_variant_constraints(self) -> None:
+        checks = method_family_activation_checks(
+            "exact_hybrid",
+            active_features=["fjsp_max_time_lag"],
+        )
+
+        self.assertEqual(
+            {"exact_cp_sat_called", "max_lag_constraints_posted"},
+            {item["id"] for item in checks},
+        )
+
+    def test_pbpm_search_requires_a_core_verified_real_grouped_batch(self) -> None:
+        for family in (
+            "constructive_search",
+            "coupled_local_search",
+            "population_memetic",
+        ):
+            with self.subTest(family=family):
+                checks = method_family_activation_checks(
+                    family,
+                    active_features=["fjsp_pbpm", "batching"],
+                )
+                grouped = next(item for item in checks if item["id"] == "pbpm_grouped_batch_count")
+                self.assertEqual("best_metrics.grouped_batch_count", grouped["path"])
+                self.assertEqual("gt", grouped["operator"])
+                self.assertEqual(0, grouped["expected"])
+                self.assertTrue(grouped["required"])
+
+        exact_ids = {
+            item["id"]
+            for item in method_family_activation_checks(
+                "exact_hybrid",
+                active_features=["fjsp_pbpm", "batching"],
+            )
+        }
+        self.assertEqual(
+            {"exact_cp_sat_called", "pbpm_exact_feasible_status", "pbpm_grouped_batch_count"},
+            exact_ids,
+        )
+
+    def test_direction_contract_restores_pbpm_exact_proof_for_tournament_lane(self) -> None:
+        plan = ensure_direction_activation_contracts(
+            {
+                "method_family": "coupled_local_search",
+                "candidate_variants": [
+                    {
+                        "candidate_id": "exact",
+                        "method_family": "exact_hybrid",
+                        "knowledge_query": ["exact_hybrid", "fjsp_pbpm", "batching"],
+                        "activation_checks": [
+                            {
+                                "id": "exact_cp_sat_called",
+                                "path": "diagnostics.cp_sat_called",
+                                "operator": "truthy",
+                                "expected": True,
+                                "required": True,
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+        exact_ids = {
+            item["id"] for item in plan["candidate_variants"][0]["activation_checks"]
+        }
+        self.assertEqual(
+            {"exact_cp_sat_called", "pbpm_exact_feasible_status", "pbpm_grouped_batch_count"},
+            exact_ids,
         )
 
     def test_structured_fast_main_configures_requested_parallel_lanes(self) -> None:
@@ -114,6 +278,58 @@ class MainAgentTests(unittest.TestCase):
         self.assertEqual("fjsp_machine_availability_adaptation", exact["method_package_id"])
         self.assertIn("objective bound", exact["worker_objective"])
 
+    def test_variant_tournament_prefers_three_adapted_method_families(self) -> None:
+        package_by_feature = {
+            "maximum_time_lag": "fjsp_max_time_lag",
+            "alternative_path": "fjsp_alternative_path",
+        }
+        for feature, package_prefix in package_by_feature.items():
+            with self.subTest(feature=feature):
+                context = {
+                    "task": {"problem_family": "FJSP"},
+                    "instance_diagnostics": {
+                        "summary": {
+                            "max_operation_count": 100,
+                            "avg_candidate_count": 2.0,
+                            "avg_flexible_operation_ratio": 0.8,
+                        },
+                        "instances": [{"operation_count": 100}],
+                    },
+                    "method_family_catalog": {
+                        "families": [
+                            {"family_id": "constructive_search"},
+                            {"family_id": "coupled_local_search"},
+                            {"family_id": "exact_hybrid"},
+                            {"family_id": "population_memetic"},
+                        ]
+                    },
+                    "method_package_catalog": {"active_features": [feature]},
+                }
+                base = {
+                    "direction_id": feature,
+                    "method_family": "population_memetic",
+                    "method_families": [{"id": "population_memetic", "role": "primary"}],
+                    "hypothesis": "Compare genuinely different variant-aware mechanisms.",
+                    "experiment_stage": "probe",
+                }
+
+                plan = configure_exact_probe_tournament(base, context=context, max_workers=3)
+
+                self.assertEqual(
+                    ["exact_hybrid", "coupled_local_search", "constructive_search"],
+                    [item["method_family"] for item in plan["candidate_variants"]],
+                )
+                self.assertTrue(
+                    all(
+                        str(item["method_package_id"]).startswith(package_prefix)
+                        for item in plan["candidate_variants"]
+                    )
+                )
+                self.assertEqual(
+                    3,
+                    len({item["method_package_id"] for item in plan["candidate_variants"]}),
+                )
+
     def test_large_high_flexibility_instance_does_not_force_exact_lane(self) -> None:
         context = {
             "instance_diagnostics": {
@@ -127,6 +343,145 @@ class MainAgentTests(unittest.TestCase):
         }
 
         self.assertFalse(should_reserve_exact_probe(context, max_workers=3))
+
+    def test_large_low_flexibility_instance_reserves_local_exact_lane(self) -> None:
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "instance_diagnostics": {
+                "summary": {
+                    "max_operation_count": 379,
+                    "avg_candidate_count": 1.092,
+                    "avg_flexible_operation_ratio": 0.092,
+                },
+                "instances": [
+                    {
+                        "operation_count": 379,
+                        "avg_candidate_count": 1.092,
+                        "flexible_operation_ratio": 0.092,
+                    }
+                ],
+            },
+            "method_family_catalog": {
+                "families": [
+                    {"family_id": "constructive_search"},
+                    {"family_id": "coupled_local_search"},
+                    {"family_id": "exact_hybrid"},
+                    {"family_id": "population_memetic"},
+                ]
+            },
+            "method_package_catalog": {
+                "active_features": ["reentrant_route", "loop_expansion"]
+            },
+        }
+        base = {
+            "direction_id": "d000",
+            "method_family": "coupled_local_search",
+            "method_families": [{"id": "coupled_local_search", "role": "primary"}],
+            "method_package_id": "fjsp_reentrant_adaptation",
+            "hypothesis": "Improve repeated-visit critical blocks.",
+            "experiment_stage": "probe",
+        }
+
+        self.assertTrue(should_reserve_exact_probe(context, max_workers=4))
+        plan = configure_exact_probe_tournament(base, context=context, max_workers=4)
+
+        self.assertEqual(
+            [
+                "coupled_local_search",
+                "exact_hybrid",
+                "population_memetic",
+                "constructive_search",
+            ],
+            [item["method_family"] for item in plan["candidate_variants"]],
+        )
+        self.assertEqual("local_trust_region", plan["exact_probe_policy"]["scope"])
+        exact = plan["candidate_variants"][1]
+        self.assertIn("trust region", exact["worker_objective"].lower())
+        coupled = plan["candidate_variants"][0]
+        self.assertEqual(1, coupled["activation_contract_version"])
+        self.assertEqual(
+            "diagnostics.activation.coupled_local_search.moves_evaluated",
+            coupled["activation_checks"][0]["path"],
+        )
+
+    def test_structured_fast_main_keeps_large_low_flexibility_family_tournament(self) -> None:
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "instance_diagnostics": {
+                "summary": {
+                    "max_operation_count": 379,
+                    "avg_candidate_count": 1.092,
+                    "avg_flexible_operation_ratio": 0.092,
+                },
+                "instances": [
+                    {
+                        "operation_count": 379,
+                        "avg_candidate_count": 1.092,
+                        "flexible_operation_ratio": 0.092,
+                    }
+                ],
+            },
+            "method_family_catalog": {
+                "families": [
+                    {"family_id": "constructive_search"},
+                    {"family_id": "coupled_local_search"},
+                    {"family_id": "exact_hybrid"},
+                    {"family_id": "population_memetic"},
+                ]
+            },
+            "method_package_catalog": {
+                "active_features": ["reentrant_route", "loop_expansion"]
+            },
+        }
+        plan = configure_structured_worker_lanes(
+            {
+                "direction_id": "d000",
+                "method_family": "coupled_local_search",
+                "method_families": [{"id": "coupled_local_search", "role": "primary"}],
+                "method_package_id": "standard_fjsp_awls_hgtsa",
+                "hypothesis": "Improve repeated-visit critical blocks.",
+                "experiment_stage": "probe",
+            },
+            round_index=0,
+            loop_feedback={"competition": {"max_competing_workers": 4}},
+            context=context,
+        )
+
+        self.assertEqual(
+            "exact_probe_tournament",
+            plan["worker_lane_policy"]["mechanism_selection"],
+        )
+        self.assertEqual(
+            {
+                "coupled_local_search",
+                "exact_hybrid",
+                "population_memetic",
+                "constructive_search",
+            },
+            {item["method_family"] for item in plan["candidate_variants"]},
+        )
+        self.assertTrue(
+            all(item.get("method_package_id") for item in plan["candidate_variants"])
+        )
+        self.assertEqual(
+            {"fjsp_reentrant_adaptation"},
+            {item["method_package_id"] for item in plan["candidate_variants"]},
+        )
+        self.assertEqual(
+            4,
+            len({item["strategy_type"] for item in plan["candidate_variants"]}),
+        )
+        self.assertEqual(
+            4,
+            len({item["worker_objective"] for item in plan["candidate_variants"]}),
+        )
+        self.assertTrue(
+            all(
+                item.get("activation_checks")
+                for item in plan["candidate_variants"]
+                if item["method_family"] != "exact_hybrid"
+            )
+        )
 
     def test_bounded_high_flexibility_downtime_model_reserves_exact_lane(self) -> None:
         context = {
@@ -182,8 +537,48 @@ class MainAgentTests(unittest.TestCase):
         self.assertEqual(["exact_active_variant_cp_sat_probe"], exact["implementation_order"])
         self.assertEqual("exact_active_variant_cp_sat_probe", exact["deliverables"][0]["id"])
         self.assertIn("bounded parallel CP-SAT search", exact["deliverables"][0]["behavior"])
+        self.assertIn("active CLI path", exact["deliverables"][0]["behavior"])
+        self.assertIn("unreachable", exact["deliverables"][0]["behavior"])
+        self.assertIn("IntervalVar objects", exact["deliverables"][0]["behavior"])
+        self.assertIn("never append BoolVars to NoOverlap", exact["deliverables"][0]["behavior"])
+        self.assertIn("interval count", exact["deliverables"][0]["behavior"])
+        self.assertIn("WhichOneof", exact["deliverables"][0]["behavior"])
+        self.assertIn("fixed maintenance intervals", exact["deliverables"][0]["behavior"])
         self.assertIn("num_search_workers", exact["deliverables"][0]["evidence_required"])
+        self.assertIn("CLI reachability", exact["deliverables"][0]["evidence_required"])
         self.assertEqual("small_instance_or_bounded_exact_model", plan["exact_probe_policy"]["reason"])
+
+    def test_reentrant_exact_probe_does_not_invent_downtime(self) -> None:
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "instance_diagnostics": {
+                "summary": {"max_operation_count": 182, "avg_candidate_count": 1.5},
+                "instances": [{"operation_count": 182}],
+            },
+            "method_family_catalog": {
+                "families": [
+                    {"family_id": "constructive_search"},
+                    {"family_id": "exact_hybrid"},
+                ]
+            },
+            "method_package_catalog": {
+                "active_features": ["reentrant_route", "loop_expansion"]
+            },
+        }
+        base = {
+            "direction_id": "d000",
+            "method_family": "constructive_search",
+            "method_families": [{"id": "constructive_search", "role": "primary"}],
+            "experiment_stage": "probe",
+        }
+
+        plan = configure_exact_probe_tournament(base, context=context, max_workers=2)
+
+        exact = next(item for item in plan["candidate_variants"] if item["method_family"] == "exact_hybrid")
+        behavior = exact["deliverables"][0]["behavior"]
+        self.assertIn("processing intervals", behavior)
+        self.assertNotIn("maintenance", behavior)
+        self.assertNotIn("downtime", behavior)
 
     def test_high_flexibility_model_above_interval_threshold_does_not_force_exact_lane(self) -> None:
         context = {

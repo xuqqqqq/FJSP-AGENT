@@ -1,0 +1,223 @@
+{
+  "schema_version": 1,
+  "contract_id": "fjsp_alternative_path_coupled_local_search",
+  "mode": "complete_method_package",
+  "completion_rule": "只有真实 CLI 已调用 route-switch 搜索、事务式完整重解码，并与至少一个 machine/order 邻域形成闭环，且最终 solution diagnostics 含非零 canonical activation counters 后，才可声明当前局部搜索阶段完成。",
+  "variant_rule": "可选工艺路线局部搜索必须允许切换工件路线；每次路线切换后都要重建所选工序集合、更新 selected_routes 并执行完整重解码，然后才能做机器或顺序上的接受判断。",
+  "activation_evidence": {
+    "required_fields": {
+      "diagnostics.activation.coupled_local_search.moves_evaluated": "> 0",
+      "diagnostics.activation.alternative_path.route_switch_moves_evaluated": "> 0"
+    },
+    "rule": "route_switch_moves_evaluated 只统计切换到不同路线、重建所选工序集合并完成完整变体解码的移动；只改 selected_routes 元数据、生成未评估邻居或普通机器/顺序移动都不能计入。"
+  },
+  "required_components": [
+    {
+      "component_id": "route_state_decoder",
+      "title": "路线状态与完整重解码",
+      "required_behaviors": [
+        "根据当前的 selected_routes 重建每个 job 的当前路线工序集与 precedence 顺序。",
+        "完整检测遗漏所选工序、保留已删除工序、未选路线工序、机器重叠和非法机器。"
+      ],
+      "evidence_required": "可达的完整解码器、selected-route 覆盖守卫与合法性验证。"
+    },
+    {
+      "component_id": "route_switch_neighbors",
+      "title": "Route-switch 邻域搜索",
+      "required_behaviors": [
+        "对单个或少量 job 显式枚举替代 route，生成与当前 route 不同的候选。",
+        "route switch 后必须立即重建 operation set，而不是只改元数据。"
+      ],
+      "evidence_required": "route-switch 候选生成、非原始路线命中与完整评测计数。"
+    },
+    {
+      "component_id": "transactional_redecode_state",
+      "title": "事务式搜索状态",
+      "required_behaviors": [
+        "当前状态、候选状态与全局最优状态相互独立。",
+        "非法、退化或与 selected-route 不一致的 move 必须原子回退，不得污染父状态。"
+      ],
+      "evidence_required": "回退守卫、独立的最优解快照与失败候选回滚证据。"
+    },
+    {
+      "component_id": "machine_and_order_local_search",
+      "title": "机器分配与顺序局部搜索",
+      "required_behaviors": [
+        "在当前所选路线的工序上执行同机交换、重插、换机或关键块邻域。",
+        "局部邻域必须与 route switch 共用同一条完整重解码与验收路径。"
+      ],
+      "evidence_required": "同机或异机邻域生成、完整评测、接受和拒绝计数。"
+    },
+    {
+      "component_id": "critical_route_bottleneck_policy",
+      "title": "关键路线瓶颈策略",
+      "required_behaviors": [
+        "优先考虑当前关键路径、拥堵机器或可删除瓶颈工序对应的 route switch。",
+        "允许 route switch 与 machine/order move 交替执行，而不是固定使用单一邻域。"
+      ],
+      "evidence_required": "按 route switch 与 machine/order 拆分的命中与改进诊断。"
+    },
+    {
+      "component_id": "adaptive_search_control",
+      "title": "自适应停滞控制",
+      "required_behaviors": [
+        "根据 route-switch 合法率、接受率或改进率调整邻域预算、tabu 或扰动。",
+        "非严格改善不得覆盖全局最优解，且要保留 deadline 与候选数上限。"
+      ],
+      "evidence_required": "邻域预算、停滞触发与最优解更新诊断。"
+    }
+  ],
+  "component_dependencies": [
+    {
+      "component_id": "route_switch_neighbors",
+      "depends_on": [
+        "route_state_decoder",
+        "transactional_redecode_state"
+      ]
+    },
+    {
+      "component_id": "machine_and_order_local_search",
+      "depends_on": [
+        "route_state_decoder",
+        "transactional_redecode_state"
+      ]
+    },
+    {
+      "component_id": "critical_route_bottleneck_policy",
+      "depends_on": [
+        "route_switch_neighbors",
+        "machine_and_order_local_search"
+      ]
+    },
+    {
+      "component_id": "adaptive_search_control",
+      "depends_on": [
+        "critical_route_bottleneck_policy"
+      ]
+    }
+  ],
+  "competition_tracks": [
+    {
+      "track_id": "direct_evidence",
+      "title": "Route-switch 主导的搜索",
+      "stages": [
+        {
+          "stage_id": "route_switch_loop",
+          "component_ids": [
+            "route_state_decoder",
+            "transactional_redecode_state",
+            "route_switch_neighbors"
+          ]
+        },
+        {
+          "stage_id": "machine_order",
+          "component_ids": [
+            "machine_and_order_local_search"
+          ]
+        },
+        {
+          "stage_id": "adaptive",
+          "component_ids": [
+            "critical_route_bottleneck_policy",
+            "adaptive_search_control"
+          ]
+        }
+      ]
+    },
+    {
+      "track_id": "minimal_risk",
+      "title": "顺序邻域渐进加路切换",
+      "stages": [
+        {
+          "stage_id": "machine_first",
+          "component_ids": [
+            "route_state_decoder",
+            "transactional_redecode_state",
+            "machine_and_order_local_search"
+          ]
+        },
+        {
+          "stage_id": "route_switch",
+          "component_ids": [
+            "route_switch_neighbors",
+            "critical_route_bottleneck_policy"
+          ]
+        },
+        {
+          "stage_id": "adaptive",
+          "component_ids": [
+            "adaptive_search_control"
+          ]
+        }
+      ]
+    },
+    {
+      "track_id": "orthogonal_mechanism",
+      "title": "耦合结构重构",
+      "stages": [
+        {
+          "stage_id": "coupled_moves",
+          "component_ids": [
+            "route_state_decoder",
+            "transactional_redecode_state",
+            "route_switch_neighbors",
+            "machine_and_order_local_search",
+            "critical_route_bottleneck_policy"
+          ]
+        },
+        {
+          "stage_id": "adaptive",
+          "component_ids": [
+            "adaptive_search_control"
+          ]
+        }
+      ]
+    }
+  ],
+  "checkpoint_checks": [
+    {
+      "check_id": "cli_activation_reachability",
+      "component_ids": [
+        "route_switch_neighbors",
+        "machine_and_order_local_search"
+      ],
+      "requirement": "真实 CLI 必须给 coupled search 非零预算并实际调用；同次运行产生的 moves_evaluated 与 route_switch_moves_evaluated 必须写入最终 solution diagnostics，定义了不可达 helper 或只写 stdout 都不算。"
+    },
+    {
+      "check_id": "route_switch_reachability",
+      "component_ids": [
+        "route_switch_neighbors"
+      ],
+      "requirement": "源码必须存在真实的 route-switch 邻域，不能只有 machine/order move。"
+    },
+    {
+      "check_id": "transactional_full_redecode",
+      "component_ids": [
+        "transactional_redecode_state",
+        "route_state_decoder"
+      ],
+      "requirement": "路线切换与机器/顺序移动的接受路径都必须调用同一完整重解码，并在非法时原子回退。"
+    },
+    {
+      "check_id": "selected_route_consistency",
+      "component_ids": [
+        "route_state_decoder"
+      ],
+      "requirement": "源码必须同时更新 selected_routes 与 route-induced operation set，不能保留被切换掉的工序记录。"
+    },
+    {
+      "check_id": "machine_order_reachability",
+      "component_ids": [
+        "machine_and_order_local_search"
+      ],
+      "requirement": "至少一个同机交换、重插或换机邻域必须产生非零生成与完整评测证据。"
+    },
+    {
+      "check_id": "adaptive_route_pressure",
+      "component_ids": [
+        "adaptive_search_control"
+      ],
+      "requirement": "源码必须利用 route-switch 命中、合法率或收益调整预算，而不是固定轮询。"
+    }
+  ]
+}

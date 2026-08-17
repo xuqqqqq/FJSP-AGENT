@@ -1,6 +1,6 @@
 # 独立 FJSP 求解器契约
 
-本参考面向依据需求文档和 IO 文档编写 solver 代码的 Coding Agent。它不是后端代码，也不能被复制成固定的平台算法。
+本参考面向依据需求文档和 IO 文档编写 solver 代码的编码代理。它不是后端代码，也不能被复制成固定的平台算法。
 
 ## 必需的求解器形态
 
@@ -24,7 +24,7 @@
 
 ## 标准 FJSP 的 packed-line 解析规则
 
-对 Dauzere、DP、BA、BR、HU 这类标准 FJSP 文本实例，一条物理 job 行通常打包了该 job 的全部工序。Coding Agent 必须用 token cursor 解析该 job 行：
+对 Dauzere、DP、BA、BR、HU 这类标准 FJSP 文本实例，一条物理 job 行通常打包了该 job 的全部工序。编码代理必须用 token cursor 解析该 job 行：
 
 - 在 job 行开头只消费一次 `operation_count`；
 - 对每道工序消费一次 `candidate_count`；
@@ -35,7 +35,7 @@
 
 ## 标准 FJSP 的 machine-id 基准规则
 
-公开的标准 FJSP benchmark 家族在机器编号上并不统一。有些文件使用 0-based machine id，有些使用 1-based machine id。Coding Agent 不能凭习惯在读取每个候选对时直接减 1。
+公开的标准 FJSP benchmark 家族在机器编号上并不统一。有些文件使用 0-based machine id，有些使用 1-based machine id。编码代理不能凭习惯在读取每个候选对时直接减 1。
 
 建议采用下面的 parser 形态：
 

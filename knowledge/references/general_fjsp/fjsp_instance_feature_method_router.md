@@ -46,29 +46,29 @@ Worker 提供实现代码。Main Agent 应先解释“当前实例的主要搜�
 
 ### A. 还没有合法基线
 
-优先目标是先闭合共享 foundation，得到稳定可行、可解释、可回退的 warm start。这里的
+优先目标是先闭合共享基础能力，得到稳定可行、可解释、可回退的热启动解。这里的
 `construction` 是所有方法族共享的初始化职责，不等于正式优化方法族必须选择
 `constructive_search`：
 
 - 选择 `construction`、`initialization`、`decoder`。
-- 同时根据实例画像预选 baseline 后的正式方法族；CP-SAT 不需要 incumbent 才能建模，
-  local search 和 memetic 也可以从 foundation warm start 启动。
-- 低柔性/候选机稀疏时，baseline 后优先比较 `coupled_local_search`、`exact_hybrid` 和
+- 同时根据实例画像预选基线之后的正式方法族；CP-SAT 不需要 incumbent 才能建模，
+  local search 和 memetic 也可以从基础热启动解继续推进。
+- 低柔性/候选机稀疏时，基线之后优先比较 `coupled_local_search`、`exact_hybrid` 和
   `population_memetic`，因为主要组合空间在机器顺序，而不在 assignment。
 - 并行预算至少为 2 时，对不超过 60 道工序的小实例，无论柔性高低，都保留至少一条
-  `exact_hybrid` lane；对不超过 250 道工序的低柔性实例也保留该 lane。对不超过 250 道
+  `exact_hybrid` 精确求解分支；对不超过 250 道工序的低柔性实例也保留该分支。对不超过 250 道
   工序、无 sequence-dependent setup，且按 `operation_count * avg_candidate_count` 估算的
   optional interval 不超过 1200、加固定 downtime interval 后不超过 1400 的实例，即使高柔性
-  也保留有界 exact probe。`job_count * machine_count * operation_count` 形式的粗粒度 `scale`
-  不能替代 CP 模型变量/interval 数估算。exact lane 必须实际调用求解器并报告 objective bound。
-  它与 Main 的主方法族竞争，不替代其余启发式 lane，也不得继承主方法族中禁止 CP 的约束。
+  也保留有界精确探测。`job_count * machine_count * operation_count` 形式的粗粒度 `scale`
+  不能替代 CP 模型变量/interval 数估算。精确求解分支必须实际调用求解器并报告 objective bound。
+  它与 Main 的主方法族竞争，不替代其余启发式分支，也不得继承主方法族中禁止 CP 的约束。
 - 大规模且高柔性实例不强制完整 CP；此时 exact 只在 Main 有额外证据时启用，或采用局部
   精确修复/trust region，防止完整模型挤占所有竞争预算。
 - 若实例具有真实机器选择，再加入 `load_balance`。
 - 若静态画像已经确认高柔性且加工时间跨度非零，不要只发普通多规则构造；选择
   `constructive_search`，并请求 `high_flexibility`、`idle_gap`、`assignment_regret`、
-  `decoder`，使初始 solver 直接建立 earliest-gap 与 assignment-first 基线。
-- 只有当 foundation、解码和输出合同闭合后，才执行正式优化；不要把 foundation 的构造代码
+  `decoder`，使初始 solver 直接建立 earliest-gap 与先分配后排序基线。
+- 只有当基础能力、解码和输出合同闭合后，才执行正式优化；不要把基础阶段的构造代码
   当作继续继承 constructive 方法族的证据。
 
 ### B. 排序压力主导
@@ -91,10 +91,10 @@ Worker 提供实现代码。Main Agent 应先解释“当前实例的主要搜�
   `assignment_aware_local_search`。
 - 仍需配套机器序列插入和完整解码，不能只改机器编号。
 
-#### 高柔性路由修正：默认走 assignment-first playbook，不要直接跳到 Beam
+#### 高柔性路由修正：默认走 assignment-first playbook，不要直接跳到束搜索
 
 当 `flexible_operation_ratio` 和 `avg_candidate_count` 都高，且候选加工时间跨度非零时，默认
-按下面的阶段推进，不把“高柔性”直接翻译成 Beam、随机 portfolio 或浅层换机扫描：
+按下面的阶段推进，不把“高柔性”直接翻译成束搜索、随机组合策略或浅层换机扫描：
 
 1. 用 `earliest-gap` 替换 tail-append / machine-ready 解码。
 2. 对每道工序计算
@@ -109,8 +109,8 @@ Worker 提供实现代码。Main Agent 应先解释“当前实例的主要搜�
 修复请求 `high_flexibility`、`assignment_trust_region`、`order_preserving_redecode`、
 `critical_path`。不要用最佳/次佳完整 score 元组差冒充 assignment regret。
 
-只有在上述构造机制已经通过 activation、仍有明确的构造覆盖缺口，并且候选会实际保留多个
-不同部分排程时，才显式请求 `beam_search`。旧 idle-critical Beam 是独立备选方法，不是
+只有在上述构造机制已经通过激活检查、仍有明确的构造覆盖缺口，并且候选会实际保留多个
+不同部分排程时，才显式请求 `beam_search`。旧的 idle-critical 束搜索是独立备选方法，不是
 高柔性默认路由。详细实现边界见 `high_flexibility_assignment_first_playbook.md`。
 
 ### D. 分配与排序强耦合
@@ -169,7 +169,7 @@ evaluator 是否表达这些约束，再选择搜索方法。标准 FJSP 方法�
 - incumbent 结构和历史 promotion/rollback 证据高于静态画像。
 - 相同方法族连续合法但未提升时，应换主要假设，而不是只改参数。
 - 高柔性只能证明 assignment 空间大；必须分别验证 earliest-gap、精确 regret 和 trust-region
-  的 activation，不能用 Beam 状态数、随机入口数或完整 score 元组差代替。
+  的激活，不能用束搜索状态数、随机入口数或完整 score 元组差代替。
 - 文件名、已知答案、历史最佳调度和挑选的 seed 不得参与路由。
 
 ## 6. 参考来源

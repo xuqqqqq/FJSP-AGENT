@@ -11,6 +11,7 @@ from pathlib import Path
 from harness_agent.domains.pack import get_domain_pack
 from harness_agent.domains.distributed_context import DistributedFjspContextProvider
 from harness_agent.domains.io import parse_standard_fjsp
+from harness_agent.context.knowledge import method_package_catalog
 from harness_agent.orchestration.standard import fixed_problem_contract
 from harness_agent.orchestration.cycle import WORKER_SMOKE_RUNNER_SOURCE, contract_evaluator_python_paths
 from harness_agent.web.server import inspect_instance_profile, is_supported_starter_instance
@@ -20,6 +21,75 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class VariantIntegrationTests(unittest.TestCase):
+    def test_real_seed_named_variant_files_route_end_to_end(self) -> None:
+        source_root = (
+            Path.home()
+            / "Downloads"
+            / "ALL-Input-Information"
+            / "ALL-Input-Information"
+        )
+        cases = [
+            (
+                source_root / "3-max_interval-FJSP" / "3-Instance",
+                "*.tlfjsp.seed*.txt",
+                "fjsp_max_time_lag",
+                "maximum_time_lag",
+                "examples/standard_fjsp_evaluator.py",
+                "fjsp_max_time_lag_",
+            ),
+            (
+                source_root / "7-Alternative-Process-Path-FJSP" / "7-Instance",
+                "*.apfjsp.seed*.txt",
+                "fjsp_alternative_path",
+                "alternative_path",
+                "examples/fjsp_alternative_path_evaluator.py",
+                "fjsp_alternative_path_",
+            ),
+        ]
+        for source_dir, pattern, variant, feature, evaluator, package_prefix in cases:
+            with self.subTest(variant=variant):
+                sources = sorted(source_dir.glob(pattern))
+                if not sources:
+                    self.skipTest(f"real source instance unavailable: {source_dir / pattern}")
+                with tempfile.TemporaryDirectory() as temp:
+                    copied = Path(temp) / sources[0].name
+                    shutil.copy2(sources[0], copied)
+
+                    self.assertTrue(is_supported_starter_instance(copied))
+                    parsed = parse_standard_fjsp(copied)
+                    profile = inspect_instance_profile(copied)
+                    family, fixed_evaluator, objectives = fixed_problem_contract([copied])
+
+                self.assertEqual(variant, parsed.variant)
+                self.assertTrue(profile["valid"], profile)
+                self.assertEqual(variant, profile["variant"])
+                self.assertEqual("FJSP", family)
+                self.assertEqual(evaluator, fixed_evaluator)
+                self.assertEqual(1, len(objectives))
+                for method_family in (
+                    "constructive_search",
+                    "coupled_local_search",
+                    "exact_hybrid",
+                ):
+                    catalog = method_package_catalog(
+                        problem_family="FJSP",
+                        active_features=[feature],
+                        knowledge_query_tags=[method_family, feature],
+                    )
+                    self.assertTrue(
+                        str(catalog["recommended_package_id"]).startswith(package_prefix),
+                        catalog,
+                    )
+                    expected_suffix = {
+                        "constructive_search": "constructive_adaptation",
+                        "coupled_local_search": "coupled_local_search",
+                        "exact_hybrid": "exact_hybrid",
+                    }[method_family]
+                    self.assertTrue(
+                        str(catalog["recommended_package_id"]).endswith(expected_suffix),
+                        catalog,
+                    )
+
     def test_fixed_variant_evaluator_is_discovered_as_read_only_core_dependency(self) -> None:
         paths = contract_evaluator_python_paths(
             "python examples/fjsp_release_time_evaluator.py --instance {instance} --solution {solution}"
@@ -34,6 +104,8 @@ class VariantIntegrationTests(unittest.TestCase):
             "NFA01.txt",
             "DFM01_10x2x6.txt",
             "case.priority.seed1.txt",
+            "case.tlfjsp.seed1.txt",
+            "case.apfjsp.seed1.txt",
         ]:
             self.assertTrue(is_supported_starter_instance(Path(name)), name)
         self.assertFalse(is_supported_starter_instance(Path("read me.txt")))
@@ -61,6 +133,8 @@ class VariantIntegrationTests(unittest.TestCase):
             "FFCR_tiny.txt": "examples/fjsp_machine_availability_evaluator.py",
             "fjsp_distributed_transfer_tiny.txt": "examples/fjsp_distributed_transfer_evaluator.py",
             "fjsp_priority_tiny.priority.txt": "examples/fjsp_priority_evaluator.py",
+            "fjsp_max_time_lag_tiny.tlfjsp": "examples/standard_fjsp_evaluator.py",
+            "fjsp_alternative_path_tiny.apfjsp": "examples/fjsp_alternative_path_evaluator.py",
         }
         for name, expected_evaluator in cases.items():
             family, evaluator, objectives = fixed_problem_contract([ROOT / "examples" / name])
@@ -107,10 +181,10 @@ class VariantIntegrationTests(unittest.TestCase):
             ROOT / ".codex" / "skills" / "fjsp-distributed-transfer-adapter-worker" / "SKILL.md"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("Enumerate compositions", text)
-        self.assertIn("Never guess whether a token is a factory marker", text)
-        self.assertIn("Machine IDs remain global across factory groups", text)
-        self.assertIn("paper uses Pareto ranking", text)
+        self.assertIn("枚举组合", text)
+        self.assertIn("不要根据数字大小猜测某个 token 是否是工厂标记", text)
+        self.assertIn("机器 ID 在跨工厂分组转换后仍保持全局编号", text)
+        self.assertIn("参考论文使用 Pareto 排序", text)
 
     def test_foundation_skill_pins_decimal_time_limit_cli(self) -> None:
         text = (
@@ -306,6 +380,67 @@ class VariantIntegrationTests(unittest.TestCase):
                 [sys.executable, str(runtime / "run_smoke.py")], cwd=root, check=False
             )
         self.assertEqual(0, completed.returncode)
+        self.assertEqual(4, rejected.returncode)
+
+    def test_worker_smoke_preserves_alternative_path_route_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            runtime = root / ".algoforge_worker_runtime"
+            runtime.mkdir()
+            (root / "harness_agent" / "domains").mkdir(parents=True)
+            for relative in [
+                "harness_agent/__init__.py",
+                "harness_agent/domains/__init__.py",
+                "harness_agent/domains/io.py",
+            ]:
+                target = root / relative
+                shutil.copy2(ROOT / relative, target)
+            instance = root / "case.apfjsp"
+            shutil.copy2(ROOT / "examples" / "fjsp_alternative_path_tiny.apfjsp", instance)
+            solver = root / "solver.py"
+            solver.write_text(
+                "import argparse, json\n"
+                "p=argparse.ArgumentParser(); p.add_argument('--input'); p.add_argument('--output'); "
+                "p.add_argument('--seed'); p.add_argument('--time-limit-sec'); a=p.parse_args()\n"
+                "json.dump({'format':'standard_fjsp_schedule_v1','makespan':5,'selected_routes':{'0':1,'1':1},"
+                "'schedule':["
+                "{'job_id':0,'op_id':0,'machine_id':0,'start':0,'end':2},"
+                "{'job_id':0,'op_id':2,'machine_id':0,'start':2,'end':3},"
+                "{'job_id':1,'op_id':0,'machine_id':1,'start':0,'end':2},"
+                "{'job_id':1,'op_id':2,'machine_id':1,'start':2,'end':3},"
+                "{'job_id':1,'op_id':1,'machine_id':0,'start':3,'end':5}]},open(a.output,'w'))\n",
+                encoding="utf-8",
+            )
+            (runtime / "smoke_config.json").write_text(
+                json.dumps(
+                    {
+                        "target_file": "solver.py",
+                        "instance_path": "case.apfjsp",
+                        "output_path": ".algoforge_worker_runtime/smoke_solution.json",
+                        "time_limit_seconds": 2,
+                        "problem_family": "FJSP",
+                        "solution_contract": {
+                            "format": "standard_fjsp_schedule_v1",
+                            "required_top_level_fields": ["format", "makespan", "schedule"],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (runtime / "run_smoke.py").write_text(WORKER_SMOKE_RUNNER_SOURCE, encoding="utf-8")
+
+            accepted = subprocess.run([sys.executable, str(runtime / "run_smoke.py")], cwd=root, check=False)
+            solver.write_text(
+                solver.read_text(encoding="utf-8").replace(
+                    "'selected_routes':{'0':1,'1':1},",
+                    "",
+                ),
+                encoding="utf-8",
+            )
+            (runtime / "smoke.used").unlink()
+            rejected = subprocess.run([sys.executable, str(runtime / "run_smoke.py")], cwd=root, check=False)
+
+        self.assertEqual(0, accepted.returncode)
         self.assertEqual(4, rejected.returncode)
 
 

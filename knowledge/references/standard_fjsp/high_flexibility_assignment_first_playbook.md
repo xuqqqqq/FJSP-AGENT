@@ -1,16 +1,16 @@
 ---
 id: standard-fjsp-high-flexibility-assignment-first
 type: implementation_blueprint
-title: 高柔性标准 FJSP assignment-first 实现卡
+title: 高柔性标准 FJSP 先分配后排序实现卡
 tags: [fjsp, high-flexibility, idle-gap, assignment-regret, assignment-trust-region, order-preserving-redecode]
 status: curated_reference
 ---
 
-# 高柔性标准 FJSP assignment-first 实现卡
+# 高柔性标准 FJSP 先分配后排序实现卡
 
 本卡是 `high-flexibility-fjsp-playbook` 的 Worker 实现入口。高柔性标准 FJSP 默认按
 earliest-gap、精确 operation pressure/regret、小半径 assignment trust-region 和保序重解码
-推进。Beam、随机多起点和 telemetry-only 变体不是这条路线的替代实现。
+推进。束搜索、随机多起点和仅遥测变体不是这条路线的替代实现。
 
 ## 1. 适用门槛
 
@@ -57,7 +57,7 @@ assignment regret。
 1. 先枚举单工序换机。
 2. 只有单步证据支持时才枚举严格两步改进链。
 3. 每个候选都完整重解码并经过相同合法性检查。
-4. 只接受 deterministic 的严格 makespan 改进；中间退化状态不能成为 incumbent。
+4. 只接受确定性的严格 makespan 改进；中间退化状态不能成为 incumbent。
 
 换机后记录 incumbent 每台机器上的 operation rank。重解码时将未释放工序的 rank 作为稳定
 tie-break，最大限度保留 region 外机器相对顺序。直接回到全局贪心重构不算
@@ -70,7 +70,7 @@ order-preserving redecode。
 - 构造阶段：exact pressure/regret 与低 pressure 顺序保护消融。
 - 局部阶段：单工序 trust-region 与严格两步改进链。
 
-只改变 seed、Beam 宽度、portfolio 顺序、日志字段或 score 权重，不算不同机制候选。相同阶段
+只改变 seed、束宽、portfolio 顺序、日志字段或 score 权重，不算不同机制候选。相同阶段
 连续合法但无提升时，推进到下一阶段或显式 pivot，不要继续复写同一规则。
 
 ## 5. Activation 合同
@@ -101,4 +101,4 @@ makespan 变化都不能替代 activation。
 1. Core 确认全部工序、机器资格、precedence、non-overlap 和 makespan 合法。
 2. Activation 证明本轮声明的机制实际执行。
 3. 同预算、同 seeds 比较 source makespan。
-4. 只有严格改进才晋级；合法但未激活的结果只能保留为 best legal 证据。
+4. 只有严格改进才晋级；合法但未激活的结果只能保留为最佳合法证据。

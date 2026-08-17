@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "contract_id": "fjsp_pbpm_adaptation",
+  "mode": "complete_method_package",
+  "completion_rule": "通用适配包先保证 PBPM 解析、批语义和合法 fallback 闭合；合法单件批可作为 baseline 进入正式竞争，但不能声明 PBPM 搜索机制已激活或通过晋升门。所有正式 lane（包括 exact）都必须由固定 Core 验证至少一个合法多成员批；exact 还必须提供真实可行求解证据。",
+  "exact_api_rule": "OR-Tools 条件约束仅允许 constraint.only_enforce_if(literal) 或 constraint.OnlyEnforceIf(literal)；only_if/OnlyIf 不存在。",
+  "optional_candidate_rule": "多个候选 interval 共享工序语义起止时，candidate duration 等式必须由对应 presence 控制；不得让未选择候选无条件约束 semantic start/end。",
+  "batch_slot_rule": "slot presence 必须等价于 member literals 的 OR；容量大于 1 时禁止 BoolVar presence == sum(members)。",
+  "horizon_rule": "时间 horizon 必须采用合法 incumbent makespan 或全体工序候选最大时长总和等完整排程安全上界；最长单个 job 时长和不是安全上界。",
+  "exact_entrypoint_rule": "精确模型构建与 solve 函数必须从活动 CLI 输出路径真实调用，并把 CP 状态、模型规模和批槽计数合并到最终 diagnostics；只定义不可达函数不算实现。",
+  "batch_membership_index_rule": "批槽成员变量只为该工序实际 eligible 的批机创建；容量、同族、互斥和提取循环必须迭代已创建 membership key，不得按所有工序笛卡尔积索引不存在的变量。",
+  "no_overlap_interval_rule": "机器 NoOverlap 只能接收 IntervalVar；普通候选必须保存 optional interval 构造器的返回值并加入资源列表，presence BoolVar 只能作为激活 literal，不能加入 NoOverlap。",
+  "interval_count_rule": "实际 interval 数量必须在 interval 构造器调用时显式累计；不得依赖 OR-Tools 绑定对象未承诺的 ConstraintProto.WhichOneof 反射，以免在 Solve 前崩溃。",
+  "exact_grouping_rule": "用于 PBPM 能力验收的 exact 模型必须约束至少一个批槽含两个或更多同族成员，并在该约束下优化 makespan；最终只认固定 Core evaluator 重算的 grouped_batch_count > 0，非空批槽数或单件批数不得冒充合批数。",
+  "grouping_acceptance_rule": "PBPM 能力验收时先过滤合法且 Core grouped_batch_count > 0 的候选，再在这些候选间最小化 makespan；不得仅因合批解不优于退化单件批 incumbent 就输出后者。",
+  "activation_evidence": {
+    "required_fields": {
+      "diagnostics.cp_sat_called": "truthy",
+      "diagnostics.solver_evidence.model_size.variables": "> 0",
+      "diagnostics.solver_evidence.model_size.constraints": "> 0",
+      "diagnostics.solver_evidence.batch_slots_posted": "> 0"
+    },
+    "rule": "exact lane 必须实际到达 CpSolver.solve/Solve，并报告非 runtime_error 状态；仅导入 OR-Tools、创建模型或在建模阶段异常不算激活。"
+  },
+  "required_components": [
+    {"component_id": "pbpm_tail_parser", "required_behaviors": ["完整解析批机容量和逐工件 family，拒绝多余或缺失 token。"]},
+    {"component_id": "batch_aware_decoder", "required_behaviors": ["把一个批次作为一个机器活动，并向全部成员传播共享结束时刻。"]},
+    {"component_id": "batch_legality_guard", "required_behaviors": ["联合检查容量、同族、共享时间、max-duration 和完整工序覆盖。"]},
+    {"component_id": "transactional_batch_redecode", "required_behaviors": ["机器、批归属或批序变化后完整重算批时长和全部前置传播。"]}
+  ],
+  "coupled_groups": [
+    {"group_id": "pbpm_legality", "component_ids": ["pbpm_tail_parser", "batch_aware_decoder", "batch_legality_guard", "transactional_batch_redecode"], "rule": "解析、构造、搜索移动和最终自检必须共享同一套批语义。"}
+  ],
+  "forbidden_shortcuts": [
+    "把同批成员按普通机器重叠处理",
+    "把成员区间写成各自加工时长而不是共享批时长",
+    "跨 family 合批",
+    "换机或移批后不重算批时长和工件就绪",
+    "只定义组批函数但求解入口未调用",
+    "用 only_if 或 OnlyIf 代替 OR-Tools 的 only_enforce_if 或 OnlyEnforceIf",
+    "对共享语义 start/end 的多个不同候选时长无条件同时发布 start + duration == end",
+    "用 grouped_batch_count=0 的退化单件批声明组批能力已验证",
+    "只导入或构建 CpModel 但未到达 CpSolver.solve/Solve 就声明 exact 已运行",
+    "定义 solve_exact/solve_cp_sat 等函数但 main/活动输出路径从未调用",
+    "为部分 eligible 工序创建 membership，却在批槽约束中按全体工序索引 member_var",
+    "把候选 presence BoolVar 而不是 optional IntervalVar 加入机器 NoOverlap",
+    "调用 ConstraintProto.WhichOneof 统计 interval，导致 OR-Tools 9.15 在 Solve 前崩溃",
+    "把非空批槽数或单件批数写入 grouped_batch_count，冒充真实多成员批"
+  ],
+  "method_family_rules": {
+    "constructive_search": {
+      "activation_required": "Core best_metrics.grouped_batch_count > 0"
+    },
+    "coupled_local_search": {
+      "activation_required": "Core best_metrics.grouped_batch_count > 0"
+    },
+    "population_memetic": {
+      "activation_required": "Core best_metrics.grouped_batch_count > 0"
+    },
+    "exact_hybrid": {
+      "required_behavior": "批槽模型使用 only_enforce_if/OnlyEnforceIf，候选时长等式受 presence 控制，完整模型要求至少一个多成员批并实际到达 Solve，报告状态、模型规模和批槽计数。",
+      "skill_owner": "fjsp-exact-hybrid-worker",
+      "activation_required": "diagnostics.cp_sat_called=true、solver_status 为 FEASIBLE/OPTIMAL，且 Core best_metrics.grouped_batch_count > 0"
+    }
+  },
+  "checkpoint_checks": []
+}

@@ -2,33 +2,36 @@
   "schema_version": 1,
   "contract_id": "fjsp_reentrant_adaptation",
   "mode": "complete_method_package",
+  "fallback_improvement_order": [
+    "reentrant_search_pressure"
+  ],
   "required_components": [
     {
       "component_id": "reentrant_tail_parser",
       "required_behaviors": [
-        "Consume exactly job_count triples after the standard body and reject all missing or trailing tokens.",
-        "Validate each job-local loop boundary and repeat count against the original route."
+        "在标准主体后精确消费 `job_count` 组三元组，并拒绝任何缺失或尾随 token。",
+        "依据原始路线校验每个作业内局部循环边界和重复次数。"
       ]
     },
     {
       "component_id": "expanded_route_identity",
       "required_behaviors": [
-        "Expand every route as pre plus loop_body repeated repeat times plus post before search.",
-        "Assign continuous expanded op_id values and preserve independent machine choice per pass."
+        "在搜索前，将每条路线展开为 pre 加上重复 `repeat` 次的 loop_body，再加上 post。",
+        "为展开后的工序分配连续的 op_id，并在每次经过中保留独立的机器选择。"
       ]
     },
     {
       "component_id": "expanded_complete_decoder",
       "required_behaviors": [
-        "Construct and fully decode every expanded operation under job precedence and machine capacity.",
-        "Reject partial, duplicate, original-route-only, or stale cached schedules before scoring."
+        "在作业优先约束和机器容量约束下构建并完整解码每一道展开后的工序。",
+        "在评分前拒绝部分覆盖、重复、仅包含原始路线或依赖过期缓存的排程。"
       ]
     },
     {
       "component_id": "reentrant_search_pressure",
       "required_behaviors": [
-        "Use at least one bounded repeated-pass-aware pressure in construction or search.",
-        "Retain complementary generic FJSP rules and complete fixed-evaluator verification."
+        "在构造或搜索中至少使用一种有界的、能感知重复经过的搜索压力。",
+        "保留互补的通用 FJSP 规则，并完成固定 evaluator 的完整校验。"
       ]
     }
   ],
@@ -41,7 +44,7 @@
         "expanded_complete_decoder",
         "reentrant_search_pressure"
       ],
-      "rule": "Parsing, expanded identities, decoding, search, and output coverage must describe the same expanded route."
+      "rule": "解析、展开后的标识、解码、搜索与输出覆盖必须描述同一条展开后的路线。"
     }
   ],
   "forbidden_shortcuts": [

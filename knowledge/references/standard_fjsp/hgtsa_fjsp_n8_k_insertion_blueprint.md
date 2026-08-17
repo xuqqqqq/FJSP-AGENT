@@ -20,7 +20,7 @@ status: seed
 
 ## 输出
 
-改进后的完整合法排程，以及 move 日志：
+改进后的完整合法排程，以及移动日志：
 
 ```text
 move_type: N8 | k-insertion
@@ -65,7 +65,7 @@ machine_assignment[(job_id, op_id)] = machine_id
 2. 将关键块首工序向后插入少量位置。
 3. 将关键块尾工序向前插入少量位置。
 
-每个 move 后主动解码，若无环且 makespan 改善则可接受。
+每个移动后主动解码，若无环且 makespan 改善则可接受。
 
 ### 5. k-insertion 简化邻域
 
@@ -75,7 +75,7 @@ machine_assignment[(job_id, op_id)] = machine_id
 2. 在目标机器上只枚举少量位置，例如关键时间窗附近、机器尾部、最早可插入位置。
 3. 主动解码，合法后评价 makespan。
 
-### 6. Tabu Search
+### 6. 禁忌搜索
 
 建议初始参数：
 
@@ -85,7 +85,7 @@ no_improve_limit = 100 到 500
 neighbor_limit_per_iter = 100 到 500
 ```
 
-短预算版本先用于 smoke，确认 gap 是否下降；长预算版本再用于论文/报告实验。
+短预算版本先用于轻量验证，确认 gap 是否下降；长预算版本再用于论文/报告实验。
 
 ## 约束安全性
 
@@ -102,4 +102,4 @@ neighbor_limit_per_iter = 100 到 500
 1. 只实现 N8，不做机器重分配，可能改进有限。
 2. k-insertion 枚举太多会爆炸，必须裁剪。
 3. 如果主动解码不正确，会出现机器序列无环判断错误。
-4. 如果只接受改善 move，可能陷入局部最优；TS 需要允许非改善 move。
+4. 如果只接受改善移动，可能陷入局部最优；TS 需要允许非改善移动。

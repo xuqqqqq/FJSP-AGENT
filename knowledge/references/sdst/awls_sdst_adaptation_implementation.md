@@ -26,7 +26,7 @@ start(current) >= end(previous_on_machine) + setup_time(machine, previous, curre
 ## 应保留的 AWLS 机制
 
 - 关键路径与关键块选择。
-- N7/N8 风格的同机关键块 move。
+- N7/N8 风格的同机关键块移动。
 - NK/RK/LK 风格的换机插入窗口。
 - sequence tabu 与 aspiration。
 - 自适应工序权重和 `zi` 扰动。
@@ -36,7 +36,7 @@ start(current) >= end(previous_on_machine) + setup_time(machine, previous, curre
 完整方法应保持耦合，但每个组件都要有清晰的输入与输出：
 
 - 含 setup 语义的图时间传播与排程输出；
-- 含 setup 语义的同机与换机 move 评价；
+- 含 setup 语义的同机与换机移动评价；
 - 在合法性闭合后启用的自适应评分特征与更新策略。
 
 不要让 worker：
@@ -47,10 +47,10 @@ start(current) >= end(previous_on_machine) + setup_time(machine, previous, curre
 - 在输出记录里隐藏 setup interval；
 - 绕过 Core evaluator 报错。
 
-## Benchmark 梯度
+## 基准梯度
 
 1. 编译：`python -m compileall knowledge/method_packages/standard_fjsp_awls_hgtsa/reference_solver.py harness_agent/domains/io.py`。
-2. 标准 FJSP smoke：使用 AWLS 运行 Brandimarte Mk01。
-3. SDST 合法性 smoke：一个来自当前任务的小实例，固定 seed，短时间限制。
-4. SDST 质量 probe：一个有界且结构具有代表性的子集，外部 LB/UB 只用于汇报。
-5. 只有在 smoke 合法性稳定后，才进入更广的 benchmark 评估。
+2. 标准 FJSP 冒烟：使用 AWLS 运行 Brandimarte Mk01。
+3. SDST 合法性冒烟：一个来自当前任务的小实例，固定 seed，短时间限制。
+4. SDST 质量探测：一个有界且结构具有代表性的子集，外部 LB/UB 只用于汇报。
+5. 只有在冒烟合法性稳定后，才进入更广的 benchmark 评估。

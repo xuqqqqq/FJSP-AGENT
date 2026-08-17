@@ -33,11 +33,11 @@ status: local_report_indexed
 
 对 `fjsp_harness_agent` 的含义：
 
-- Problem-family card 应扩展为带显式约束能力的变体 card，而不只是名称。候选变体标签包括 `time_lag_fjsp`、`machine_unavailability_fjsp`、`batching_fjsp`、`setup_time_fjsp`、`transportation_fjsp`、`reentrant_fjsp`、`alternative_route_fjsp`、`dynamic_fjsp` 和 `multi_objective_fjsp`。
-- Method Package 应支持变体特有组件。例如：lag-aware decoding、no-wait block move、maintenance-window insertion、batch formation、setup-aware sequence scoring、transport-aware move scoring、reentrance cycle check 和 route-choice neighborhood。
-- Context packet 应携带当前生效的变体约束，并禁止 worker 在未得到用户确认新 IO contract 的情况下更改 parser/evaluator 语义。
-- Knowledge 选择应由标签驱动。凡任务涉及 FJSP 变体、工业约束、动态调度或 LLM/RL 辅助的 heuristic evolution，都应检索这份调研。
-- Evaluation 必须继续受 contract 约束。对于变体，在可信任 worker 代码演化之前，平台需要新的 evaluator/validator。
+- 问题族能力卡应扩展为带显式约束能力的变体卡，而不只是名称。候选变体标签包括 `time_lag_fjsp`、`machine_unavailability_fjsp`、`batching_fjsp`、`setup_time_fjsp`、`transportation_fjsp`、`reentrant_fjsp`、`alternative_route_fjsp`、`dynamic_fjsp` 和 `multi_objective_fjsp`。
+- `Method Package` 应支持变体特有组件。例如：时滞感知解码、no-wait 块移动、维护窗口插入、批次形成、setup 感知序列评分、运输感知移动评分、重入环检查和路线选择邻域。
+- `Context packet` 应携带当前生效的变体约束，并禁止 worker 在未得到用户确认新 IO contract 的情况下更改 parser/evaluator 语义。
+- 知识选择应由标签驱动。凡任务涉及 FJSP 变体、工业约束、动态调度或 LLM/RL 辅助的启发式演化，都应检索这份调研。
+- 评测必须继续受 contract 约束。对于变体，在可信任 worker 代码演化之前，平台需要新的 evaluator/validator。
 
 ## 有用的变体地图
 
@@ -61,4 +61,4 @@ status: local_report_indexed
 - 面向标准公开基准之外 FJSP 约束的 RAG 查询；
 - 未来面向 FJSP 专用 heuristic evolution 的 skill 设计。
 
-不要把这张 survey card 当作 solver 实现正确性的直接证据。它只用于设计与范围界定；正确性仍来自当前生效的任务合同和 evaluator。
+不要把这张调研卡当作 solver 实现正确性的直接证据。它只用于设计与范围界定；正确性仍来自当前生效的任务合同和 evaluator。

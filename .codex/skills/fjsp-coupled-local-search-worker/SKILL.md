@@ -1,6 +1,6 @@
 ---
 name: fjsp-coupled-local-search-worker
-description: 为受控 Coding Agent 实现 FJSP assignment 与 machine sequence 耦合局部搜索，包括关键路径/关键块、换机重插、交换插入、VND/ILS/Tabu 接受与重启。用于 Main 已选择 coupled_local_search 方法族时，要求形成可迭代闭环并保留独立 incumbent。
+description: 为受控编码代理实现 FJSP 工序分配与机器顺序耦合局部搜索，包括关键路径/关键块、换机重插、交换插入、VND/ILS/Tabu 接受与重启。用于 Main 已选择 `coupled_local_search` 方法族时，要求形成可迭代闭环并保留独立 incumbent。
 ---
 
 # FJSP 耦合局部搜索执行器
@@ -32,7 +32,7 @@ description: 为受控 Coding Agent 实现 FJSP assignment 与 machine sequence 
 - 不能把方法名、少量浅扫描或未激活邻域当作局部搜索已完成。
 - `current state` 可暂时变差，但全局可行 `incumbent` 不得退化。
 - tabu key、逆移动、aspiration、停滞与扰动必须进入实际生成、选择、应用和更新路径。
-- 若同时授权构造 Skill，只消费其入口池并共享解码器与 incumbent。
+- 若同时授权构造技能，只消费其入口池并共享解码器与 incumbent。
 - 不要求外部预先提供高质量 incumbent；统一 foundation 的任意合法 warm start 足以启动，
   后续质量由关键块邻域、接受、扰动和迭代闭环负责。
 
@@ -40,9 +40,18 @@ description: 为受控 Coding Agent 实现 FJSP assignment 与 machine sequence 
 
 - 一个可迭代运行的耦合局部搜索闭环。
 - assignment 允许时的激活证据：各邻域 generated/evaluated/accepted/improved、换机与顺序 move 分布、迭代/重启数、阶段耗时和 best trajectory。
+- 必须在最终结果的 `diagnostics.activation.coupled_local_search` 下报告实际执行计数；其中
+  `moves_evaluated` 必须是完成合法解码与目标评价的 move 总数，而不是生成数、循环上限或配置值。
+  可同时报告 `moves_generated`、`moves_accepted`、`moves_improved`、`iterations` 与 `restarts`。
 
 ## 验证与停止条件
 
 - 参数必须由实例规模、可选机器分布、关键结构和实测耗时驱动。
 - 若预算显著闲置，优先扩大迭代、候选覆盖或重启深度。
 - 若邻域未真实激活或无法保持独立 incumbent，停止宣称局部搜索有效。
+- 当 assignment 声明 `diagnostics.activation.coupled_local_search.moves_evaluated > 0` 为 required check 时，
+  缺失、为零或仅输出到日志而未进入最终 diagnostics 都必须视为未激活，不得晋升。
+- 在写文件前，把本次真实调用产生的计数合并到最终 `solution.json` 的
+  `diagnostics.activation.coupled_local_search`。只写 stdout、注释、静态源码或未被 CLI 调用的
+  telemetry 都不能通过。若第一次固定 smoke 报告 required activation 缺失，下一 checkpoint
+  只修调用接线、deadline 分配和最终诊断透传，不另起一套搜索。

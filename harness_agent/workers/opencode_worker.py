@@ -773,10 +773,9 @@ class OpenCodeWorker(CodingWorker):
         """返回短而稳定的执行协议；动态规划内容只存在于 JSON 任务书。"""
 
         target_file_policy = (
-            "This is baseline mode. `target_file` is explicitly authorized but may not exist yet; "
-            "if it is absent, create it and continue instead of reporting a missing-input blocker."
+            "This is baseline mode; if it is absent, create it (`target_file` is authorized)."
             if assignment.mode == "baseline"
-            else "This is improvement/repair mode. `target_file` is the required incumbent; read it before editing and preserve unrelated working behavior."
+            else "Improvement/repair: read incumbent `target_file` first; preserve unrelated behavior."
         )
         try:
             baseline_trial = int(assignment.lineage.get("baseline_trial") or 1)
@@ -793,31 +792,27 @@ class OpenCodeWorker(CodingWorker):
         prompt = f"""
 # AlgoForge Coding Worker Runtime Policy
 
-Execute exactly the attached `WorkerAssignment` issued by the Main Agent.
-The assignment is the sole planning input for this worker.
+Execute the attached `WorkerAssignment` as the sole planning input.
 
-- Do not read or request the full Context Packet, method-package catalog,
-  history, experience memory, or unselected cards.
+- Do not read or request the full Context Packet; no catalog, history, memory,
+  or unselected cards.
 - Load every listed `implementation_skills` entry and no unselected Skill.
-  Its examples are advisory implementation material: combine or adapt them
-  inside Main's selected method families and report material departures.
-- Read only `target_file`, paths listed in `read_set`, and files under selected Skill folders;
-  do not list, glob, recursively scan, or broadly explore the repository.
+  Its examples are advisory implementation material.
+  Read only `target_file`, paths listed in `read_set`, and selected Skill folders;
+  do not list, glob, or broadly explore.
 - {target_file_policy}
 {write_first_policy}
-- Edit only `target_file`. Do not change contracts, knowledge assets, evaluator,
-  Harness code, runtime configuration, or any other file.
+- Edit only `target_file`; never edit Harness, evaluator, contracts, knowledge,
+  or runtime configuration.
 - Work alone. Task/subagent, question, and network tools are disabled.
-- Implement every deliverable as reachable behavior in `implementation_order`;
-  preserve confirmed mechanisms and obey the completion rule.
-- A repair may close listed gaps but may not switch method package or rewrite
-  unrelated working behavior.
-- Apply stateful changes transactionally. A failed candidate action must not
-  leave partially mutated state.
+- Implement every deliverable in `implementation_order`; preserve confirmed
+  mechanisms and obey the completion rule.
+- Repairs may close listed gaps but must preserve package and unrelated behavior.
+- Apply changes transactionally; failed actions must not leave partial state.
 - Run at most one compile and one optional bounded smoke, exactly via
   `python .algoforge_worker_runtime/run_smoke.py`. Never run the evaluator,
   full tests, benchmarks, parameter sweeps, or ad-hoc commands.
-- Finish after the bounded edit and checks; Harness gates decide acceptance.
+- Stop after the bounded edit/checks; Harness gates decide acceptance.
 
 Runtime identifiers:
 - mode: {assignment.mode}
@@ -1318,6 +1313,44 @@ def opencode_subprocess_environment(
     openai_key = resolve_secret("OPENAI_API_KEY", file_env="OPENAI_API_KEY_FILE")
     if openai_key:
         environment["OPENAI_API_KEY"] = openai_key
+    qiming_key = resolve_secret("QIMING_API_KEY", file_env="QIMING_API_KEY_FILE")
+    if qiming_key:
+        environment["QIMING_API_KEY"] = qiming_key
+
+    provider_config: dict[str, object] = {}
+    if deepseek_key:
+        provider_config = merge_nested_dicts(
+            provider_config,
+            {
+                "provider": {
+                    "deepseek": {
+                        "npm": "@ai-sdk/openai-compatible",
+                        "name": "DeepSeek",
+                        "options": {
+                            "apiKey": "{env:DEEPSEEK_API_KEY}",
+                            "baseURL": environment.get(
+                                "DEEPSEEK_BASE_URL",
+                                "https://api.deepseek.com/v1",
+                            ).strip(),
+                        },
+                        "models": {
+                            "deepseek-v4-pro": {"name": "DeepSeek V4 Pro"},
+                            "deepseek-chat": {"name": "DeepSeek Chat"},
+                            "deepseek-reasoner": {"name": "DeepSeek Reasoner"},
+                        },
+                    }
+                }
+            },
+        )
+    if openai_key:
+        openai_options: dict[str, object] = {"apiKey": "{env:OPENAI_API_KEY}"}
+        openai_base_url = environment.get("OPENAI_BASE_URL", "").strip()
+        if openai_base_url:
+            openai_options["baseURL"] = openai_base_url
+        provider_config = merge_nested_dicts(
+            provider_config,
+            {"provider": {"openai": {"options": openai_options}}},
+        )
 
     compatibility_config: dict[str, object] = {}
     if opencode_openai_compat_enabled():
@@ -1333,7 +1366,30 @@ def opencode_subprocess_environment(
                 }
             }
 
-    if runtime_config or compatibility_config:
+    qiming_config: dict[str, object] = {}
+    if qiming_key:
+        qiming_config = {
+            "provider": {
+                "qiming": {
+                    "npm": "@ai-sdk/openai-compatible",
+                    "name": "Qiming",
+                    "options": {
+                        "apiKey": "{env:QIMING_API_KEY}",
+                        "baseURL": environment.get(
+                            "QIMING_BASE_URL",
+                            "https://cpa.qiming.zone/v1",
+                        ).strip(),
+                    },
+                    "models": {
+                        "glm-5.2": {"name": "GLM 5.2"},
+                        "deepseek-v4-flash": {"name": "DeepSeek V4 Flash"},
+                    },
+                }
+            }
+        }
+        provider_config = merge_nested_dicts(provider_config, qiming_config)
+
+    if runtime_config or compatibility_config or provider_config:
         existing_config: dict[str, object] = {}
         existing_raw = environment.get("OPENCODE_CONFIG_CONTENT")
         if existing_raw:
@@ -1355,7 +1411,8 @@ def opencode_subprocess_environment(
         safe_existing = {
             key: value for key, value in existing_config.items() if key in connection_keys
         }
-        connection_config = merge_nested_dicts(compatibility_config, safe_existing)
+        connection_config = merge_nested_dicts(safe_existing, provider_config)
+        connection_config = merge_nested_dicts(connection_config, compatibility_config)
         environment["OPENCODE_CONFIG_CONTENT"] = json.dumps(
             merge_nested_dicts(connection_config, runtime_config or {}),
             ensure_ascii=False,

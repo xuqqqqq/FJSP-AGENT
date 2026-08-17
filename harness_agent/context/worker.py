@@ -8,8 +8,12 @@ import shlex
 from pathlib import Path
 from typing import Any
 
-from harness_agent.agents.quality_contract import build_agent_generated_solver_quality_contract
+from harness_agent.agents.quality_contract import (
+    build_agent_generated_solver_quality_contract,
+    build_solver_runtime_feature_contract,
+)
 from harness_agent.context.knowledge import (
+    resolve_method_package,
     resolve_worker_implementation_skills,
     select_tagged_knowledge_cards,
 )
@@ -57,12 +61,35 @@ def build_worker_assignment(
         except (TypeError, ValueError):
             requested_baseline_trial = baseline_trial
         baseline_trial = max(1, min(3, requested_baseline_trial))
+    baseline_exact_rescue = bool(
+        round_index < 0
+        and attempt_index > 0
+        and isinstance(latest_feedback.get("baseline_feasibility_rescue"), dict)
+        and str(direction_plan.get("method_family") or "").strip() == "exact_hybrid"
+    )
+    baseline_exact_rescue_repair = bool(
+        baseline_exact_rescue
+        and isinstance(
+            (
+                latest_feedback.get("repair_targets")
+                if isinstance(latest_feedback.get("repair_targets"), dict)
+                else {}
+            ).get("exact_execution_failure"),
+            dict,
+        )
+    )
     is_objective_refinement = (
         attempt_index > 0
         and str(latest_feedback.get("status") or "") == "refinement_required"
         and latest_feedback.get("allow_objective_refinement") is True
     )
     mode = (
+        "repair"
+        if baseline_exact_rescue_repair
+        else
+        "baseline"
+        if baseline_exact_rescue
+        else
         "baseline"
         if baseline_trial == 1
         else "improvement"
@@ -84,11 +111,22 @@ def build_worker_assignment(
         }
     )
     target_file = _solver_target(context)
-    active_package = _selected_method_package(context, direction_plan)
+    runtime_feature_contract = build_solver_runtime_feature_contract(context)
+    active_package = _selected_method_package(
+        context,
+        direction_plan,
+        active_features=runtime_feature_contract.get("active_features") or [],
+    )
     implementation_bundle = (
         direction_plan.get("implementation_bundle")
         if isinstance(direction_plan.get("implementation_bundle"), dict)
         else {}
+    )
+    variant_baseline_package = bool(
+        baseline_trial == 1
+        and active_package
+        and active_package.get("required_features")
+        and implementation_bundle.get("required_components")
     )
     component_rows = [
         item for item in implementation_bundle.get("required_components") or [] if isinstance(item, dict)
@@ -141,17 +179,25 @@ def build_worker_assignment(
     repair_deliverables = _repair_deliverables(latest_feedback) if mode == "repair" else []
     if mode == "repair" and not repair_deliverables:
         raise ValueError(
-            "repair assignment requires concrete compile/runtime/validator failures; semantic-review-only "
-            "feedback cannot trigger a Coding Agent repair"
+            "repair assignment requires concrete compile/runtime/validator/mechanism-activation failures; "
+            "semantic-review-only feedback cannot trigger a Coding Agent repair"
         )
     refinement_deliverables = (
         _objective_refinement_deliverables(latest_feedback)
         if is_objective_refinement
         else []
     )
-    staged_baseline_deliverables = _agent_generated_baseline_deliverables(
-        baseline_trial=baseline_trial,
-        high_flexibility=high_flex_baseline,
+    staged_baseline_deliverables = (
+        _variant_agent_generated_baseline_deliverables(
+            component_rows=component_rows,
+            implementation_bundle=implementation_bundle,
+        )
+        if variant_baseline_package
+        else _agent_generated_baseline_deliverables(
+            baseline_trial=baseline_trial,
+            high_flexibility=high_flex_baseline,
+            active_features=runtime_feature_contract.get("active_features") or [],
+        )
     )
     if repair_deliverables:
         implementation_order = [item["id"] for item in repair_deliverables]
@@ -185,7 +231,7 @@ def build_worker_assignment(
         context,
         direction_plan=direction_plan,
         baseline_trial=baseline_trial,
-        quality_active_features=quality_contract.get("active_features") or [],
+        quality_active_features=runtime_feature_contract.get("active_features") or [],
     )
     if repair_deliverables:
         completion_rule = (
@@ -193,7 +239,11 @@ def build_worker_assignment(
             "without rewriting unrelated working behavior."
         )
     elif staged_baseline_deliverables:
-        completion_rule = _agent_generated_baseline_completion_rule(baseline_trial or 1)
+        completion_rule = (
+            _variant_agent_generated_baseline_completion_rule(exact_rescue=baseline_exact_rescue)
+            if variant_baseline_package
+            else _agent_generated_baseline_completion_rule(baseline_trial or 1)
+        )
     elif refinement_deliverables:
         completion_rule = (
             "Make one bounded same-direction objective refinement, compile, pass JA and the bounded smoke, "
@@ -217,7 +267,11 @@ def build_worker_assignment(
             "working behavior in the current target file."
         )
     elif staged_baseline_deliverables:
-        objective = _agent_generated_baseline_objective(baseline_trial or 1)
+        objective = (
+            _variant_agent_generated_baseline_objective(exact_rescue=baseline_exact_rescue)
+            if variant_baseline_package
+            else _agent_generated_baseline_objective(baseline_trial or 1)
+        )
     elif refinement_deliverables:
         objective = (
             "Refine only the current direction with one bounded objective-improvement edit. Preserve the legal "
@@ -237,9 +291,12 @@ def build_worker_assignment(
                 else None
             ),
             "contract_paths": _unique_strings(
-                active_package.get("implementation_contract_assets")
-                or implementation_bundle.get("contract_paths")
-                or [active_package.get("implementation_contract_asset")]
+                _safe_read_path(path)
+                for path in (
+                    active_package.get("implementation_contract_assets")
+                    or implementation_bundle.get("contract_paths")
+                    or [active_package.get("implementation_contract_asset")]
+                )
             ),
         },
         read_set=read_set,
@@ -263,6 +320,14 @@ def build_worker_assignment(
                 "Do not choose a different method package or broaden this assignment.",
                 "The standalone target must not import harness_agent, evaluator modules, or knowledge assets at runtime.",
                 "Do not use previous solution files, fixed schedules, or target scores.",
+                *(
+                    [
+                        "Never emit a schedule that the solver's complete local validator marked invalid; "
+                        "an invalid or partial fallback must fail without writing candidate output."
+                    ]
+                    if baseline_trial == 1
+                    else []
+                ),
             ]
         )[:20],
         latest_feedback=latest_feedback,
@@ -270,6 +335,32 @@ def build_worker_assignment(
             [
                 "Compile the target solver once.",
                 "Run at most one fixed-seed solver smoke with a time limit no greater than 3 seconds.",
+                *(
+                    [
+                        "The CLI entrypoint must invoke the bounded exact solver before any failed constructive "
+                        "path can exit. Defining a CP-SAT helper without a reachable call from main is incomplete.",
+                        "The allowed smoke must exercise that exact entrypoint and emit diagnostics.cp_sat_called=true, "
+                        "a JSON-native solver status, and positive observed variable, constraint, and interval counts."
+                    ]
+                    if baseline_exact_rescue
+                    else []
+                ),
+                *(
+                    [
+                        "Eligible-machine choices are structured (machine_id, processing_time) pairs. Unpack the pair "
+                        "before using the machine_id as a dictionary key or the processing_time as a duration."
+                    ]
+                    if baseline_trial is not None
+                    else []
+                ),
+                *(
+                    [
+                        "Before every output write, require one complete schedule with exact coverage, eligibility, "
+                        "durations, precedence, resource feasibility, and every active variant constraint validated."
+                    ]
+                    if baseline_trial == 1
+                    else []
+                ),
                 *(
                     ["Every latest_feedback.repair_targets blocking item must be absent from the next JA result."]
                     if repair_deliverables
@@ -327,9 +418,9 @@ def build_worker_assignment(
             "solver_command_template": evaluator_protocol.get("solver_command_template"),
             "solution_format": evaluator_protocol.get("solution_format"),
             "solution_contract": evaluator_protocol.get("solution_contract") or {},
-            "active_features": quality_contract.get("active_features") or [],
+            "active_features": runtime_feature_contract.get("active_features") or [],
             "required_code_capabilities": quality_contract.get("required_code_capabilities") or [],
-            "variant_required_code_capabilities": quality_contract.get("variant_required_code_capabilities") or [],
+            "variant_required_code_capabilities": runtime_feature_contract.get("variant_required_code_capabilities") or [],
             "allowed_paths": edit_policy.get("allowed_paths") or [],
             "forbidden_paths": edit_policy.get("forbidden_paths") or [],
             "experiment_contract": {
@@ -346,14 +437,35 @@ def build_worker_assignment(
                 ),
                 "activation_path_root": "best_metrics.solver_evidence.diagnostics",
                 "rule": (
-                    "Activation diagnostics are advisory evidence only; Core legality and objective evaluation remain authoritative."
+                    "Core owns legality/objectives; required activation gates lineage/promotion."
                 ),
             },
             **(
                 {
+                    "diagnostics_json_contract": {
+                        "json_native_values_only": True,
+                        "solver_status": (
+                            "Convert solver status to solver.status_name(status), str, or int before JSON output."
+                        ),
+                        "forbidden_runtime_objects": [
+                            "CpSolverStatus",
+                            "IntVar",
+                            "IntervalVar",
+                            "numpy scalar",
+                        ],
+                    }
+                }
+                if str(direction_plan.get("method_family") or "") == "exact_hybrid"
+                else {}
+            ),
+            **(
+                {
                     "optional_solver_diagnostics": {
                         "location": "solution.json#/diagnostics",
-                        "purpose": "Bounded Main evidence only; never affects JA/Core score, ranking, or promotion.",
+                            "purpose": (
+                                "Bounded Main evidence; never changes Core score, but declared required counters "
+                                "gate lineage and promotion."
+                            ),
                         "bounded_schema": {
                             "selected_source": "label",
                             "candidate_runs": "[{source,makespan,elapsed_ms}]",
@@ -412,16 +524,41 @@ def _solver_target(context: dict[str, Any]) -> str:
     return "examples/agent_generated_fjsp_solver.py"
 
 
-def _selected_method_package(context: dict[str, Any], direction_plan: dict[str, Any]) -> dict[str, Any]:
+def _selected_method_package(
+    context: dict[str, Any],
+    direction_plan: dict[str, Any],
+    *,
+    active_features: list[str] | None = None,
+) -> dict[str, Any]:
     active = context.get("active_method_package") if isinstance(context.get("active_method_package"), dict) else {}
     requested = str(direction_plan.get("method_package_id") or "").strip()
-    if active and (not requested or str(active.get("package_id") or "") == requested):
+    if not requested:
+        return active
+    if active and str(active.get("package_id") or "") == requested:
         return active
     catalog = context.get("method_package_catalog") if isinstance(context.get("method_package_catalog"), dict) else {}
     for item in catalog.get("packages") or []:
         if isinstance(item, dict) and str(item.get("package_id") or "") == requested:
             return item
-    return active
+    task = context.get("task") if isinstance(context.get("task"), dict) else {}
+    resolved = resolve_method_package(
+        problem_family=str(task.get("problem_family") or ""),
+        package_id=requested,
+        active_features=(
+            [str(item) for item in catalog.get("active_features") or []]
+            or [str(item) for item in active_features or []]
+        ),
+        knowledge_query_tags=[
+            str(item)
+            for item in direction_plan.get("knowledge_query") or []
+            if str(item).strip()
+        ],
+    )
+    if resolved:
+        return resolved
+    raise ValueError(
+        f"requested method package is not resolvable for this lane: {requested}"
+    )
 
 
 def _assignment_implementation_skills(
@@ -467,6 +604,9 @@ def _assignment_implementation_skills(
         baseline_trial is None
         and lane_policy.get("mechanism_selection") == "delegated_to_worker"
     )
+    specialized_baseline = bool(
+        baseline_trial == 1 and str(direction_plan.get("method_package_id") or "").strip()
+    )
     for item in selection.get("skills") or []:
         if not isinstance(item, dict):
             continue
@@ -477,6 +617,7 @@ def _assignment_implementation_skills(
             baseline_trial == 1
             and skill_id != "fjsp-solver-foundation-worker"
             and not (item.get("always_include") and item.get("required_features"))
+            and not (specialized_baseline and item.get("matched_method_families"))
         ):
             continue
         if baseline_trial == 2 and skill_id == "fjsp-experiment-design-worker":
@@ -765,13 +906,28 @@ def _agent_generated_baseline_deliverables(
     *,
     baseline_trial: int | None,
     high_flexibility: bool,
+    active_features: list[Any] | tuple[Any, ...] = (),
 ) -> list[dict[str, str]]:
     if baseline_trial == 1:
+        features = {str(item).strip() for item in active_features if str(item).strip()}
+        reentrant = bool(features.intersection({"reentrant_route", "loop_expansion"}))
         return [
             {
                 "id": "parser_and_model",
-                "behavior": "Parse the assigned instance format into jobs, ordered operations, eligible machines, and durations.",
-                "evidence_required": "The target parses the staged sample without importing harness or evaluator code.",
+                "behavior": (
+                    "Use a two-phase parser: consume the complete standard FJSP body for all jobs first, "
+                    "then consume exactly job_count trailing (loop_start, loop_end, repeat) triples. "
+                    "Reject missing or trailing tokens and expand each route only after both phases complete."
+                    if reentrant
+                    else "Parse the assigned instance format into jobs, ordered operations, eligible machines, and durations."
+                ),
+                "evidence_required": (
+                    "Before other optional work, run the one allowed smoke on the staged sample and prove that "
+                    "all job rows remain aligned, exactly job_count loop triples are consumed, and expanded "
+                    "operation coverage matches the contract."
+                    if reentrant
+                    else "The target parses the staged sample without importing harness or evaluator code."
+                ),
             },
             {
                 "id": "simple_legal_constructor",
@@ -826,6 +982,115 @@ def _agent_generated_baseline_deliverables(
             },
         ]
     return []
+
+
+def _variant_agent_generated_baseline_deliverables(
+    *,
+    component_rows: list[dict[str, Any]],
+    implementation_bundle: dict[str, Any],
+) -> list[dict[str, str]]:
+    """Compile a feasibility-first baseline from a variant Method Package.
+
+    Baseline generation establishes a legal anchor. Search components remain
+    assigned to the formal family lanes, where the incumbent already exists.
+    """
+
+    dependencies = _component_dependency_map(implementation_bundle)
+    component_ids = [
+        str(item.get("component_id") or "").strip()
+        for item in component_rows
+        if str(item.get("component_id") or "").strip()
+    ]
+    root_ids = [component_id for component_id in component_ids if not dependencies.get(component_id)]
+    by_id = {str(item.get("component_id") or ""): item for item in component_rows}
+    variant_roots = []
+    for component_id in root_ids:
+        item = by_id.get(component_id, {})
+        required_behaviors = _strings(item.get("required_behaviors"), limit=8)
+        variant_roots.append(
+            {
+                "id": component_id,
+                "behavior": " ".join(required_behaviors)[:800]
+                or str(item.get("title") or component_id)[:800],
+                "evidence_required": str(
+                    item.get("evidence_required") or "Reachable variant parser, complete decoder, and legality guard."
+                )[:800],
+            }
+        )
+    return [
+        {
+            "id": "parser_cli_and_output",
+            "behavior": (
+                "Parse the complete active instance contract, implement the required CLI, and emit exactly the "
+                "standalone solution JSON schema without importing Harness or evaluator code."
+            ),
+            "evidence_required": "The staged sample parses completely and the fixed command writes a Core-readable solution.",
+        },
+        *variant_roots,
+        {
+            "id": "verified_legal_incumbent",
+            "behavior": (
+                "Construct and retain one complete deterministic legal schedule before optional search. Validate exact "
+                "coverage, eligibility, durations, precedence, machine resources, and every active variant constraint."
+            ),
+            "evidence_required": "The bounded Core smoke returns valid=true for one complete schedule.",
+        },
+        {
+            "id": "fail_closed_output_guard",
+            "behavior": (
+                "Write output only from a complete locally validated incumbent. If construction, decoding, or fallback "
+                "is invalid, partial, or times out before a legal incumbent exists, exit nonzero without writing it."
+            ),
+            "evidence_required": "No output path can serialize a locally invalid or partial schedule.",
+        },
+    ]
+
+
+def _variant_agent_generated_baseline_objective(*, exact_rescue: bool = False) -> str:
+    if exact_rescue:
+        return (
+            "Replace the failed constructive feasibility path with the smallest standalone exact-hybrid feasibility "
+            "rescue. Post every active variant constraint in the real exact model, extract one complete Core-valid "
+            "incumbent, emit JSON-native solver evidence, and fail closed when no feasible incumbent exists."
+        )
+    return (
+        "Create the smallest standalone variant-aware solver that first produces one Core-valid deterministic "
+        "incumbent. Implement only the Method Package dependency roots needed for legality; leave Beam, multistart, "
+        "regret, local search, population search, and exact optimization to formal lanes."
+    )
+
+
+def _variant_agent_generated_baseline_completion_rule(*, exact_rescue: bool = False) -> str:
+    if exact_rescue:
+        return (
+            "Stop after a bounded exact solve produces one complete locally validated incumbent and Core accepts it. "
+            "The CLI entrypoint must actually call the exact solver; a defined but unreachable CP-SAT helper is not "
+            "complete. The exact solver status and model counters must be JSON-native; no heuristic or partial "
+            "fallback may be serialized as a valid solution."
+        )
+    return (
+        "Stop as soon as the target compiles and Core validates one complete legal variant-aware incumbent. Never "
+        "serialize a schedule after local validation fails, and do not add downstream Method Package search components."
+    )
+
+
+def _component_dependency_map(bundle: dict[str, Any]) -> dict[str, list[str]]:
+    raw = bundle.get("component_dependencies")
+    result: dict[str, list[str]] = {}
+    if isinstance(raw, dict):
+        for component_id, dependencies in raw.items():
+            if str(component_id).strip() and isinstance(dependencies, (list, tuple)):
+                result[str(component_id)] = _unique_strings(dependencies)
+        return result
+    for item in raw or []:
+        if not isinstance(item, dict):
+            continue
+        component_id = str(item.get("component_id") or item.get("id") or "").strip()
+        if component_id:
+            result[component_id] = _unique_strings(
+                item.get("depends_on") or item.get("dependencies") or []
+            )
+    return result
 
 
 def _agent_generated_baseline_objective(baseline_trial: int) -> str:
@@ -923,11 +1188,46 @@ def _repair_deliverables(feedback: dict[str, Any]) -> list[dict[str, str]]:
                 "id": "repair_exact_execution_not_exercised",
                 "behavior": str(
                     exact_failure.get("required_evidence")
-                    or "Implement and run the assigned bounded exact solver path."
+                    or "Wire the assigned bounded exact solver into the CLI entrypoint and run it."
                 )[:800],
                 "evidence_required": (
-                    "The bounded smoke reports diagnostics.cp_sat_called=true and exact solver status/model/runtime evidence."
+                    "The CLI cannot exit through the failed legacy constructor before calling the exact path, and the "
+                    "bounded smoke reports diagnostics.cp_sat_called=true plus exact solver status/model/runtime evidence."
                 ),
+            }
+        )
+    mechanism_failure = (
+        targets.get("mechanism_activation_failure")
+        if isinstance(targets.get("mechanism_activation_failure"), dict)
+        else {}
+    )
+    if mechanism_failure:
+        failed_checks = [
+            item
+            for item in mechanism_failure.get("failed_checks") or []
+            if isinstance(item, dict)
+        ]
+        check_summary = "; ".join(
+            f"{item.get('id') or item.get('path')}: observed={item.get('observed')!r}, "
+            f"required {item.get('operator')} {item.get('expected')!r}"
+            for item in failed_checks[:8]
+        )
+        required_evidence = str(
+            mechanism_failure.get("required_evidence")
+            or "Execute the selected method family and emit its declared runtime activation counters."
+        ).strip()
+        rows.append(
+            {
+                "id": "repair_method_mechanism_activation",
+                "behavior": (
+                    f"Wire and execute the assigned method family from the real CLI path. {required_evidence} "
+                    f"Failed checks: {check_summary or 'the declared required activation checks were not observed.'}"
+                )[:800],
+                "evidence_required": (
+                    "Every required failed activation check must pass using newly observed runtime telemetry from "
+                    "this candidate. Code presence, configuration, inherited incumbent quality, and another "
+                    "method family's counters are not activation evidence."
+                )[:800],
             }
         )
     concrete_errors = _error_strings(
@@ -994,6 +1294,8 @@ def _build_repair_contract(
             *("python_compile_errors" for _ in [0] if repair_targets.get("python_compile_errors")),
             *("result_revalidation_failure" for _ in [0] if repair_targets.get("result_revalidation_top_errors")),
             *("diagnostic_smoke_failure" for _ in [0] if repair_targets.get("diagnostic_smoke_top_errors")),
+            *("exact_execution_failure" for _ in [0] if repair_targets.get("exact_execution_failure")),
+            *("mechanism_activation_failure" for _ in [0] if repair_targets.get("mechanism_activation_failure")),
         ]
     )
     return {
@@ -1144,6 +1446,7 @@ def compact_current_round_repair(value: dict[str, Any]) -> dict[str, Any]:
             "max_repair_attempts",
             "baseline_trial",
             "resume_incomplete_baseline",
+            "baseline_feasibility_rescue",
             "must_do",
             "avoid",
         )

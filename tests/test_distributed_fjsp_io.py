@@ -28,8 +28,8 @@ class DistributedFjspIoTests(unittest.TestCase):
 
         self.assertIn("全局", io_doc)
         self.assertNotIn("每工厂内独立编号", io_doc)
-        self.assertIn("consumes the entire job row", skill)
-        self.assertIn("compare factory IDs before machine IDs", skill)
+        self.assertIn("完整消耗整行作业数据", skill)
+        self.assertIn("先比较工厂 ID，再比较机器 ID", skill)
 
     def test_validator_disambiguates_duplicate_resource_options_by_duration(self) -> None:
         operation = DistributedOperation(

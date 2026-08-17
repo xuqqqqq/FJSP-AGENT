@@ -87,11 +87,19 @@ def main() -> int:
             schedule = load_distributed_solution(output_path)
             errors, metrics = validate_distributed_schedule(instance, schedule)
         else:
-            from harness_agent.domains.io import load_solution, parse_standard_fjsp, validate_standard_schedule
+            from harness_agent.domains.io import (
+                load_solution_document,
+                parse_standard_fjsp,
+                validate_standard_schedule,
+            )
 
             instance = parse_standard_fjsp(Path(config["instance_path"]))
-            schedule = load_solution(output_path)
-            errors, metrics = validate_standard_schedule(instance, schedule)
+            solution = load_solution_document(output_path)
+            errors, metrics = validate_standard_schedule(
+                instance,
+                solution.schedule,
+                selected_routes=solution.selected_routes,
+            )
         if errors:
             raise ValueError("; ".join(errors[:20]))
         metric_names = ["makespan"]

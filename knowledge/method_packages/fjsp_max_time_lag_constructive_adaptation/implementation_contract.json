@@ -1,0 +1,289 @@
+{
+  "schema_version": 1,
+  "contract_id": "fjsp_max_time_lag_constructive_adaptation",
+  "mode": "complete_method_package",
+  "completion_rule": "只有当最大间隔感知的完整解码、双向可行窗口构造和多状态候选验收都可达并通过阶段检查时，才能声明对应阶段完成。若 required activation 要求两个完整候选，真实 CLI 必须先形成并完整解码至少两个结构不同的候选，再把剩余预算交给 exact fallback；operation-level 主搜索未及时形成完整叶节点时，必须在预留预算内调用保守完整 seed pool，单棵深 DFS 超时后直接走 CP-SAT 不算完成。Baseline 阶段只建立经过完整校验的合法 incumbent；其内部校验失败、部分或超时的 fallback 不得写入候选输出。",
+  "variant_rule": "最大时间间隔是稀疏、可非相邻且不占机的完工-开工上界；所有构造候选都必须经过同一套完整差分约束重解码验收，不能依赖右移修补。",
+  "activation_evidence": {
+    "required_fields": {
+      "diagnostics.activation.constructive_search.candidates_evaluated": "> 1",
+      "diagnostics.activation.maximum_time_lag.constructive_candidates_evaluated": "> 1"
+    },
+    "rule": "两个计数都必须来自真实完成完整 max-lag-aware 解码且结构指纹不同的候选；生成数量、循环次数、重复排程或 exact 结果都不能替代。构造阶段必须使用可中断的多状态或多起点预算，并在主 frontier 尚未形成两个完整叶节点时启用预留的保守完整 seed pool，不能让单棵深 DFS 吞掉预算后再用 exact 结果掩盖零激活。"
+  },
+  "required_components": [
+    {
+      "component_id": "max_lag_state_and_full_decoder",
+      "title": "最大间隔状态与完整差分约束解码",
+      "required_behaviors": [
+        "独立解析稀疏的 maximum lag pair，并按前驱、后继和 job 建立索引。",
+        "机器候选保持为 (machine_id, processing_time) 结构；抽样后必须显式解包，机器字典键只能使用 machine_id，duration 只能使用对应的 processing_time。",
+        "同时建模 precedence lower bounds、machine order lower bounds 与 maximum lag upper bounds。",
+        "拒绝不完整、机器重叠、差分约束负环或 maximum lag 非法的候选，并保留合法 incumbent。"
+      ],
+      "evidence_required": "可达的解析、完整重解码、负环拒绝与最终合法性守卫。"
+    },
+    {
+      "component_id": "bidirectional_feasibility_windows",
+      "title": "双向 earliest/latest 可行窗口",
+      "required_behaviors": [
+        "对 ready operations 同时计算 earliest feasible start 与由 max-lag 推导出的 latest feasible start。",
+        "窗口传播必须覆盖非相邻 pair，而不是只看相邻 job precedence。"
+      ],
+      "evidence_required": "可达的 earliest/latest 窗口计算与非相邻 pair 命中证据。"
+    },
+    {
+      "component_id": "operation_level_window_dispatch",
+      "title": "Operation-level 窗口派工",
+      "required_behaviors": [
+        "每一步都要在所有 ready operations 中选择工序，而不是一次提交一个完整 job。",
+        "优先级必须同时考虑 earliest completion、latest slack、桥接链压力与机器负载。"
+      ],
+      "evidence_required": "可达的 ready set、逐工序 dispatch 与由 pair slack 驱动的选择路径。"
+    },
+    {
+      "component_id": "windowed_gap_insertion",
+      "title": "窗口约束空闲间隙插入",
+      "required_behaviors": [
+        "在候选机器的 gap 中搜索同时满足 earliest 和 latest 的插入位置。",
+        "等待不占用机器，且插入后必须触发完整的 max-lag-aware 重解码。"
+      ],
+      "evidence_required": "可达的 gap scanner、窗口相交判定与重解码调用。"
+    },
+    {
+      "component_id": "complete_seed_pool_fallback",
+      "title": "保守的完整候选 seed pool",
+      "required_behaviors": [
+        "在 operation-level frontier 尚未形成两个完整候选时，要在 exact fallback 前使用预留的小预算生成完整 schedule。",
+        "可把每个 job 链作为连续零等待 block，使用不同的 job-block 顺序和合法机器选择形成结构不同的 seed；若任一 max-lag pair 的桥接加工长度已超过上界，必须拒绝该分配。",
+        "通过整体平移 job block 来消解机器冲突，不把等待插入到 block 内部，也不把 maximum lag 计入机器占用。",
+        "每个 seed 都必须通过同一个完整的 max-lag evaluator；只有指纹不同且合法的完整 schedule 才能增加两个 canonical constructive counters。"
+      ],
+      "evidence_required": "可达的预留预算、完整 block seed 生成、结构指纹去重、完整 evaluator 调用与 exact 前候选计数。"
+    },
+    {
+      "component_id": "pair_slack_regret_scoring",
+      "title": "约束对松弛量与机器后悔值评分",
+      "required_behaviors": [
+        "比较所有可加工机器对 max-lag slack、桥接链长度和完工时间的影响。",
+        "至少要在两个候选机器之间使用 regret 或替代损失来参与真实分配选择。"
+      ],
+      "evidence_required": "可达的候选机器评分，以及至少两个不同分配选择的证据。"
+    },
+    {
+      "component_id": "multi_state_constructive_control",
+      "title": "多状态构造控制与独立最优解",
+      "required_behaviors": [
+        "同时保留多个结构不同的部分排程状态，而不是只改变完整 job permutation。",
+        "按结构指纹去重、按宽度或 deadline 限制扩展，且全局最优解要独立保存。"
+      ],
+      "evidence_required": "可达的 beam 或 multistart frontier、结构去重与独立最优解快照。"
+    }
+  ],
+  "component_dependencies": [
+    {
+      "component_id": "bidirectional_feasibility_windows",
+      "depends_on": [
+        "max_lag_state_and_full_decoder"
+      ]
+    },
+    {
+      "component_id": "operation_level_window_dispatch",
+      "depends_on": [
+        "max_lag_state_and_full_decoder",
+        "bidirectional_feasibility_windows"
+      ]
+    },
+    {
+      "component_id": "windowed_gap_insertion",
+      "depends_on": [
+        "max_lag_state_and_full_decoder",
+        "bidirectional_feasibility_windows",
+        "operation_level_window_dispatch"
+      ]
+    },
+    {
+      "component_id": "pair_slack_regret_scoring",
+      "depends_on": [
+        "bidirectional_feasibility_windows",
+        "operation_level_window_dispatch"
+      ]
+    },
+    {
+      "component_id": "complete_seed_pool_fallback",
+      "depends_on": [
+        "max_lag_state_and_full_decoder",
+        "bidirectional_feasibility_windows",
+        "windowed_gap_insertion"
+      ]
+    },
+    {
+      "component_id": "multi_state_constructive_control",
+      "depends_on": [
+        "operation_level_window_dispatch",
+        "windowed_gap_insertion"
+      ]
+    }
+  ],
+  "coupled_groups": [
+    {
+      "group_id": "windowed_constructive_core",
+      "component_ids": [
+        "max_lag_state_and_full_decoder",
+        "bidirectional_feasibility_windows",
+        "operation_level_window_dispatch",
+        "windowed_gap_insertion",
+        "complete_seed_pool_fallback"
+      ],
+      "rule": "构造决策、窗口筛选、gap 插入、完整 seed fallback 与最终验收必须共享同一 maximum-lag 语义。"
+    }
+  ],
+  "competition_tracks": [
+    {
+      "track_id": "direct_evidence",
+      "title": "窗口驱动的 gap 构造",
+      "selection_hint": "先打通 earliest/latest 窗口与 gap 相交，再扩展多状态探索。",
+      "stages": [
+        {
+          "stage_id": "window_gap",
+          "component_ids": [
+            "max_lag_state_and_full_decoder",
+            "bidirectional_feasibility_windows",
+            "operation_level_window_dispatch",
+            "windowed_gap_insertion",
+            "complete_seed_pool_fallback"
+          ]
+        },
+        {
+          "stage_id": "pair_regret",
+          "component_ids": [
+            "pair_slack_regret_scoring"
+          ]
+        },
+        {
+          "stage_id": "multistate",
+          "component_ids": [
+            "multi_state_constructive_control"
+          ]
+        }
+      ]
+    },
+    {
+      "track_id": "minimal_risk",
+      "title": "Pair slack 渐进构造",
+      "selection_hint": "保留单状态逐工序构造，先让 pair slack 真正进入分配与派工，再补上 gap 与多状态。",
+      "stages": [
+        {
+          "stage_id": "dispatch_regret",
+          "component_ids": [
+            "max_lag_state_and_full_decoder",
+            "bidirectional_feasibility_windows",
+            "operation_level_window_dispatch",
+            "pair_slack_regret_scoring",
+            "complete_seed_pool_fallback"
+          ]
+        },
+        {
+          "stage_id": "gap",
+          "component_ids": [
+            "windowed_gap_insertion"
+          ]
+        },
+        {
+          "stage_id": "multistate",
+          "component_ids": [
+            "multi_state_constructive_control"
+          ]
+        }
+      ]
+    },
+    {
+      "track_id": "orthogonal_mechanism",
+      "title": "多状态窗口探索",
+      "selection_hint": "先用带结构去重的多状态搜索覆盖不同 slack 盆地，再补上 regret 与 gap 细化。",
+      "stages": [
+        {
+          "stage_id": "window_frontier",
+          "component_ids": [
+            "max_lag_state_and_full_decoder",
+            "bidirectional_feasibility_windows",
+            "operation_level_window_dispatch",
+            "multi_state_constructive_control",
+            "complete_seed_pool_fallback"
+          ]
+        },
+        {
+          "stage_id": "regret",
+          "component_ids": [
+            "pair_slack_regret_scoring"
+          ]
+        },
+        {
+          "stage_id": "gap_refine",
+          "component_ids": [
+            "windowed_gap_insertion"
+          ]
+        }
+      ]
+    }
+  ],
+  "checkpoint_checks": [
+    {
+      "check_id": "cli_constructive_budget_reachability",
+      "component_ids": [
+        "operation_level_window_dispatch",
+        "complete_seed_pool_fallback"
+      ],
+      "requirement": "真实 CLI 必须在 exact fallback 前给 operation-level 主搜索和保守完整 seed pool 各自提供可达的独立预算；主 frontier 未形成两个完整叶节点时，seed pool 必须以有界 job-block 顺序和合法机器分配形成至少两个指纹不同、经完整 max-lag evaluator 验证的 schedule。最终 solution diagnostics 要合并同次运行的两个 required 构造计数；exact 结果、部分状态和重复指纹都不得计数。"
+    },
+    {
+      "check_id": "complete_seed_pool_evidence",
+      "component_ids": [
+        "complete_seed_pool_fallback"
+      ],
+      "requirement": "源码和诊断必须证明 exact 前真实运行了有界完整 seed fallback；要报告生成数、完整校验、非法拒绝、重复指纹拒绝和结构不同的合法候选数，且 candidates_evaluated 只统计完整合法的 seed。"
+    },
+    {
+      "check_id": "max_lag_decoder_semantics",
+      "component_ids": [
+        "max_lag_state_and_full_decoder"
+      ],
+      "requirement": "语义审查必须确认 maximum lag 不占用机器，且所有接受路径都调用完整差分约束重解码。"
+    },
+    {
+      "check_id": "window_reachability",
+      "component_ids": [
+        "bidirectional_feasibility_windows"
+      ],
+      "requirement": "源码必须存在 earliest 与 latest 两侧窗口，不能只有 ready time 或最终修补。"
+    },
+    {
+      "check_id": "operation_level_evidence",
+      "component_ids": [
+        "operation_level_window_dispatch"
+      ],
+      "requirement": "源码必须存在跨 job 的 operation-level ready set，不能仅仅打乱完整 job 顺序。"
+    },
+    {
+      "check_id": "window_gap_evidence",
+      "component_ids": [
+        "windowed_gap_insertion"
+      ],
+      "requirement": "源码必须对机器 gap 做 earliest/latest 相交检查，并在接受前完整重解码。"
+    },
+    {
+      "check_id": "pair_regret_evidence",
+      "component_ids": [
+        "pair_slack_regret_scoring"
+      ],
+      "requirement": "源码必须比较多个可加工机器的 max-lag slack 代价，并让评分真正进入分配选择。"
+    },
+    {
+      "check_id": "multi_state_evidence",
+      "component_ids": [
+        "multi_state_constructive_control"
+      ],
+      "requirement": "源码和诊断必须证明同时存在多个结构不同的部分排程状态，且 global best 要独立保存。"
+    }
+  ]
+}

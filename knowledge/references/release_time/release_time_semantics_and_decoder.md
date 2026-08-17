@@ -1,7 +1,7 @@
-# Release-Time FJSP Semantics And Decoder
+# 释放时间 FJSP 语义与解码器
 
-The variant is static FJSP with two additional lower-bound vectors. For job `j`, the first operation has `S[j,0] >= r[j]`. For every selected machine `m`, `S[j,o] >= a[m]`. These bounds do not alter candidate processing durations or machine capacity.
+该变种是在静态 FJSP 上增加两个下界向量。对工件 `j`，第一道工序满足 `S[j,0] >= r[j]`；对每台所选机器 `m`，满足 `S[j,o] >= a[m]`。这些下界不改变候选加工时长或机器容量。
 
-An active decoder initializes job-ready time from `r[j]` and machine calendar origin from `a[m]`. Gap insertion must clip every candidate gap to both bounds. A schedule that only delays the first operation after ordinary decoding is unsafe because it may create downstream machine overlap; propagate timing through the full precedence/resource graph.
+启用该变种的解码器应以 `r[j]` 初始化工件就绪时间，以 `a[m]` 初始化机器日历起点。空闲间隙插入必须把每个候选间隙同时裁剪到两个下界。普通解码完成后只延迟第一道工序是不安全的，因为这可能造成下游机器重叠；必须通过完整前驱/资源图传播时间。
 
-The authoritative format is the supplied release-time IO document. Real entries are nonnegative and row padding is exactly `-1`. The fixed evaluator recomputes makespan and checks both vectors.
+给定的释放时间 IO 文档是权威格式。实际条目必须非负，行填充值只能是 `-1`。固定 evaluator 重算最大完工时间并检查两个向量。

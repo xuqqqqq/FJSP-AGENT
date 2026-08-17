@@ -11,4 +11,8 @@ outputs/
 .env
 .env.*
 !.env.example
-knowledge/local_papers/raw/
+knowledge/imported/local_papers/raw/
+tmp/
+docs/presentations/
+tools/presentations/
+*.pdf

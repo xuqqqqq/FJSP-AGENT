@@ -1,26 +1,26 @@
 ---
 id: fjsp-reentrant-search-adaptation
 type: reference
-title: Re-entrant FJSP Search Adaptation
+title: 可重入 FJSP 搜索适配
 tags: [fjsp, reentrant_aware_search, bottleneck, critical_path, stnv, memetic, cp_sat]
 status: active
 ---
 
-# Re-entrant FJSP Search Adaptation
+# 可重入 FJSP 搜索适配
 
-Expansion preserves standard FJSP legality but changes search geometry. Repeated loop bodies amplify machine-load concentration, create repeated visits to the same machine groups, and lengthen job chains. Ordinary FJSP search remains valid, but it should see expanded identities and repeated-pass pressure.
+展开会保持标准 FJSP 合法性，但改变搜索空间的几何结构。重复回路体会放大机器负载集中，造成对同一机器组的重复访问，并延长工件链。普通 FJSP 搜索仍然有效，但必须识别展开后的工序身份和重复轮次压力。
 
-## Compatible Mechanisms
+## 兼容机制
 
-- Construction: combine earliest feasible gap and load balance with remaining-work pressure. A bounded STNV-style signal can favor an operation whose job will revisit a heavily loaded machine soon, reducing future bottleneck starvation. Keep this as one portfolio rule, not a universal dispatch law.
-- Local search: recompute the expanded disjunctive critical path and target critical machine blocks containing loop-body visits. Couple reassignment to alternative machines with insertion/swap and full re-decode; moving one pass must not silently force the other passes to follow it.
-- Population/memetic: encode every expanded operation distinctly, use precedence-preserving order operators, assignment mutation, diversity control, and bounded critical local improvement.
-- Exact hybrid: full CP-SAT is reasonable for small/low-flexibility expanded instances. On larger instances, restrict assignment/order changes around critical repeated visits, seed from the incumbent, and preserve a heuristic fallback.
+- 构造：把最早可行间隙和负载均衡与剩余工作量压力结合。可以使用有界的 STNV 风格信号，优先安排其工件将很快再次访问高负载机器的工序，以减少未来瓶颈饥饿。该信号只能作为组合中的一条规则，不能成为通用派工定律。
+- 局部搜索：重算展开后的析取图关键路径，并针对包含回路体访问的关键机器块。把换机分配与插入/交换及完整重新解码耦合；移动某一轮访问时，不得暗中迫使其他轮次同步移动。
+- 群体/模因搜索：对每道展开工序单独编码，使用保持前驱关系的顺序算子、分配变异、多样性控制和有界关键局部改进。
+- 精确混合：对小型或低柔性的展开实例，可以使用完整 CP-SAT。对大型实例，应把分配/顺序变化限制在关键重复访问附近，从当前最优解热启动，并保留启发式回退解。
 
-## Research Basis
+## 研究依据
 
-The supplied papers support a portfolio rather than one mandatory algorithm. Chen et al., *Re-entrant flexible scheduling: Models, algorithms and applications* (2015), surveys exact methods, dispatching rules, constructive and improvement heuristics, and hybrids. Chen et al., *Dynamic state-dependent dispatching for wafer fabrication* (International Journal of Production Research, 2004, DOI 10.1080/00207540410001721736), motivates dynamic bottleneck classification, STNV, and look-ahead starvation avoidance. The supplied CP/MIP and ant-colony papers support exact and population lanes.
+给定论文支持方法组合，而非唯一强制算法。Chen 等人的 *Re-entrant flexible scheduling: Models, algorithms and applications*（2015）综述了精确方法、派工规则、构造与改进启发式及混合方法。Chen 等人的 *Dynamic state-dependent dispatching for wafer fabrication*（International Journal of Production Research，2004，DOI 10.1080/00207540410001721736）为动态瓶颈分类、STNV 和前瞻式防饥饿提供依据。给定的 CP/MIP 与蚁群论文分别支持精确通道和群体通道。
 
-Additional 2024-2026 research confirms the same mix: Mlekusch and Hartl combine constraint programming with a hybrid genetic algorithm and critical-path blocks for a dual-resource re-entrant flexible flow shop (DOI 10.1080/00207543.2024.2392198); Yuan et al. study reinforcement-learning-guided metaheuristics for re-entrant flow shops (DOI 10.1049/cim2.70029); Zhang et al. use integrated construction and critical-path search for re-entrant/skippable hybrid flow shops (DOI 10.1080/00207543.2026.2708152). These models are not identical to this benchmark, so only their compatible search mechanisms are transferred.
+2024 至 2026 年的其他研究也支持相同的方法组合：Mlekusch 和 Hartl 针对双资源可重入柔性流水车间，把约束规划与混合遗传算法及关键路径块结合（DOI 10.1080/00207543.2024.2392198）；Yuan 等研究强化学习引导的可重入流水车间元启发式（DOI 10.1049/cim2.70029）；Zhang 等针对可重入/可跳过混合流水车间使用集成构造和关键路径搜索（DOI 10.1080/00207543.2026.2708152）。这些模型与本基准并不完全相同，因此只迁移兼容的搜索机制。
 
-Avoid importing online-factory WIP rules, batch semantics, skippable operations, dual resources, or stochastic rework into this static single-loop contract.
+不得把在线工厂在制品规则、批处理语义、可跳过工序、双资源或随机返工引入该静态单回路契约。

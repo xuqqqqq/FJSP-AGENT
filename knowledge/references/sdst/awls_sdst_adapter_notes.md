@@ -11,11 +11,11 @@
 
 ## 执行模式规则
 
-- 平台侧的参考验证可以复用 `harness_agent.domains.io`，但通用 orchestration 绝不能导入或执行具体方法实现。
-- 独立的 agent-generated solver 必须在生成的 artifact 内部自行实现当前 IO 派生的 parser、setup query 和 output writer。它不能导入 `harness_agent` 或 evaluator 内部实现。
-- 两种模式都必须保持冻结的 evaluator 语义。绝不要在 backend 自身里再创建第二套 parser。
+- 平台侧的参考验证可以复用 `harness_agent.domains.io`，但通用编排绝不能导入或执行具体方法实现。
+- 独立的 agent-generated solver 必须在生成的产物内部自行实现当前 IO 派生的 parser、setup query 和输出写入器。它不能导入 `harness_agent` 或 evaluator 内部实现。
+- 两种模式都必须保持冻结的 evaluator 语义。绝不要在后端自身里再创建第二套 parser。
 
-## Agent 优先的阶段顺序
+## 代理优先的阶段顺序
 
 1. 先让 AWLS 的时间传播变成 setup-aware，并与 evaluator 语义一致。
 2. 再适配同机 N7/N8 和换机 NK/RK/LK 的 move scoring。

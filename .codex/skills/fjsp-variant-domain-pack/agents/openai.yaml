@@ -1,4 +1,4 @@
 interface:
   display_name: "FJSP 变体领域包"
   short_description: "设计 FJSP 变体领域包"
-  default_prompt: "在需要通过领域包、RAG cards、Method Packages 和 evaluator 契约新增或审查 FJSP 变体时使用 $fjsp-variant-domain-pack。"
+  default_prompt: "在需要通过领域包、RAG 卡片、方法包和评测器契约新增或审查 FJSP 变体时使用 `$fjsp-variant-domain-pack`。"

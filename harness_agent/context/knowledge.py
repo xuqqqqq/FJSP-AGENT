@@ -44,6 +44,37 @@ _MIN_TIME_LAG_PATH_MARKERS = (
     "mitfjsp",
 )
 
+_MAX_TIME_LAG_TAGS = {
+    "fjsp_max_time_lag",
+    "maximum_time_lag",
+    "tlfjsp",
+    "upper_bound_lag",
+    "max_lag_aware_decoder",
+    "max_lag_aware_search",
+}
+
+_MAX_TIME_LAG_PATH_MARKERS = (
+    "max_time_lag",
+    "maximum_time_lag",
+    "tlfjsp",
+)
+
+_ALTERNATIVE_PATH_TAGS = {
+    "fjsp_alternative_path",
+    "alternative_path",
+    "alternative_route",
+    "route_choice",
+    "route_aware_decoder",
+    "route_aware_search",
+    "apfjsp",
+}
+
+_ALTERNATIVE_PATH_PATH_MARKERS = (
+    "alternative_path",
+    "alternative_route",
+    "apfjsp",
+)
+
 
 @dataclass(frozen=True)
 class KnowledgeSelection:
@@ -400,6 +431,28 @@ def select_knowledge_cards(
         tags.update({"fjsp_min_time_lag", "minimum_time_lag", "time_lag", "lag_aware_decoder"})
     else:
         tags.difference_update(_MIN_TIME_LAG_TAGS)
+    max_time_lag_active = _maximum_time_lag_active(
+        tags=tags,
+        instance_diagnostics=instance_diagnostics,
+        active_features=active_features,
+    )
+    if max_time_lag_active:
+        tags.update(
+            {"fjsp_max_time_lag", "maximum_time_lag", "time_lag", "upper_bound_lag", "max_lag_aware_decoder"}
+        )
+    else:
+        tags.difference_update(_MAX_TIME_LAG_TAGS)
+    alternative_path_active = _alternative_path_active(
+        tags=tags,
+        instance_diagnostics=instance_diagnostics,
+        active_features=active_features,
+    )
+    if alternative_path_active:
+        tags.update(
+            {"fjsp_alternative_path", "alternative_path", "route_choice", "route_aware_decoder"}
+        )
+    else:
+        tags.difference_update(_ALTERNATIVE_PATH_TAGS)
 
     selected: list[Path] = []
     excluded: list[dict[str, str]] = []
@@ -432,6 +485,24 @@ def select_knowledge_cards(
                 }
             )
             return
+        if not max_time_lag_active and _is_max_time_lag_specific_path(path):
+            excluded.append(
+                {
+                    "path": str(path),
+                    "source": source,
+                    "reason": "inactive_maximum_time_lag",
+                }
+            )
+            return
+        if not alternative_path_active and _is_alternative_path_specific_path(path):
+            excluded.append(
+                {
+                    "path": str(path),
+                    "source": source,
+                    "reason": "inactive_alternative_path",
+                }
+            )
+            return
         selected.append(path)
 
     for path in pack.base_cards:
@@ -446,7 +517,15 @@ def select_knowledge_cards(
         "problem_family": problem_family,
         "domain_pack": pack.family_id,
         "active_variant": (
-            "fjsp_sdst" if sdst_active else "fjsp_min_time_lag" if min_time_lag_active else "standard_fjsp"
+            "fjsp_sdst"
+            if sdst_active
+            else "fjsp_min_time_lag"
+            if min_time_lag_active
+            else "fjsp_max_time_lag"
+            if max_time_lag_active
+            else "fjsp_alternative_path"
+            if alternative_path_active
+            else "standard_fjsp"
         ),
         "active_features": sorted(_active_feature_terms(instance_diagnostics, active_features)),
         "requested_tags": requested_tags,
@@ -501,6 +580,28 @@ def select_tagged_knowledge_cards(
         effective_tags.update({"fjsp_min_time_lag", "minimum_time_lag", "time_lag", "lag_aware_decoder"})
     else:
         effective_tags.difference_update(_MIN_TIME_LAG_TAGS)
+    max_time_lag_active = _maximum_time_lag_active(
+        tags=effective_tags,
+        instance_diagnostics=instance_diagnostics,
+        active_features=active_features,
+    )
+    if max_time_lag_active:
+        effective_tags.update(
+            {"fjsp_max_time_lag", "maximum_time_lag", "time_lag", "upper_bound_lag", "max_lag_aware_decoder"}
+        )
+    else:
+        effective_tags.difference_update(_MAX_TIME_LAG_TAGS)
+    alternative_path_active = _alternative_path_active(
+        tags=effective_tags,
+        instance_diagnostics=instance_diagnostics,
+        active_features=active_features,
+    )
+    if alternative_path_active:
+        effective_tags.update(
+            {"fjsp_alternative_path", "alternative_path", "route_choice", "route_aware_decoder"}
+        )
+    else:
+        effective_tags.difference_update(_ALTERNATIVE_PATH_TAGS)
 
     selected: list[Path] = []
     excluded: list[dict[str, str]] = []
@@ -533,6 +634,24 @@ def select_tagged_knowledge_cards(
                 }
             )
             return
+        if not max_time_lag_active and _is_max_time_lag_specific_path(path):
+            excluded.append(
+                {
+                    "path": str(path),
+                    "source": source,
+                    "reason": "inactive_maximum_time_lag",
+                }
+            )
+            return
+        if not alternative_path_active and _is_alternative_path_specific_path(path):
+            excluded.append(
+                {
+                    "path": str(path),
+                    "source": source,
+                    "reason": "inactive_alternative_path",
+                }
+            )
+            return
         if _matches_query_excluded_path_marker(path, markers=pack.knowledge_query_excluded_path_markers):
             excluded.append(
                 {
@@ -560,7 +679,15 @@ def select_tagged_knowledge_cards(
         "domain_pack": pack.family_id,
         "selection_mode": "tagged_query",
         "active_variant": (
-            "fjsp_sdst" if sdst_active else "fjsp_min_time_lag" if min_time_lag_active else "standard_fjsp"
+            "fjsp_sdst"
+            if sdst_active
+            else "fjsp_min_time_lag"
+            if min_time_lag_active
+            else "fjsp_max_time_lag"
+            if max_time_lag_active
+            else "fjsp_alternative_path"
+            if alternative_path_active
+            else "standard_fjsp"
         ),
         "active_features": sorted(_active_feature_terms(instance_diagnostics, active_features)),
         "requested_tags": requested_tags,
@@ -607,6 +734,10 @@ def _active_feature_terms(
         terms.update({"fjsp_sdst", "sequence_dependent_setup", "setup_time"})
     if _minimum_time_lag_state_from_diagnostics(instance_diagnostics):
         terms.update({"fjsp_min_time_lag", "minimum_time_lag", "time_lag"})
+    if _maximum_time_lag_state_from_diagnostics(instance_diagnostics):
+        terms.update({"fjsp_max_time_lag", "maximum_time_lag", "time_lag"})
+    if _alternative_path_state_from_diagnostics(instance_diagnostics):
+        terms.update({"fjsp_alternative_path", "alternative_path", "route_choice"})
     return terms
 
 
@@ -647,6 +778,90 @@ def _minimum_time_lag_state_from_diagnostics(
     return any(
         str(item.get("variant") or "").strip().lower() == "fjsp_min_time_lag"
         or bool(item.get("has_minimum_time_lags"))
+        for item in instances
+    )
+
+
+def _maximum_time_lag_active(
+    *,
+    tags: set[str],
+    instance_diagnostics: dict[str, Any] | None,
+    active_features: list[str] | None,
+) -> bool:
+    diagnostic_state = _maximum_time_lag_state_from_diagnostics(instance_diagnostics)
+    if diagnostic_state is not None:
+        return diagnostic_state
+    feature_terms = _active_feature_terms(instance_diagnostics, active_features)
+    if feature_terms & _MAX_TIME_LAG_TAGS:
+        return True
+    return bool(tags & _MAX_TIME_LAG_TAGS)
+
+
+def _maximum_time_lag_state_from_diagnostics(
+    instance_diagnostics: dict[str, Any] | None,
+) -> bool | None:
+    if not isinstance(instance_diagnostics, dict):
+        return None
+    summary = instance_diagnostics.get("summary") if isinstance(instance_diagnostics.get("summary"), dict) else {}
+    instances = [item for item in instance_diagnostics.get("instances") or [] if isinstance(item, dict)]
+    diagnostics_have_shape = (
+        instance_diagnostics.get("status") in {"available", "partial"}
+        and (
+            int(summary.get("profiled_count") or 0) > 0
+            or int(summary.get("instance_count") or 0) > 0
+            or bool(instances)
+        )
+    )
+    if not diagnostics_have_shape:
+        return None
+    if int(summary.get("max_time_lag_instance_count") or 0) > 0:
+        return True
+    return any(
+        str(item.get("variant") or "").strip().lower() == "fjsp_max_time_lag"
+        or bool(item.get("has_maximum_time_lags"))
+        or int(item.get("max_time_lag_constraint_count") or 0) > 0
+        for item in instances
+    )
+
+
+def _alternative_path_active(
+    *,
+    tags: set[str],
+    instance_diagnostics: dict[str, Any] | None,
+    active_features: list[str] | None,
+) -> bool:
+    diagnostic_state = _alternative_path_state_from_diagnostics(instance_diagnostics)
+    if diagnostic_state is not None:
+        return diagnostic_state
+    feature_terms = _active_feature_terms(instance_diagnostics, active_features)
+    if feature_terms & _ALTERNATIVE_PATH_TAGS:
+        return True
+    return bool(tags & _ALTERNATIVE_PATH_TAGS)
+
+
+def _alternative_path_state_from_diagnostics(
+    instance_diagnostics: dict[str, Any] | None,
+) -> bool | None:
+    if not isinstance(instance_diagnostics, dict):
+        return None
+    summary = instance_diagnostics.get("summary") if isinstance(instance_diagnostics.get("summary"), dict) else {}
+    instances = [item for item in instance_diagnostics.get("instances") or [] if isinstance(item, dict)]
+    diagnostics_have_shape = (
+        instance_diagnostics.get("status") in {"available", "partial"}
+        and (
+            int(summary.get("profiled_count") or 0) > 0
+            or int(summary.get("instance_count") or 0) > 0
+            or bool(instances)
+        )
+    )
+    if not diagnostics_have_shape:
+        return None
+    if int(summary.get("alternative_path_instance_count") or 0) > 0:
+        return True
+    return any(
+        str(item.get("variant") or "").strip().lower() == "fjsp_alternative_path"
+        or bool(item.get("has_alternative_routes"))
+        or int(item.get("alternative_route_count") or 0) > 0
         for item in instances
     )
 
@@ -698,6 +913,16 @@ def _is_sdst_specific_path(path: Path) -> bool:
 def _is_min_time_lag_specific_path(path: Path) -> bool:
     normalized = str(path).replace("\\", "/").lower()
     return any(marker in normalized for marker in _MIN_TIME_LAG_PATH_MARKERS)
+
+
+def _is_max_time_lag_specific_path(path: Path) -> bool:
+    normalized = str(path).replace("\\", "/").lower()
+    return any(marker in normalized for marker in _MAX_TIME_LAG_PATH_MARKERS)
+
+
+def _is_alternative_path_specific_path(path: Path) -> bool:
+    normalized = str(path).replace("\\", "/").lower()
+    return any(marker in normalized for marker in _ALTERNATIVE_PATH_PATH_MARKERS)
 
 
 def _is_experiment_memory_path(path: Path) -> bool:

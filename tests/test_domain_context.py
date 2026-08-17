@@ -147,6 +147,46 @@ class DomainContextTests(unittest.TestCase):
             quality["variant_required_code_capabilities"],
         )
 
+    def test_maximum_time_lag_diagnostics_flow_into_quality_contract(self) -> None:
+        contract = self._contract(
+            problem_family="FJSP",
+            instance=ROOT / "examples" / "fjsp_max_time_lag_tiny.tlfjsp",
+        )
+        provider = get_domain_context_provider(contract.problem_family)
+
+        diagnostics = provider.inspect_instances(contract, project_root=ROOT)
+        features = provider.active_features(
+            contract=contract,
+            instance_diagnostics=diagnostics,
+            contract_review_evidence={},
+        )
+
+        self.assertEqual(1, diagnostics["summary"]["max_time_lag_instance_count"])
+        self.assertEqual("fjsp_max_time_lag", diagnostics["instances"][0]["variant"])
+        self.assertEqual(2, diagnostics["instances"][0]["max_time_lag_constraint_count"])
+        self.assertEqual(["fjsp_max_time_lag", "maximum_time_lag", "time_lag"], features)
+
+        quality = build_agent_generated_solver_quality_contract(
+            {
+                "evaluator_protocol": {
+                    "solver_command_template": "python examples/agent_generated_fjsp_solver.py",
+                    "evaluator_command_template": "python examples/standard_fjsp_evaluator.py",
+                },
+                "instance_diagnostics": diagnostics,
+                "problem_family_capability": {
+                    "family_id": "standard_fjsp",
+                    "supported_variants": ["standard_fjsp", "fjsp_max_time_lag"],
+                },
+                "baseline_generation": {"source": "agent_generated"},
+            }
+        )
+        self.assertIn("maximum_time_lag", quality["active_features"])
+        self.assertNotIn("minimum_time_lag", quality["active_features"])
+        self.assertIn(
+            "maximum_time_lag_parser_and_propagation_guard",
+            quality["variant_required_code_capabilities"],
+        )
+
     def test_machine_availability_diagnostics_flow_into_quality_contract(self) -> None:
         contract = self._contract(
             problem_family="FJSP",
@@ -183,6 +223,46 @@ class DomainContextTests(unittest.TestCase):
         self.assertIn(
             "machine_calendar_availability_guard",
             quality["variant_required_code_capabilities"],
+        )
+
+    def test_alternative_path_diagnostics_flow_into_quality_contract(self) -> None:
+        contract = self._contract(
+            problem_family="FJSP",
+            instance=ROOT / "examples" / "fjsp_alternative_path_tiny.apfjsp",
+        )
+        provider = get_domain_context_provider(contract.problem_family)
+
+        diagnostics = provider.inspect_instances(contract, project_root=ROOT)
+        features = provider.active_features(
+            contract=contract,
+            instance_diagnostics=diagnostics,
+            contract_review_evidence={},
+        )
+
+        self.assertEqual(1, diagnostics["summary"]["alternative_path_instance_count"])
+        self.assertEqual("fjsp_alternative_path", diagnostics["instances"][0]["variant"])
+        self.assertEqual(2, diagnostics["instances"][0]["alternative_route_count"])
+        self.assertEqual(["fjsp_alternative_path", "alternative_path", "route_choice"], features)
+
+        quality = build_agent_generated_solver_quality_contract(
+            {
+                "evaluator_protocol": {
+                    "solver_command_template": "python examples/agent_generated_fjsp_solver.py",
+                    "evaluator_command_template": "python examples/fjsp_alternative_path_evaluator.py",
+                },
+                "instance_diagnostics": diagnostics,
+                "baseline_generation": {"source": "agent_generated"},
+            }
+        )
+        self.assertIn("alternative_path", quality["active_features"])
+        self.assertIn("route_choice", quality["active_features"])
+        self.assertIn(
+            "alternative_path_route_selection_guard",
+            quality["variant_required_code_capabilities"],
+        )
+        self.assertIn(
+            "selected_routes",
+            provider.solution_contract()["variant_required_top_level_fields"]["fjsp_alternative_path"],
         )
 
     def test_unknown_problem_family_uses_generic_provider(self) -> None:

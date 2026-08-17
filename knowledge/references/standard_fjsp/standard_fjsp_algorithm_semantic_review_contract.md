@@ -13,7 +13,7 @@ status: curated
 
 ## 当前状态与全局最优
 
-凡是允许接受非改善 move 的元启发式，都必须维护两个不同状态：
+凡是允许接受非改善移动的元启发式，都必须维护两个不同状态：
 
 ```python
 current_assignment, current_sequences, current_schedule = initial_state
@@ -35,7 +35,7 @@ incumbent 保留原则。
 
 ## 逆向 Move 的禁忌属性
 
-接受一个 move 后，tabu memory 必须记录能够撤销该 move 的逆向属性。只记录正向目的地，
+接受一个移动后，tabu memory 必须记录能够撤销该移动的逆向属性。只记录正向目的地，
 通常无法阻止立刻回退。
 
 示例：
@@ -46,15 +46,15 @@ swap ... a,b ... -> ... b,a ...: store reverse attribute (machine, b, a)
 insert old_pos -> new_pos: store the position or local arc attribute that restores old_pos
 ```
 
-下一次迭代必须使用与存储时完全相同的属性表示来判断候选 move 是否 tabu。应增加一条
-行为测试：先接受一个 move，再生成它的逆 move，并证明在 tenure 到期前该逆 move 一直
+下一次迭代必须使用与存储时完全相同的属性表示来判断候选移动是否 tabu。应增加一条
+行为测试：先接受一个移动，再生成它的逆移动，并证明在 tenure 到期前该逆移动一直
 处于 tabu 状态。
 
 ## 特赦准则
 
 tabu candidate 只有在完整 decode 后严格优于全局最优目标时，才可以通过特赦被接受。特
 赦比较的是 `best_value`，而不只是当前状态。若一个号称 tabu loop 的实现只接受严格改
-善 move，那它仍然只是 hill climbing，无法依靠 tabu memory 跨越局部最优。
+善移动，那它仍然只是爬山搜索，无法依靠 tabu memory 跨越局部最优。
 
 ## 精确关键路径
 
@@ -79,12 +79,12 @@ tabu candidate 只有在完整 decode 后严格优于全局最优目标时，才
 
 对异机插入而言，在完整 decode 之前，就应根据 job 前驱/后继时序与目标机器序列结构，
 推导出一个有界的可行目标区间。完整 decode 仍然是最终权威，但若某实现声称自己是结构化
-邻域，实际却只在无关随机位置上采样，semantic review 应将其标记出来。
+邻域，实际却只在无关随机位置上采样，语义审查应将其标记出来。
 
 ## 运行时与阶段贡献
 
-候选应用必须具备事务性。搜索过程可以先在 `current` 上计算近似 move score，但真正应用
-被选中的 move 时，必须作用于 clone 或可恢复 snapshot，重建所有 links/times，并且只有
+候选应用必须具备事务性。搜索过程可以先在 `current` 上计算近似移动评分，但真正应用
+被选中的移动时，必须作用于 clone 或可恢复 snapshot，重建所有 links/times，并且只有
 在完整 decode 成功后才提交。如果在修改了 `current` 之后又捕获 cycle/decode 异常，却没
 有回滚，这属于阻断级语义错误，因为后续遍历与 tabu state 将不再描述一个合法排程。
 
@@ -123,13 +123,13 @@ elapsed time
 以下源码模式都需要显式行为验证：
 
 1. tabu loop 检查的是正向 move signature，并在接受后存储同一个 signature。这并不能
-   证明逆向 move 会被禁止。
-2. 一个允许非改善 move 的搜索只更新单一状态元组，并在返回时没有独立 clone 的全局最
+   证明逆向移动会被禁止。
+2. 一个允许非改善移动的搜索只更新单一状态元组，并在返回时没有独立 clone 的全局最
    优状态元组。
 3. 关键性传播使用了与图规模无关的固定少量轮 relaxation。
 4. 一个 latest-finishing 或 near-makespan 窗口被称为精确关键块，却没有 zero-slack
    与 tight-arc 证据。
-5. 某个 move 修改了 machine sequence，捕获失败的 update/decode 后继续执行，却没有恢
+5. 某个移动修改了 machine sequence，捕获失败的 update/decode 后继续执行，却没有恢
    复前一状态。
 6. solver 只在外层迭代之间检查时间，而单次 neighborhood 枚举就可能耗尽全部预算。
 

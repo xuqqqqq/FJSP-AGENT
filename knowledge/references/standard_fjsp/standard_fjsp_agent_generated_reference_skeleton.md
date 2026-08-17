@@ -1,4 +1,4 @@
-# 标准 FJSP Agent-Generated 参考骨架
+# 标准 FJSP Agent 生成参考骨架
 
 当 coding agent 需要依据 IO 文档，为标准 FJSP 创建或修复独立的
 `examples/agent_generated_fjsp_solver.py` 时，可使用本卡。
@@ -10,10 +10,10 @@
 不要硬编码实例规模、机器选择、工序顺序、makespan 数值、LB/UB 数值或先前的解文件。
 
 公开标准 FJSP 文本文件中的 machine id 既可能是 0-based，也可能是 1-based。不要在
-candidate-token loop 内无条件减 1。应先收集全部原始 id，再结合 `machine_count`
-推断基准，并在构建 `eligible` 时仅做一次标准化。
+候选项 token 循环里无条件减 1。应先收集全部原始 id，再结合 `machine_count`
+推断基准，并在构建 `eligible` 时只做一次标准化。
 
-## 完整 Baseline 骨架
+## 完整基线骨架
 
 ```python
 from __future__ import annotations
@@ -363,8 +363,8 @@ if __name__ == "__main__":
 
 - `parse_instance` 对应 `active_io_parser`
 - `initial_ready_list_state` 对应 `operation_level_ready_list_constructor`
-- `assignment` 与 `machine_sequences` 对应 `stable_operation_identity` 与 sequence state
+- `assignment` 与 `machine_sequences` 对应 `stable_operation_identity` 与顺序状态
 - `decode_state` 对应 progress/topological decoder
 - `coverage_ok` 对应完整 schedule coverage
 - `validate_schedule` 对应 eligibility、duration、precedence 与 non-overlap 检查
-- `apply_reassignment_move` 与 `improve_by_alternative_machine` 对应受保护的 local search
+- `apply_reassignment_move` 与 `improve_by_alternative_machine` 对应受保护的局部搜索

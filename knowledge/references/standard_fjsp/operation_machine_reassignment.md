@@ -33,7 +33,7 @@ move(operation=(job_id, op_id), from_machine=A, to_machine=B, insert_position=p)
 
 1. 构造式排程后的局部改进。
 2. Tabu Search 邻域。
-3. GA 个体 mutation。
+3. GA 个体变异。
 
 ## 失败模式
 

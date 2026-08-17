@@ -759,6 +759,93 @@ class DomainPackTests(unittest.TestCase):
         self.assertIn("零权 SCC", semantics_text)
         self.assertIn("无正权环", semantics_text)
 
+    def test_maximum_time_lag_routes_only_upper_bound_assets_and_packages(self) -> None:
+        diagnostics = {
+            "status": "available",
+            "summary": {
+                "instance_count": 1,
+                "profiled_count": 1,
+                "max_time_lag_instance_count": 1,
+                "min_time_lag_instance_count": 0,
+            },
+            "instances": [{"variant": "fjsp_max_time_lag", "max_time_lag_constraint_count": 2}],
+        }
+
+        selection = select_knowledge_cards(
+            problem_family="standard_fjsp",
+            instance_diagnostics=diagnostics,
+            active_features=["fjsp_max_time_lag", "maximum_time_lag", "time_lag"],
+        )
+        catalog = method_package_catalog(
+            problem_family="standard_fjsp",
+            active_features=["fjsp_max_time_lag", "maximum_time_lag", "time_lag"],
+        )
+        exact = method_package_catalog(
+            problem_family="standard_fjsp",
+            active_features=["fjsp_max_time_lag", "maximum_time_lag", "time_lag"],
+            knowledge_query_tags=["exact_hybrid", "cp_sat", "maximum_time_lag"],
+        )
+
+        names = {path.name for path in selection.cards}
+        self.assertEqual("fjsp_max_time_lag", selection.audit["active_variant"])
+        self.assertIn("max_time_lag_semantics_and_decoder.md", names)
+        self.assertNotIn("min_time_lag_semantics_and_decoder.md", names)
+        self.assertEqual(
+            {
+                "fjsp_max_time_lag_constructive_adaptation",
+                "fjsp_max_time_lag_coupled_local_search",
+                "fjsp_max_time_lag_exact_hybrid",
+            },
+            {item["package_id"] for item in catalog["packages"]},
+        )
+        self.assertEqual(
+            ["fjsp_max_time_lag_exact_hybrid"],
+            [item["package_id"] for item in exact["packages"]],
+        )
+
+    def test_alternative_path_routes_only_route_assets_and_packages(self) -> None:
+        diagnostics = {
+            "status": "available",
+            "summary": {
+                "instance_count": 1,
+                "profiled_count": 1,
+                "alternative_path_instance_count": 1,
+            },
+            "instances": [{"variant": "fjsp_alternative_path", "alternative_route_count": 2}],
+        }
+
+        selection = select_knowledge_cards(
+            problem_family="standard_fjsp",
+            instance_diagnostics=diagnostics,
+            active_features=["fjsp_alternative_path", "alternative_path", "route_choice"],
+        )
+        catalog = method_package_catalog(
+            problem_family="standard_fjsp",
+            active_features=["fjsp_alternative_path", "alternative_path", "route_choice"],
+        )
+        local = method_package_catalog(
+            problem_family="standard_fjsp",
+            active_features=["fjsp_alternative_path", "alternative_path", "route_choice"],
+            knowledge_query_tags=["coupled_local_search", "local_search", "route_choice"],
+        )
+
+        names = {path.name for path in selection.cards}
+        self.assertEqual("fjsp_alternative_path", selection.audit["active_variant"])
+        self.assertIn("alternative_path_semantics_and_validation.md", names)
+        self.assertNotIn("max_time_lag_semantics_and_decoder.md", names)
+        self.assertEqual(
+            {
+                "fjsp_alternative_path_constructive_adaptation",
+                "fjsp_alternative_path_coupled_local_search",
+                "fjsp_alternative_path_exact_hybrid",
+            },
+            {item["package_id"] for item in catalog["packages"]},
+        )
+        self.assertEqual(
+            ["fjsp_alternative_path_coupled_local_search"],
+            [item["package_id"] for item in local["packages"]],
+        )
+
     def test_minimum_time_lag_constructive_package_is_eligible(self) -> None:
         catalog = method_package_catalog(
             problem_family="standard_fjsp",

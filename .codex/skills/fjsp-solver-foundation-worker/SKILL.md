@@ -1,6 +1,6 @@
 ---
 name: fjsp-solver-foundation-worker
-description: 为受控 Coding Agent 实现或维护独立 FJSP 求解器的基础契约。用于解析实例、保持 CLI/JSON 输出、完整可行解码、deadline、incumbent 和诊断证据；只在 AlgoForge WorkerAssignment 明确授权时使用。
+description: 为受控编码代理实现或维护独立 FJSP 求解器的基础契约。用于解析实例、保持 CLI/JSON 输出、完整可行解码、deadline、incumbent 和诊断证据；只在 AlgoForge WorkerAssignment 明确授权时使用。
 ---
 
 # FJSP 求解器基础执行器
@@ -38,19 +38,19 @@ description: 为受控 Coding Agent 实现或维护独立 FJSP 求解器的基�
 
 ## 权限与边界
 
-- 本 Skill 只说明实现方法，不扩大 Main 选择的方法族，也不授权读取其他知识。
+- 本技能只说明实现方法，不扩大 Main 选择的方法族，也不授权读取其他知识。
 - Foundation 是所有方法族共享的可行性底座，不是 `constructive_search` 方法族的选择证据。
   完成合法 warm start 后，应由 Main 依据 sequence、assignment、diversity、exact 压力重新选族。
 - 每道工序必须恰好一次，机器资格和加工时长必须与输入一致，precedence 与 machine non-overlap 必须同时成立。
 - `schedule` 列表的记录顺序不是合法性语义；自检不得假定它已按 job、machine 或 start time 排序。
 - 不导入 Harness、evaluator、知识文件或历史解作为 solver 运行时依赖。
 - 不按实例名、已知目标、固定 seed 或保存的最佳排程分支。
-- 不修改 evaluator、协议、Skill、知识卡或 `WorkerAssignment`。
+- 不修改 evaluator、协议、技能、知识卡或 `WorkerAssignment`。
 
 ## 交付物
 
 - 一个满足活动 IO、CLI 和输出 schema 的基础求解器实现或修补。
-- 与其他已授权 Skill 可共享的表示、解码器、deadline 与 incumbent 接口。
+- 与其他已授权技能可共享的表示、解码器、deadline 与 incumbent 接口。
 - assignment 要求的编译与可选 smoke 结果，以及未实现或未激活机制的如实说明。
 
 ## 验证与停止条件

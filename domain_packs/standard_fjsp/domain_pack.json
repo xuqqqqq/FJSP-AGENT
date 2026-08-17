@@ -4,10 +4,14 @@
   "aliases": [
     "FJSP",
     "fjsp",
+    "fjsp_max_time_lag",
+    "fjsp_alternative_path",
     "fjsp_release_time",
     "fjsp_machine_availability",
     "fjsp_priority",
     "fjsp_reentrant",
+    "fjsp_jpc_tst",
+    "fjsp_pbpm",
     "reentrant_fjsp"
   ],
   "capability": {
@@ -18,10 +22,14 @@
       "fjsp_with_best_known_gap",
       "fjsp_sdst",
       "fjsp_min_time_lag",
+      "fjsp_max_time_lag",
+      "fjsp_alternative_path",
       "fjsp_release_time",
       "fjsp_machine_availability",
       "fjsp_priority",
-      "fjsp_reentrant"
+      "fjsp_reentrant",
+      "fjsp_jpc_tst",
+      "fjsp_pbpm"
     ],
     "canonical_objectives": [
       {
@@ -75,6 +83,14 @@
       "reentrant_route",
       "loop_expansion",
       "reentrant_aware_search"
+      ,"job_precedence"
+      ,"machine_transport"
+      ,"operation_setup"
+      ,"multi_feature"
+      ,"batching"
+      ,"parallel_batch_machine"
+      ,"batch_capacity"
+      ,"incompatible_job_families"
     ]
   },
   "agent_generated_baseline": {
@@ -86,7 +102,9 @@
       "harness_agent/core/bounds.py",
       "examples/standard_fjsp_evaluator.py",
       "examples/fjsp_priority_evaluator.py",
-      "examples/fjsp_reentrant_evaluator.py"
+      "examples/fjsp_reentrant_evaluator.py",
+      "examples/fjsp_pbpm_evaluator.py"
+      ,"examples/fjsp_alternative_path_evaluator.py"
     ],
     "hidden_reference_paths": []
   },
@@ -266,7 +284,9 @@
       "required_features": [],
       "excluded_features": [
         "sequence_dependent_setup",
-        "minimum_time_lag"
+        "minimum_time_lag",
+        "maximum_time_lag",
+        "alternative_path"
       ],
       "default_priority": 320,
       "always_include": false,
@@ -362,6 +382,30 @@
       "always_include": true
     },
     {
+      "skill_id": "fjsp-max-time-lag-adapter-worker",
+      "title": "FJSP 最大时间间隔适配执行器",
+      "description": "为已选 FJSP 方法族提供稀疏、可非相邻 maximum lag 的解析、双向时间窗传播、完整重解码和 CP-SAT 上界合同。",
+      "source_path": ".codex/skills/fjsp-max-time-lag-adapter-worker",
+      "method_families": ["constructive_search", "coupled_local_search", "exact_hybrid", "population_memetic"],
+      "activation_tags": ["maximum_time_lag", "time_lag", "upper_bound_lag", "max_lag_aware_decoder", "max_lag_aware_search"],
+      "required_features": ["maximum_time_lag"],
+      "excluded_features": ["sequence_dependent_setup", "minimum_time_lag"],
+      "default_priority": 515,
+      "always_include": true
+    },
+    {
+      "skill_id": "fjsp-alternative-path-adapter-worker",
+      "title": "替代工艺路线 FJSP 适配执行器",
+      "description": "为已选方法族提供 per-job 路线解析、selected_routes、动态工序集、路线切换完整重解码与条件 exact 建模合同。",
+      "source_path": ".codex/skills/fjsp-alternative-path-adapter-worker",
+      "method_families": ["constructive_search", "coupled_local_search", "exact_hybrid", "population_memetic"],
+      "activation_tags": ["alternative_path", "route_choice", "route_aware_decoder", "route_aware_search"],
+      "required_features": ["alternative_path"],
+      "excluded_features": ["sequence_dependent_setup", "minimum_time_lag", "maximum_time_lag"],
+      "default_priority": 518,
+      "always_include": true
+    },
+    {
       "skill_id": "fjsp-release-time-adapter-worker",
       "title": "Release-Time FJSP 实现适配器",
       "description": "为已选方法族提供 job release 和 machine initial availability 感知的完整解码与搜索合同。",
@@ -408,6 +452,30 @@
       "excluded_features": ["sequence_dependent_setup", "minimum_time_lag", "release_time", "machine_availability", "job_priority"],
       "default_priority": 530,
       "always_include": true
+    },
+    {
+      "skill_id": "fjsp-jpc-tst-adapter-worker",
+      "title": "多特性 FJSP-JPC-TST 实现适配器",
+      "description": "联合实现跨工件 BOM 前置、机器间运输等待和工序-机器准备时间。",
+      "source_path": ".codex/skills/fjsp-jpc-tst-adapter-worker",
+      "method_families": ["constructive_search", "coupled_local_search", "exact_hybrid", "population_memetic"],
+      "activation_tags": ["fjsp_jpc_tst", "job_precedence", "machine_transport", "operation_setup", "multi_feature"],
+      "required_features": ["job_precedence", "machine_transport", "operation_setup"],
+      "excluded_features": ["sequence_dependent_setup", "job_priority"],
+      "default_priority": 600,
+      "always_include": true
+    },
+    {
+      "skill_id": "fjsp-pbpm-adapter-worker",
+      "title": "并行组批 FJSP 实现适配器",
+      "description": "为已选方法族提供批机容量、同族组批、共享批时长和批级机器互斥合同。",
+      "source_path": ".codex/skills/fjsp-pbpm-adapter-worker",
+      "method_families": ["constructive_search", "coupled_local_search", "exact_hybrid", "population_memetic"],
+      "activation_tags": ["fjsp_pbpm", "batching", "parallel_batch_machine", "batch_capacity", "incompatible_job_families"],
+      "required_features": ["batching"],
+      "excluded_features": ["sequence_dependent_setup", "operation_setup"],
+      "default_priority": 610,
+      "always_include": true
     }
   ],
   "method_packages": [
@@ -434,7 +502,9 @@
       "required_features": [],
       "excluded_features": [
         "sequence_dependent_setup",
-        "minimum_time_lag"
+        "minimum_time_lag",
+        "maximum_time_lag",
+        "alternative_path"
       ],
       "assets": [
         "knowledge/method_packages/standard_fjsp_awls_hgtsa/README.md",
@@ -522,6 +592,96 @@
       "default_priority": 142
     },
     {
+      "package_id": "fjsp_max_time_lag_constructive_adaptation",
+      "title": "Max Time-Lag FJSP 构造搜索适配",
+      "description": "面向稀疏、可非相邻 maximum lag 的双向时间窗、空隙放置、pair-slack regret 与有界多状态构造。",
+      "method_families": ["constructive_search"],
+      "selection_enabled": true,
+      "activation_tags": ["constructive_search", "construction", "beam_search", "idle_gap", "maximum_time_lag", "time_lag", "upper_bound_lag", "max_lag_aware_decoder", "max_lag_aware_search"],
+      "strategy_types": ["baseline_constructor", "dispatch_rule", "path_selection"],
+      "required_features": ["maximum_time_lag"],
+      "excluded_features": ["sequence_dependent_setup", "minimum_time_lag"],
+      "assets": ["knowledge/references/max_time_lag/max_time_lag_semantics_and_decoder.md", "knowledge/references/max_time_lag/max_time_lag_search_adaptation.md", "knowledge/references/standard_fjsp/idle_critical_beam_implementation_template.md"],
+      "semantic_assets": ["knowledge/references/max_time_lag/max_time_lag_semantics_and_decoder.md", "knowledge/references/max_time_lag/max_time_lag_search_adaptation.md"],
+      "implementation_contract_asset": "knowledge/method_packages/fjsp_max_time_lag_constructive_adaptation/implementation_contract.json",
+      "default_priority": 154
+    },
+    {
+      "package_id": "fjsp_max_time_lag_coupled_local_search",
+      "title": "Max Time-Lag FJSP 耦合局部搜索适配",
+      "description": "围绕 tight pair、bridge chain、同机时间窗移动和跨机链压缩执行事务式完整重解码。",
+      "method_families": ["coupled_local_search"],
+      "selection_enabled": true,
+      "activation_tags": ["coupled_local_search", "critical_path", "critical_block", "machine_reassignment", "local_search", "tabu_search", "ils", "maximum_time_lag", "upper_bound_lag", "max_lag_aware_search"],
+      "strategy_types": ["local_search_operator", "path_selection"],
+      "required_features": ["maximum_time_lag"],
+      "excluded_features": ["sequence_dependent_setup", "minimum_time_lag"],
+      "assets": ["knowledge/references/max_time_lag/max_time_lag_semantics_and_decoder.md", "knowledge/references/max_time_lag/max_time_lag_search_adaptation.md"],
+      "semantic_assets": ["knowledge/references/max_time_lag/max_time_lag_semantics_and_decoder.md", "knowledge/references/max_time_lag/max_time_lag_search_adaptation.md"],
+      "implementation_contract_asset": "knowledge/method_packages/fjsp_max_time_lag_coupled_local_search/implementation_contract.json",
+      "default_priority": 149
+    },
+    {
+      "package_id": "fjsp_max_time_lag_exact_hybrid",
+      "title": "Max Time-Lag FJSP 精确混合适配",
+      "description": "使用真实 CP-SAT maximum-lag 上界、incumbent hint、pair-bounded trust region 和完整提取验收。",
+      "method_families": ["exact_hybrid"],
+      "selection_enabled": true,
+      "activation_tags": ["exact_hybrid", "cp_sat", "exact_method", "trust_region", "hybrid", "maximum_time_lag", "upper_bound_lag", "max_lag_aware_search"],
+      "strategy_types": ["path_selection", "local_search_operator"],
+      "required_features": ["maximum_time_lag"],
+      "excluded_features": ["sequence_dependent_setup", "minimum_time_lag"],
+      "assets": ["knowledge/references/max_time_lag/max_time_lag_semantics_and_decoder.md", "knowledge/references/max_time_lag/max_time_lag_search_adaptation.md", "knowledge/references/standard_fjsp/cp_sat_hybrid_blueprint.md"],
+      "semantic_assets": ["knowledge/references/max_time_lag/max_time_lag_semantics_and_decoder.md"],
+      "implementation_contract_asset": "knowledge/method_packages/fjsp_max_time_lag_exact_hybrid/implementation_contract.json",
+      "default_priority": 147
+    },
+    {
+      "package_id": "fjsp_alternative_path_constructive_adaptation",
+      "title": "替代工艺路线 FJSP 构造适配",
+      "description": "用 route-first、route-regret、多起点和路线感知解码联合选择路线、机器和派工顺序。",
+      "method_families": ["constructive_search"],
+      "selection_enabled": true,
+      "activation_tags": ["constructive_search", "construction", "multi_start", "alternative_path", "route_choice", "route_aware_decoder", "route_aware_search"],
+      "strategy_types": ["baseline_constructor", "dispatch_rule", "path_selection"],
+      "required_features": ["alternative_path"],
+      "excluded_features": ["sequence_dependent_setup", "minimum_time_lag", "maximum_time_lag"],
+      "assets": ["knowledge/references/alternative_path/alternative_path_semantics_and_validation.md", "knowledge/references/alternative_path/alternative_path_search_adaptation.md", "knowledge/references/standard_fjsp/constructive_multistart_blueprint.md"],
+      "semantic_assets": ["knowledge/references/alternative_path/alternative_path_semantics_and_validation.md", "knowledge/references/alternative_path/alternative_path_search_adaptation.md"],
+      "implementation_contract_asset": "knowledge/method_packages/fjsp_alternative_path_constructive_adaptation/implementation_contract.json",
+      "default_priority": 156
+    },
+    {
+      "package_id": "fjsp_alternative_path_coupled_local_search",
+      "title": "替代工艺路线 FJSP 耦合局部搜索适配",
+      "description": "联合 route-switch、换机和排序移动，并在路线改变后事务式完整重解码。",
+      "method_families": ["coupled_local_search"],
+      "selection_enabled": true,
+      "activation_tags": ["coupled_local_search", "local_search", "machine_reassignment", "critical_path", "alternative_path", "route_choice", "route_aware_search"],
+      "strategy_types": ["local_search_operator", "path_selection"],
+      "required_features": ["alternative_path"],
+      "excluded_features": ["sequence_dependent_setup", "minimum_time_lag", "maximum_time_lag"],
+      "assets": ["knowledge/references/alternative_path/alternative_path_semantics_and_validation.md", "knowledge/references/alternative_path/alternative_path_search_adaptation.md"],
+      "semantic_assets": ["knowledge/references/alternative_path/alternative_path_semantics_and_validation.md", "knowledge/references/alternative_path/alternative_path_search_adaptation.md"],
+      "implementation_contract_asset": "knowledge/method_packages/fjsp_alternative_path_coupled_local_search/implementation_contract.json",
+      "default_priority": 151
+    },
+    {
+      "package_id": "fjsp_alternative_path_exact_hybrid",
+      "title": "替代工艺路线 FJSP 精确混合适配",
+      "description": "使用 route one-hot、条件工序存在与 precedence、可选 interval、hint 和真实 CP-SAT 证据。",
+      "method_families": ["exact_hybrid"],
+      "selection_enabled": true,
+      "activation_tags": ["exact_hybrid", "cp_sat", "exact_method", "trust_region", "alternative_path", "route_choice", "route_aware_search"],
+      "strategy_types": ["path_selection", "local_search_operator"],
+      "required_features": ["alternative_path"],
+      "excluded_features": ["sequence_dependent_setup", "minimum_time_lag", "maximum_time_lag"],
+      "assets": ["knowledge/references/alternative_path/alternative_path_semantics_and_validation.md", "knowledge/references/alternative_path/alternative_path_search_adaptation.md", "knowledge/references/standard_fjsp/cp_sat_hybrid_blueprint.md"],
+      "semantic_assets": ["knowledge/references/alternative_path/alternative_path_semantics_and_validation.md"],
+      "implementation_contract_asset": "knowledge/method_packages/fjsp_alternative_path_exact_hybrid/implementation_contract.json",
+      "default_priority": 148
+    },
+    {
       "package_id": "fjsp_release_time_adaptation",
       "title": "Release-Time FJSP 横切适配",
       "description": "将 job release 与 machine initial availability 注入构造、局部搜索、种群和精确混合方法的完整解码与验收。",
@@ -604,6 +764,45 @@
       ],
       "implementation_contract_asset": "knowledge/method_packages/fjsp_reentrant_adaptation/implementation_contract.json",
       "default_priority": 160
+    },
+    {
+      "package_id": "fjsp_jpc_tst_adaptation",
+      "title": "多特性 FJSP-JPC-TST 横切适配",
+      "description": "用一个联合解码器处理 BOM 前置、运输和准备时间，并为构造、局部、种群及 CP 路线提供共同合法性合同。",
+      "method_families": ["constructive_search", "coupled_local_search", "exact_hybrid", "population_memetic"],
+      "selection_enabled": true,
+      "activation_tags": ["fjsp_jpc_tst", "job_precedence", "machine_transport", "operation_setup", "multi_feature", "cp_sat"],
+      "strategy_types": ["baseline_constructor", "dispatch_rule", "local_search_operator", "path_selection"],
+      "required_features": ["job_precedence", "machine_transport", "operation_setup"],
+      "excluded_features": ["sequence_dependent_setup", "job_priority"],
+      "assets": [
+        "knowledge/references/multi_feature/jpc_tst_semantics_and_search.md"
+      ],
+      "semantic_assets": [
+        "knowledge/references/multi_feature/jpc_tst_semantics_and_search.md"
+      ],
+      "implementation_contract_asset": "knowledge/method_packages/fjsp_jpc_tst_adaptation/implementation_contract.json",
+      "default_priority": 180
+    },
+    {
+      "package_id": "fjsp_pbpm_adaptation",
+      "title": "并行组批 FJSP 横切适配",
+      "description": "用统一批解码器联合处理机器选择、批归属、同族容量、共享最大时长和批级机器互斥。",
+      "method_families": ["constructive_search", "coupled_local_search", "exact_hybrid", "population_memetic"],
+      "selection_enabled": true,
+      "activation_tags": ["fjsp_pbpm", "batching", "parallel_batch_machine", "batch_capacity", "incompatible_job_families", "cp_sat"],
+      "strategy_types": ["baseline_constructor", "dispatch_rule", "local_search_operator", "path_selection"],
+      "required_features": ["batching"],
+      "excluded_features": ["sequence_dependent_setup", "operation_setup"],
+      "assets": [
+        "knowledge/references/pbpm/pbpm_semantics_and_decoder.md",
+        "knowledge/references/pbpm/pbpm_search_adaptation.md"
+      ],
+      "semantic_assets": [
+        "knowledge/references/pbpm/pbpm_semantics_and_decoder.md"
+      ],
+      "implementation_contract_asset": "knowledge/method_packages/fjsp_pbpm_adaptation/implementation_contract.json",
+      "default_priority": 190
     },
     {
       "package_id": "fjsp_sdst_awls_adaptation",
@@ -710,12 +909,24 @@
         "assignment_trust_region": "仅在关键或近关键工序池中做小半径换机并严格验收。",
         "order_preserving_redecode": "局部换机后保留 incumbent 的机器顺序秩进行修复式重解码。",
         "minimum_time_lag": "固定相邻工序 minimum lag 的 IO、machine-free 语义与合法性。",
+        "maximum_time_lag": "稀疏、可非相邻工序 maximum lag 的 IO、上界语义与合法性。",
         "time_lag": "工序间时间滞后约束、差分约束和时间图检索入口。",
         "lag_aware_decoder": "使用 p+lag job arcs、p machine arcs 和最长路传播的完整解码。",
         "lag_aware_search": "在构造、关键结构、邻域和接受中显式使用 minimum lag。",
+        "upper_bound_lag": "维护 maximum lag 的 earliest/latest 双向时间窗和可行上界。",
+        "max_lag_aware_decoder": "在完整解码中验证所有稀疏 maximum-lag 上界。",
+        "max_lag_aware_search": "围绕 tight pair、bridge chain 与时间窗压缩搜索。",
+        "alternative_path": "原始路线加替代路线的 per-job 选择、动态工序集与路线顺序语义。",
+        "route_choice": "恰好选择一条工艺路线并输出 selected_routes。",
+        "route_aware_decoder": "按当前选中路线重建工序集、precedence、机器分配和时序。",
+        "route_aware_search": "route-switch 与机器/排序决策耦合的构造、局部或 exact 搜索。",
         "job_priority": "软工件优先级集合及其不改变可行域的语义。",
         "priority_completion_time": "优先工件最大完工时间，作为 makespan 之后的词典序次目标。",
-        "priority_aware_search": "在构造、邻域、群体或精确搜索中显式施加优先工件搜索压力。"
+        "priority_aware_search": "在构造、邻域、群体或精确搜索中显式施加优先工件搜索压力。",
+        "batching": "把同一批次视为一个机器活动，并让批内成员共享起止时间。",
+        "parallel_batch_machine": "容量大于一且允许同族工序共享加工区间的并行组批机器。",
+        "batch_capacity": "每个批次允许包含的最大工件数。",
+        "incompatible_job_families": "仅同一 family 的工件可以进入同一批次。"
       },
       "exclude_path_markers": [
         "fjsp-awls-sdst-adapter",
@@ -860,13 +1071,43 @@
       ],
       "time_lag": [
         "knowledge/references/min_time_lag/min_time_lag_semantics_and_decoder.md",
-        "knowledge/references/min_time_lag/min_time_lag_search_adaptation.md"
+        "knowledge/references/min_time_lag/min_time_lag_search_adaptation.md",
+        "knowledge/references/max_time_lag/max_time_lag_semantics_and_decoder.md",
+        "knowledge/references/max_time_lag/max_time_lag_search_adaptation.md"
       ],
       "lag_aware_decoder": [
         "knowledge/references/min_time_lag/min_time_lag_semantics_and_decoder.md"
       ],
       "lag_aware_search": [
         "knowledge/references/min_time_lag/min_time_lag_search_adaptation.md"
+      ],
+      "maximum_time_lag": [
+        "knowledge/references/max_time_lag/max_time_lag_semantics_and_decoder.md",
+        "knowledge/references/max_time_lag/max_time_lag_search_adaptation.md"
+      ],
+      "upper_bound_lag": [
+        "knowledge/references/max_time_lag/max_time_lag_semantics_and_decoder.md",
+        "knowledge/references/max_time_lag/max_time_lag_search_adaptation.md"
+      ],
+      "max_lag_aware_decoder": [
+        "knowledge/references/max_time_lag/max_time_lag_semantics_and_decoder.md"
+      ],
+      "max_lag_aware_search": [
+        "knowledge/references/max_time_lag/max_time_lag_search_adaptation.md"
+      ],
+      "alternative_path": [
+        "knowledge/references/alternative_path/alternative_path_semantics_and_validation.md",
+        "knowledge/references/alternative_path/alternative_path_search_adaptation.md"
+      ],
+      "route_choice": [
+        "knowledge/references/alternative_path/alternative_path_semantics_and_validation.md",
+        "knowledge/references/alternative_path/alternative_path_search_adaptation.md"
+      ],
+      "route_aware_decoder": [
+        "knowledge/references/alternative_path/alternative_path_semantics_and_validation.md"
+      ],
+      "route_aware_search": [
+        "knowledge/references/alternative_path/alternative_path_search_adaptation.md"
       ],
       "job_priority": [
         "knowledge/references/priority/priority_semantics_and_objectives.md",
@@ -901,6 +1142,23 @@
       ],
       "machine_calendar": [
         "knowledge/references/machine_availability/machine_availability_semantics_and_decoder.md"
+      ],
+      "fjsp_pbpm": [
+        "knowledge/references/pbpm/pbpm_semantics_and_decoder.md",
+        "knowledge/references/pbpm/pbpm_search_adaptation.md"
+      ],
+      "batching": [
+        "knowledge/references/pbpm/pbpm_semantics_and_decoder.md",
+        "knowledge/references/pbpm/pbpm_search_adaptation.md"
+      ],
+      "parallel_batch_machine": [
+        "knowledge/references/pbpm/pbpm_semantics_and_decoder.md"
+      ],
+      "batch_capacity": [
+        "knowledge/references/pbpm/pbpm_semantics_and_decoder.md"
+      ],
+      "incompatible_job_families": [
+        "knowledge/references/pbpm/pbpm_semantics_and_decoder.md"
       ],
       "maintenance": [
         "knowledge/references/machine_availability/machine_availability_search_adaptation.md"

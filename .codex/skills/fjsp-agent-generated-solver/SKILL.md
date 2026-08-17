@@ -1,6 +1,6 @@
 ---
 name: fjsp-agent-generated-solver
-description: 在依据需求文档与 IO 文档生成、审查或演进独立的 agent 编写 FJSP/FJSP-SDST 求解器时使用，尤其适用于后端必须保持算法无关且求解器代码需由 Coding Agent 自主产出的场景。
+description: 在依据需求文档与 IO 文档生成、审查或演进独立自主编写的 FJSP/FJSP-SDST 求解器时使用，尤其适用于后端必须保持算法无关且求解器代码需由编码代理自主产出的场景。
 ---
 
 # FJSP 自主生成求解器
@@ -8,7 +8,7 @@ description: 在依据需求文档与 IO 文档生成、审查或演进独立的
 ## 触发条件
 
 - 需要从需求文档和 IO 契约直接生成、修补或演进独立运行的 FJSP/FJSP-SDST 求解器。
-- 后端必须保持算法无关，解码器、邻域和搜索逻辑必须由 Coding Agent 在候选代码中实现。
+- 后端必须保持算法无关，解码器、邻域和搜索逻辑必须由编码代理在候选代码中实现。
 - 需要在不依赖平台内部求解器实现的前提下完成合法性、可演进性和独立 CLI 交付。
 
 ## 读取顺序
@@ -37,7 +37,7 @@ description: 在依据需求文档与 IO 文档生成、审查或演进独立的
 
 ## 权限与边界
 
-- 本 Skill 提供方法约束，不替代 solver 实现。
+- 本技能提供方法约束，不替代 solver 实现。
 - 不要求后端编排提供 decoder 或 neighborhood 代码。
 - 不把 FJSP-SDST 或其他变体算法硬编码进通用 pipeline、evaluator、parser、promotion 或 web 代码。
 - 可复用知识模板，但必须保持 IO 派生、实例无关；不得复制已求解排程、固定工序顺序、基准特定分数或旧输出。

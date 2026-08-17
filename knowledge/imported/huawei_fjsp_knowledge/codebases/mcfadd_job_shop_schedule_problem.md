@@ -9,11 +9,11 @@ status: seed
 
 ## 仓库定位
 
-该仓库定位为并行 Tabu Search 和 Genetic Algorithm 调度求解，涉及 flexible job shop 和 sequence-dependent setup。虽然它未必适合直接接入 Barnes 标准 FJSP，但对华为工业算例中的顺序相关 setup 有参考价值。
+该仓库定位为并行禁忌搜索与遗传算法调度求解，涉及 flexible job shop 和 sequence-dependent setup。虽然它未必适合直接接入 Barnes 标准 FJSP，但对华为工业算例中的顺序相关 setup 有参考价值。
 
 ## 可复用模块
 
-1. Tabu Search 主循环。
+1. 禁忌搜索主循环。
 2. 遗传算法主循环。
 3. sequence-dependent setup 的处理方式。
 4. 甘特图和实验可视化。
@@ -29,5 +29,5 @@ status: seed
 ## 后续动作
 
 1. 暂不作为第一批直接依赖。
-2. 后续针对华为 setup 优化时，阅读其 setup move 和 tabu 设计。
+2. 后续针对华为 setup 优化时，阅读其 setup 移动和禁忌设计。
 

@@ -1,4 +1,4 @@
 interface:
   display_name: "FJSP 实验设计执行器"
-  short_description: "插桩并执行可证伪的 FJSP Worker 实验"
-  default_prompt: "在激活证据和有界本地检查的约束下实现 assignment 指定的机制。"
+  short_description: "插桩并执行可证伪的 FJSP 执行器实验"
+  default_prompt: "在激活证据和有界本地检查的约束下实现任务分配中指定的机制。"

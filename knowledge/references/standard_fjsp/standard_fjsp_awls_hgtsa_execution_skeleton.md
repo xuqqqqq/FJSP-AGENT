@@ -9,7 +9,7 @@ status: implementation_skeleton
 
 ## 目的
 
-本卡适用于已经具备合法 parser、constructor 与 output writer 的 agent-generated
+本卡适用于已经具备合法 parser、constructor 与 output writer 的 agent 生成
 标准 FJSP solver。它描述了在宣称实现 AWLS、N7/N8、NK、k-insertion 或关键路径局
 部搜索之前，至少需要具备的可执行结构。它提供的是方法知识，而不是后端 solver 代码。
 
@@ -18,7 +18,7 @@ status: implementation_skeleton
 
 ## 必需代码形态
 
-真正的 FJSP local-search 实现应包含以下相互连通的部分：
+真正的 FJSP 局部搜索实现应包含以下相互连通的部分：
 
 1. 稳定的工序标识。
    从 parser 到 constructor、decoder、neighborhood moves、self-check 与输出，
@@ -28,7 +28,7 @@ status: implementation_skeleton
 2. 搜索状态。
    同时维护 `assignment[op] = machine_id` 与
    `machine_sequences[machine_id] = [op, ...]`。单独的 schedule list 不足以支撑
-   N7/N8/NK 风格的 move，因为这类 move 作用于 machine arc。
+   N7/N8/NK 风格的移动，因为这类移动作用于 machine arc。
 
 3. 完整的 active decoder。
    实现一个 `decode_state(...)` 风格函数，它需要：
@@ -40,12 +40,12 @@ status: implementation_skeleton
    - 同时返回完整 schedule 与真实 makespan。
 
 4. 关键路径证据。
-   decode 后，应从解码图中计算或近似关键工序/关键块。忽略关键路径的 move，不应被称
-   为 N7/N8/AWLS local search。
+   decode 后，应从解码图中计算或近似关键工序/关键块。忽略关键路径的移动，不应被称
+   为 N7/N8/AWLS 局部搜索。
 
-5. 同机 N7/N8 move 生成器。
-   在关键机器块上生成有界 move，例如相邻交换、块首插入、块尾插入，以及在关键块内部
-   或附近对选定关键工序进行重定位。每个 move 都必须生成新的
+5. 同机 N7/N8 移动生成器。
+   在关键机器块上生成有界移动，例如相邻交换、块首插入、块尾插入，以及在关键块内部
+   或附近对选定关键工序进行重定位。每个移动都必须生成新的
    `assignment + machine_sequences` 状态，再调用完整 decoder。
 
 6. NK / k-insertion 换机重分配。
@@ -65,10 +65,10 @@ status: implementation_skeleton
 这些片段有意保持紧凑，并与具体实例无关。它们展示的是 coding agent 可适配到当前
 parser 与 output schema 的可复用方法结构，而不是后端编排代码。
 
-### Move 记录与应用
+### 移动记录与应用
 
 应使用能够同时表达 same-machine N8-like relocation 与 change-machine
-k-insertion 的 move object。不要原地修改 incumbent state。
+k-insertion 的移动对象。不要原地修改 incumbent state。
 
 ```python
 def apply_move(state, move):
@@ -88,7 +88,7 @@ def apply_move(state, move):
     return SearchState(assignment=assignment, machine_sequences=sequences)
 ```
 
-### 从已解码 Schedule 提取关键块
+### 从已解码 schedule 提取关键块
 
 如果 solver 已经具备 `decode_state(...)`，就应从解码时序中提取关键块，而不是移动随
 机工序。一个简单的首版可以先识别 zero-slack operations，再把同机连续工序切分为块。
@@ -186,7 +186,7 @@ def generate_k_insertion_neighbors(state, decoded, op_info, *, max_ops=12):
 
 ### 候选短名单
 
-应只 decode 有界 shortlist，而不是所有可能 move。一个简单 proxy 可以结合 criticality、
+应只 decode 有界 shortlist，而不是所有可能移动。一个简单 proxy 可以结合 criticality、
 目标机器负载与工序时长。proxy 只用于排序候选；最终接受仍必须依据 decode 后的
 makespan。
 
@@ -204,9 +204,9 @@ def shortlist_moves(moves, state, decoded, op_info, *, limit=200):
     return ranked[:limit]
 ```
 
-### 带多样化的 Tabu 循环
+### 带多样化的禁忌循环
 
-纯粹的 first-improvement hill climbing 往往过于集中，只会在单个 basin 内移动。最小
+纯粹的 first-improvement 爬山搜索往往过于集中，只会在单个盆地内移动。最小
 tabu loop 应保持 `current` 与 `best` 分离，允许非改善的当前 move，在出现全局改善时
 使用 aspiration，并在停滞后进行 perturb/restart。
 
@@ -292,19 +292,19 @@ def perturb_state(state, rng, *, moves=3):
 当 worker 提交 `solver_contract_self_check` 时，证据应指向与该骨架相对应的真实源码符号：
 
 - parser / operation map：例如 `parse_instance`、`op_info`、`all_ops`
-- state representation：例如 `assignment`、`machine_sequences`、`SearchState`
+- 状态表示：例如 `assignment`、`machine_sequences`、`SearchState`
 - decoder：例如 `decode_state`、`predecessors`、`successors`、`ready`、
   `progressed`、`topological_order`
-- neighborhoods：例如 `generate_n8_neighbors`、
+- 邻域：例如 `generate_n8_neighbors`、
   `generate_k_insertion_neighbors`、`apply_move`
-- incumbent preservation：例如 `best_state`、`best_schedule`、
+- incumbent 保留：例如 `best_state`、`best_schedule`、
   `if decoded is None: continue`、`if candidate_makespan < best_makespan`
-- runtime bounds：例如 `deadline`、`max_iterations`、`neighbor_limit`、
+- 运行时边界：例如 `deadline`、`max_iterations`、`neighbor_limit`、
   `no_improve_limit`
 
 ## 红旗信号
 
-即使文本中提到 AWLS、N7、N8 或 NK，以下情况也应视为浅层或无效的 local search：
+即使文本中提到 AWLS、N7、N8 或 NK，以下情况也应视为浅层或无效的局部搜索：
 
 1. 只修改 dispatch weight、ready-list tie-break 或随机 seed。
 2. 移动 schedule 字典，却不重建 machine_sequences。
@@ -314,7 +314,7 @@ def perturb_state(state, rng, *, moves=3):
 5. 把部分、空或死锁候选当成 makespan 为 0 的候选进行比较。
 6. 在候选失败或更差后仍替换 `best_schedule`。
 7. 声称实现了 k-insertion，却从不枚举替代 eligible machine。
-8. 在表示与 decoder 已存在后，仍只使用“只接受改善”的随机 hill climbing；这只有
+8. 在表示与 decoder 已存在后，仍只使用“只接受改善”的随机爬山搜索；这只有
    intensification，几乎没有 diversification。
 9. 把某个从不 decode、或可能覆盖全局最优的扰动称为“diversification”。
 
@@ -329,7 +329,7 @@ def perturb_state(state, rng, *, moves=3):
 4. 添加一个有界的异机插入 move；
 5. 添加 tabu memory 与 candidate shortlisting。
 
-如果上一轮已经加入了随机换机 hill climbing，下一轮就不应再添加另一个随机 hill
+如果上一轮已经加入了随机换机爬山搜索，下一轮就不应再添加另一个随机 hill
 climber。应按以下方向升级：
 
 1. 从 critical path / critical blocks 中选取工序，而不是对所有工序一视同仁；

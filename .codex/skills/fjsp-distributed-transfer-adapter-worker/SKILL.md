@@ -1,34 +1,34 @@
 ---
 name: fjsp-distributed-transfer-adapter-worker
-description: 为 DFJSPT 实现工厂/机器联合分配、转移时间、负载与能耗目标。
+description: 为 DFJSPT 实现工厂与机器联合分配、转移时间、负载与能耗目标。
 ---
 
-# Distributed FJSP With Transfers Adapter
+# 带转移时间的分布式 FJSP 适配器
 
-## Contract
+## 契约
 
-- Parse the five-line DFM header and grouped candidates; input identifiers are 1-based, output identifiers 0-based. Machine IDs remain global across factory groups after conversion and must not be renumbered within each factory.
-- Transfer delay is 60 across factories, 30 for same-factory different-machine, and 0 only when both factory and machine are identical. In code, compare factory IDs before machine IDs; equal numeric machine IDs in different factories are different resources and still require the cross-factory delay.
-- Evaluate lexicographically: makespan, max factory workload, total energy consumption.
-- Output every operation with both `factory_id` and `machine_id`.
-- The supplied paper uses Pareto ranking, while this runtime emits one fixed lexicographic winner. A Pareto archive may support internal diversity, but weighted sums or arbitrary archive selection may not replace the Core objective order.
+- 解析五行 DFM 头部和分组候选；输入标识为 1-based，输出标识为 0-based。机器 ID 在跨工厂分组转换后仍保持全局编号，不得在各工厂内重新编号。
+- 转移延迟规定为：跨工厂 60，同工厂异机器 30，只有工厂和机器都相同才为 0。代码中必须先比较工厂 ID，再比较机器 ID；不同工厂中数值相同的机器 ID 仍是不同资源，仍需支付跨工厂延迟。
+- 目标按词典序评估：`makespan`、最大工厂负载、总能耗。
+- 输出中的每道工序都必须同时包含 `factory_id` 和 `machine_id`。
+- 参考论文使用 Pareto 排序，而当前运行时输出一个固定的词典序最优解。Pareto 档案可用于内部多样性维护，但不能用加权和或任意档案选择替代 Core 的目标顺序。
 
-## Implementation
+## 实现
 
-1. Parse candidate groups structurally. For each operation, `candidate_count` is the total across all `F` factories. Enumerate compositions `(g_1,...,g_F)` where every `g_f` lies within the header's per-factory min/max and their sum is `candidate_count`. For factory `f`, require the first option to be `f machine duration energy`, then read exactly `g_f-1` options as `machine duration energy`. Validate the next factory marker and backtrack across remaining operations when more than one composition is possible. Accept a backtracking branch only when it parses every declared operation and consumes the entire job row; reject trailing tokens. Validate every raw machine ID against `1..F*machines_per_factory` before converting it to global 0-based form.
-2. Never guess whether a token is a factory marker from its numeric size. Processing times and energies can be small, while machine IDs are globally numbered and can exceed the machines-per-factory value.
-3. Represent each assignment as a `(factory,machine)` pair. Treat the explicit candidate-group factory marker as authoritative; machine values alone do not define factory blocks. Never collapse or locally renumber resources from different factories.
-4. Preserve duplicate candidate entries. Select and validate an option by `(factory,machine,actual_duration)`, not only `(factory,machine)`; when multiple input tuples have the same three values, use the last matching tuple deterministically for unit energy.
-5. Decode job arcs by comparing factory IDs before machine IDs, and resource arcs within each complete factory-machine pair.
-6. Track processing energy `duration * unit_energy` and transfer energy `delay * 6` incrementally, then fully recompute accepted candidates from the selected legal option tuples. A nonempty self-check error list is a failed candidate and must never be emitted or retained as a legal incumbent.
-7. Search across factory reassignment, machine reassignment, critical order, and balanced-load moves; preserve one independent incumbent.
-8. Report per-objective deltas and a transfer legality audit. Do not claim CP-SAT unless the exact model actually ran.
+1. 以结构化方式解析候选分组。对每道工序，`candidate_count` 表示跨全部 `F` 个工厂的候选总数。枚举组合 `(g_1,...,g_F)`，其中每个 `g_f` 都落在头部给出的该工厂最小值和最大值之间，且总和等于 `candidate_count`。对工厂 `f`，第一条候选必须是 `f machine duration energy`，随后恰好读取 `g_f-1` 条 `machine duration energy`。验证下一个工厂标记；若存在多种组合可能，就对后续工序回溯。只有在某个回溯分支成功解析全部声明工序并完整消耗整行作业数据时才能接受；尾随多余 token 一律拒绝。每个原始机器 ID 在转成全局 0-based 之前，都必须先验证属于 `1..F*machines_per_factory`。
+2. 不要根据数字大小猜测某个 token 是否是工厂标记。加工时间和能耗值可能很小，而机器 ID 使用全局编号，可能大于每工厂机器数。
+3. 每个分配都表示为 `(factory,machine)` 对。候选分组里显式给出的工厂标记是权威信息；不能只靠机器值判断工厂块。不同工厂的资源不得合并，也不得局部重编号。
+4. 保留重复候选项。选择与校验候选时必须使用 `(factory,machine,actual_duration)`，而不只是 `(factory,machine)`；若输入里有多个三元组完全相同，单位能耗应确定性地取最后一个匹配项。
+5. 对作业弧的解码应先比较工厂 ID，再比较机器 ID；资源弧则按完整的工厂-机器对建立。
+6. 递增跟踪加工能耗 `duration * unit_energy` 和转移能耗 `delay * 6`，随后再基于选中的合法候选元组完整重算被接受解的能耗。只要自检错误列表非空，该候选就是失败候选，绝不能输出，也不能保留为合法 incumbent。
+7. 搜索需覆盖工厂重分配、机器重分配、关键顺序调整和负载平衡 move，并始终保留一份独立 incumbent。
+8. 报告各目标的增量变化和转移合法性审计。只有在精确模型实际运行过时，才能声称使用了 CP-SAT。
 
-## Method Guidance
+## 方法指引
 
-- For `population_memetic`, keep coupled OS/FA/MA decisions, use GLR-style global/local/random initialization, precedence-preserving OS variation, option-valid assignment variation, and bounded local search. Treat the paper's 60/30/10 initialization split as a tunable hypothesis, not a hardcoded answer.
-- For `coupled_local_search`, implement the mechanisms behind LSO_SP, LSO_MPT, and LSO_RTT: critical-block sequence moves, faster eligible factory-machine replacement, and transfer-reducing replacement. Every move must be fully re-decoded before acceptance.
-- For `constructive_search`, use multiple transfer/load-aware starts; do not label a single greedy dispatch as memetic search.
-- For `exact_hybrid`, model the active three-objective runtime contract or a clearly bounded repair neighborhood and retain the legal heuristic incumbent on timeout.
+- 对 `population_memetic`，保持 OS/FA/MA 的耦合决策，使用 GLR 风格的全局/局部/随机初始化、保持 precedence 的 OS 变异、候选合法的分配变异，以及有界局部搜索。论文里的 60/30/10 初始化比例只能视为可调假设，不能硬编码成答案。
+- 对 `coupled_local_search`，实现 LSO_SP、LSO_MPT 和 LSO_RTT 对应的机制：关键块顺序 move、更快的合法工厂-机器替换，以及降低转移代价的替换。每个 move 在接受前都必须完整重解码。
+- 对 `constructive_search`，使用多个具备转移与负载感知的起点；不要把单一路径的贪心派工称作 memetic 搜索。
+- 对 `exact_hybrid`，建模当前激活的三目标运行时契约，或一个边界清晰的修复邻域；超时后必须保留合法的启发式 incumbent。
 
-Read the distributed semantics/search cards and assigned Method Package before editing.
+编辑前先阅读分布式语义卡、搜索卡以及已分配的方法包。

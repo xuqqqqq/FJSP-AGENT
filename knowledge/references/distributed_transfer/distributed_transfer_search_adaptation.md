@@ -1,40 +1,40 @@
-# Distributed FJSP With Transfers Search Adaptation
+# 带转运的分布式 FJSP 搜索适配
 
-## Representation And Decoding
+## 表示与解码
 
-The supplied Luo et al. reference uses three coupled vectors: operation sequence (OS), factory assignment (FA), and machine assignment (MA). A repository solver may use another representation, but it must preserve the same three decisions and decode them together. A factory or machine change can alter processing time, transfer delay, factory workload, energy, and the feasible machine sequence; never score such a move by changing one cached term alone.
+给定的 Luo 等人文献采用三个耦合向量：工序顺序（OS）、工厂分配（FA）和机器分配（MA）。仓库中的求解器可以使用其他表示，但必须保留这三类决策并联合解码。工厂或机器的变化可能同时改变加工时间、转运延迟、工厂负载、能耗和机器序列可行性；不得只修改一个缓存项就对这类移动评分。
 
-Maintain an independent fully decoded incumbent. Candidate comparison must fully recompute transfer-weighted job readiness and `(factory,machine)` resource capacity. Structurally distinct FA/MA assignments matter because low-makespan basins can have materially different workload and energy values.
+维护一个独立且经过完整解码的当前最优解。比较候选解时，必须完整重算包含转运时间的工件就绪时间和 `(factory,machine)` 资源容量。应保留结构不同的 FA/MA 分配，因为具有较低最大完工时间的不同吸引域，其负载和能耗可能存在显著差异。
 
-## Initialization
+## 初始化
 
-The paper's GLR population combines global, local, and random assignment selection. Its reported implementation uses a 60/30/10 split, but those percentages are a starting hypothesis rather than a repository constant. Preserve the mechanism:
+文献中的 GLR 种群混合全局、局部和随机分配选择。其报告的实现采用 60/30/10 比例，但这些比例只是初始假设，不是仓库常量。应保留以下机制：
 
-- global seeds update factory and machine load while assigning operations;
-- local seeds diversify decisions within a job or bounded subset;
-- random seeds retain assignment diversity and must still use a legal decoder;
-- include at least one transfer-aware greedy seed that compares processing completion, predecessor transfer, and factory-load pressure.
+- 全局种子在分配工序时持续更新工厂和机器负载；
+- 局部种子在单个工件或有界子集内产生多样化决策；
+- 随机种子用于保持分配多样性，但仍必须通过合法解码器；
+- 至少包含一个转运感知贪心种子，联合比较加工完成时间、前驱转运时间和工厂负载压力。
 
-For a single-solution constructive lane, emulate the useful part of GLR with bounded multi-start rules rather than presenting one greedy dispatch as a memetic algorithm.
+对于单解构造通道，使用有界多起点规则模拟 GLR 中有用的部分，不得把一次贪心派工作为模因算法。
 
-## Variation And Local Search
+## 变异与局部搜索
 
-Population search is the literature-backed primary mechanism for these DFM instances. Use precedence-preserving OS crossover, option-valid FA/MA crossover or mutation, structural duplicate control, and bounded local improvement. The paper proposes inverse sequencing mutation (ISM) over a short OS segment and replacing-machine mutation (RMM) over MA positions.
+群体搜索是文献针对这些 DFM 实例支持的主要机制。采用保持前驱约束的 OS 交叉、保证候选选项合法的 FA/MA 交叉或变异、结构重复控制以及有界局部改进。文献提出在短 OS 片段上使用逆序变异（ISM），并在 MA 位置上使用机器替换变异（RMM）。
 
-Its critical-path local search contains three complementary mechanisms:
+其关键路径局部搜索包含三个互补机制：
 
-- `LSO_SP`: swap or reposition operations around critical blocks while preserving job precedence;
-- `LSO_MPT`: move a critical operation to an eligible factory-machine option with lower processing time;
-- `LSO_RTT`: choose an eligible option that reduces predecessor/successor transfer penalties.
+- `LSO_SP`：在保持工件前驱关系的前提下，交换或重定位关键块附近的工序；
+- `LSO_MPT`：把关键工序移动到加工时间更短的合法工厂-机器选项；
+- `LSO_RTT`：选择能够降低前驱/后继转运代价的合法选项。
 
-Repository implementations must evaluate these moves through a complete decoder. Add same-factory machine changes, cross-factory relocation, paired moves that avoid paying a transfer penalty twice, and load-balancing moves when they are authorized by the selected method family.
+仓库实现必须通过完整解码器评价这些移动。在所选方法族允许时，还应加入同厂换机、跨厂迁移、避免重复支付转运代价的成对移动，以及负载均衡移动。
 
-## Objective Contract
+## 目标契约
 
-The paper maintains a Pareto population with non-dominated sorting and crowding distance. The current fixed Core intentionally selects one result lexicographically by makespan, maximum factory workload, then total energy consumption. A Worker may maintain a Pareto archive internally for diversity, but it must emit one legal solution under the fixed lexicographic contract. Do not replace this order with a weighted sum, and do not claim that the platform reproduces the paper's Pareto evaluation protocol.
+文献使用非支配排序和拥挤距离维护帕累托种群。当前固定 Core 则有意按最大完工时间、最大工厂负载、总能耗的顺序进行词典序选择。Worker 可以在内部维护帕累托档案以保持多样性，但必须按照固定词典序契约输出一个合法解。不得把该顺序替换为加权和，也不得宣称平台复现了文献中的帕累托评价协议。
 
-Exact repair remains optional. If used, restrict it to a bounded critical operation set or a tractable complete model, report actual solver evidence, and preserve the heuristic incumbent on timeout.
+精确修复仍是可选机制。如使用精确修复，应将其限制在有界关键工序集合或规模可控的完整模型内，报告求解器实际运行证据，并在超时时保留启发式当前最优解。
 
-## Research Basis
+## 研究依据
 
-Primary supplied reference: Luo et al., *An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers* (2020). Its DFM representation, GLR initialization, OS/FA/MA encoding, ISM/RMM variation, and LSO_SP/LSO_MPT/LSO_RTT neighborhoods motivate these mechanisms. The repository's fixed IO and evaluator remain authoritative for identifiers, constants, and promotion order.
+主要给定文献：Luo 等，*An efficient memetic algorithm for distributed flexible job shop scheduling problem with transfers*（2020）。其中的 DFM 表示、GLR 初始化、OS/FA/MA 编码、ISM/RMM 变异和 `LSO_SP`/`LSO_MPT`/`LSO_RTT` 邻域构成上述机制的依据。仓库固定的 IO 和 evaluator 仍是标识符、常量与晋升顺序的权威来源。

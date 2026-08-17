@@ -1,13 +1,13 @@
 ---
 name: high-flexibility-fjsp-playbook
-description: 在标准 FJSP 的 makespan 优化中，当高柔性实例主导瓶颈时，指导 Coding Agent 组合 earliest-gap 构造、按工序 pressure/regret 的 assignment-first 优先级，以及保序重解码的小半径 assignment trust-region；不适用于仅低柔性零跨度实例或含额外非标准约束的问题。
+description: 在标准 FJSP 的 `makespan` 优化中，当高柔性实例主导瓶颈时，指导编码代理组合 `earliest-gap` 构造、按工序 `pressure/regret` 的分配优先规则，以及保序重解码的小半径分配信任域；不适用于仅低柔性零跨度实例或含额外非标准约束的问题。
 ---
 
-# 高柔性标准 FJSP 的 assignment-first 收敛打法
+# 高柔性标准 FJSP 的分配优先收敛打法
 
 ## 何时触发
 
-在下面条件同时成立时触发本 Skill：
+在下面条件同时成立时触发本技能：
 
 - 目标是最小化标准 FJSP 的 `makespan`。
 - 约束仍是标准工序前驱与机器互斥，没有额外的换型、运输、释放时间或多资源约束。
@@ -45,7 +45,7 @@ description: 在标准 FJSP 的 makespan 优化中，当高柔性实例主导瓶
 
 原因：在高柔性实例上，很多后续策略都依赖“候选机器真实最早可开工时间”，而不是串行近似的 `machine_ready`。
 
-## 第二阶段：对高柔性工序使用按工序的 assignment-first 优先级
+## 第二阶段：对高柔性工序使用按工序的分配优先规则
 
 不要只在整实例级别切换一套规则。对每个 ready 工序，按工序自身的 `pressure` 选择不同的 tie-break 侧重点：
 
@@ -66,7 +66,7 @@ assignment_regret(op, machine) = assignment_cost(op, machine) - theoretical_fast
 
 不要把最佳与次佳候选的完整 score 元组之差、元组的某个编码值、或两个候选排名之差
 命名为 assignment regret。那类差值混入了 start、finish、load 和稳定键，不能证明
-assignment-first 机制已实现。
+分配优先机制已实现。
 
 这一步的重点不是“盲目选最快机器”，而是在 earliest-gap 语义下，优先选择相对该工序自身最不吃亏的分配，同时保留剩余链信息，避免把低柔性工序也拖进过强的 assignment 偏好。
 
@@ -90,7 +90,7 @@ assignment-first 机制已实现。
 
 ## 局部换机后，重解码要保留 incumbent 的顺序秩
 
-这是本 Skill 里最不该丢掉的细节。
+这是本技能里最不该丢掉的细节。
 
 对高柔性实例做单工序或双工序换机后，如果直接把解重新交给全局贪心构造，很多本来有效的局部 move 会被新的贪心分叉冲掉，收益消失，甚至变差。
 
@@ -107,7 +107,7 @@ assignment-first 机制已实现。
 优先尝试：
 
 1. `earliest-gap` 解码。
-2. 按工序 `pressure + assignment regret` 的 assignment-first 构造。
+2. 按工序 `pressure + assignment regret` 的分配优先构造。
 3. 小半径、关键池约束的 assignment trust-region。
 4. 在提交前，按实例分别比较是否真的是高柔性实例在进步。
 
@@ -136,7 +136,7 @@ assignment-first 机制已实现。
 - 诊断信息可以放在 solver 内部，但不要改变正式输出协议。
 - 所有改动都应保持 deterministic，并在同一冻结口径下验证。
 
-## Activation 必须机器可判定
+## 激活证据必须可由机器判定
 
 任务书只要求当前阶段实际实现的检查，不要用自然语言描述代替 JSON 路径。构造阶段至少记录：
 

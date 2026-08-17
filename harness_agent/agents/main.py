@@ -320,6 +320,26 @@ def fallback_tournament_families(context: dict[str, Any], *, limit: int = 3) -> 
 def _fallback_method_family_preference(context: dict[str, Any]) -> list[str]:
     """Provide orthogonal fallback challengers from measurable search pressure."""
 
+    family_catalog = (
+        context.get("method_family_catalog")
+        if isinstance(context.get("method_family_catalog"), dict)
+        else {}
+    )
+    active_features = {
+        str(item or "").strip().lower()
+        for item in family_catalog.get("active_features") or []
+        if str(item or "").strip()
+    }
+    if active_features.intersection(
+        {"maximum_time_lag", "fjsp_max_time_lag", "alternative_path", "fjsp_alternative_path", "route_choice"}
+    ):
+        return [
+            "coupled_local_search",
+            "exact_hybrid",
+            "constructive_search",
+            "population_memetic",
+        ]
+
     diagnostics = context.get("instance_diagnostics")
     diagnostics = diagnostics if isinstance(diagnostics, dict) else {}
     summary = diagnostics.get("summary") if isinstance(diagnostics.get("summary"), dict) else {}
@@ -370,6 +390,277 @@ def _average_instance_metric(instances: list[dict[str, Any]], key: str) -> float
         except (KeyError, TypeError, ValueError):
             continue
     return sum(values) / len(values) if values else None
+
+
+def method_family_activation_checks(
+    method_family: Any,
+    *,
+    active_features: Any = None,
+) -> list[dict[str, Any]]:
+    """Return canonical runtime proof for a formal family and active variant."""
+
+    family = str(method_family or "").strip()
+    checks = {
+        "constructive_search": [
+            {
+                "id": "constructive_candidates_evaluated",
+                "path": "diagnostics.activation.constructive_search.candidates_evaluated",
+                "operator": "gt",
+                "expected": 1,
+                "required": True,
+            }
+        ],
+        "coupled_local_search": [
+            {
+                "id": "coupled_moves_evaluated",
+                "path": "diagnostics.activation.coupled_local_search.moves_evaluated",
+                "operator": "gt",
+                "expected": 0,
+                "required": True,
+            }
+        ],
+        "exact_hybrid": [
+            {
+                "id": "exact_cp_sat_called",
+                "path": "diagnostics.cp_sat_called",
+                "operator": "truthy",
+                "expected": True,
+                "required": True,
+            }
+        ],
+        "population_memetic": [
+            {
+                "id": "memetic_generations_completed",
+                "path": "diagnostics.activation.population_memetic.generations_completed",
+                "operator": "gt",
+                "expected": 0,
+                "required": True,
+            },
+            {
+                "id": "memetic_population_size",
+                "path": "diagnostics.activation.population_memetic.population_size",
+                "operator": "gt",
+                "expected": 1,
+                "required": True,
+            },
+        ],
+    }.get(family, [])
+    feature_terms = {
+        str(item or "").strip().lower()
+        for item in (active_features if isinstance(active_features, (list, tuple, set)) else [])
+        if str(item or "").strip()
+    }
+    if "fjsp_max_time_lag" in feature_terms:
+        feature_terms.add("maximum_time_lag")
+    if "fjsp_alternative_path" in feature_terms:
+        feature_terms.update({"alternative_path", "route_choice"})
+    if "maximum_time_lag" in feature_terms:
+        checks = [*checks, *_maximum_time_lag_activation_checks(family)]
+    if feature_terms.intersection({"alternative_path", "route_choice"}):
+        checks = [*checks, *_alternative_path_activation_checks(family)]
+    if feature_terms.intersection({"fjsp_pbpm", "batching", "parallel_batch_machine"}):
+        checks = [*checks, *_pbpm_activation_checks(family)]
+    return [dict(item) for item in checks]
+
+
+def _maximum_time_lag_activation_checks(method_family: str) -> list[dict[str, Any]]:
+    by_family = {
+        "constructive_search": [
+            {
+                "id": "max_lag_constructive_candidates_evaluated",
+                "path": "diagnostics.activation.maximum_time_lag.constructive_candidates_evaluated",
+                "operator": "gt",
+                "expected": 1,
+                "required": True,
+            }
+        ],
+        "coupled_local_search": [
+            {
+                "id": "max_lag_moves_evaluated",
+                "path": "diagnostics.activation.maximum_time_lag.moves_evaluated",
+                "operator": "gt",
+                "expected": 0,
+                "required": True,
+            }
+        ],
+        "exact_hybrid": [
+            {
+                "id": "max_lag_constraints_posted",
+                "path": "diagnostics.solver_evidence.max_lag_constraints_posted",
+                "operator": "gt",
+                "expected": 0,
+                "required": True,
+            }
+        ],
+        "population_memetic": [
+            {
+                "id": "max_lag_individuals_decoded",
+                "path": "diagnostics.activation.maximum_time_lag.individuals_decoded",
+                "operator": "gt",
+                "expected": 0,
+                "required": True,
+            }
+        ],
+    }
+    return by_family.get(method_family, [])
+
+
+def _pbpm_activation_checks(method_family: str) -> list[dict[str, Any]]:
+    if method_family == "exact_hybrid":
+        return [
+            {
+                "id": "pbpm_exact_feasible_status",
+                "path": "diagnostics.solver_evidence.solver_status",
+                "operator": "one_of",
+                "expected": ["FEASIBLE", "OPTIMAL"],
+                "required": True,
+            },
+            {
+                "id": "pbpm_grouped_batch_count",
+                "path": "best_metrics.grouped_batch_count",
+                "operator": "gt",
+                "expected": 0,
+                "required": True,
+            },
+        ]
+    if method_family not in {
+        "constructive_search",
+        "coupled_local_search",
+        "population_memetic",
+    }:
+        return []
+    return [
+        {
+            "id": "pbpm_grouped_batch_count",
+            "path": "best_metrics.grouped_batch_count",
+            "operator": "gt",
+            "expected": 0,
+            "required": True,
+        }
+    ]
+
+
+def _alternative_path_activation_checks(method_family: str) -> list[dict[str, Any]]:
+    by_family = {
+        "constructive_search": [
+            {
+                "id": "route_configurations_evaluated",
+                "path": "diagnostics.activation.alternative_path.route_configurations_evaluated",
+                "operator": "gt",
+                "expected": 1,
+                "required": True,
+            }
+        ],
+        "coupled_local_search": [
+            {
+                "id": "route_switch_moves_evaluated",
+                "path": "diagnostics.activation.alternative_path.route_switch_moves_evaluated",
+                "operator": "gt",
+                "expected": 0,
+                "required": True,
+            }
+        ],
+        "exact_hybrid": [
+            {
+                "id": "route_one_hot_constraints_posted",
+                "path": "diagnostics.solver_evidence.route_one_hot_constraints_posted",
+                "operator": "gt",
+                "expected": 0,
+                "required": True,
+            },
+            {
+                "id": "route_optional_intervals_posted",
+                "path": "diagnostics.solver_evidence.route_optional_intervals_posted",
+                "operator": "gt",
+                "expected": 0,
+                "required": True,
+            },
+            {
+                "id": "route_conditional_precedences_posted",
+                "path": "diagnostics.solver_evidence.route_conditional_precedences_posted",
+                "operator": "gt",
+                "expected": 0,
+                "required": True,
+            },
+        ],
+        "population_memetic": [
+            {
+                "id": "route_mutations_evaluated",
+                "path": "diagnostics.activation.alternative_path.route_mutations_evaluated",
+                "operator": "gt",
+                "expected": 0,
+                "required": True,
+            }
+        ],
+    }
+    return by_family.get(method_family, [])
+
+
+def ensure_method_family_activation_contract(
+    plan: dict[str, Any],
+    *,
+    active_features: Any = None,
+) -> dict[str, Any]:
+    """Merge non-replaceable family/variant proof into a formal lane plan."""
+
+    result = dict(plan)
+    inferred_features = _activation_features_for_plan(result, active_features=active_features)
+    checks = [
+        *normalize_activation_checks(result.get("activation_checks")),
+        *method_family_activation_checks(
+            result.get("method_family"),
+            active_features=inferred_features,
+        ),
+    ]
+    checks = list({(item["id"], item["path"]): item for item in checks}.values())[:12]
+    result["activation_checks"] = checks
+    result["activation_contract_version"] = 1 if checks else 0
+    return result
+
+
+def ensure_direction_activation_contracts(
+    plan: dict[str, Any],
+    *,
+    active_features: Any = None,
+) -> dict[str, Any]:
+    """Canonicalize activation proof for the direction and every tournament lane."""
+
+    result = ensure_method_family_activation_contract(
+        plan,
+        active_features=active_features,
+    )
+    result["candidate_variants"] = [
+        ensure_method_family_activation_contract(
+            variant,
+            active_features=active_features,
+        )
+        if isinstance(variant, dict)
+        else variant
+        for variant in result.get("candidate_variants") or []
+    ]
+    return result
+
+
+def _activation_features_for_plan(plan: dict[str, Any], *, active_features: Any) -> list[str]:
+    values = list(active_features) if isinstance(active_features, (list, tuple, set)) else []
+    values.extend(plan.get("knowledge_query") or [])
+    values.extend(
+        [
+            plan.get("method_package_id"),
+            (plan.get("implementation_bundle") or {}).get("contract_id")
+            if isinstance(plan.get("implementation_bundle"), dict)
+            else None,
+        ]
+    )
+    text = " ".join(str(item or "").strip().lower() for item in values)
+    features = {str(item or "").strip().lower() for item in values if str(item or "").strip()}
+    if "max_time_lag" in text or "maximum_time_lag" in text:
+        features.add("maximum_time_lag")
+    if "alternative_path" in text or "route_choice" in text:
+        features.update({"alternative_path", "route_choice"})
+    if any(marker in text for marker in ("fjsp_pbpm", "batching", "parallel_batch")):
+        features.update({"fjsp_pbpm", "batching"})
+    return sorted(features)
 
 
 def fallback_tournament_variants(
@@ -597,11 +888,22 @@ def configure_structured_worker_lanes(
         isinstance(plan.get("exact_probe_policy"), dict)
         and bool(plan["exact_probe_policy"].get("reserved"))
     )
+    family_tournament = len(
+        {
+            str(item.get("method_family") or "").strip()
+            for item in plan.get("candidate_variants") or []
+            if isinstance(item, dict) and str(item.get("method_family") or "").strip()
+        }
+    ) >= 2
+    preserve_inherited_experiment = bool(
+        plan.get("planner") == "evidence_fallback"
+        and (plan.get("activation_checks") or plan.get("candidate_variants"))
+    )
     plan["worker_lane_policy"] = {
         "schema_version": 1,
         "mechanism_selection": (
             "family_hypothesis_tournament"
-            if tournament
+            if tournament or (family_tournament and not exact_probe)
             else "exact_probe_tournament"
             if exact_probe
             else "delegated_to_worker"
@@ -614,10 +916,11 @@ def configure_structured_worker_lanes(
             "diagnostic_value",
         ][:max_workers],
     }
-    if not tournament and not exact_probe:
+    if not tournament and not family_tournament and not preserve_inherited_experiment:
         plan["candidate_variants"] = []
-    plan["activation_checks"] = []
-    plan["activation_contract_version"] = 0
+    if not preserve_inherited_experiment:
+        plan["activation_checks"] = []
+        plan["activation_contract_version"] = 0
     plan["planning_contract_status"] = {
         "schema_version": 1,
         "status": "satisfied",
@@ -671,6 +974,7 @@ def should_reserve_exact_probe(context: dict[str, Any], *, max_workers: int) -> 
     )
     small_instance = 0 < max_operations <= 60
     bounded_low_flexibility = 0 < max_operations <= 250 and low_flexibility
+    large_low_flexibility = max_operations > 250 and low_flexibility
     bounded_interval_model = bool(
         0 < max_operations <= 250
         and 0 < estimated_optional_intervals <= 1200
@@ -686,7 +990,12 @@ def should_reserve_exact_probe(context: dict[str, Any], *, max_workers: int) -> 
         isinstance(item, dict) and str(item.get("family_id") or "") == "exact_hybrid"
         for item in family_catalog.get("families") or []
     )
-    return exact_available and (small_instance or bounded_low_flexibility or bounded_interval_model)
+    return exact_available and (
+        small_instance
+        or bounded_low_flexibility
+        or bounded_interval_model
+        or large_low_flexibility
+    )
 
 
 def _exact_lane_avoid(avoid: Any) -> list[str]:
@@ -720,11 +1029,12 @@ def configure_exact_probe_tournament(
 
     primary = str(plan.get("method_family") or "").strip()
     if (
-        primary == "exact_hybrid"
+        max_workers < 2
+        or primary == "exact_hybrid"
         or str(plan.get("experiment_stage") or "") == "research_tournament"
-        or not should_reserve_exact_probe(context, max_workers=max_workers)
     ):
         return plan
+    reserve_exact = should_reserve_exact_probe(context, max_workers=max_workers)
     family_catalog = (
         context.get("method_family_catalog")
         if isinstance(context.get("method_family_catalog"), dict)
@@ -735,24 +1045,50 @@ def configure_exact_probe_tournament(
         for item in family_catalog.get("families") or []
         if isinstance(item, dict) and str(item.get("family_id") or "").strip()
     ]
-    ordered = [primary, "exact_hybrid"]
-    ordered.extend(
-        family for family in ("coupled_local_search", "population_memetic", "constructive_search")
-        if family not in ordered
-    )
-    selected = [family for family in ordered if family in available][:max_workers]
-    if "exact_hybrid" not in selected:
-        selected[-1:] = ["exact_hybrid"]
     active_catalog = (
         context.get("method_package_catalog")
         if isinstance(context.get("method_package_catalog"), dict)
         else {}
     )
     active_features = [str(item) for item in active_catalog.get("active_features") or []]
+    variant_adapted_families = {"constructive_search", "coupled_local_search", "exact_hybrid"}
+    requires_dedicated_variant_package = bool(
+        {"maximum_time_lag", "alternative_path", "route_choice"}.intersection(
+            str(item).strip().lower() for item in active_features
+        )
+    )
+    ordered = [primary] if not requires_dedicated_variant_package or primary in variant_adapted_families else []
+    if reserve_exact:
+        ordered.append("exact_hybrid")
+    ordered.extend(
+        family for family in (
+            "coupled_local_search",
+            "constructive_search" if requires_dedicated_variant_package else "population_memetic",
+            "population_memetic" if requires_dedicated_variant_package else "constructive_search",
+        )
+        if family not in ordered
+    )
+    selected = [family for family in ordered if family in available][:max_workers]
+    if reserve_exact and "exact_hybrid" not in selected:
+        selected[-1:] = ["exact_hybrid"]
+    if len(selected) < 2:
+        return plan
     task = context.get("task") if isinstance(context.get("task"), dict) else {}
+    diagnostics = (
+        context.get("instance_diagnostics")
+        if isinstance(context.get("instance_diagnostics"), dict)
+        else {}
+    )
+    diagnostic_summary = (
+        diagnostics.get("summary")
+        if isinstance(diagnostics.get("summary"), dict)
+        else {}
+    )
+    max_operations = int(diagnostic_summary.get("max_operation_count") or 0)
+    exact_scope = "local_trust_region" if max_operations > 250 else "complete_or_bounded"
     variants: list[dict[str, Any]] = []
     for index, family in enumerate(selected):
-        if family == primary:
+        if family == primary and not active_features:
             bound = dict(plan)
         else:
             query = [family, *active_features]
@@ -775,24 +1111,78 @@ def configure_exact_probe_tournament(
                 },
                 context=package_context,
             )
+        probe_id = {
+            "coupled_local_search": "coupled_local_search_probe",
+            "population_memetic": "population_memetic_probe",
+            "constructive_search": "constructive_search_probe",
+        }.get(family, "")
+        activation_checks = method_family_activation_checks(
+            family,
+            active_features=active_features,
+        )
+        exact_behavior = (
+            "Run a bounded CP-SAT critical trust region; keep the incumbent on timeout."
+            if exact_scope == "local_trust_region"
+            else "Run a bounded complete CP-SAT probe with a legal incumbent fallback."
+        )
+        exact_capacity_behavior = (
+            " Put the optional/fixed processing intervals (IntervalVar objects) in each machine NoOverlap; keep presence "
+            "BoolVars only as enforcement literals and never append BoolVars to NoOverlap. Track the "
+            "actual interval count when interval constructors are called; do not inspect constraint "
+            "protos with version-dependent WhichOneof reflection."
+        )
+        if {"machine_availability", "machine_calendar"}.intersection(active_features):
+            exact_capacity_behavior += " Put active fixed maintenance intervals in the same NoOverlap."
+        exact_entrypoint_behavior = (
+            " Wire the exact solve call into the active CLI path before final serialization, choose the "
+            "best legal exact/incumbent schedule, and merge exact evidence into output diagnostics. "
+            "A defined but unreachable model builder or solve function is incomplete."
+        )
+        family_hypothesis = {
+            "coupled_local_search": (
+                "Critical-block sequence moves and eligible-machine reinsertion can improve the incumbent "
+                "after constructive dispatching has stalled."
+            ),
+            "population_memetic": (
+                "A structurally diverse population of machine-order basins can escape the incumbent's "
+                "local sequence neighborhood."
+            ),
+            "constructive_search": (
+                "Multiple distinct complete dispatch/beam constructions can expose a better legal basin "
+                "than the current single construction."
+            ),
+        }.get(family, str(plan.get("hypothesis") or f"Probe {family} against the incumbent."))
+        family_objective = {
+            "coupled_local_search": (
+                "Run decoded critical-block sequence and machine-reassignment moves; retain the best incumbent."
+            ),
+            "population_memetic": (
+                "Run a population loop with distinct order fingerprints, legal offspring, and replacement."
+            ),
+            "constructive_search": (
+                "Evaluate multiple structurally distinct complete constructions or beam paths."
+            ),
+        }.get(family, str(plan.get("worker_objective") or family_hypothesis))
+        family_strategy = {
+            "coupled_local_search": "critical_block_local_search",
+            "population_memetic": "sequence_memetic_search",
+            "constructive_search": "multi_start_constructive_search",
+            "exact_hybrid": "local_trust_region_cp_sat",
+        }.get(family, "family_research_probe")
         variant = {
             "candidate_id": f"family-{index:02d}-{family}",
             "title": f"{family} bounded probe",
             "hypothesis": (
                 "A bounded CP-SAT model or exact neighborhood can close a useful lower bound quickly on this instance."
                 if family == "exact_hybrid"
-                else str(plan.get("hypothesis") or f"Probe {family} against the incumbent.")
+                else family_hypothesis
             ),
             "worker_objective": (
-                "Build and actually run a bounded exact model. When the estimated interval model is bounded, try the complete active-variant model first; report solver status, objective bound, model size, runtime, and fixed-evaluator legality. Preserve the incumbent on timeout or unavailable dependency."
+                f"{exact_behavior} Report status, objective bound, model size, runtime, and legality."
                 if family == "exact_hybrid"
-                else str(plan.get("worker_objective") or plan.get("hypothesis") or "Implement one bounded family probe.")
+                else family_objective
             ),
-            "strategy_type": (
-                "path_selection"
-                if family == "exact_hybrid"
-                else str(plan.get("strategy_type") or "family_research_probe")
-            ),
+            "strategy_type": family_strategy,
             "method_family": family,
             "method_families": [{"id": family, "role": "primary"}],
             "knowledge_query": bound.get("knowledge_query") or [],
@@ -802,25 +1192,42 @@ def configure_exact_probe_tournament(
                 "Implement one bounded family-specific probe while preserving the legal incumbent fallback."
             ],
             "implementation_order": (
-                ["exact_active_variant_cp_sat_probe"] if family == "exact_hybrid" else []
+                ["exact_active_variant_cp_sat_probe"]
+                if family == "exact_hybrid"
+                else [probe_id]
+                if probe_id
+                else []
             ),
             "deliverables": (
                 [
                     {
                         "id": "exact_active_variant_cp_sat_probe",
                         "behavior": (
-                            "Build and run one bounded complete active-variant CP-SAT probe, including fixed "
-                            "machine downtime intervals in NoOverlap, while retaining the legal incumbent fallback. "
-                            "Use bounded parallel CP-SAT search when multiple CPU cores are available; do not force "
-                            "single-thread search solely for deterministic replay."
+                            f"{exact_behavior}{exact_capacity_behavior}{exact_entrypoint_behavior} "
+                            "Use bounded parallel CP-SAT search."
                         ),
                         "evidence_required": (
                             "Report cp_sat_called=true, solver status, objective/bound, model variable/constraint/"
-                            "interval counts, runtime, num_search_workers, and fixed-evaluator legality."
+                            "interval counts, runtime, num_search_workers, and fixed-evaluator legality. Convert "
+                            "solver status and every diagnostic value to JSON-native scalars before output. The "
+                            "fixed smoke output itself must contain these diagnostics, proving CLI reachability."
                         ),
                     }
                 ]
                 if family == "exact_hybrid"
+                else [
+                    {
+                        "id": probe_id,
+                        "behavior": (
+                            f"Implement and execute one bounded {family} optimization loop beyond incumbent construction. "
+                            "Emit the canonical activation counters required by this candidate."
+                        ),
+                        "evidence_required": (
+                            "Fixed-evaluator legality plus all declared diagnostics.activation counters."
+                        ),
+                    }
+                ]
+                if probe_id
                 else []
             ),
             "avoid": (
@@ -828,7 +1235,8 @@ def configure_exact_probe_tournament(
                 if family == "exact_hybrid"
                 else list(plan.get("avoid") or [])
             ),
-            "activation_checks": [],
+            "activation_checks": activation_checks,
+            "activation_contract_version": 1 if activation_checks else 0,
         }
         for field in (
             "implementation_order",
@@ -846,18 +1254,31 @@ def configure_exact_probe_tournament(
         variants.append(variant)
     result = dict(plan)
     result["candidate_variants"] = variants
-    result["exact_probe_policy"] = {
+    result["method_family_tournament_policy"] = {
         "reserved": True,
-        "reason": "small_instance_or_bounded_exact_model",
-        "operation_threshold_small": 60,
-        "operation_threshold_low_flexibility": 250,
-        "operation_threshold_interval_model": 250,
-        "optional_interval_threshold": 1200,
-        "interval_plus_downtime_threshold": 1400,
-        "exact_candidate_id": next(
-            item["candidate_id"] for item in variants if item["method_family"] == "exact_hybrid"
-        ),
+        "reason": "parallel_workers_require_distinct_method_families",
+        "families": selected,
     }
+    if reserve_exact:
+        result["exact_probe_policy"] = {
+            "reserved": True,
+            "reason": (
+                "large_low_flexibility_local_exact"
+                if exact_scope == "local_trust_region"
+                else "small_instance_or_bounded_exact_model"
+            ),
+            "scope": exact_scope,
+            "operation_threshold_small": 60,
+            "operation_threshold_low_flexibility": 250,
+            "operation_threshold_interval_model": 250,
+            "optional_interval_threshold": 1200,
+            "interval_plus_downtime_threshold": 1400,
+            "exact_candidate_id": next(
+                item["candidate_id"]
+                for item in variants
+                if item["method_family"] == "exact_hybrid"
+            ),
+        }
     return result
 
 
@@ -1098,7 +1519,7 @@ def normalize_activation_checks(value: Any, *, limit: int = 8) -> list[dict[str,
 
     rows = value if isinstance(value, list) else []
     result: list[dict[str, Any]] = []
-    allowed_operators = {"exists", "truthy", "eq", "ne", "gt", "gte", "lt", "lte", "contains"}
+    allowed_operators = {"exists", "truthy", "eq", "ne", "gt", "gte", "lt", "lte", "contains", "one_of"}
     for item in rows:
         if not isinstance(item, dict):
             continue
@@ -1136,8 +1557,8 @@ def activation_check_schema_errors(
 
     rows = value if isinstance(value, list) else []
     errors: list[str] = []
-    allowed_operators = {"exists", "truthy", "eq", "ne", "gt", "gte", "lt", "lte", "contains"}
-    expected_required = {"eq", "ne", "gt", "gte", "lt", "lte", "contains"}
+    allowed_operators = {"exists", "truthy", "eq", "ne", "gt", "gte", "lt", "lte", "contains", "one_of"}
+    expected_required = {"eq", "ne", "gt", "gte", "lt", "lte", "contains", "one_of"}
     allowed_aggregations = {"any", "all", "min_passes"}
     for index, item in enumerate(rows):
         prefix = f"{field_name}[{index}]"
@@ -1633,7 +2054,20 @@ def _validate_assignment_revision(*, parent: WorkerAssignment, revision: WorkerA
         raise ValueError("repair assignment cannot change direction_id")
     parent_package = str(parent.method_package.get("package_id") or "")
     revision_package = str(revision.method_package.get("package_id") or "")
-    if revision_package != parent_package:
+    rescue = (
+        revision.latest_feedback.get("baseline_feasibility_rescue")
+        if isinstance(revision.latest_feedback.get("baseline_feasibility_rescue"), dict)
+        else {}
+    )
+    exact_baseline_rescue = bool(
+        int(parent.lineage.get("round_index", 0) or 0) == -1
+        and int(revision.lineage.get("round_index", 0) or 0) == -1
+        and str(rescue.get("method_family") or "") == "exact_hybrid"
+        and str(rescue.get("from_method_package_id") or "") == parent_package
+        and str(rescue.get("to_method_package_id") or "") == revision_package
+        and revision_package != parent_package
+    )
+    if revision_package != parent_package and not exact_baseline_rescue:
         raise ValueError("repair assignment cannot change method_package.package_id")
     if revision.target_file != parent.target_file:
         raise ValueError("repair assignment cannot change target_file")
@@ -1642,10 +2076,8 @@ def _validate_assignment_revision(*, parent: WorkerAssignment, revision: WorkerA
     staged_baseline_revision = (
         int(parent.lineage.get("round_index", 0) or 0) == -1
         and int(revision.lineage.get("round_index", 0) or 0) == -1
-        and int(revision.lineage.get("baseline_trial", 0) or 0)
-        == int(parent.lineage.get("baseline_trial", 0) or 0) + 1
     )
-    if revision_skills != parent_skills and not staged_baseline_revision:
+    if revision_skills != parent_skills and not (staged_baseline_revision or exact_baseline_rescue):
         raise ValueError("repair assignment cannot change implementation_skills")
     if revision.lineage.get("parent_assignment_id") != parent.assignment_id:
         raise ValueError("repair assignment must reference its parent assignment")
@@ -1695,6 +2127,9 @@ def method_implementation_bundle(package: dict[str, Any]) -> dict[str, Any]:
         "mode": str(contract.get("mode") or "complete_method_package")[:80],
         "completion_rule": str(contract.get("completion_rule") or "")[:1200],
         "variant_rule": str(contract.get("variant_rule") or "")[:1200],
+        "diagnostics_serialization_rule": str(
+            contract.get("diagnostics_serialization_rule") or ""
+        )[:1200],
         "fallback_improvement_order": _strings(contract.get("fallback_improvement_order"), limit=32),
         # 完整性契约不能静默截断，否则后面的组件永远不会进入实现和审查。
         "required_components": components,

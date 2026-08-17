@@ -22,6 +22,7 @@ from harness_agent.agents.main import (
     bind_direction_plan_to_method_catalog,
     configure_exact_probe_tournament,
     deterministic_round_reflection,
+    ensure_method_family_activation_contract,
     enforce_improvement_direction_contract,
     high_flexibility_query_tags,
     merge_public_reasoning_traces,
@@ -643,10 +644,21 @@ class OpenCodeMainAgent:
             isinstance(plan.get("exact_probe_policy"), dict)
             and bool(plan["exact_probe_policy"].get("reserved"))
         )
+        family_tournament = len(
+            {
+                str(item.get("method_family") or "").strip()
+                for item in plan.get("candidate_variants") or []
+                if isinstance(item, dict) and str(item.get("method_family") or "").strip()
+            }
+        ) >= 2
         plan["worker_lane_policy"] = {
             "schema_version": 1,
             "mechanism_selection": (
-                "exact_probe_tournament" if exact_probe else "delegated_to_worker"
+                "exact_probe_tournament"
+                if exact_probe
+                else "family_hypothesis_tournament"
+                if family_tournament
+                else "delegated_to_worker"
             ),
             "lane_count": max_workers,
             "roles": [
@@ -656,7 +668,7 @@ class OpenCodeMainAgent:
                 "diagnostic_value",
             ][:max_workers],
         }
-        if not exact_probe:
+        if not family_tournament:
             plan["candidate_variants"] = []
         plan["activation_checks"] = []
         plan["activation_contract_version"] = 0
@@ -1059,42 +1071,46 @@ class OpenCodeMainAgent:
                 if selection.get(key) not in (None, "", []):
                     plan[key] = selection[key]
             plan["selection_preserved_after_planning_fallback"] = True
-        if self.planning_mode == "fast" and request.round_index >= 0:
-            context = load_context_dict(request.context_packet_path)
-            task = context.get("task") if isinstance(context.get("task"), dict) else {}
-            original_catalog = (
-                context.get("method_package_catalog")
-                if isinstance(context.get("method_package_catalog"), dict)
-                else {}
+        context = load_context_dict(request.context_packet_path)
+        task = context.get("task") if isinstance(context.get("task"), dict) else {}
+        original_catalog = (
+            context.get("method_package_catalog")
+            if isinstance(context.get("method_package_catalog"), dict)
+            else {}
+        )
+        tournament = (
+            request.round_index >= 0
+            and str(plan.get("experiment_stage") or "") == "research_tournament"
+        )
+        if tournament:
+            plan = bind_fallback_tournament_variants(
+                context=context,
+                plan=plan,
+                loop_feedback=request.loop_feedback,
             )
-            tournament = str(plan.get("experiment_stage") or "") == "research_tournament"
-            if tournament:
-                plan = bind_fallback_tournament_variants(
-                    context=context,
-                    plan=plan,
-                    loop_feedback=request.loop_feedback,
-                )
-                plan["method_package_id"] = ""
-            else:
-                package_catalog = method_package_catalog(
-                    problem_family=str(task.get("problem_family") or ""),
-                    active_features=[str(item) for item in original_catalog.get("active_features") or []],
-                    knowledge_query_tags=method_package_query_tags(
-                        knowledge_query=plan.get("knowledge_query"),
-                        method_family=str(plan.get("method_family") or ""),
-                    ),
-                )
-                package_id, package_selection_source = resolve_fast_method_package(
-                    catalog=package_catalog,
+            # The round-level plan represents multiple independently bound packages.
+            plan["method_package_id"] = ""
+        else:
+            package_catalog = method_package_catalog(
+                problem_family=str(task.get("problem_family") or ""),
+                active_features=[str(item) for item in original_catalog.get("active_features") or []],
+                knowledge_query_tags=method_package_query_tags(
+                    knowledge_query=plan.get("knowledge_query"),
                     method_family=str(plan.get("method_family") or ""),
-                    loop_feedback=request.loop_feedback,
-                )
-                plan["method_package_id"] = package_id
-                package_context = dict(context)
-                package_context["method_package_catalog"] = package_catalog
-                plan = bind_direction_plan_to_method_catalog(plan, context=package_context)
-                plan["method_package_selection"]["selection_source"] = package_selection_source
-                plan["method_package_selection"]["selection_policy"] = "fast_harness_resolution"
+                ),
+            )
+            package_id, package_selection_source = resolve_fast_method_package(
+                catalog=package_catalog,
+                method_family=str(plan.get("method_family") or ""),
+                loop_feedback=request.loop_feedback,
+            )
+            plan["method_package_id"] = package_id
+            package_context = dict(context)
+            package_context["method_package_catalog"] = package_catalog
+            plan = bind_direction_plan_to_method_catalog(plan, context=package_context)
+            plan["method_package_selection"]["selection_source"] = package_selection_source
+            plan["method_package_selection"]["selection_policy"] = "fallback_harness_resolution"
+        if request.round_index >= 0:
             competition = (
                 request.loop_feedback.get("competition")
                 if isinstance(request.loop_feedback.get("competition"), dict)
@@ -1110,6 +1126,13 @@ class OpenCodeMainAgent:
                 isinstance(plan.get("exact_probe_policy"), dict)
                 and bool(plan["exact_probe_policy"].get("reserved"))
             )
+            family_tournament = len(
+                {
+                    str(item.get("method_family") or "").strip()
+                    for item in plan.get("candidate_variants") or []
+                    if isinstance(item, dict) and str(item.get("method_family") or "").strip()
+                }
+            ) >= 2
             plan["worker_lane_policy"] = {
                 "schema_version": 1,
                 "mechanism_selection": (
@@ -1117,6 +1140,8 @@ class OpenCodeMainAgent:
                     if tournament
                     else "exact_probe_tournament"
                     if exact_probe
+                    else "family_hypothesis_tournament"
+                    if family_tournament
                     else "delegated_to_worker"
                 ),
                 "lane_count": max_workers,
@@ -1127,7 +1152,7 @@ class OpenCodeMainAgent:
                     "diagnostic_value",
                 ][:max_workers],
             }
-            if not tournament and not exact_probe:
+            if not tournament and not family_tournament:
                 plan["candidate_variants"] = []
             plan["activation_checks"] = []
             plan["activation_contract_version"] = 0
@@ -1181,6 +1206,7 @@ def bind_fallback_tournament_variants(
             context=package_context,
         )
         for field in (
+            "method_package_id",
             "implementation_order",
             "deliverables",
             "knowledge_paths",
@@ -1196,7 +1222,12 @@ def bind_fallback_tournament_variants(
             "selection_source": source,
             "selection_policy": "fallback_family_tournament_resolution",
         }
-        variants.append(variant)
+        variants.append(
+            ensure_method_family_activation_contract(
+                variant,
+                active_features=original_catalog.get("active_features") or [],
+            )
+        )
     result = dict(plan)
     result["candidate_variants"] = variants
     result["tournament_contract"] = {

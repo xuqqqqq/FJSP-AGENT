@@ -3,9 +3,14 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
-from harness_agent.agents.main import DirectionPlanRequest, EvidenceDrivenMainAgent
+from harness_agent.agents.main import (
+    DirectionPlanRequest,
+    EvidenceDrivenMainAgent,
+    _validate_assignment_revision,
+)
 from harness_agent.context.knowledge import method_package_catalog
 from harness_agent.context.loader import load_context_dict
 from harness_agent.context.packet import (
@@ -20,6 +25,7 @@ from harness_agent.context.worker import (
     build_worker_assignment,
     write_worker_assignment,
 )
+from harness_agent.orchestration.loop import competitive_direction_plans
 from harness_agent.worker import WorkerAssignment
 
 
@@ -27,6 +33,169 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WorkerAssignmentTests(unittest.TestCase):
+    def test_staged_baseline_repair_may_upgrade_implementation_skills(self) -> None:
+        base = WorkerAssignment(
+            assignment_id="baseline-a00",
+            direction_id="baseline",
+            mode="baseline",
+            target_file="examples/solver.py",
+            objective="produce a legal baseline",
+            method_package={"package_id": "fjsp_pbpm_adaptation"},
+            read_set=[{"path": "examples/solver.py", "role": "target", "required": True}],
+            deliverables=[{"id": "legal", "behavior": "legal", "evidence_required": "Core"}],
+            implementation_order=["legal"],
+            preserve=[],
+            forbidden=[],
+            latest_feedback={},
+            checks=["compile"],
+            budgets={"max_edit_steps": 1, "max_runtime_seconds": 10},
+            completion_rule="Core-valid",
+            lineage={"round_index": -1, "baseline_trial": 1, "parent_assignment_id": None},
+            runtime_contract={},
+            implementation_skills=[{"skill_id": "fjsp-solver-foundation-worker"}],
+        )
+        revision = replace(
+            base,
+            assignment_id="baseline-a01",
+            lineage={"round_index": -1, "baseline_trial": 1, "parent_assignment_id": base.assignment_id},
+            implementation_skills=[
+                {"skill_id": "fjsp-solver-foundation-worker"},
+                {"skill_id": "fjsp-pbpm-adapter-worker"},
+            ],
+        )
+
+        _validate_assignment_revision(parent=base, revision=revision)
+
+    def test_max_lag_direct_constructive_stage_includes_complete_seed_pool(self) -> None:
+        package_catalog = method_package_catalog(
+            problem_family="FJSP",
+            active_features=["fjsp_max_time_lag", "maximum_time_lag", "time_lag"],
+            knowledge_query_tags=["constructive_search", "construction", "maximum_time_lag"],
+        )
+        active_package = next(
+            item
+            for item in package_catalog["packages"]
+            if item["package_id"] == "fjsp_max_time_lag_constructive_adaptation"
+        )
+        base = {
+            "direction_id": "max-lag-tournament",
+            "title": "Maximum-lag constructive lane",
+            "hypothesis": "Produce multiple fully validated max-lag-aware constructive candidates.",
+            "experiment_stage": "research_tournament",
+            "candidate_variants": [
+                {
+                    "candidate_id": "constructive",
+                    "method_family": "constructive_search",
+                    "method_families": [{"id": "constructive_search", "role": "primary"}],
+                    "method_package_id": active_package["package_id"],
+                    "implementation_bundle": active_package["implementation_contract"],
+                    "knowledge_query": ["constructive_search", "maximum_time_lag"],
+                }
+            ],
+            "worker_lane_policy": {
+                "mechanism_selection": "family_hypothesis_tournament",
+                "lane_count": 2,
+            },
+        }
+
+        plan = competitive_direction_plans(base, limit=2)[0]
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "evaluator_protocol": {
+                "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance}",
+            },
+            "edit_policy": {"allowed_paths": ["examples"], "forbidden_paths": ["outputs"]},
+            "method_package_catalog": package_catalog,
+            "active_method_package": active_package,
+        }
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan=plan,
+            loop_feedback={},
+            round_index=0,
+            attempt_index=0,
+            max_steps=4,
+            max_runtime_seconds=600,
+        )
+
+        self.assertEqual("direct_evidence", plan["worker_lane"]["track_id"])
+        self.assertIn("complete_seed_pool_fallback", plan["implementation_order"])
+        self.assertIn("complete_seed_pool_fallback", assignment.implementation_order)
+        self.assertIn(
+            "complete_seed_pool_fallback",
+            [item["id"] for item in assignment.deliverables],
+        )
+        checkpoint_ids = {item["check_id"] for item in plan["checkpoint_checks"]}
+        self.assertIn("cli_constructive_budget_reachability", checkpoint_ids)
+        self.assertIn("complete_seed_pool_evidence", checkpoint_ids)
+        self.assertTrue(any("exact 结果" in item and "重复指纹" in item for item in assignment.checks))
+
+    def test_requested_lane_package_never_falls_back_to_stale_active_package(self) -> None:
+        requested = "fjsp_max_time_lag_exact_hybrid"
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "evaluator_protocol": {"solver_command_template": "python solver.py --input {instance}"},
+            "edit_policy": {"allowed_paths": ["solver.py"], "forbidden_paths": ["outputs"]},
+            "method_package_catalog": {
+                "active_features": ["fjsp_max_time_lag", "maximum_time_lag", "time_lag"],
+                "packages": [],
+            },
+            "active_method_package": {
+                "package_id": "fjsp_max_time_lag_coupled_local_search",
+                "implementation_contract_assets": ["knowledge/stale-local-contract.json"],
+            },
+        }
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan={
+                "direction_id": "exact-lane",
+                "method_family": "exact_hybrid",
+                "method_families": [{"id": "exact_hybrid", "role": "primary"}],
+                "method_package_id": requested,
+                "knowledge_query": ["exact_hybrid", "cp_sat", "maximum_time_lag"],
+                "hypothesis": "Run a bounded max-lag-aware exact probe.",
+            },
+            loop_feedback={},
+            round_index=0,
+            attempt_index=0,
+            max_steps=4,
+            max_runtime_seconds=600,
+        )
+
+        self.assertEqual(requested, assignment.method_package["package_id"])
+        self.assertIn(
+            "knowledge/method_packages/fjsp_max_time_lag_exact_hybrid/implementation_contract.json",
+            assignment.method_package["contract_paths"],
+        )
+        self.assertNotIn("knowledge/stale-local-contract.json", assignment.method_package["contract_paths"])
+        self.assertTrue(assignment.runtime_contract["diagnostics_json_contract"]["json_native_values_only"])
+        self.assertIn(
+            "CpSolverStatus",
+            assignment.runtime_contract["diagnostics_json_contract"]["forbidden_runtime_objects"],
+        )
+
+    def test_unresolvable_requested_package_fails_closed(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requested method package is not resolvable"):
+            build_worker_assignment(
+                context={
+                    "task": {"problem_family": "FJSP"},
+                    "evaluator_protocol": {"solver_command_template": "python solver.py --input {instance}"},
+                    "edit_policy": {"allowed_paths": ["solver.py"], "forbidden_paths": ["outputs"]},
+                    "method_package_catalog": {"active_features": [], "packages": []},
+                    "active_method_package": {"package_id": "stale-package"},
+                },
+                direction_plan={
+                    "direction_id": "missing-package",
+                    "method_package_id": "does-not-exist",
+                    "hypothesis": "This assignment must not use a stale package.",
+                },
+                loop_feedback={},
+                round_index=0,
+                attempt_index=0,
+                max_steps=2,
+                max_runtime_seconds=60,
+            )
+
     def test_exact_execution_failure_compiles_to_concrete_repair_deliverable(self) -> None:
         context = {
             "task": {"problem_family": "FJSP"},
@@ -66,6 +235,57 @@ class WorkerAssignmentTests(unittest.TestCase):
         self.assertEqual("repair_exact_execution_not_exercised", assignment.deliverables[0]["id"])
         self.assertIn("cp_sat_called=true", assignment.deliverables[0]["behavior"])
 
+    def test_mechanism_activation_failure_compiles_to_runtime_repair_deliverable(self) -> None:
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "evaluator_protocol": {
+                "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance}",
+            },
+            "edit_policy": {"allowed_paths": ["examples"], "forbidden_paths": ["outputs"]},
+        }
+        feedback = {
+            "current_round_repair": {
+                "status": "repair_required",
+                "repair_targets": {
+                    "mechanism_activation_failure": {
+                        "status": "failed",
+                        "failed_checks": [
+                            {
+                                "id": "coupled_moves_evaluated",
+                                "path": "diagnostics.activation.coupled_local_search.moves_evaluated",
+                                "operator": "gt",
+                                "expected": 0,
+                                "observed": 0,
+                            }
+                        ],
+                        "required_evidence": (
+                            "Execute coupled local search and emit observed runtime counters."
+                        ),
+                    }
+                },
+            }
+        }
+
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan={
+                "direction_id": "coupled",
+                "method_family": "coupled_local_search",
+                "hypothesis": "Run a bounded coupled local-search probe.",
+            },
+            loop_feedback=feedback,
+            round_index=0,
+            attempt_index=1,
+            max_steps=6,
+            max_runtime_seconds=300,
+        )
+
+        self.assertEqual("repair", assignment.mode)
+        self.assertEqual("repair_method_mechanism_activation", assignment.deliverables[0]["id"])
+        self.assertIn("coupled_moves_evaluated", assignment.deliverables[0]["behavior"])
+        self.assertIn("newly observed runtime telemetry", assignment.deliverables[0]["evidence_required"])
+        self.assertIn("mechanism_activation_failure", assignment.latest_feedback["repair_contract"]["defect_ids"])
+
     def test_illegal_exact_candidate_repair_preserves_generic_timing_invariant(self) -> None:
         context = {
             "task": {"problem_family": "FJSP"},
@@ -83,7 +303,7 @@ class WorkerAssignmentTests(unittest.TestCase):
                         "self_check_error_counts": [182],
                         "runtime_errors": ["selected operation has inconsistent extracted timing"],
                         "required_evidence": (
-                            "Bind optional-interval arguments by API semantic keywords and verify each "
+                            "Use the correct explicit-end or fixed-size interval constructor and verify each "
                             "selected operation's extracted end minus start equals its processing duration."
                         ),
                     }
@@ -106,9 +326,52 @@ class WorkerAssignmentTests(unittest.TestCase):
         )
 
         behavior = assignment.deliverables[0]["behavior"]
-        self.assertIn("semantic keywords", behavior)
+        self.assertIn("explicit-end or fixed-size interval constructor", behavior)
         self.assertIn("end minus start", behavior)
         self.assertNotIn("start_var", behavior)
+
+    def test_provided_reentrant_exact_repair_preserves_variant_runtime_contract(self) -> None:
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "evaluator_protocol": {
+                "baseline_source": "provided_project",
+                "solver_command_template": "python solver.py --input {instance}",
+            },
+            "edit_policy": {"allowed_paths": ["solver.py"], "forbidden_paths": ["outputs"]},
+            "instance_diagnostics": {
+                "status": "available",
+                "summary": {"instance_count": 1, "reentrant_instance_count": 1},
+                "instances": [{"variant": "fjsp_reentrant"}],
+            },
+        }
+        feedback = {
+            "current_round_repair": {
+                "status": "repair_required",
+                "repair_targets": {
+                    "exact_execution_failure": {
+                        "reason": "cp_sat_runtime_error",
+                        "required_evidence": "Run CP-SAT with the correct interval constructor.",
+                    }
+                },
+            }
+        }
+
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan={"direction_id": "exact", "method_family": "exact_hybrid"},
+            loop_feedback=feedback,
+            round_index=0,
+            attempt_index=1,
+            max_steps=6,
+            max_runtime_seconds=600,
+        )
+
+        self.assertIn("reentrant_route", assignment.runtime_contract["active_features"])
+        self.assertIn("loop_expansion", assignment.runtime_contract["active_features"])
+        self.assertIn(
+            "reentrant_loop_parser_and_expansion_guard",
+            assignment.runtime_contract["variant_required_code_capabilities"],
+        )
 
     def test_narrative_implementation_order_keeps_declared_deliverables(self) -> None:
         context = {
@@ -205,6 +468,212 @@ class WorkerAssignmentTests(unittest.TestCase):
             "knowledge/references/min_time_lag/min_time_lag_search_adaptation.md",
             read_paths,
         )
+
+    def test_variant_baseline_uses_constructive_package_components_and_skills(self) -> None:
+        package_catalog = method_package_catalog(
+            problem_family="FJSP",
+            active_features=["fjsp_max_time_lag", "maximum_time_lag", "time_lag"],
+            knowledge_query_tags=["constructive_search", "construction", "maximum_time_lag"],
+        )
+        active_package = next(
+            item
+            for item in package_catalog["packages"]
+            if item["package_id"] == "fjsp_max_time_lag_constructive_adaptation"
+        )
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "evaluator_protocol": {
+                "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance}",
+            },
+            "edit_policy": {"allowed_paths": ["examples"], "forbidden_paths": ["outputs"]},
+            "method_package_catalog": package_catalog,
+            "active_method_package": active_package,
+        }
+        direction = {
+            "direction_id": "max-lag-baseline",
+            "strategy_type": "baseline_constructor",
+            "method_family": "constructive_search",
+            "method_families": [{"id": "constructive_search", "role": "primary"}],
+            "method_package_id": "fjsp_max_time_lag_constructive_adaptation",
+            "implementation_bundle": active_package["implementation_contract"],
+            "knowledge_query": ["constructive_search", "construction", "maximum_time_lag"],
+            "hypothesis": "Build a maximum-lag-aware baseline.",
+        }
+
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan=direction,
+            loop_feedback={},
+            round_index=-1,
+            attempt_index=0,
+            max_steps=4,
+            max_runtime_seconds=600,
+        )
+
+        baseline_ids = [
+            "parser_cli_and_output",
+            "max_lag_state_and_full_decoder",
+            "verified_legal_incumbent",
+            "fail_closed_output_guard",
+        ]
+        self.assertEqual("fjsp_max_time_lag_constructive_adaptation", assignment.method_package["package_id"])
+        self.assertEqual(baseline_ids, assignment.implementation_order)
+        self.assertEqual(baseline_ids, [item["id"] for item in assignment.deliverables])
+        self.assertIn("Core validates one complete legal", assignment.completion_rule)
+        self.assertNotIn("multi_state_constructive_control", assignment.implementation_order)
+        self.assertTrue(any("Never emit a schedule" in item for item in assignment.forbidden))
+        skill_ids = [item["skill_id"] for item in assignment.implementation_skills]
+        self.assertIn("fjsp-solver-foundation-worker", skill_ids)
+        self.assertIn("fjsp-constructive-search-worker", skill_ids)
+        self.assertIn("fjsp-max-time-lag-adapter-worker", skill_ids)
+
+    def test_variant_baseline_exact_rescue_compiles_minimal_cp_assignment(self) -> None:
+        package_catalog = method_package_catalog(
+            problem_family="FJSP",
+            active_features=["fjsp_max_time_lag", "maximum_time_lag", "time_lag"],
+            knowledge_query_tags=["exact_hybrid", "cp_sat", "maximum_time_lag"],
+        )
+        exact_package = next(
+            item
+            for item in package_catalog["packages"]
+            if item["package_id"] == "fjsp_max_time_lag_exact_hybrid"
+        )
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "evaluator_protocol": {
+                "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance}",
+            },
+            "edit_policy": {"allowed_paths": ["examples"], "forbidden_paths": ["outputs"]},
+            "method_package_catalog": package_catalog,
+            "active_method_package": exact_package,
+        }
+        rescue_contract = {
+            "method_family": "exact_hybrid",
+            "from_method_package_id": "fjsp_max_time_lag_constructive_adaptation",
+            "to_method_package_id": "fjsp_max_time_lag_exact_hybrid",
+            "fresh_command_session_required": True,
+        }
+        direction = {
+            "direction_id": "max-lag-baseline",
+            "strategy_type": "baseline_constructor",
+            "method_family": "exact_hybrid",
+            "method_families": [{"id": "exact_hybrid", "role": "primary"}],
+            "method_package_id": "fjsp_max_time_lag_exact_hybrid",
+            "implementation_bundle": exact_package["implementation_contract"],
+            "implementation_order": ["cp_sat_max_lag_model"],
+            "knowledge_query": ["exact_hybrid", "cp_sat", "maximum_time_lag"],
+        }
+        feedback = {
+            "current_round_repair": {
+                "status": "repair_required",
+                "attempt_index": 2,
+                "max_repair_attempts": 2,
+                "baseline_trial": 1,
+                "resume_incomplete_baseline": True,
+                "baseline_feasibility_rescue": rescue_contract,
+                "repair_targets": {
+                    "result_revalidation_top_errors": ["constructive baseline produced no legal incumbent"]
+                },
+            }
+        }
+
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan=direction,
+            loop_feedback=feedback,
+            round_index=-1,
+            attempt_index=2,
+            max_steps=4,
+            max_runtime_seconds=600,
+        )
+
+        self.assertEqual("baseline", assignment.mode)
+        self.assertEqual("fjsp_max_time_lag_exact_hybrid", assignment.method_package["package_id"])
+        self.assertIn("cp_sat_max_lag_model", assignment.implementation_order)
+        self.assertIn("exact-hybrid feasibility rescue", assignment.objective)
+        self.assertIn("JSON-native", assignment.completion_rule)
+        self.assertIn("actually call the exact solver", assignment.completion_rule)
+        self.assertTrue(assignment.runtime_contract["diagnostics_json_contract"]["json_native_values_only"])
+        self.assertTrue(any("machine_id, processing_time" in item for item in assignment.checks))
+        self.assertTrue(any("reachable call from main" in item for item in assignment.checks))
+        self.assertTrue(any("cp_sat_called=true" in item for item in assignment.checks))
+        skill_ids = [item["skill_id"] for item in assignment.implementation_skills]
+        self.assertIn("fjsp-exact-hybrid-worker", skill_ids)
+        self.assertIn("fjsp-max-time-lag-adapter-worker", skill_ids)
+
+    def test_variant_baseline_exact_rescue_runtime_failure_becomes_wiring_repair(self) -> None:
+        package_catalog = method_package_catalog(
+            problem_family="FJSP",
+            active_features=["fjsp_max_time_lag", "maximum_time_lag", "time_lag"],
+            knowledge_query_tags=["exact_hybrid", "cp_sat", "maximum_time_lag"],
+        )
+        exact_package = next(
+            item
+            for item in package_catalog["packages"]
+            if item["package_id"] == "fjsp_max_time_lag_exact_hybrid"
+        )
+        rescue_contract = {
+            "method_family": "exact_hybrid",
+            "from_method_package_id": "fjsp_max_time_lag_constructive_adaptation",
+            "to_method_package_id": "fjsp_max_time_lag_exact_hybrid",
+            "fresh_command_session_required": True,
+        }
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "evaluator_protocol": {
+                "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance}",
+            },
+            "edit_policy": {"allowed_paths": ["examples"], "forbidden_paths": ["outputs"]},
+            "method_package_catalog": package_catalog,
+            "active_method_package": exact_package,
+        }
+        direction = {
+            "direction_id": "max-lag-baseline",
+            "strategy_type": "baseline_constructor",
+            "method_family": "exact_hybrid",
+            "method_families": [{"id": "exact_hybrid", "role": "primary"}],
+            "method_package_id": "fjsp_max_time_lag_exact_hybrid",
+            "implementation_bundle": exact_package["implementation_contract"],
+            "implementation_order": ["cp_sat_max_lag_model"],
+            "knowledge_query": ["exact_hybrid", "cp_sat", "maximum_time_lag"],
+        }
+        feedback = {
+            "current_round_repair": {
+                "status": "repair_required",
+                "attempt_index": 3,
+                "max_repair_attempts": 3,
+                "baseline_trial": 1,
+                "resume_incomplete_baseline": True,
+                "baseline_feasibility_rescue": rescue_contract,
+                "repair_targets": {
+                    "exact_execution_failure": {
+                        "reason": "exact_hybrid_without_cp_sat_execution_evidence",
+                        "required_evidence": "Wire the bounded CP-SAT path into the real CLI entrypoint.",
+                    },
+                    "result_revalidation_top_errors": [
+                        "solver command failed with exit code 1 | construction failed"
+                    ],
+                },
+            }
+        }
+
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan=direction,
+            loop_feedback=feedback,
+            round_index=-1,
+            attempt_index=3,
+            max_steps=4,
+            max_runtime_seconds=600,
+        )
+
+        self.assertEqual("repair", assignment.mode)
+        self.assertEqual(
+            "repair_exact_execution_not_exercised",
+            assignment.implementation_order[0],
+        )
+        self.assertIn("CLI entrypoint", assignment.deliverables[0]["behavior"])
+        self.assertTrue(any("reachable call from main" in item for item in assignment.checks))
 
     def test_fast_selected_awls_package_materializes_contract_and_n7_nk_guidance(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -439,6 +908,38 @@ class WorkerAssignmentTests(unittest.TestCase):
         }
         self.assertEqual({"solver.py", "fjsp/model.py"}, set(provided))
         self.assertTrue(all(item["required"] for item in provided.values()))
+
+    def test_method_package_contract_paths_are_workspace_relative(self) -> None:
+        contract = ROOT / "knowledge" / "method_packages" / "fjsp_reentrant_adaptation" / "implementation_contract.json"
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "evaluator_protocol": {"solver_command_template": "python solver.py --input {instance}"},
+            "edit_policy": {"allowed_paths": ["solver.py"], "forbidden_paths": ["outputs"]},
+            "active_method_package": {
+                "package_id": "fjsp_reentrant_adaptation",
+                "implementation_contract_asset": str(contract),
+            },
+        }
+
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan={
+                "direction_id": "d000-reentrant",
+                "method_family": "exact_hybrid",
+                "method_package_id": "fjsp_reentrant_adaptation",
+                "hypothesis": "Run a bounded exact re-entrant probe.",
+            },
+            loop_feedback={},
+            round_index=0,
+            attempt_index=0,
+            max_steps=4,
+            max_runtime_seconds=600,
+        )
+
+        self.assertEqual(
+            ["knowledge/method_packages/fjsp_reentrant_adaptation/implementation_contract.json"],
+            assignment.method_package["contract_paths"],
+        )
 
     def test_verbose_baseline_plan_does_not_repeat_incumbent_narrative_to_worker(self) -> None:
         context = {
@@ -811,6 +1312,65 @@ class WorkerAssignmentTests(unittest.TestCase):
         self.assertIn("fjsp-solver-foundation-worker", skill_ids)
         self.assertIn("fjsp-release-time-adapter-worker", skill_ids)
         self.assertNotIn("fjsp-constructive-search-worker", skill_ids)
+
+    def test_reentrant_baseline_compiles_two_phase_tail_parser_into_assignment(self) -> None:
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "evaluator_protocol": {
+                "solver_command_template": "python examples/agent_generated_fjsp_solver.py --input {instance}",
+            },
+            "edit_policy": {"allowed_paths": ["examples"], "forbidden_paths": ["outputs"]},
+            "instance_diagnostics": {
+                "status": "available",
+                "summary": {"instance_count": 1, "profiled_count": 1, "reentrant_instance_count": 1},
+                "instances": [{"variant": "fjsp_reentrant"}],
+            },
+        }
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan={
+                "direction_id": "d000-reentrant-baseline",
+                "method_family": "constructive_search",
+                "hypothesis": "Build a complete re-entrant baseline.",
+            },
+            loop_feedback={},
+            round_index=-1,
+            attempt_index=0,
+            max_steps=4,
+            max_runtime_seconds=120,
+        )
+
+        parser = assignment.deliverables[0]
+        self.assertEqual("parser_and_model", parser["id"])
+        self.assertIn("complete standard FJSP body for all jobs first", parser["behavior"])
+        self.assertIn("exactly job_count trailing", parser["behavior"])
+        self.assertIn("run the one allowed smoke", parser["evidence_required"])
+
+    def test_standard_baseline_keeps_generic_parser_deliverable(self) -> None:
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "evaluator_protocol": {"solver_command_template": "python solver.py {instance}"},
+            "edit_policy": {"allowed_paths": ["examples"], "forbidden_paths": ["outputs"]},
+            "instance_diagnostics": {
+                "status": "available",
+                "summary": {"instance_count": 1, "profiled_count": 1},
+                "instances": [{"variant": "standard_fjsp"}],
+            },
+        }
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan={"direction_id": "d000-standard", "method_family": "constructive_search"},
+            loop_feedback={},
+            round_index=-1,
+            attempt_index=0,
+            max_steps=4,
+            max_runtime_seconds=120,
+        )
+
+        self.assertEqual(
+            "Parse the assigned instance format into jobs, ordered operations, eligible machines, and durations.",
+            assignment.deliverables[0]["behavior"],
+        )
 
     def test_release_time_quality_contract_reaches_worker_runtime_contract(self) -> None:
         context = {
@@ -1248,12 +1808,17 @@ class WorkerAssignmentTests(unittest.TestCase):
                 "solver_command_template": "python solver.py --input {instance}",
             },
             "edit_policy": {"allowed_paths": ["solver.py"], "forbidden_paths": ["outputs"]},
+            "method_package_catalog": {
+                "active_features": ["fjsp_min_time_lag", "minimum_time_lag", "time_lag"],
+                "packages": [],
+            },
         }
         direction = {
             "direction_id": "min-lag-local-search",
             "worker_objective": "Implement the first lag-aware local-search stage.",
             "experiment_stage": "research_tournament",
             "method_package_id": "fjsp_min_time_lag_coupled_local_search",
+            "knowledge_query": ["coupled_local_search", "minimum_time_lag"],
             "implementation_order": [
                 "lag_graph_decoder",
                 "transactional_search_state",

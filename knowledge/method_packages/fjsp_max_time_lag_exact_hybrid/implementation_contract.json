@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "contract_id": "fjsp_max_time_lag_exact_hybrid",
+  "mode": "complete_method_package",
+  "completion_rule": "只有真正的最大间隔感知精确模型或局部精确修复被执行、提取并经 Core 复核后，才可声明当前 exact-hybrid 阶段完成。",
+  "variant_rule": "最大时间间隔必须作为真实的上界约束 start(to) <= end(from) + L 进入 CP-SAT；它不能扩张加工区间，也不能退化为名义标志或后继交期的替身。",
+  "diagnostics_serialization_rule": "写入 solution diagnostics 前，solver status 必须转换为 status_name 字符串或其他 JSON 原生标量；不得直接序列化 CpSolverStatus、变量、interval 或绑定对象。",
+  "activation_evidence": {
+    "required_fields": {
+      "diagnostics.cp_sat_called": "truthy",
+      "diagnostics.solver_evidence.max_lag_constraints_posted": "> 0"
+    },
+    "rule": "max_lag_constraints_posted 必须是本次实际提交给求解模型的 start[to] <= end[from] + L_max 约束数；仅导入 cp_model、创建但未调用辅助函数，或只在提取后检查违反，都不算激活。"
+  },
+  "required_components": [
+    {
+      "component_id": "cp_sat_max_lag_model",
+      "title": "Max-lag-aware CP-SAT 模型",
+      "required_behaviors": [
+        "为 operation-machine assignment 建立可选 interval。",
+        "对每条解析到的 maximum lag pair 加入真实约束 start[to] <= end[from] + L。",
+        "机器 NoOverlap 只能覆盖 processing interval。"
+      ],
+      "evidence_required": "模型变量、max-lag 约束计数与机器约束计数。"
+    },
+    {
+      "component_id": "constraint_activation_evidence",
+      "title": "约束激活证据",
+      "required_behaviors": [
+        "当 parsed maximum lag count 大于 0 时，记录非零的 posted max-lag 约束数。",
+        "报告 solver status、求解时间以及是否走了 max-lag-aware 分支。"
+      ],
+      "evidence_required": "非空的 solver status、posted 约束计数与激活日志。"
+    },
+    {
+      "component_id": "incumbent_bridge_and_fallback",
+      "title": "合法 incumbent 桥接与回退",
+      "required_behaviors": [
+        "将当前合法解作为 hint、上界或固定变量的来源。",
+        "求解失败、无解或没有合法改善时保留父 incumbent。"
+      ],
+      "evidence_required": "hint/上界加载、固定变量来源与回退证据。"
+    },
+    {
+      "component_id": "bounded_pair_trust_region",
+      "title": "围绕 tight pair 的有界信赖域",
+      "required_behaviors": [
+        "仅释放 tight pair、桥接链、相关机器块和少量 assignment。",
+        "按照 deadline、变量规模和候选数来限制求解范围。"
+      ],
+      "evidence_required": "固定/释放变量数、trust-region 范围与求解状态。"
+    },
+    {
+      "component_id": "extract_and_core_verify",
+      "title": "解提取与 Core 复核",
+      "required_behaviors": [
+        "只提取完整可行解。",
+        "输出前重新执行 max-lag-aware 完整验证并汇报 max_time_lag_violations。"
+      ],
+      "evidence_required": "提取数量、objective、最终违反计数与保留 incumbent 的逻辑。"
+    }
+  ],
+  "component_dependencies": [
+    {
+      "component_id": "constraint_activation_evidence",
+      "depends_on": [
+        "cp_sat_max_lag_model"
+      ]
+    },
+    {
+      "component_id": "incumbent_bridge_and_fallback",
+      "depends_on": [
+        "cp_sat_max_lag_model"
+      ]
+    },
+    {
+      "component_id": "bounded_pair_trust_region",
+      "depends_on": [
+        "cp_sat_max_lag_model",
+        "incumbent_bridge_and_fallback"
+      ]
+    },
+    {
+      "component_id": "extract_and_core_verify",
+      "depends_on": [
+        "cp_sat_max_lag_model",
+        "constraint_activation_evidence",
+        "incumbent_bridge_and_fallback"
+      ]
+    }
+  ],
+  "competition_tracks": [
+    {
+      "track_id": "direct_evidence",
+      "title": "Tight pair 局部精确修复",
+      "stages": [
+        {
+          "stage_id": "trust_region_repair",
+          "component_ids": [
+            "cp_sat_max_lag_model",
+            "constraint_activation_evidence",
+            "incumbent_bridge_and_fallback",
+            "bounded_pair_trust_region",
+            "extract_and_core_verify"
+          ]
+        }
+      ]
+    },
+    {
+      "track_id": "minimal_risk",
+      "title": "Hint 与受限建模",
+      "stages": [
+        {
+          "stage_id": "bounded_model",
+          "component_ids": [
+            "cp_sat_max_lag_model",
+            "constraint_activation_evidence",
+            "incumbent_bridge_and_fallback",
+            "extract_and_core_verify"
+          ]
+        },
+        {
+          "stage_id": "trust_region",
+          "component_ids": [
+            "bounded_pair_trust_region"
+          ]
+        }
+      ]
+    },
+    {
+      "track_id": "orthogonal_mechanism",
+      "title": "机器冻结的桥接链修复",
+      "stages": [
+        {
+          "stage_id": "chain_release",
+          "component_ids": [
+            "cp_sat_max_lag_model",
+            "constraint_activation_evidence",
+            "incumbent_bridge_and_fallback",
+            "bounded_pair_trust_region",
+            "extract_and_core_verify"
+          ]
+        }
+      ]
+    }
+  ],
+  "checkpoint_checks": [
+    {
+      "check_id": "true_max_lag_constraint",
+      "component_ids": [
+        "cp_sat_max_lag_model"
+      ],
+      "requirement": "源码必须出现真实的 start(to) <= end(from) + L 上界约束，而不是只设置后继 due date、日志标记或扩张 interval 长度。"
+    },
+    {
+      "check_id": "activation_proof",
+      "component_ids": [
+        "constraint_activation_evidence"
+      ],
+      "requirement": "当 parsed maximum lag count 大于 0 时，posted max-lag constraint 计数必须为非零，且 solver status 不能为空。"
+    },
+    {
+      "check_id": "pair_bounded_release",
+      "component_ids": [
+        "bounded_pair_trust_region"
+      ],
+      "requirement": "源码必须围绕 tight pair 或桥接链释放局部变量，而不是无界地全局放开。"
+    },
+    {
+      "check_id": "parent_fallback",
+      "component_ids": [
+        "incumbent_bridge_and_fallback"
+      ],
+      "requirement": "无合法严格改善时必须保留父 incumbent。"
+    },
+    {
+      "check_id": "final_core_verify",
+      "component_ids": [
+        "extract_and_core_verify"
+      ],
+      "requirement": "提取后必须重新执行完整 max-lag-aware 验证并报告 max_time_lag_violations。"
+    }
+  ]
+}

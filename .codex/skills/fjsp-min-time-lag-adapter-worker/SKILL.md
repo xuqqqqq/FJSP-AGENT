@@ -1,21 +1,21 @@
 ---
 name: fjsp-min-time-lag-adapter-worker
-description: 为受控 Coding Agent 把已选 FJSP 方法族适配到固定、相邻工序、machine-free 的 minimum time-lag 约束。仅在 runtime contract 明确激活 minimum_time_lag 且 Harness 授权本 Skill 时使用。
+description: 为受控编码代理把已选 FJSP 方法族适配到固定、相邻工序、与机器无关的最小时间间隔约束。仅在运行时契约明确激活 `minimum_time_lag` 且 Harness 授权本技能时使用。
 ---
 
 # FJSP 最小时间间隔适配执行器
 
 ## 触发条件
 
-- runtime contract 已明确激活 `minimum_time_lag`。
-- Harness 已授权本 Skill，且任务是在既定方法族上补入 min-lag 语义，而不是重新选择方法族。
+- 运行时契约已明确激活 `minimum_time_lag`。
+- Harness 已授权本技能，且任务是在既定方法族上补入最小时间间隔语义，而不是重新选择方法族。
 - 活动 IO contract 的约束是固定四元组 `(job_id, k, k+1, L_min)`，语义为 `start(k+1) >= end(k) + L_min`。
 
-若任务同时含 maximum lag、SDST、运输时间、有限等待缓冲或跨工件 lag，本 Skill 不足以单独覆盖，必须先取得对应变体合同。
+若任务同时含最大时间间隔、SDST、运输时间、有限等待缓冲或跨工件时间间隔，本技能不足以单独覆盖，必须先取得对应变体合同。
 
 ## 读取顺序
 
-1. 先加载 `fjsp-solver-foundation-worker` 和当前方法族 Skill。
+1. 先加载 `fjsp-solver-foundation-worker` 和当前方法族技能。
 2. 读取 Assignment `read_set` 中的需求与 IO 文档。
 3. 读取 `knowledge/references/min_time_lag/min_time_lag_semantics_and_decoder.md`。
 4. 需要构造、邻域或重启策略时，再读取 `knowledge/references/min_time_lag/min_time_lag_search_adaptation.md`。

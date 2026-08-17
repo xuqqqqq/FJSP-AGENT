@@ -1,7 +1,7 @@
-# Distributed FJSP With Transfers Semantics And Decoder
+# 带转运的分布式 FJSP 语义与解码器
 
-Each operation selects a `(factory,machine)` candidate with processing duration and unit energy. Adjacent job operations require delay 0 on the same machine, 30 on different machines in one factory, or 60 across factories. Resource capacity is scoped by the full pair, not machine id alone.
+每道工序选择一个带加工时长和单位能耗的 `(factory,machine)` 候选。工件的相邻工序在同一机器上转运时间为 0，在同厂不同机器间为 30，跨厂为 60。资源容量按完整二元组区分，不能只按机器 ID 区分。
 
-Input machine IDs are global 1-based identifiers bounded by `1..F*M`, but their numeric value does not determine the factory; the explicit factory marker that starts each candidate group is authoritative. Output factory and machine IDs are both decremented to 0-based, while resource identity remains the full `(factory,machine)` pair. Never renumber machines within a factory or infer factory boundaries from machine values. Processing energy is `duration * unit_energy`; transfer energy is `transfer_delay * 6`. Factory workload is the sum of selected processing durations in each factory. The fixed evaluator compares makespan, maximum factory workload, then total energy consumption lexicographically.
+输入机器 ID 是范围为 `1..F*M` 的全局 1 基标识符，但其数值不能决定所属工厂；每组候选开头的显式工厂标记才是权威依据。输出中的工厂 ID 和机器 ID 均减一转换为 0 基，资源身份仍是完整的 `(factory,machine)` 二元组。不得在工厂内部重新编号机器，也不得根据机器值推断工厂边界。加工能耗为 `duration * unit_energy`，转运能耗为 `transfer_delay * 6`。工厂负载是该工厂内所选加工时长之和。固定 evaluator 依次按最大完工时间、最大工厂负载和总能耗进行词典序比较。
 
-A legal decoder propagates transfer-weighted job arcs and factory-machine resource arcs. Every accepted candidate is revalidated for coverage, candidate membership, duration, transfer precedence, and pair-scoped overlap.
+合法解码器应传播包含转运时间的工件弧，以及工厂-机器资源弧。每个接受的候选解都要重新验证工序覆盖、候选成员关系、时长、转运前驱约束和二元资源重叠。

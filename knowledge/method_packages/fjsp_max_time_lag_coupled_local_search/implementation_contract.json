@@ -1,0 +1,232 @@
+{
+  "schema_version": 1,
+  "contract_id": "fjsp_max_time_lag_coupled_local_search",
+  "mode": "complete_method_package",
+  "completion_rule": "只有真实 CLI 已调用最大间隔感知搜索、完整重解码、可回退事务 move，并与至少一个 pair-anchored 邻域形成闭环，且最终 solution diagnostics 含非零 canonical activation counters 后，才可声明当前局部搜索阶段完成。",
+  "variant_rule": "最大时间间隔是不占机的完工-开工上界，且约束对可以稀疏且非相邻；任何移动都必须在完整差分约束重解码后才能接受，不能靠右移补丁过关。",
+  "activation_evidence": {
+    "required_fields": {
+      "diagnostics.activation.coupled_local_search.moves_evaluated": "> 0",
+      "diagnostics.activation.maximum_time_lag.moves_evaluated": "> 0"
+    },
+    "rule": "maximum_time_lag.moves_evaluated 只统计受最大时间间隔约束对/松弛量驱动且完成完整变体重解码的移动；普通交换、仅生成未评估移动或最终统一校验都不能计入。"
+  },
+  "required_components": [
+    {
+      "component_id": "max_lag_graph_decoder",
+      "title": "Max-lag 图状态与完整重解码",
+      "required_behaviors": [
+        "同时传播 precedence lower bounds、machine order lower bounds 与 maximum lag upper bounds。",
+        "完整检测遗漏、重复、机器重叠、差分约束负环以及 maximum lag 违反。"
+      ],
+      "evidence_required": "可达的完整解码器、pair 诊断与合法性守卫。"
+    },
+    {
+      "component_id": "tight_pair_and_bridge_detection",
+      "title": "紧张 pair 与桥接链提取",
+      "required_behaviors": [
+        "识别 violated 或 slack 很小的 maximum lag pair。",
+        "提取从 from-op 到 to-op 的桥接 job/machine 链与相关机器块，作为邻域锚点。"
+      ],
+      "evidence_required": "紧约束对、桥接链与相关机器块的命中计数。"
+    },
+    {
+      "component_id": "same_machine_window_moves",
+      "title": "同机窗口重插与后移",
+      "required_behaviors": [
+        "围绕 to-op、桥接链或相关关键块执行有界前移重插。",
+        "必要时对 from-op 所在机器块执行受控后移，并在接受后刷新 pair slack 与关键结构。"
+      ],
+      "evidence_required": "同机候选生成、完整评测、接受和拒绝计数。"
+    },
+    {
+      "component_id": "cross_machine_chain_compression",
+      "title": "异机换机压缩桥接链",
+      "required_behaviors": [
+        "对 to-op 或桥接链瓶颈工序联合评估换机、插入位置与 slack 改善。",
+        "删除与插入作为一个可回退事务执行。"
+      ],
+      "evidence_required": "换机候选、桥接链压缩证据和合法接受计数。"
+    },
+    {
+      "component_id": "transactional_redecode_state",
+      "title": "事务重解码状态",
+      "required_behaviors": [
+        "当前状态、候选状态与全局最优状态相互独立。",
+        "非法、退化或不一致的 move 不得污染父状态，必须原子回退。"
+      ],
+      "evidence_required": "回退守卫、独立的最优解快照与失败候选回滚证据。"
+    },
+    {
+      "component_id": "adaptive_pair_pressure_control",
+      "title": "Pair 压力自适应控制",
+      "required_behaviors": [
+        "根据 tight pair 命中、合法率、接受率与改进率调整邻域预算。",
+        "保留 deadline、候选数上限和停滞扰动，不让非严格改善覆盖全局最优解。"
+      ],
+      "evidence_required": "按邻域拆分的选择、收益与停滞控制诊断。"
+    }
+  ],
+  "component_dependencies": [
+    {
+      "component_id": "tight_pair_and_bridge_detection",
+      "depends_on": [
+        "max_lag_graph_decoder"
+      ]
+    },
+    {
+      "component_id": "same_machine_window_moves",
+      "depends_on": [
+        "max_lag_graph_decoder",
+        "tight_pair_and_bridge_detection",
+        "transactional_redecode_state"
+      ]
+    },
+    {
+      "component_id": "cross_machine_chain_compression",
+      "depends_on": [
+        "max_lag_graph_decoder",
+        "tight_pair_and_bridge_detection",
+        "transactional_redecode_state"
+      ]
+    },
+    {
+      "component_id": "adaptive_pair_pressure_control",
+      "depends_on": [
+        "same_machine_window_moves",
+        "cross_machine_chain_compression"
+      ]
+    }
+  ],
+  "competition_tracks": [
+    {
+      "track_id": "direct_evidence",
+      "title": "Tight pair 邻域",
+      "stages": [
+        {
+          "stage_id": "pair_anchor",
+          "component_ids": [
+            "max_lag_graph_decoder",
+            "tight_pair_and_bridge_detection",
+            "transactional_redecode_state",
+            "same_machine_window_moves"
+          ]
+        },
+        {
+          "stage_id": "cross_machine",
+          "component_ids": [
+            "cross_machine_chain_compression"
+          ]
+        },
+        {
+          "stage_id": "adaptive",
+          "component_ids": [
+            "adaptive_pair_pressure_control"
+          ]
+        }
+      ]
+    },
+    {
+      "track_id": "minimal_risk",
+      "title": "桥接链渐进压缩",
+      "stages": [
+        {
+          "stage_id": "chain_detection",
+          "component_ids": [
+            "max_lag_graph_decoder",
+            "tight_pair_and_bridge_detection",
+            "transactional_redecode_state"
+          ]
+        },
+        {
+          "stage_id": "cross_machine",
+          "component_ids": [
+            "cross_machine_chain_compression"
+          ]
+        },
+        {
+          "stage_id": "same_machine",
+          "component_ids": [
+            "same_machine_window_moves"
+          ]
+        },
+        {
+          "stage_id": "adaptive",
+          "component_ids": [
+            "adaptive_pair_pressure_control"
+          ]
+        }
+      ]
+    },
+    {
+      "track_id": "orthogonal_mechanism",
+      "title": "事务式双向修复",
+      "stages": [
+        {
+          "stage_id": "bidirectional_moves",
+          "component_ids": [
+            "max_lag_graph_decoder",
+            "tight_pair_and_bridge_detection",
+            "transactional_redecode_state",
+            "same_machine_window_moves",
+            "cross_machine_chain_compression"
+          ]
+        },
+        {
+          "stage_id": "adaptive",
+          "component_ids": [
+            "adaptive_pair_pressure_control"
+          ]
+        }
+      ]
+    }
+  ],
+  "checkpoint_checks": [
+    {
+      "check_id": "cli_activation_reachability",
+      "component_ids": [
+        "same_machine_window_moves",
+        "cross_machine_chain_compression"
+      ],
+      "component_match": "any",
+      "requirement": "真实 CLI 必须给 coupled search 非零预算并实际调用；同次运行产生的 coupled_local_search.moves_evaluated 与 maximum_time_lag.moves_evaluated 必须写入最终 solution diagnostics，父 exact incumbent 只能作为回退解。"
+    },
+    {
+      "check_id": "max_lag_local_decode",
+      "component_ids": [
+        "max_lag_graph_decoder"
+      ],
+      "requirement": "所有候选接受路径都必须调用完整差分约束重解码，maximum lag 等待不得占机。"
+    },
+    {
+      "check_id": "non_adjacent_pair_evidence",
+      "component_ids": [
+        "tight_pair_and_bridge_detection"
+      ],
+      "requirement": "源码和诊断必须证明 tight pair 检测覆盖非相邻 pair 与桥接链，而不是只看相邻工序。"
+    },
+    {
+      "check_id": "transactional_rollback",
+      "component_ids": [
+        "transactional_redecode_state"
+      ],
+      "requirement": "非法候选必须原子回退，global best 必须独立保存。"
+    },
+    {
+      "check_id": "neighborhood_reachability",
+      "component_ids": [
+        "same_machine_window_moves",
+        "cross_machine_chain_compression"
+      ],
+      "component_match": "any",
+      "requirement": "至少一个获准邻域必须产生非零生成与完整评测证据。"
+    },
+    {
+      "check_id": "pair_pressure_adaptation",
+      "component_ids": [
+        "adaptive_pair_pressure_control"
+      ],
+      "requirement": "源码必须用 tight pair 命中、合法率或收益来调整邻域预算，而不是固定轮询。"
+    }
+  ]
+}

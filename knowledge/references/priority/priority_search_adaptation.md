@@ -1,21 +1,21 @@
-# Priority-Aware Search Adaptation
+# 优先级感知搜索适配
 
-## Construction
+## 构造
 
-Use priority status as one feature in ready-operation ranking, together with remaining work, insertion finish, machine load, and assignment regret. Run complementary starts with several priority-pressure levels, including a makespan-oriented start. Always evaluate the complete result lexicographically.
+把优先工件状态作为就绪工序排序的一项特征，并与剩余工作量、插入完成时间、机器负载和分配后悔值联合使用。以多个优先级压力水平运行互补起点，其中应包含一个侧重最大完工时间的起点。始终对完整结果进行词典序评价。
 
-## Coupled local search
+## 耦合局部搜索
 
-The useful secondary critical structure is the longest-completing priority job and machine arcs that delay it. Candidate moves include changing a priority operation's machine, reinserting it within a machine sequence, and moving a blocking normal operation when this lowers priority completion without increasing makespan. Full re-decoding is required because a local move can shift both objective values indirectly.
+有用的次级关键结构是最晚完成的优先工件，以及造成其延迟的机器弧。候选移动包括：改变优先工序的机器、在机器序列内重插优先工序，以及在不增加最大完工时间且能降低优先工件完成时间时移动阻塞它的普通工序。局部移动可能间接改变两个目标值，因此必须完整重新解码。
 
-## Population and memetic search
+## 群体与模因搜索
 
-Encode assignment and operation order with the same legality-preserving decoder used for standard FJSP. Select by lexicographic rank and retain structural diversity across machine assignments and order. Priority-biased crossover or mutation can focus on priority jobs, while ordinary mutations prevent premature convergence and protect the primary objective.
+使用与标准 FJSP 相同的合法性保持解码器，对分配和工序顺序进行编码。按词典序等级选择，并保持机器分配与顺序的结构多样性。面向优先工件的交叉或变异可以集中改进优先工件，普通变异则用于避免过早收敛并保护主目标。
 
-## Exact and hybrid search
+## 精确与混合搜索
 
-For CP-SAT, first minimize makespan. Given a feasible or proven primary value `M`, add `makespan <= M` and minimize a variable bounding the completion of every priority job. Under a time limit, preserve the best known primary bound before entering phase two. A local exact repair may release priority-job operations and their blocking machine neighborhood while fixing the rest of the incumbent.
+使用 CP-SAT 时，先最小化最大完工时间。得到可行或已证明的主目标值 `M` 后，加入 `makespan <= M`，再最小化一个不小于每个优先工件完成时间的变量。在时间限制下，进入第二阶段前要保留已知最优主目标界。局部精确修复可以释放优先工件工序及其阻塞机器邻域，同时固定当前最优解的其他部分。
 
-## Acceptance and evidence
+## 接受与证据
 
-Replace the incumbent only when the recomputed tuple is lexicographically smaller. Report method activation separately from quality: priority-aware dispatch counts, accepted priority-targeted moves, CP-SAT phase statuses, time spent, and the final objective tuple.
+只有完整重算后的目标二元组按词典序更小时，才替换当前最优解。方法激活证据与质量结果应分开报告，包括：优先级感知派工次数、被接受的优先目标移动、CP-SAT 各阶段状态、耗时和最终目标二元组。

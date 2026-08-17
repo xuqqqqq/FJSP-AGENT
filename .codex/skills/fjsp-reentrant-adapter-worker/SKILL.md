@@ -1,26 +1,26 @@
 ---
 name: fjsp-reentrant-adapter-worker
-description: 为已选 FJSP 方法族适配单连续回路尾部、完整工序展开与可重入瓶颈搜索。仅在 runtime contract 激活 reentrant_route 或 loop_expansion 时使用。
+description: 为已选 FJSP 方法族适配单连续回路尾部、完整工序展开与可重入瓶颈搜索。仅在运行时契约激活 `reentrant_route` 或 `loop_expansion` 时使用。
 ---
 
-# Re-entrant FJSP Adapter
+# 可重入 FJSP 适配器
 
-## Contract
+## 契约
 
-- This Skill adapts the assigned constructive, coupled-local, population-memetic, or exact-hybrid family. It does not replace that family.
-- Parse the standard FJSP body completely, then consume exactly `job_count` triples `(loop_start, loop_end, repeat)`.
-- Validate `0 < loop_start <= loop_end < original_op_count - 1` and `repeat >= 2` for every job. Reject missing, malformed, or trailing tokens.
-- Expand each route as `pre + loop_body * repeat + post`. Assign continuous 0-based `op_id` values to the expanded route; each pass may choose its machine independently.
-- The fixed evaluator expects exactly one schedule record for every expanded `(job_id, op_id)`. Never schedule only the original route.
-- Do not invent batching, probabilistic rework, release control, arbitrary route graphs, or pass-coupling constraints. They are outside this IO contract.
+- 本技能是对已分配的 `constructive_search`、`coupled_local_search`、`population_memetic` 或 `exact_hybrid` 方法族做适配，而不是替代该方法族。
+- 完整解析标准 FJSP 主体后，再恰好读取 `job_count` 个三元组 `(loop_start, loop_end, repeat)`。
+- 对每个作业都要验证 `0 < loop_start <= loop_end < original_op_count - 1` 且 `repeat >= 2`。缺失、格式错误或尾随多余 token 一律拒绝。
+- 按 `pre + loop_body * repeat + post` 展开每条路线。展开后的路线必须分配连续的 0-based `op_id`；每次重复都可以独立选择机器。
+- 固定 evaluator 要求每个展开后的 `(job_id, op_id)` 恰好对应一条排程记录。绝不能只调度原始路线。
+- 不要凭空引入 batching、概率返工、释放控制、任意路线图或各次重复之间的耦合约束；这些都不在当前 IO 契约范围内。
 
-## Search Adaptation
+## 搜索适配
 
-1. Construction should use the expanded route and account for repeated-pass load. Keep complementary starts: earliest-gap/load balance, critical remaining work, and a bounded re-entry pressure such as time or operations until the next visit to a heavily loaded machine.
-2. Coupled local search should recompute the critical path on the expanded graph. Prioritize critical blocks containing repeated-body operations, alternative-machine reassignment, and sequence insertion/swap followed by complete decode.
-3. Population or memetic search may preserve job-order feasibility with operation-based encodings, but crossover and mutation must operate on expanded identities. Retain structural diversity rather than cloning one repeated-pass pattern.
-4. CP-SAT is appropriate for small or low-flexibility expanded instances. For larger cases, use it as a bounded trust-region repair around an incumbent or on selected critical operations; report actual model size, status, time, and whether the extracted schedule passed the fixed evaluator.
-5. Do not force all passes of one source operation onto the same machine. That removes flexibility not present in the contract.
-6. Report activation evidence: consumed tail length, original and expanded operation counts, loop triples, continuous expanded identities, complete coverage, and at least one search mechanism that treats repeated-body pressure explicitly.
+1. 构造阶段应基于展开后的路线，并计入重复经过带来的负载。要保留互补的起点：`earliest-gap`/负载平衡、关键剩余工作，以及有界的再入压力指标，例如距离下一次访问高负载机器还剩多少时间或多少工序。
+2. 耦合局部搜索应在展开后的图上重算关键路径。优先处理包含重复体工序的关键块、候选机器重分配，以及后接完整解码的顺序插入或交换。
+3. 群体或模因搜索可以用基于工序的编码保持作业顺序可行性，但交叉和变异必须作用于展开后的工序身份。应保留结构多样性，而不是复制单一的重复通过模式。
+4. CP-SAT 适用于规模较小或柔性较低的展开实例。对更大规模情形，应把它作为 incumbent 周围或所选关键工序上的有界信任域修复，并报告真实模型规模、状态、耗时，以及提取出的排程是否通过固定 evaluator。
+5. 不要强制同一来源工序的所有重复都落在同一台机器上；这会删掉契约并未限制的柔性。
+6. 报告以下激活证据：消耗的尾部长度、原始与展开后的工序数量、循环三元组、连续的展开后身份、完整覆盖性，以及至少一个显式处理重复体压力的搜索机制。
 
-Read both re-entrant knowledge cards and the assigned Method Package before editing.
+编辑前先阅读两张可重入知识卡和已分配的方法包。

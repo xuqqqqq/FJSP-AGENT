@@ -1,12 +1,12 @@
 ---
 id: min-time-lag-search-adaptation
 type: reference
-title: Min Time-Lag FJSP 构造、邻域与搜索适配
+title: 最小时间间隔 FJSP 构造、邻域与搜索适配
 tags: [fjsp, minimum_time_lag, time_lag, lag_aware_search, critical_path, vns]
 status: active
 ---
 
-# Min Time-Lag FJSP 构造、邻域与搜索适配
+# 最小时间间隔 FJSP 构造、邻域与搜索适配
 
 ## 研究结论
 
@@ -24,19 +24,19 @@ lag-aware construction
 
 ## 构造阶段
 
-### Ready 时间先正确
+### 先把就绪时间算对
 
-只允许 job 的下一道工序进入可选集合，并使用：
+只允许工件的下一道工序进入可选集合，并使用：
 
 ```text
 job_ready = predecessor_end + fixed_min_lag
 earliest_start(op,m) = max(job_ready, earliest_machine_gap)
 ```
 
-lag 较大的前驱可能值得更早启动，以便其等待与其他 job 的加工重叠。可将下列信息加入派工或 RCL 评分：
+lag 较大的前驱可能值得更早启动，以便其等待与其他工件的加工重叠。可将下列信息加入派工或 RCL 评分：
 
-- 当前候选的 earliest completion；
-- 当前工序之后的 lag-augmented remaining chain；
+- 当前候选的最早完工时刻；
+- 当前工序之后的 lag 增强剩余链；
 - 候选机器负载和可用空隙；
 - 启动该工序后可释放的长 lag；
 - assignment regret：次优机器与最优机器对下游释放时间的差值。
@@ -51,7 +51,7 @@ Aallaoui 等的 GRASP×VNS 工作使用 operation-machine 候选的 restricted c
 - 多起点保留不同 assignment/机器序列盆地；
 - 每个起点独立保存合法 incumbent。
 
-不能照搬其矿山专属跨 job precedence、机器移动时间或 generic machine-dependent lag。
+不能照搬其矿山专属跨工件前驱约束、机器移动时间或 generic machine-dependent lag。
 
 ## Lag-Aware 关键结构
 
@@ -64,10 +64,10 @@ lag arc 本身不能通过交换直接删除，但它提示搜索应改变其两
 
 - 让长 lag 的前驱更早完成；
 - 将 lag 后继移到更合适的机器或插入位置；
-- 在 lag 窗口内填入其他 job 的加工；
+- 在 lag 窗口内填入其他工件的加工；
 - 缩短把 lag 前驱推迟的关键机器块。
 
-每次接受 move 后重新计算关键路径、head/tail、slack 和关键块。禁止复用移动前的关键标记继续多步接受。
+每次接受移动后都要重新计算关键路径、head/tail、slack 和关键块。禁止复用移动前的关键标记继续多步接受。
 
 ## 核心邻域
 
@@ -75,7 +75,7 @@ lag arc 本身不能通过交换直接删除，但它提示搜索应改变其两
 
 - 关键机器块的相邻交换；
 - 关键或近关键工序的小窗口插入/重定位；
-- 围绕 lag 前驱/后继的有界 block move。
+- 围绕 lag 前驱/后继的有界块移动。
 
 先检查表示完整性和明显的 precedence 冲突，再用完整图解码判定。
 
@@ -89,11 +89,11 @@ lag arc 本身不能通过交换直接删除，但它提示搜索应改变其两
 
 ### Destroy-Repair
 
-停滞时可移除少量关键块和 lag 边界工序，再用 lag-aware earliest insertion 重建。repair 必须逐步维护 job readiness，并在结束后完整解码；不要把所有工序随机打散。
+停滞时可移除少量关键块和 lag 边界工序，再用 lag-aware earliest insertion 重建。repair 必须逐步维护工件就绪状态，并在结束后完整解码；不要把所有工序随机打散。
 
 ## VND / VNS / Tabu 控制
 
-文献中的多层 VNS组合了随机序列交换、机器重分配和关键块局部改进。对当前受控 Worker，推荐更保守的闭环：
+文献中的多层 VNS 组合了随机序列交换、机器重分配和关键块局部改进。对当前受控 Worker，推荐更保守的闭环：
 
 1. 从合法 incumbent 复制候选。
 2. 轮换同机移动、换机插入和小规模 destroy-repair。
@@ -102,7 +102,7 @@ lag arc 本身不能通过交换直接删除，但它提示搜索应改变其两
 5. Tabu 属性记录逆交换、旧机器或重插位置；aspiration 只在完整解码后严格改善全局 best 时触发。
 6. 以 deadline、候选上限和停滞轮数限制搜索，不做无界 all-pairs 扫描。
 
-对 permutation-with-repetition 编码，任意交换可能仍能由 job 出现次数恢复工序顺序；对显式 operation 序列则未必。Worker 必须按自己的表示证明 move 合法，不能照抄“随机交换两个位置”。
+对 permutation-with-repetition 编码，任意交换可能仍能由工件出现次数恢复工序顺序；对显式 operation 序列则未必。Worker 必须按自己的表示证明移动合法，不能照抄“随机交换两个位置”。
 
 ## 精确与混合修复
 
@@ -133,7 +133,7 @@ lag arc 本身不能通过交换直接删除，但它提示搜索应改变其两
 - lag-aware 构造/解码调用数；
 - 同机、换机、destroy-repair 各自生成与接受数；
 - positive-cycle/illegal/incomplete 拒绝数与 zero-weight SCC 数；
-- 因 lag arc 或 lag 边界被选中的候选数；
+- 因 lag 弧或 lag 边界被选中的候选数；
 - best 更新次数与最终 `min_time_lag_violations`。
 
 这些是激活证据，不是 promotion 门槛；最终合法性和 makespan 仍由 Core evaluator 决定。
@@ -143,11 +143,11 @@ lag arc 本身不能通过交换直接删除，但它提示搜索应改变其两
 - 解析了 lag，但 dispatch、下界和邻域仍使用标准 FJSP ready time。
 - 先排 lag-blind schedule，再右移修复，导致早期 assignment/排序决策不可逆地失真。
 - 将 `p+L` 当作机器占用时长。
-- 局部 delta 忽略 job 后继的级联右移。
+- 局部增量更新忽略工件后继的级联右移。
 - 使用旧关键路径连续接受多个 move。
-- 随机交换破坏编码的 job 顺序或产生正权依赖环。
+- 随机交换破坏编码的工件顺序或产生正权依赖环。
 - 只验证最终 schedule，无法证明搜索路径实际调用 lag-aware 逻辑。
-- 把 maximum lag 的负弧、跨 job lag 或机器移动 lag混进当前简单合同。
+- 把 maximum lag 的负弧、跨工件 lag 或机器移动 lag 混进当前简单合同。
 
 ## 主要调研来源
 

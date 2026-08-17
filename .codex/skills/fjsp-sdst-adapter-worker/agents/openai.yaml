@@ -1,4 +1,4 @@
 interface:
   display_name: "FJSP SDST 适配执行器"
-  short_description: "将选定 FJSP 方法适配到 sequence-dependent setup"
-  default_prompt: "研读已选的 SDST 契约，并适配 assignment 指定的方法族。"
+  short_description: "将选定 FJSP 方法适配到序列相关换型时间"
+  default_prompt: "研读已选的 SDST 契约，并适配任务分配中指定的方法族。"

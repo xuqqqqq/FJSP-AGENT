@@ -748,6 +748,8 @@ def _detect_agent_generated_source_self_check_risks(
         ("time_lag_precedence_guard", _has_time_lag_source_self_check_guard),
         ("machine_calendar_availability_guard", _has_machine_calendar_source_self_check_guard),
         ("batch_capacity_guard", _has_batch_capacity_source_self_check_guard),
+        ("batch_family_compatibility_guard", _has_batch_family_source_self_check_guard),
+        ("parallel_batch_timing_guard", _has_parallel_batch_timing_source_self_check_guard),
         ("transport_time_guard", _has_transport_time_source_self_check_guard),
         ("release_date_guard", _has_release_date_source_self_check_guard),
         ("due_date_or_tardiness_objective_guard", _has_due_date_source_self_check_guard),
@@ -886,6 +888,21 @@ def _has_machine_calendar_source_self_check_guard(text: str) -> bool:
 def _has_batch_capacity_source_self_check_guard(text: str) -> bool:
     lowered = text.lower()
     return "batch" in lowered and "capacity" in lowered
+
+
+def _has_batch_family_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    return "batch" in lowered and "family" in lowered
+
+
+def _has_parallel_batch_timing_source_self_check_guard(text: str) -> bool:
+    lowered = text.lower()
+    return (
+        "batch" in lowered
+        and "start" in lowered
+        and "end" in lowered
+        and any(term in lowered for term in ["max(", "maximum", "max_duration"])
+    )
 
 
 def _has_transport_time_source_self_check_guard(text: str) -> bool:

@@ -83,6 +83,7 @@ KNOWLEDGE_DESTINATIONS = {
     "imported-note": Path("imported") / "user_notes",
 }
 DEFAULT_STANDARD_SEEDS_TEXT = "0,1,2,3,4,5,6,7,8,9"
+DEFAULT_WORKER_MAX_RUNTIME_SECONDS = 600
 DEFAULT_DIRECTION_CHANGE_CONFIRMATION_SECONDS = 20.0
 DIRECTION_CHANGE_REJECTION_INSTRUCTION = (
     "Reject the proposed method-family switch. Continue the previously active method family and preserve its "
@@ -416,7 +417,17 @@ def is_supported_starter_instance(path: Path) -> bool:
     lowered = path.name.casefold()
     compound_variant = any(
         marker in lowered
-        for marker in (".mitfjsp.", ".rtfjsp.", ".nfafjsp", ".nfa.", ".priority.", ".rjsp.")
+        for marker in (
+            ".mitfjsp.",
+            ".tlfjsp.",
+            ".apfjsp.",
+            ".rtfjsp.",
+            ".nfafjsp",
+            ".nfa.",
+            ".priority.",
+            ".rjsp.",
+            ".pbpm.",
+        )
     )
     named_text_variant = path.suffix.lower() == ".txt" and lowered.startswith(
         ("ffcr", "nfa", "fjsp_nfa", "dfm")
@@ -424,7 +435,7 @@ def is_supported_starter_instance(path: Path) -> bool:
     return (
         path.suffix.lower() in STARTER_INSTANCE_SUFFIXES
         or compound_variant
-        or lowered.endswith((".mitfjsp", ".rtfjsp", ".nfafjsp"))
+        or lowered.endswith((".mitfjsp", ".tlfjsp", ".apfjsp", ".rtfjsp", ".nfafjsp"))
         or named_text_variant
     )
 
@@ -1396,12 +1407,8 @@ def agent_status_snapshot(job: dict[str, Any]) -> dict[str, Any]:
     for key, records in sorted(coding_groups.items(), key=lambda item: max(_trace_timestamp(record) for record in item[1])):
         latest = max(records, key=_trace_timestamp)
         has_final = any(record.get("kind") == "final" for record in records)
-        tool_statuses = [_tool_trace_fields(record)[2] for record in records if record.get("kind") == "tool"]
-        latest_tool_status = next((value for value in reversed(tool_statuses) if value), "")
         if has_final:
             status = "completed"
-        elif _agent_status(latest_tool_status, default="running") in {"failed", "stopped"}:
-            status = _agent_status(latest_tool_status, default="failed")
         elif job_status in {"completed", "failed"}:
             status = "failed"
         elif job_status in {"stopped", "interrupted", "stopping"}:
@@ -1679,7 +1686,7 @@ def make_demo_examples() -> dict[str, Any]:
             "timeout_seconds": 60,
             "max_workers": 2,
             "worker_max_steps": 4,
-            "worker_max_runtime_seconds": 120,
+            "worker_max_runtime_seconds": DEFAULT_WORKER_MAX_RUNTIME_SECONDS,
             "in_round_repair_attempts": DEFAULT_IN_ROUND_REPAIR_ATTEMPTS,
             "main_max_subagents": 4,
             "main_planning_mode": "fast",
@@ -1701,11 +1708,27 @@ def deepseek_status_payload() -> dict[str, Any]:
     """Return non-secret provider and OpenCode model status for the local UI."""
 
     load_local_env()
-    api_key_present = bool(os.environ.get("DEEPSEEK_API_KEY", "").strip())
+    qiming_key_present = bool(os.environ.get("QIMING_API_KEY", "").strip())
+    api_key_present = bool(os.environ.get("DEEPSEEK_API_KEY", "").strip()) or qiming_key_present
     key_file_value = os.environ.get("DEEPSEEK_API_KEY_FILE", "").strip()
     key_file_status = inspect_secret_file(key_file_value)
-    configured = api_key_present or bool(key_file_status.get("has_content"))
-    openai_configured = opencode_openai_key_available()
+    configured = (
+        api_key_present
+        or bool(key_file_status.get("has_content"))
+        or bool(os.environ.get("QIMING_API_KEY_FILE", "").strip())
+    )
+    qiming_configured = bool(
+        qiming_key_present or os.environ.get("QIMING_API_KEY_FILE", "").strip()
+    )
+    deepseek_configured = bool(
+        os.environ.get("DEEPSEEK_API_KEY", "").strip()
+        or os.environ.get("DEEPSEEK_API_KEY_FILE", "").strip()
+    )
+    openai_configured = bool(
+        os.environ.get("OPENAI_API_KEY", "").strip()
+        or os.environ.get("OPENAI_API_KEY_FILE", "").strip()
+        or opencode_openai_key_available()
+    )
     openai_key_source = opencode_openai_key_source()
     env_files = [env_file_status(path) for path in local_env_candidates()]
     env_example = PROJECT_ROOT / ".env.example"
@@ -1713,7 +1736,11 @@ def deepseek_status_payload() -> dict[str, Any]:
     return {
         "configured": configured,
         "model": normalize_deepseek_model(os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")),
-        "base_url": os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+        "base_url": (
+            os.environ.get("QIMING_BASE_URL", "https://cpa.qiming.zone/v1")
+            if qiming_key_present
+            else os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+        ),
         "opencode_model": default_opencode_model,
         "main_agent_model": os.environ.get("OPENCODE_MAIN_MODEL", default_opencode_model),
         "main_agent_variant": normalize_opencode_variant(os.environ.get("OPENCODE_MAIN_VARIANT")),
@@ -1726,11 +1753,13 @@ def deepseek_status_payload() -> dict[str, Any]:
             os.environ.get("OPENCODE_MAIN_MAX_SUBAGENTS"), 4, minimum=0, maximum=4
         ),
         "provider_keys": {
-            "deepseek": configured,
+            "qiming": qiming_configured,
+            "deepseek": deepseek_configured,
             "openai": openai_configured,
         },
         "provider_key_sources": {
-            "deepseek": "deepseek" if configured else None,
+            "qiming": "qiming" if qiming_configured else None,
+            "deepseek": "deepseek" if deepseek_configured else None,
             "openai": openai_key_source,
         },
         "diagnosis": deepseek_config_diagnosis(
@@ -2024,7 +2053,7 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         "worker_max_steps": coerce_int(payload.get("worker_max_steps"), 4, minimum=1, maximum=20),
         "worker_max_runtime_seconds": coerce_int(
             payload.get("worker_max_runtime_seconds"),
-            120,
+            DEFAULT_WORKER_MAX_RUNTIME_SECONDS,
             minimum=10,
             maximum=1800,
         ),
@@ -2238,6 +2267,20 @@ def inspect_instance_profile(instance_path: Path) -> dict[str, Any]:
             "has_minimum_time_lags": parsed.has_minimum_time_lags,
             "min_time_lag_constraint_count": len(parsed.minimum_time_lags),
             "min_time_lag_max": max((constraint.lag for constraint in parsed.minimum_time_lags), default=0),
+            "has_maximum_time_lags": parsed.has_maximum_time_lags,
+            "max_time_lag_constraint_count": len(parsed.maximum_time_lags),
+            "max_time_lag_max": max((constraint.lag for constraint in parsed.maximum_time_lags), default=0),
+            "has_alternative_routes": parsed.has_alternative_routes,
+            "alternative_route_count": sum(len(routes) for routes in parsed.alternative_routes),
+            "route_option_count_max": max(
+                (1 + len(routes) for routes in parsed.alternative_routes), default=1
+            ),
+            "alternative_subset_route_count": sum(
+                1
+                for job_id, routes in enumerate(parsed.alternative_routes)
+                for route in routes
+                if len(route) < len(parsed.jobs[job_id].operations)
+            ),
             "has_release_times": parsed.has_release_times,
             "max_job_release_time": max(parsed.job_release_times, default=0),
             "max_machine_available_time": max(parsed.machine_available_times, default=0),
@@ -2250,6 +2293,16 @@ def inspect_instance_profile(instance_path: Path) -> dict[str, Any]:
             "priority_job_count": len(parsed.priority_job_ids),
             "priority_job_ratio": len(parsed.priority_job_ids) / max(1, parsed.job_count),
             "has_reentrant_routes": parsed.has_reentrant_routes,
+            "has_operation_setup_times": parsed.has_operation_setup_times,
+            "has_transport_times": parsed.has_transport_times,
+            "has_job_precedences": parsed.has_job_precedences,
+            "job_precedence_count": len(parsed.job_precedences),
+            "has_batch_processing": parsed.has_batch_processing,
+            "batch_machine_count": len(parsed.batch_machine_capacities),
+            "batch_capacity_max": max(
+                (capacity for _, capacity in parsed.batch_machine_capacities), default=1
+            ),
+            "job_family_count": len(set(parsed.job_family_ids)),
             "original_operation_count": parsed.original_operation_count,
             "reentrant_added_operation_count": parsed.operation_count - parsed.original_operation_count,
             "reentrant_expansion_ratio": parsed.operation_count / max(1, parsed.original_operation_count),
@@ -2263,6 +2316,9 @@ def inspect_instance_profile(instance_path: Path) -> dict[str, Any]:
                 "fjsp_machine_availability": "examples/fjsp_machine_availability_evaluator.py",
                 "fjsp_priority": "examples/fjsp_priority_evaluator.py",
                 "fjsp_reentrant": "examples/fjsp_reentrant_evaluator.py",
+                "fjsp_alternative_path": "examples/fjsp_alternative_path_evaluator.py",
+                "fjsp_jpc_tst": "examples/fjsp_jpc_tst_evaluator.py",
+                "fjsp_pbpm": "examples/fjsp_pbpm_evaluator.py",
             }.get(parsed.variant, "examples/standard_fjsp_evaluator.py"),
             "objective_names": (
                 ["makespan", "priority_completion_time"]
@@ -2357,6 +2413,10 @@ def method_package_features(profile: dict[str, Any]) -> list[str]:
         return ["fjsp_sdst", "sequence_dependent_setup", "setup_time"]
     if bool(profile.get("has_minimum_time_lags")):
         return ["fjsp_min_time_lag", "minimum_time_lag", "time_lag"]
+    if bool(profile.get("has_maximum_time_lags")):
+        return ["fjsp_max_time_lag", "maximum_time_lag", "time_lag"]
+    if bool(profile.get("has_alternative_routes")):
+        return ["fjsp_alternative_path", "alternative_path", "route_choice"]
     if bool(profile.get("has_release_times")):
         return ["fjsp_release_time", "release_time", "machine_initial_availability"]
     if bool(profile.get("has_machine_availability")):
@@ -2372,6 +2432,22 @@ def method_package_features(profile: dict[str, Any]) -> list[str]:
             "distributed_factories",
             "transfer_time",
             "energy_objective",
+        ]
+    if str(profile.get("variant") or "") == "fjsp_jpc_tst":
+        return [
+            "fjsp_jpc_tst",
+            "job_precedence",
+            "machine_transport",
+            "operation_setup",
+            "multi_feature",
+        ]
+    if str(profile.get("variant") or "") == "fjsp_pbpm":
+        return [
+            "fjsp_pbpm",
+            "batching",
+            "parallel_batch_machine",
+            "batch_capacity",
+            "incompatible_job_families",
         ]
     return []
 
@@ -2392,6 +2468,19 @@ def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
         "minimum_time_lag",
         "time_lag",
         "mitfjsp",
+    }
+    maximum_lag_aliases = {
+        "fjsp_max_time_lag",
+        "max_time_lag",
+        "maximum_time_lag",
+        "tlfjsp",
+    }
+    alternative_path_aliases = {
+        "fjsp_alternative_path",
+        "alternative_path",
+        "alternative_route",
+        "route_choice",
+        "apfjsp",
     }
     release_aliases = {"fjsp_release_time", "release_time", "machine_initial_availability"}
     availability_aliases = {"fjsp_machine_availability", "machine_availability", "machine_calendar", "maintenance"}
@@ -2414,6 +2503,20 @@ def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
         "transfer_time",
         "energy_objective",
     }
+    jpc_tst_aliases = {
+        "fjsp_jpc_tst",
+        "job_precedence",
+        "machine_transport",
+        "operation_setup",
+        "multi_feature",
+    }
+    pbpm_aliases = {
+        "fjsp_pbpm",
+        "batching",
+        "parallel_batch_machine",
+        "batch_capacity",
+        "incompatible_job_families",
+    }
     for item in profile.get("variant_features") or []:
         text = str(item or "").strip().lower()
         if not text:
@@ -2422,6 +2525,10 @@ def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
             canonical.add("sequence_dependent_setup")
         elif text in minimum_lag_aliases:
             canonical.add("minimum_time_lag")
+        elif text in maximum_lag_aliases:
+            canonical.add("maximum_time_lag")
+        elif text in alternative_path_aliases:
+            canonical.add("alternative_path")
         elif text in release_aliases:
             canonical.add("release_time")
         elif text in availability_aliases:
@@ -2432,12 +2539,20 @@ def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
             canonical.add("reentrant_route")
         elif text in distributed_aliases:
             canonical.add("distributed_transfer")
+        elif text in jpc_tst_aliases:
+            canonical.add(text)
+        elif text in pbpm_aliases:
+            canonical.add(text)
         else:
             canonical.add(text)
     if bool(profile.get("has_sequence_dependent_setup")):
         canonical.add("sequence_dependent_setup")
     if bool(profile.get("has_minimum_time_lags")):
         canonical.add("minimum_time_lag")
+    if bool(profile.get("has_maximum_time_lags")):
+        canonical.add("maximum_time_lag")
+    if bool(profile.get("has_alternative_routes")):
+        canonical.add("alternative_path")
     if bool(profile.get("has_release_times")):
         canonical.add("release_time")
     if bool(profile.get("has_machine_availability")):
@@ -2448,6 +2563,12 @@ def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
         canonical.add("reentrant_route")
     if str(profile.get("variant") or "") == "fjsp_distributed_transfer":
         canonical.add("distributed_transfer")
+    if str(profile.get("variant") or "") == "fjsp_jpc_tst":
+        canonical.update({"job_precedence", "machine_transport", "operation_setup"})
+    if str(profile.get("variant") or "") == "fjsp_pbpm":
+        canonical.update(
+            {"batching", "parallel_batch_machine", "batch_capacity", "incompatible_job_families"}
+        )
     return canonical
 
 

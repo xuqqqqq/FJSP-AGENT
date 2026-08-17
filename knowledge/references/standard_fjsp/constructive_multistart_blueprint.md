@@ -8,7 +8,7 @@ status: curated_reference
 
 # 标准 FJSP 多起点构造与可行解码实现蓝图
 
-本卡用于从零建立合法 baseline，或修复“初解单一、入口坍缩”的问题。它不是完整深搜索
+本卡用于从零建立合法基线，或修复“初解单一、入口坍缩”的问题。它不是完整深搜索
 方法，也不能替代后续局部搜索。
 
 ## 1. 必须实现的状态
@@ -18,7 +18,7 @@ status: curated_reference
 - 作业内固定 precedence。
 - 独立 `incumbent`，任何失败构造不得覆盖它。
 
-只保存 start/end 的列表不是可修改搜索状态。后续换机和重排必须能回到 assignment 与
+只保存 `start/end` 的列表不是可修改搜索状态。后续换机和重排必须能回到 assignment 与
 machine sequence。
 
 ## 2. 构造器组合
@@ -70,14 +70,14 @@ order_fp = tuple(tuple(machine_sequences[m]) for m in machines)
 
 - 始终保留当前 makespan 最好的合法入口。
 - 额外入口按 assignment/order 距离和负载结构选择，而不是只按 makespan 排名。
-- 构造阶段使用共享绝对 deadline，并预留验证、序列化和后续搜索时间。
+- 构造阶段使用共享绝对时间上限，并预留验证、序列化和后续搜索时间。
 - 没有足够时间时返回最好的合法入口，不启动新重启。
 
 ## 6. 常见伪实现
 
-- 多次运行完全相同的确定性规则，却称为 multi-start。
+- 多次运行完全相同的确定性规则，却称为多起点。
 - 随机选择机器但没有负载或完成时间约束。
-- 改 assignment 后沿用旧机器序列或旧 start time。
+- 改 assignment 后沿用旧机器序列或旧开始时间。
 - 为每个入口运行完整深搜索，耗尽最终预算。
 - 只比较对象地址或列表身份，不比较结构指纹。
 

@@ -302,6 +302,46 @@ class ContextPacketTests(unittest.TestCase):
         self.assertEqual([], packet["method_package_catalog"]["packages"])
         self.assertTrue(any("reference_solver.py" in str(item) for item in packet["knowledge_cards"]))
 
+    def test_explicit_variant_package_activates_when_base_catalog_has_no_recommendation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            base_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "base_context.json",
+                )
+            )
+            base = json.loads(base_path.read_text(encoding="utf-8"))
+            base["method_package_catalog"] = {
+                "status": "not_applicable",
+                "active_features": ["reentrant_route", "loop_expansion"],
+                "packages": [],
+            }
+            base["packet_hash"] = "test-parent"
+            base_path.write_text(json.dumps(base), encoding="utf-8")
+
+            output = write_refreshed_context_packet(
+                base_context_packet_path=base_path,
+                output_path=tmp_path / "round_context.json",
+                loop_feedback={
+                    "current_direction_plan": {
+                        "method_family": "exact_hybrid",
+                        "method_package_id": "fjsp_reentrant_adaptation",
+                        "knowledge_query": ["exact_hybrid", "reentrant_route", "loop_expansion"],
+                    }
+                },
+            )
+            packet = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual("fjsp_reentrant_adaptation", packet["active_method_package"]["package_id"])
+        self.assertTrue(
+            any(
+                str(item.get("path") or "").endswith("fjsp_reentrant_adaptation\\implementation_contract.json")
+                or str(item.get("path") or "").endswith("fjsp_reentrant_adaptation/implementation_contract.json")
+                for item in packet["knowledge_cards"]
+            )
+        )
+
     def test_context_packet_embeds_project_intake_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

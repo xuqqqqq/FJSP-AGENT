@@ -1,14 +1,14 @@
 ---
 name: fjsp-awls-sdst-adapter
-description: 在把基于 AWLS 的柔性作业车间求解器适配或演进为带 sequence-dependent setup time 的 FJSP-SDST 时使用，尤其适用于选择完整 Method Package、编写 Worker Assignment，或在固定 IO/evaluator 契约下验证 setup-aware timing、邻域、tabu 与自适应评分的场景。
+description: 在把基于 AWLS 的柔性作业车间求解器适配或演进为带序列相关换型时间的 FJSP-SDST 时使用，尤其适用于选择完整方法包、编写 WorkerAssignment，或在固定 IO/evaluator 契约下验证换型感知时序、邻域、tabu 与自适应评分的场景。
 ---
 
 # FJSP AWLS-SDST 适配
 
 ## 触发条件
 
-- 需要把 AWLS 类 FJSP 方法适配到带 sequence-dependent setup time 的 FJSP-SDST。
-- 需要选择完整 Method Package、编写 Worker Assignment，或验证 setup-aware timing、邻域、tabu 和自适应评分。
+- 需要把 AWLS 类 FJSP 方法适配到带序列相关换型时间的 FJSP-SDST。
+- 需要选择完整方法包、编写 WorkerAssignment，或验证换型感知时序、邻域、tabu 和自适应评分。
 - 任务受固定 IO/evaluator 契约约束，不能通过修改评测口径获得“适配成功”。
 
 ## 读取顺序
@@ -34,7 +34,7 @@ description: 在把基于 AWLS 的柔性作业车间求解器适配或演进为�
 - 独立生成的 solver 必须自带 IO 派生 parser，不得导入 `harness_agent`；平台方法资产只可在验证时复用平台 parser。
 - `instance.has_sequence_dependent_setup` 为 false 时，标准 FJSP 行为不得退化。
 - LB/UB/BKS 只能用于诊断汇报，不能作为 solver 输入。
-- 变体算法知识只放在 domain packs、knowledge cards、Skills 和 Method Packages 中，不写进通用后端编排。
+- 变体算法知识只放在领域包、知识卡、技能和方法包中，不写进通用后端编排。
 
 ## 交付物
 

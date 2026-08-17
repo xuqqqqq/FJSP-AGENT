@@ -1,12 +1,12 @@
 ---
 id: standard-fjsp-population-memetic-blueprint
 type: implementation_blueprint
-title: 标准 FJSP 群体与 Memetic 搜索实现蓝图
+title: 标准 FJSP 群体与模因搜索实现蓝图
 tags: [fjsp, population, genetic, memetic, diversity, local-search]
 status: curated_reference
 ---
 
-# 标准 FJSP 群体与 Memetic 搜索实现蓝图
+# 标准 FJSP 群体与模因搜索实现蓝图
 
 群体方法适合需要跨盆地探索且预算足够的场景。它不是“随机生成很多解”；强实现必须让
 编码、解码、交叉、变异、局部改进、去重和替换形成闭环。
@@ -47,7 +47,7 @@ def reproduce(parent_a, parent_b, rng):
 
 order 交叉必须保持每个作业出现次数正确；machine 变异只能选该工序合法候选机器。
 
-## 4. Memetic 局部改进
+## 4. 模因式局部改进
 
 不要对每个子代运行完整深搜索。可只对以下个体做短局部改进：
 

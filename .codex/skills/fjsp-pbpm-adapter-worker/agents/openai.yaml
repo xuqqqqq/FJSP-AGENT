@@ -1,0 +1,4 @@
+interface:
+  display_name: "并行组批 FJSP 适配"
+  short_description: "联合处理批机容量、同族相容性和批次同步时长"
+  default_prompt: "在固定 PBPM IO 与 evaluator 下实现并行组批；按批次而非成员检查机器互斥，并完整验证容量、family、同步与 max-duration 语义。"

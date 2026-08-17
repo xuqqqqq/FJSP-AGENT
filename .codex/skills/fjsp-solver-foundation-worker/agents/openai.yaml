@@ -1,4 +1,4 @@
 interface:
   display_name: "FJSP 求解器基础执行器"
   short_description: "实现合法的独立 FJSP 求解器基础"
-  default_prompt: "研读已选契约，并实现 assignment 指定的 FJSP 求解器基础。"
+  default_prompt: "研读已选契约，并实现任务分配中指定的 FJSP 求解器基础。"

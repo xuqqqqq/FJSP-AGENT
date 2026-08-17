@@ -3,14 +3,54 @@
   "contract_id": "fjsp_machine_availability_adaptation",
   "mode": "complete_method_package",
   "required_components": [
-    {"component_id": "maintenance_tail_parser", "required_behaviors": ["Parse all fixed half-open maintenance intervals without dropping overlaps."]},
-    {"component_id": "calendar_normalization", "required_behaviors": ["Build sorted per-machine calendars with union-preserving merge semantics and share them across all candidate paths."]},
-    {"component_id": "calendar_aware_full_decoder", "required_behaviors": ["Place each nonpreemptive operation in a complete machine-calendar gap for construction and every search operator."]},
-    {"component_id": "nonpreemptive_interval_validation", "required_behaviors": ["Reject every accepted candidate that intersects any original maintenance interval on its selected machine while accepting exact half-open boundaries."]},
-    {"component_id": "exact_calendar_capacity", "required_behaviors": ["When an exact path is used, include fixed maintenance intervals in each machine NoOverlap constraint."]}
+    {
+      "component_id": "maintenance_tail_parser",
+      "required_behaviors": [
+        "解析全部固定的半开维护区间，不得丢失重叠窗口。"
+      ]
+    },
+    {
+      "component_id": "calendar_normalization",
+      "required_behaviors": [
+        "构建按机器排序的日历，并以保留并集的合并语义在所有候选路径之间共享。"
+      ]
+    },
+    {
+      "component_id": "calendar_aware_full_decoder",
+      "required_behaviors": [
+        "在构造阶段和每个搜索算子中，都把每个不可抢占工序放入完整的机器日历空隙。"
+      ]
+    },
+    {
+      "component_id": "nonpreemptive_interval_validation",
+      "required_behaviors": [
+        "拒绝所有在所选机器上与任一原始维护区间相交的已接受候选，同时允许精确的半开边界贴合。"
+      ]
+    },
+    {
+      "component_id": "exact_calendar_capacity",
+      "required_behaviors": [
+        "当使用精确路径时，在每台机器的 ``NoOverlap`` 约束中纳入固定维护区间。"
+      ]
+    }
   ],
   "coupled_groups": [
-    {"group_id": "calendar_semantics", "component_ids": ["maintenance_tail_parser", "calendar_normalization", "calendar_aware_full_decoder", "nonpreemptive_interval_validation"], "rule": "Every candidate path must share the fixed machine calendar and pass the same boundary semantics before comparison."}
+    {
+      "group_id": "calendar_semantics",
+      "component_ids": [
+        "maintenance_tail_parser",
+        "calendar_normalization",
+        "calendar_aware_full_decoder",
+        "nonpreemptive_interval_validation"
+      ],
+      "rule": "每条候选路径在比较前都必须共享同一固定机器日历，并通过相同的边界语义校验。"
+    }
   ],
-  "forbidden_shortcuts": ["ignore_maintenance_tail", "append_only_machine_ready_claimed_as_calendar_aware", "validate_only_final_output", "split_operation_at_window", "modify_evaluator"]
+  "forbidden_shortcuts": [
+    "ignore_maintenance_tail",
+    "append_only_machine_ready_claimed_as_calendar_aware",
+    "validate_only_final_output",
+    "split_operation_at_window",
+    "modify_evaluator"
+  ]
 }

@@ -58,22 +58,32 @@ class StandardFjspContextProvider:
         )
         sdst_instances = [item for item in profiled if item.get("variant") == "fjsp_sdst"]
         min_lag_instances = [item for item in profiled if item.get("variant") == "fjsp_min_time_lag"]
+        max_lag_instances = [item for item in profiled if item.get("variant") == "fjsp_max_time_lag"]
+        alternative_path_instances = [
+            item for item in profiled if item.get("variant") == "fjsp_alternative_path"
+        ]
         release_instances = [item for item in profiled if item.get("variant") == "fjsp_release_time"]
         availability_instances = [
             item for item in profiled if item.get("variant") == "fjsp_machine_availability"
         ]
         priority_instances = [item for item in profiled if item.get("variant") == "fjsp_priority"]
         reentrant_instances = [item for item in profiled if item.get("variant") == "fjsp_reentrant"]
+        jpc_tst_instances = [item for item in profiled if item.get("variant") == "fjsp_jpc_tst"]
+        pbpm_instances = [item for item in profiled if item.get("variant") == "fjsp_pbpm"]
         best_known_count = sum(1 for item in profiled if item.get("best_known_makespan") is not None)
         summary = {
             "instance_count": len(contract.instances),
             "profiled_count": len(profiled),
             "sdst_instance_count": len(sdst_instances),
             "min_time_lag_instance_count": len(min_lag_instances),
+            "max_time_lag_instance_count": len(max_lag_instances),
+            "alternative_path_instance_count": len(alternative_path_instances),
             "release_time_instance_count": len(release_instances),
             "machine_availability_instance_count": len(availability_instances),
             "priority_instance_count": len(priority_instances),
             "reentrant_instance_count": len(reentrant_instances),
+            "jpc_tst_instance_count": len(jpc_tst_instances),
+            "pbpm_instance_count": len(pbpm_instances),
             "shape_group_count": len(_instance_shape_groups(profiled)),
             "setup_time_kinds": sorted(
                 {str(item.get("setup_time_kind")) for item in profiled if item.get("setup_time_kind")}
@@ -109,6 +119,10 @@ class StandardFjspContextProvider:
                 (int(item.get("min_time_lag_max", 0) or 0) for item in profiled),
                 default=0,
             ),
+            "max_max_time_lag": max(
+                (int(item.get("max_time_lag_max", 0) or 0) for item in profiled),
+                default=0,
+            ),
             "max_job_release_time": max(
                 (int(item.get("max_job_release_time", 0) or 0) for item in release_instances), default=0
             ),
@@ -121,6 +135,18 @@ class StandardFjspContextProvider:
             ),
             "max_priority_job_count": max(
                 (int(item.get("priority_job_count", 0) or 0) for item in priority_instances),
+                default=0,
+            ),
+            "max_batch_machine_count": max(
+                (int(item.get("batch_machine_count", 0) or 0) for item in pbpm_instances),
+                default=0,
+            ),
+            "max_batch_capacity": max(
+                (int(item.get("batch_capacity_max", 1) or 1) for item in pbpm_instances),
+                default=1,
+            ),
+            "max_job_family_count": max(
+                (int(item.get("job_family_count", 0) or 0) for item in pbpm_instances),
                 default=0,
             ),
             "avg_priority_job_ratio": _rounded_average(
@@ -144,6 +170,17 @@ class StandardFjspContextProvider:
             ),
             "avg_min_time_lag_density": _rounded_average(
                 float(item.get("min_time_lag_density", 0.0) or 0.0) for item in min_lag_instances
+            ),
+            "avg_max_time_lag_density": _rounded_average(
+                float(item.get("max_time_lag_density", 0.0) or 0.0) for item in max_lag_instances
+            ),
+            "max_route_option_count": max(
+                (int(item.get("route_option_count_max", 0) or 0) for item in alternative_path_instances),
+                default=0,
+            ),
+            "avg_alternative_route_length_ratio": _rounded_average(
+                float(item.get("alternative_route_length_ratio_avg", 0.0) or 0.0)
+                for item in alternative_path_instances
             ),
             "best_known_available_count": best_known_count,
             "best_known_semantics": "diagnostic_only_score_remains_negative_makespan",
@@ -182,15 +219,23 @@ class StandardFjspContextProvider:
             or any(kind not in {"", "none", "null"} for kind in setup_kinds)
         )
         diagnostics_show_min_lag = int(summary.get("min_time_lag_instance_count") or 0) > 0
+        diagnostics_show_max_lag = int(summary.get("max_time_lag_instance_count") or 0) > 0
+        diagnostics_show_alternative_path = int(summary.get("alternative_path_instance_count") or 0) > 0
         diagnostics_show_release = int(summary.get("release_time_instance_count") or 0) > 0
         diagnostics_show_availability = int(summary.get("machine_availability_instance_count") or 0) > 0
         diagnostics_show_priority = int(summary.get("priority_instance_count") or 0) > 0
         diagnostics_show_reentrant = int(summary.get("reentrant_instance_count") or 0) > 0
+        diagnostics_show_jpc_tst = int(summary.get("jpc_tst_instance_count") or 0) > 0
+        diagnostics_show_pbpm = int(summary.get("pbpm_instance_count") or 0) > 0
         features: list[str] = []
         if diagnostics_show_sdst:
             features.extend(["fjsp_sdst", "sequence_dependent_setup", "setup_time"])
         if diagnostics_show_min_lag:
             features.extend(["fjsp_min_time_lag", "minimum_time_lag", "time_lag"])
+        if diagnostics_show_max_lag:
+            features.extend(["fjsp_max_time_lag", "maximum_time_lag", "time_lag"])
+        if diagnostics_show_alternative_path:
+            features.extend(["fjsp_alternative_path", "alternative_path", "route_choice"])
         if diagnostics_show_release:
             features.extend(["fjsp_release_time", "release_time", "machine_initial_availability"])
         if diagnostics_show_availability:
@@ -204,6 +249,20 @@ class StandardFjspContextProvider:
         if diagnostics_show_reentrant:
             features.extend(
                 ["fjsp_reentrant", "reentrant_route", "loop_expansion", "reentrant_aware_search"]
+            )
+        if diagnostics_show_jpc_tst:
+            features.extend(
+                ["fjsp_jpc_tst", "job_precedence", "machine_transport", "operation_setup", "multi_feature"]
+            )
+        if diagnostics_show_pbpm:
+            features.extend(
+                [
+                    "fjsp_pbpm",
+                    "batching",
+                    "parallel_batch_machine",
+                    "batch_capacity",
+                    "incompatible_job_families",
+                ]
             )
         if features:
             return features
@@ -219,8 +278,22 @@ class StandardFjspContextProvider:
         ).lower()
         if re.search(r"\bfjsp[-_]?sdst\b|\bsequence[-_\s]?dependent[-_\s]?setup\b|\bsetup[-_\s]?matrix\b", text):
             features.extend(["fjsp_sdst", "sequence_dependent_setup", "setup_time"])
+        if re.search(r"\bfjsp[-_]?pbpm\b|\bp[-_\s]?batch\b|并行组批|批处理机", text):
+            features.extend(
+                [
+                    "fjsp_pbpm",
+                    "batching",
+                    "parallel_batch_machine",
+                    "batch_capacity",
+                    "incompatible_job_families",
+                ]
+            )
         if re.search(r"\bfjsp[-_]?min(?:imum)?[-_\s]?time[-_\s]?lag\b|\bmin(?:imum)?[-_\s]?time[-_\s]?lag\b|最小时间(?:间隔|滞后)", text):
             features.extend(["fjsp_min_time_lag", "minimum_time_lag", "time_lag"])
+        if re.search(r"\bfjsp[-_]?(?:max|maximum)[-_\s]?time[-_\s]?lag\b|\bmax(?:imum)?[-_\s]?time[-_\s]?lag\b|最大时间(?:间隔|滞后)|最大生产间隔", text):
+            features.extend(["fjsp_max_time_lag", "maximum_time_lag", "time_lag"])
+        if re.search(r"\bfjsp[-_]?alternative[-_\s]?(?:path|route)\b|\balternative[-_\s]?(?:process[-_\s]?)?(?:path|route)\b|替代工艺(?:路径|路线)|可选工艺(?:路径|路线)", text):
+            features.extend(["fjsp_alternative_path", "alternative_path", "route_choice"])
         if re.search(r"\brelease[-_\s]?time\b|工件释放时间|机器初始可用", text):
             features.extend(["fjsp_release_time", "release_time", "machine_initial_availability"])
         if re.search(r"\bmachine[-_\s]?(?:availability|calendar)\b|maintenance|维修时段", text):
@@ -247,7 +320,13 @@ class StandardFjspContextProvider:
             "required_top_level_fields": ["format", "makespan", "schedule"],
             "variant_required_top_level_fields": {
                 "fjsp_priority": ["priority_completion_time"],
+                "fjsp_alternative_path": ["selected_routes"],
             },
+            "selected_routes_contract": (
+                "For fjsp_alternative_path, map every 0-based job id to exactly one route id: "
+                "0 is the original operation order and 1..K are the tail alternatives. The schedule must "
+                "contain exactly the selected route's operations in that route order."
+            ),
             "schedule_record_fields": ["job_id", "op_id", "machine_id", "start", "end"],
             "indexing": "job_id, op_id, and machine_id are 0-based integers",
             "legality_owner": "AlgoForge Core evaluator",
@@ -316,7 +395,17 @@ def _single_instance_diagnostics(
         else 0.0
     )
     lag_values = [constraint.lag for constraint in instance.minimum_time_lags]
+    max_lag_values = [constraint.lag for constraint in instance.maximum_time_lags]
+    alternative_routes = [route for routes in instance.alternative_routes for route in routes]
+    route_length_ratios = [
+        len(route) / max(1, len(instance.jobs[job_id].operations))
+        for job_id, routes in enumerate(instance.alternative_routes)
+        for route in routes
+    ]
     adjacent_pair_count = sum(max(0, len(job.operations) - 1) for job in instance.jobs)
+    ordered_pair_count = sum(
+        len(job.operations) * max(0, len(job.operations) - 1) // 2 for job in instance.jobs
+    )
     best_known = _load_best_known_diagnostic(best_known_csv, instance.name)
     payload.update(
         {
@@ -369,6 +458,27 @@ def _single_instance_diagnostics(
             "min_time_lag_density": _round_float(len(lag_values) / adjacent_pair_count)
             if adjacent_pair_count
             else 0.0,
+            "max_time_lag_constraint_count": len(max_lag_values),
+            "max_time_lag_zero_count": sum(1 for value in max_lag_values if value == 0),
+            "max_time_lag_min": min(max_lag_values, default=0),
+            "max_time_lag_max": max(max_lag_values, default=0),
+            "max_time_lag_avg": _rounded_average(float(value) for value in max_lag_values),
+            "max_time_lag_density": _round_float(len(max_lag_values) / ordered_pair_count)
+            if ordered_pair_count
+            else 0.0,
+            "alternative_route_count": len(alternative_routes),
+            "route_option_count_max": max(
+                (1 + len(routes) for routes in instance.alternative_routes), default=1
+            ),
+            "alternative_route_length_min": min((len(route) for route in alternative_routes), default=0),
+            "alternative_route_length_max": max((len(route) for route in alternative_routes), default=0),
+            "alternative_route_length_ratio_avg": _rounded_average(route_length_ratios),
+            "alternative_subset_route_count": sum(
+                1
+                for job_id, routes in enumerate(instance.alternative_routes)
+                for route in routes
+                if len(route) < len(instance.jobs[job_id].operations)
+            ),
             "max_job_release_time": max(instance.job_release_times, default=0),
             "max_machine_available_time": max(instance.machine_available_times, default=0),
             "unavailability_interval_count": len(instance.unavailability_intervals),
@@ -387,6 +497,16 @@ def _single_instance_diagnostics(
                 (loop.loop_body_size for loop in instance.reentrant_loops), default=0
             ),
             "reentrant_repeat_max": max((loop.repeat for loop in instance.reentrant_loops), default=0),
+            "job_precedence_count": len(instance.job_precedences),
+            "transport_arc_count": sum(
+                1 for row in instance.transport_times for value in row if value > 0
+            ),
+            "operation_setup_entry_count": len(instance.operation_setup_times),
+            "batch_machine_count": len(instance.batch_machine_capacities),
+            "batch_capacity_max": max(
+                (capacity for _, capacity in instance.batch_machine_capacities), default=1
+            ),
+            "job_family_count": len(set(instance.job_family_ids)),
             "best_known_makespan": best_known,
             "best_known_diagnostic_only": best_known is not None,
         }
@@ -440,6 +560,10 @@ def _instance_shape_key(item: dict[str, Any]) -> str:
     )
     if str(item.get("variant") or "") == "fjsp_min_time_lag":
         key += "_min_time_lag"
+    if str(item.get("variant") or "") == "fjsp_max_time_lag":
+        key += "_max_time_lag"
+    if str(item.get("variant") or "") == "fjsp_alternative_path":
+        key += "_alternative_path"
     if str(item.get("variant") or "") == "fjsp_reentrant":
         key += "_reentrant"
     return key
@@ -576,6 +700,26 @@ def _instance_direction_hints(summary: dict[str, Any], profiled: list[dict[str, 
             f"density_avg={summary.get('avg_min_time_lag_density', 0.0)}, "
             f"max_lag={summary.get('max_min_time_lag', 0)}."
         )
+    if int(summary.get("max_time_lag_instance_count", 0) or 0) > 0:
+        hints.append(
+            "Maximum time-lag constraints are active; every listed, possibly non-adjacent upper bound "
+            "must survive construction, complete decoding, move evaluation, and output validation."
+        )
+        hints.append(
+            "Measured max-lag structure: "
+            f"density_avg={summary.get('avg_max_time_lag_density', 0.0)}, "
+            f"max_lag={summary.get('max_max_time_lag', 0)}."
+        )
+    if int(summary.get("alternative_path_instance_count", 0) or 0) > 0:
+        hints.append(
+            "Alternative process paths are active; route choice changes the operation set and precedence order. "
+            "Every constructor, move, exact model, and output guard must jointly preserve selected_routes."
+        )
+        hints.append(
+            "Measured route structure: "
+            f"options_max={summary.get('max_route_option_count', 0)}, "
+            f"alternative_length_ratio_avg={summary.get('avg_alternative_route_length_ratio', 0.0)}."
+        )
     if int(summary.get("priority_instance_count", 0) or 0) > 0:
         hints.append(
             "Job priority is a soft lexicographic objective, not a precedence constraint: minimize makespan "
@@ -597,6 +741,17 @@ def _instance_direction_hints(summary: dict[str, Any], profiled: list[dict[str, 
             f"added_ops_max={summary.get('max_reentrant_added_operation_count', 0)}, "
             f"expansion_ratio_max={summary.get('max_reentrant_expansion_ratio', 0.0)}, "
             f"repeat_max={summary.get('max_reentrant_repeat', 0)}."
+        )
+    if int(summary.get("pbpm_instance_count", 0) or 0) > 0:
+        hints.append(
+            "Parallel-batch processing is active; machine assignment, batch membership, family compatibility, "
+            "shared max-duration timing, and batch-level machine order must be decoded together."
+        )
+        hints.append(
+            "Measured batch structure: "
+            f"batch_machines_max={summary.get('max_batch_machine_count', 0)}, "
+            f"capacity_max={summary.get('max_batch_capacity', 1)}, "
+            f"families_max={summary.get('max_job_family_count', 0)}."
         )
     hints.append(
         "Measured assignment structure: "
