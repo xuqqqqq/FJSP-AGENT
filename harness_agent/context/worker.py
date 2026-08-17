@@ -604,8 +604,20 @@ def _assignment_implementation_skills(
         baseline_trial is None
         and lane_policy.get("mechanism_selection") == "delegated_to_worker"
     )
+    # A baseline only carries full method-family Worker Skills when it must
+    # implement a variant-specific method package (one that declares feature
+    # requirements) from scratch. A plain standard-FJSP baseline (which also has
+    # a method_package_id for its canonical reference package) must stay minimal:
+    # parsing, simple construction, CLI and deterministic fallback only, so its
+    # Worker assignment keeps just the bounded foundation Skill.
     specialized_baseline = bool(
-        baseline_trial == 1 and str(direction_plan.get("method_package_id") or "").strip()
+        baseline_trial == 1
+        and str(direction_plan.get("method_package_id") or "").strip()
+        and bool(
+            _selected_method_package(context, direction_plan, active_features=active_features).get(
+                "required_features"
+            )
+        )
     )
     for item in selection.get("skills") or []:
         if not isinstance(item, dict):
