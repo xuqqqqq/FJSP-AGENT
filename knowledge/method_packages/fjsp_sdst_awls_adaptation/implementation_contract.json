@@ -7,6 +7,65 @@
   "mode": "complete_method_package",
   "completion_rule": "只有当每个继承的搜索组件以及每个 SDST 扩展组件都可达且在行为上连通后，该适配方法声明才能通过语义审查。",
   "variant_rule": "所有构造、解码、定时、邻域、接受和输出路径，都必须保持当前需求与 IO 文档声明的序列相关 setup 语义。",
+  "diagnostics_serialization_rule": "若当前阶段声明 setup-aware zero-slack critical-block 同机非相邻重插与关键工序异机重插，则最终 diagnostics.activation.coupled_local_search 必须报告 tight_critical_machine_arcs、critical_blocks_found、nonadjacent_reinsert_moves_evaluated、nonadjacent_reinsert_moves_feasible、max_reinsert_span、machine_reassign_moves_evaluated 与 machine_reassign_moves_feasible 的实际运行计数。tight arc 必须满足 start[next] == end[prev] + setup(prev,next) 且两端均为 zero-slack；nonadjacent move 必须在删除并重插后的最终机器顺序中跨越至少两个位置；machine reassignment 必须移除源机器节点、同步更新 assignment 并插入可加工目标机器的有界位置。evaluated 与 feasible 计数都只能在完成 full decode 和目标评价后增加；feasible 还要求 decoder 返回完整合法候选。",
+  "activation_checks": [
+    {
+      "id": "sdst_tight_critical_machine_arcs",
+      "path": "diagnostics.activation.coupled_local_search.tight_critical_machine_arcs",
+      "operator": "gt",
+      "expected": 0,
+      "required": true
+    },
+    {
+      "id": "sdst_critical_blocks_found",
+      "path": "diagnostics.activation.coupled_local_search.critical_blocks_found",
+      "operator": "gt",
+      "expected": 0,
+      "required": true
+    },
+    {
+      "id": "sdst_nonadjacent_reinsert_moves_evaluated",
+      "path": "diagnostics.activation.coupled_local_search.nonadjacent_reinsert_moves_evaluated",
+      "operator": "gt",
+      "expected": 0,
+      "required": true
+    },
+    {
+      "id": "sdst_max_reinsert_span",
+      "path": "diagnostics.activation.coupled_local_search.max_reinsert_span",
+      "operator": "gt",
+      "expected": 1,
+      "required": true
+    },
+    {
+      "id": "sdst_machine_reassign_moves_evaluated",
+      "path": "diagnostics.activation.coupled_local_search.machine_reassign_moves_evaluated",
+      "operator": "gt",
+      "expected": 0,
+      "required": true
+    },
+    {
+      "id": "sdst_nonadjacent_reinsert_moves_feasible",
+      "path": "diagnostics.activation.coupled_local_search.nonadjacent_reinsert_moves_feasible",
+      "operator": "gt",
+      "expected": 0,
+      "required": true
+    },
+    {
+      "id": "sdst_machine_reassign_moves_feasible",
+      "path": "diagnostics.activation.coupled_local_search.machine_reassign_moves_feasible",
+      "operator": "gt",
+      "expected": 0,
+      "required": true
+    },
+    {
+      "id": "sdst_output_incumbent_consumed",
+      "path": "diagnostics.activation.coupled_local_search.output_incumbent_consumed",
+      "operator": "truthy",
+      "expected": true,
+      "required": true
+    }
+  ],
   "required_components": [
     {
       "component_id": "sdst_setup_semantics_and_decoder",
@@ -24,6 +83,10 @@
       "required_behaviors": [
         "对于每个同机顺序移动，在接受之前都要计入变更顺序周围所有被删除和新增的 setup 弧。",
         "对于每个换机移动，都要删除旧 setup 链接，在可加工的目标机器前驱/后继上下文中插入，并使用 setup 感知的有界插入位置。",
+        "把 promoted incumbent 的既有构造与目标改进路径作为不可退化的 warm start：先原样运行并保留其结果，再追加本阶段；不得用新算子替换、缩短或绕过既有搜索。",
+        "新增阶段必须直接更新调用者持有的 incumbent，或返回独立 best schedule 并由真实 CLI 调用者显式消费后再计算 makespan 与序列化；局部 best、丢弃返回值、自拷贝或仅写 telemetry 不构成提交。",
+        "首阶段先评估紧关键块的同机非相邻重插，再对仍处于 zero-slack 或关键尾部的、具备替代机器的工序评估异机有界重插；两类候选共享一个截止时间，并为异机阶段保留显式预算。",
+        "在每个有界候选批次中提交 best fully decoded candidate；接受严格改善后立即从新 incumbent 重算 assignment、机器顺序和关键结构，不沿用旧块继续扫描。",
         "仅能基于当前约束下完整的 setup 感知解码结果来接受或排序最终候选；setup 增量可以用于过滤或排序候选，但不能替代解码后的目标比较。"
       ],
       "evidence_required": "可达的同机与重分配移动路径，这些路径会消费有向 setup 值并随后调用完整解码器。"
@@ -61,6 +124,44 @@
         "sdst_critical_timing_and_adaptation"
       ],
       "rule": "关键性、自适应压力和多样化必须使用能够反映当前 setup 感知机器顺序的定时信息，同时保持全局最优。"
+    }
+  ],
+  "competition_tracks": [
+    {
+      "track_id": "direct_evidence",
+      "title": "紧关键块与异机重插耦合",
+      "component_ids": ["state_and_initialization", "progress_decoder", "critical_graph_and_blocks", "same_machine_neighborhood", "alternative_machine_neighborhood", "transactional_move_lifecycle", "sdst_setup_semantics_and_decoder", "sdst_setup_aware_neighborhood_evaluation"],
+      "selection_hint": "Preserve and run the incumbent search path first, treating its returned best schedule as the warm start; do not replace its constructor or objective-refinement function. The appended stage must mutate that caller-owned incumbent or return an independent best schedule that main explicitly consumes before makespan/output serialization; a local best or self-copy is forbidden. 首阶段随后在同一搜索闭环内同时激活 setup-aware 紧关键块非相邻同机重插和关键工序异机有界重插；为异机阶段保留显式预算，在每个有界候选集合选择 best fully decoded candidate，并在严格改善后重算关键结构。",
+      "stages": [
+        {"stage_id": "critical_same_and_alternative_reinsert", "component_ids": ["state_and_initialization", "progress_decoder", "critical_graph_and_blocks", "same_machine_neighborhood", "alternative_machine_neighborhood", "transactional_move_lifecycle", "sdst_setup_semantics_and_decoder", "sdst_setup_aware_neighborhood_evaluation"]},
+        {"stage_id": "tabu", "component_ids": ["tabu_and_aspiration"]},
+        {"stage_id": "diversification", "component_ids": ["diversification_and_best_preservation"]},
+        {"stage_id": "adaptive_scoring", "component_ids": ["adaptive_weight_scoring", "sdst_critical_timing_and_adaptation"]}
+      ]
+    },
+    {
+      "track_id": "minimal_risk",
+      "title": "紧关键块同机重插",
+      "component_ids": ["state_and_initialization", "progress_decoder", "critical_graph_and_blocks", "same_machine_neighborhood", "transactional_move_lifecycle", "sdst_setup_semantics_and_decoder", "sdst_setup_aware_neighborhood_evaluation"],
+      "selection_hint": "先完成 setup-aware 紧关键块非相邻同机重插，再加入异机重插；所有候选 full decode，严格改善后重算关键结构。",
+      "stages": [
+        {"stage_id": "critical_same_machine_reinsert", "component_ids": ["state_and_initialization", "progress_decoder", "critical_graph_and_blocks", "same_machine_neighborhood", "transactional_move_lifecycle", "sdst_setup_semantics_and_decoder", "sdst_setup_aware_neighborhood_evaluation"]},
+        {"stage_id": "alternative_reinsert", "component_ids": ["alternative_machine_neighborhood"]},
+        {"stage_id": "tabu", "component_ids": ["tabu_and_aspiration"]},
+        {"stage_id": "diversification", "component_ids": ["diversification_and_best_preservation"]}
+      ]
+    },
+    {
+      "track_id": "orthogonal_mechanism",
+      "title": "关键工序异机重插",
+      "component_ids": ["state_and_initialization", "progress_decoder", "critical_graph_and_blocks", "alternative_machine_neighborhood", "transactional_move_lifecycle", "sdst_setup_semantics_and_decoder", "sdst_setup_aware_neighborhood_evaluation"],
+      "selection_hint": "先实现具备替代机器的关键工序异机有界重插并保留独立 incumbent，再补同机关键块与自适应控制。",
+      "stages": [
+        {"stage_id": "critical_alternative_reinsert", "component_ids": ["state_and_initialization", "progress_decoder", "critical_graph_and_blocks", "alternative_machine_neighborhood", "transactional_move_lifecycle", "sdst_setup_semantics_and_decoder", "sdst_setup_aware_neighborhood_evaluation"]},
+        {"stage_id": "same_machine_reinsert", "component_ids": ["same_machine_neighborhood"]},
+        {"stage_id": "tabu", "component_ids": ["tabu_and_aspiration"]},
+        {"stage_id": "adaptive_scoring", "component_ids": ["adaptive_weight_scoring", "sdst_critical_timing_and_adaptation"]}
+      ]
     }
   ]
 }

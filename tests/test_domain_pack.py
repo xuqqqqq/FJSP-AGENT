@@ -1113,6 +1113,32 @@ class DomainPackTests(unittest.TestCase):
             }.issubset(sdst_component_ids)
         )
         self.assertGreater(len(sdst_component_ids), len(standard_component_ids))
+        sdst_activation_ids = {
+            item["id"]
+            for item in sdst_package.implementation_contract["activation_checks"]
+        }
+        self.assertIn("sdst_machine_reassign_moves_evaluated", sdst_activation_ids)
+        self.assertIn("sdst_nonadjacent_reinsert_moves_feasible", sdst_activation_ids)
+        self.assertIn("sdst_machine_reassign_moves_feasible", sdst_activation_ids)
+        self.assertIn("sdst_output_incumbent_consumed", sdst_activation_ids)
+        direct_stage = sdst_package.implementation_contract["competition_tracks"][0]["stages"][0]
+        self.assertTrue(
+            {
+                "critical_graph_and_blocks",
+                "same_machine_neighborhood",
+                "alternative_machine_neighborhood",
+                "transactional_move_lifecycle",
+                "sdst_setup_aware_neighborhood_evaluation",
+            }.issubset(direct_stage["component_ids"])
+        )
+        self.assertIn(
+            "best fully decoded candidate",
+            sdst_package.implementation_contract["competition_tracks"][0]["selection_hint"],
+        )
+        self.assertIn(
+            "incumbent search path",
+            sdst_package.implementation_contract["competition_tracks"][0]["selection_hint"],
+        )
         contract_sources = [str(path).replace("\\", "/") for path in sdst_package.implementation_contract_assets]
         self.assertTrue(any("standard_fjsp_awls_hgtsa/implementation_contract.json" in path for path in contract_sources))
         self.assertTrue(any("fjsp_sdst_awls_adaptation/implementation_contract.json" in path for path in contract_sources))

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import shlex
 import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -20,10 +22,13 @@ from harness_agent.agents.main import (
     WorkerAssignmentRequest,
     activation_check_schema_errors,
     bind_direction_plan_to_method_catalog,
+    candidate_method_names,
     configure_exact_probe_tournament,
     deterministic_round_reflection,
+    ensure_direction_activation_contracts,
     ensure_method_family_activation_contract,
     enforce_improvement_direction_contract,
+    fallback_planning_contract_status,
     high_flexibility_query_tags,
     merge_public_reasoning_traces,
     normalize_activation_checks,
@@ -35,7 +40,7 @@ from harness_agent.agents.main import (
     write_round_reflection,
 )
 from harness_agent.context.compaction import compact_json
-from harness_agent.context.knowledge import method_package_catalog
+from harness_agent.context.knowledge import method_package_catalog, method_package_query_tags
 from harness_agent.context.loader import load_context_dict
 from harness_agent.context.packet import activate_direction_knowledge_context
 from harness_agent.context import planning_packet as planning_packets
@@ -133,10 +138,20 @@ class OpenCodeMainAgent:
             return self._fallback(request, reason="OpenCode executable is unavailable")
 
         request.output_dir.mkdir(parents=True, exist_ok=True)
+        context = load_context_dict(request.context_packet_path)
+        guidance_ablation = (
+            context.get("guidance_ablation")
+            if isinstance(context.get("guidance_ablation"), dict)
+            else {}
+        )
+        # None is a deliberate domain-guidance ablation, not a retrieval
+        # failure. It receives a normal generic evidence plan with multiple
+        # Worker lanes, but no Skills, cards, packages, or activation contract.
+        if guidance_ablation.get("mode") == "none":
+            return self._plan_direction_none(request)
         if self.planning_mode == "fast":
             return self._plan_direction_fast(request)
 
-        context = load_context_dict(request.context_packet_path)
         incumbent_source_attachments = incumbent_source_files(context)
         planning_packet = build_planning_packet(
             context=context,
@@ -240,6 +255,7 @@ class OpenCodeMainAgent:
             knowledge_query_tags=method_package_query_tags(
                 knowledge_query=selection["knowledge_query"],
                 method_family=selection["method_family"],
+                active_features=original_catalog.get("active_features"),
             ),
         )
         implementation_packet = build_implementation_planning_packet(
@@ -457,6 +473,7 @@ class OpenCodeMainAgent:
             round_index=request.round_index,
             loop_feedback=request.loop_feedback,
         )
+        plan = ensure_direction_activation_contracts(plan)
         plan["planner"] = "opencode_main_agent"
         plan["planning_evidence"] = {
             "planning_packet_path": str(packet_path.resolve()),
@@ -467,6 +484,182 @@ class OpenCodeMainAgent:
             "event_count": usage_payload.get("event_count", 0),
             "compaction": usage_payload.get("compaction") or {},
         }
+        return write_direction_plan(request.output_dir, plan)
+
+    def _plan_direction_none(self, request: DirectionPlanRequest) -> dict[str, Any]:
+        """Ask generic Main to propose distinct methods without domain catalogs."""
+
+        request.output_dir.mkdir(parents=True, exist_ok=True)
+        context = load_context_dict(request.context_packet_path)
+        planning_packet = build_planning_packet(
+            context=context,
+            loop_feedback=request.loop_feedback,
+            round_index=request.round_index,
+        )
+        competition = (
+            request.loop_feedback.get("competition")
+            if isinstance(request.loop_feedback.get("competition"), dict)
+            else {}
+        )
+        max_workers = max(1, min(4, int(competition.get("max_competing_workers") or 1)))
+        incumbent = (
+            planning_packet.get("incumbent_evidence")
+            if isinstance(planning_packet.get("incumbent_evidence"), dict)
+            else {}
+        )
+        generic_packet = {
+            "schema_version": 1,
+            "planning_stage": "generic_guidance_ablation",
+            "task_digest": _bounded_fast_value(planning_packet.get("task_digest")),
+            "instance_diagnostics": _bounded_fast_value(planning_packet.get("instance_diagnostics")),
+            "incumbent_evidence": _bounded_fast_value(
+                {
+                    "objective_key": incumbent.get("objective_key"),
+                    "evaluation": incumbent.get("evaluation"),
+                }
+            ),
+            "recent_round_evidence": _bounded_fast_value(
+                planning_packet.get("recent_round_evidence"), max_list=3
+            ),
+            "runtime_limits": _bounded_fast_value(planning_packet.get("runtime_limits")),
+            "output_contract": {
+                "candidate_method_count": max_workers,
+                "required_candidate_fields": [
+                    "candidate_id",
+                    "method_name",
+                    "hypothesis",
+                    "worker_objective",
+                    "strategy_type",
+                ],
+                "methods_must_be_distinct": True,
+            },
+        }
+        packet_path = request.output_dir / "generic_ablation_planning_packet.json"
+        packet_path.write_text(json_dumps(generic_packet), encoding="utf-8")
+        source_attachments = incumbent_source_files(context)
+        planning_attachments = [packet_path, *source_attachments]
+        base_prompt = (
+                "这是无 FJSP 领域增强的通用算法规划对照。只阅读附件中的任务、实例事实、incumbent 与 Core 反馈；"
+                "可以读取随附的当前 incumbent solver 源码，但不要读取附件之外的任何文件。"
+                "不要加载 Skill，不要调用子 Agent，不要读取知识库、方法包、候选算子库或历史经验。"
+                f"请独立提出恰好 {max_workers} 种算法方法；每条 lane 必须是明确且互不相同的方法方案，"
+                "不能用 direct_evidence、minimal_risk、orthogonal 等角色名代替方法名。"
+                "只返回 JSON，顶层为 direction_plan；其中 candidate_variants 为数组，每项严格包含 "
+                "candidate_id、method_name、hypothesis、worker_objective、strategy_type、change_scope、preserve、avoid。"
+                "worker_objective 要让 Coding Worker 实现该方法并保留合法 incumbent fallback。"
+        )
+        variants: list[dict[str, Any]] = []
+        usage_payload = summarize_opencode_events("")
+        for attempt_index in range(2):
+            run = self._run_once(
+                output_dir=request.output_dir,
+                attachments=planning_attachments,
+                prompt=(
+                    base_prompt
+                    if attempt_index == 0
+                    else base_prompt
+                    + " 上一次没有返回满足契约的 JSON；本次不要解释、不要请求更多证据，立即只输出 JSON。"
+                ),
+                suffix="_generic_ablation" if attempt_index == 0 else "_generic_ablation_retry",
+                timeout_seconds=bounded_timeout_seconds(self.timeout_seconds, FAST_MAIN_TIMEOUT_SECONDS),
+                allowed_specialist=None,
+                allowed_skills=[],
+                attachments_only=True,
+                isolated_cwd=True,
+            )
+            usage_payload = merge_event_summaries(
+                usage_payload,
+                summarize_opencode_events(run["stdout"]),
+            )
+            raw = extract_planned_direction(run["stdout"])
+            raw_plan = raw.get("direction_plan") if isinstance(raw, dict) else None
+            variants = normalize_generic_method_variants(
+                raw_plan.get("candidate_variants") if isinstance(raw_plan, dict) else None,
+                expected=max_workers,
+            )
+            if len(variants) == max_workers:
+                break
+        usage_payload.update({"attempts": attempt_index + 1, "planning_mode": "generic_guidance_ablation"})
+        self._write_usage(request.output_dir, usage_payload)
+        if len(variants) != max_workers:
+            raise ValueError(
+                "generic ablation Main must propose exactly "
+                f"{max_workers} distinct algorithm method lanes"
+            )
+        plan = normalize_direction_plan(
+            {
+                "direction_id": f"d{request.round_index:03d}",
+                "title": "Generic algorithm-method tournament",
+                "strategy_type": "generic_method_tournament",
+                "hypothesis": (
+                    "Distinct generic algorithm methods can be tested independently against the current incumbent."
+                ),
+                "worker_objective": (
+                    "Implement each proposed method as a bounded incumbent-preserving candidate."
+                ),
+                "diagnosis": (
+                    "Use the model-proposed methods directly without domain retrieval or fallback planning."
+                ),
+                "experiment_stage": "research_tournament",
+                "preserve": [
+                    "Preserve the complete legal incumbent and return it when the method does not improve it."
+                ],
+                "avoid": [
+                    "Do not load domain Skills, knowledge cards, method packages, candidate operator libraries, "
+                    "or historical scores."
+                ],
+                "acceptance_checks": [
+                    "Candidate passes deterministic checks and the fixed evaluator.",
+                    "Candidate remains complete and legal under the active contract.",
+                    "Candidate is promoted only when it strictly improves the incumbent.",
+                ],
+                "completion_rule": (
+                    "Implement only the assigned generic method while preserving the complete legal incumbent."
+                ),
+            },
+            round_index=request.round_index,
+        )
+        plan.update(
+            {
+                "method_family": "",
+                "method_families": [],
+                "method_package_id": "",
+                "knowledge_query": [],
+                "knowledge_paths": [],
+                "implementation_bundle": {},
+                "activation_contract_version": 0,
+                "activation_checks": [],
+                "candidate_variants": variants,
+                "worker_lane_policy": {
+                    "schema_version": 1,
+                    "mechanism_selection": "generic_method_tournament",
+                    "lane_count": max_workers,
+                    "method_names": [item["method_name"] for item in variants],
+                },
+                "planning_contract_status": {
+                    "schema_version": 1,
+                    "status": "satisfied",
+                    "source": "generic_guidance_ablation",
+                    "maximum_worker_lanes": max_workers,
+                    "planned_worker_lanes": max_workers,
+                    "actual_started_candidates_source": "competition_result.candidates",
+                    "activation_mode": "not_applicable",
+                    "promotion_policy": "core_and_semantic_gates",
+                },
+                "planner": "generic_ablation_main_agent",
+                "planning_evidence": {
+                    "planning_mode": "generic_guidance_ablation",
+                    "called_subagents": [],
+                    "domain_knowledge_enabled": False,
+                    "planning_packet_path": str(packet_path.resolve()),
+                },
+            }
+        )
+        plan = enforce_improvement_direction_contract(
+            plan,
+            round_index=request.round_index,
+            loop_feedback=request.loop_feedback,
+        )
         return write_direction_plan(request.output_dir, plan)
 
     def _plan_direction_fast(self, request: DirectionPlanRequest) -> dict[str, Any]:
@@ -545,6 +738,7 @@ class OpenCodeMainAgent:
             knowledge_query_tags=method_package_query_tags(
                 knowledge_query=selection["knowledge_query"],
                 method_family=selection["method_family"],
+                active_features=original_catalog.get("active_features"),
             ),
         )
         method_package_id, package_selection_source = resolve_fast_method_package(
@@ -661,17 +855,14 @@ class OpenCodeMainAgent:
                 else "delegated_to_worker"
             ),
             "lane_count": max_workers,
-            "roles": [
-                "direct_evidence",
-                "minimal_risk",
-                "orthogonal_mechanism",
-                "diagnostic_value",
-            ][:max_workers],
         }
         if not family_tournament:
             plan["candidate_variants"] = []
-        plan["activation_checks"] = []
-        plan["activation_contract_version"] = 0
+        plan["worker_lane_policy"]["method_names"] = candidate_method_names(
+            plan,
+            limit=max_workers,
+        )
+        plan = ensure_direction_activation_contracts(plan)
         plan = enforce_improvement_direction_contract(
             plan,
             round_index=request.round_index,
@@ -791,6 +982,9 @@ class OpenCodeMainAgent:
         suffix: str,
         timeout_seconds: int | None = None,
         allowed_specialist: str | list[str] | None = None,
+        allowed_skills: list[str] | None = None,
+        attachments_only: bool = False,
+        isolated_cwd: bool = False,
     ) -> dict[str, Any]:
         allowed_specialists = normalize_allowed_specialists(
             allowed_specialist,
@@ -828,12 +1022,22 @@ class OpenCodeMainAgent:
         runtime_config = self._runtime_config(
             attachment_paths=attachments,
             allowed_specialists=allowed_specialists,
+            allowed_skills=allowed_skills,
+            attachments_only=attachments_only,
         )
         runtime_path.write_text(json_dumps(runtime_config), encoding="utf-8")
 
+        isolated_workspace = (
+            tempfile.TemporaryDirectory(prefix="algoforge-main-ablation-")
+            if isolated_cwd
+            else None
+        )
         popen_kwargs: dict[str, object] = {
-            "cwd": str(self.project_root),
-            "env": opencode_subprocess_environment(runtime_config=runtime_config),
+            "cwd": isolated_workspace.name if isolated_workspace is not None else str(self.project_root),
+            "env": opencode_subprocess_environment(
+                runtime_config=runtime_config,
+                isolation_root=output_dir / ".opencode_runtime",
+            ),
             "stdin": subprocess.DEVNULL,
             "text": True,
             "stdout": subprocess.PIPE,
@@ -909,6 +1113,8 @@ class OpenCodeMainAgent:
                 stream.close()
             except (AttributeError, OSError):
                 pass
+        if isolated_workspace is not None:
+            isolated_workspace.cleanup()
         stdout = "".join(stdout_chunks)
         stderr = "".join(stderr_chunks)
         stalled = bool(stall_state.get("stalled"))
@@ -935,16 +1141,26 @@ class OpenCodeMainAgent:
         attachment_paths: list[Path],
         allowed_specialists: list[str] | None = None,
         allowed_specialist: str | None = None,
+        allowed_skills: list[str] | None = None,
+        attachments_only: bool = False,
     ) -> dict[str, Any]:
         allowed_specialists = normalize_allowed_specialists(
             allowed_specialists or allowed_specialist,
             limit=self.max_subagents,
         )
         attachment_permissions = self._attachment_permissions(attachment_paths)
-        main_read_permissions = self._main_read_permissions()
+        main_read_permissions = {"*": "deny"} if attachments_only else self._main_read_permissions()
         task_permissions = {"*": "deny"}
         for specialist in allowed_specialists:
             task_permissions[specialist] = "allow"
+        permitted_skills = (
+            ["algoforge-assignment", "experiment-design"]
+            if allowed_skills is None
+            else [str(item) for item in allowed_skills if str(item).strip()]
+        )
+        skill_permissions = {"*": "deny"}
+        for skill_id in permitted_skills:
+            skill_permissions[skill_id] = "allow"
         agent_configs: dict[str, Any] = {
             OPENCODE_MAIN_AGENT: {
                 "steps": self.max_steps,
@@ -966,11 +1182,7 @@ class OpenCodeMainAgent:
                         **attachment_permissions,
                     },
                     "task": task_permissions,
-                    "skill": {
-                        "*": "deny",
-                        "algoforge-assignment": "allow",
-                        "experiment-design": "allow",
-                    },
+                    "skill": skill_permissions,
                 },
             }
         }
@@ -1097,6 +1309,7 @@ class OpenCodeMainAgent:
                 knowledge_query_tags=method_package_query_tags(
                     knowledge_query=plan.get("knowledge_query"),
                     method_family=str(plan.get("method_family") or ""),
+                    active_features=original_catalog.get("active_features"),
                 ),
             )
             package_id, package_selection_source = resolve_fast_method_package(
@@ -1145,17 +1358,19 @@ class OpenCodeMainAgent:
                     else "delegated_to_worker"
                 ),
                 "lane_count": max_workers,
-                "roles": [
-                    "direct_evidence",
-                    "minimal_risk",
-                    "orthogonal_mechanism",
-                    "diagnostic_value",
-                ][:max_workers],
             }
             if not tournament and not family_tournament:
                 plan["candidate_variants"] = []
-            plan["activation_checks"] = []
-            plan["activation_contract_version"] = 0
+            plan["worker_lane_policy"]["method_names"] = candidate_method_names(
+                plan,
+                limit=max_workers,
+            )
+        plan = ensure_direction_activation_contracts(plan)
+        plan["planning_contract_status"] = fallback_planning_contract_status(
+            plan,
+            loop_feedback=request.loop_feedback,
+            round_index=request.round_index,
+        )
         plan["planner_fallback"] = {
             "source": type(self).__name__,
             "fallback": type(self.fallback).__name__,
@@ -1191,6 +1406,7 @@ def bind_fallback_tournament_variants(
             knowledge_query_tags=method_package_query_tags(
                 knowledge_query=variant.get("knowledge_query"),
                 method_family=family,
+                active_features=original_catalog.get("active_features"),
             ),
         )
         package_id, source = resolve_fast_method_package(
@@ -1656,6 +1872,47 @@ def extract_planned_direction(events_text: str) -> dict[str, Any] | None:
     return None
 
 
+def normalize_generic_method_variants(value: Any, *, expected: int) -> list[dict[str, Any]]:
+    """Validate generic Main method lanes without mapping them to domain catalogs."""
+
+    result: list[dict[str, Any]] = []
+    seen_methods: set[str] = set()
+    for index, item in enumerate(value or []):
+        if not isinstance(item, dict):
+            continue
+        method_name = str(item.get("method_name") or "").strip()[:120]
+        method_key = re.sub(r"[^a-z0-9]+", "", method_name.lower())
+        hypothesis = str(item.get("hypothesis") or "").strip()[:1_200]
+        objective = str(item.get("worker_objective") or "").strip()[:1_200]
+        strategy_type = str(item.get("strategy_type") or "").strip()[:120]
+        if not method_key or method_key in seen_methods or not hypothesis or not objective or not strategy_type:
+            continue
+        seen_methods.add(method_key)
+        candidate_id = re.sub(
+            r"[^a-z0-9_-]+",
+            "-",
+            str(item.get("candidate_id") or f"method-{index + 1:02d}").strip().lower(),
+        ).strip("-")[:48] or f"method-{index + 1:02d}"
+        result.append(
+            {
+                "candidate_id": candidate_id,
+                "title": method_name,
+                "method_name": method_name,
+                "hypothesis": hypothesis,
+                "worker_objective": objective,
+                "strategy_type": strategy_type,
+                "change_scope": _bounded_string_list(item.get("change_scope"), limit=8, chars=500),
+                "preserve": _bounded_string_list(item.get("preserve"), limit=8, chars=500),
+                "avoid": _bounded_string_list(item.get("avoid"), limit=8, chars=500),
+                "activation_contract_version": 0,
+                "activation_checks": [],
+            }
+        )
+        if len(result) >= max(1, min(4, expected)):
+            break
+    return result
+
+
 def extract_direction_selection(events_text: str) -> dict[str, Any] | None:
     """Extract the first-stage direction selection from OpenCode JSON events."""
 
@@ -1735,22 +1992,6 @@ def bounded_timeout_seconds(timeout_seconds: int | None, upper_bound: int) -> in
     if timeout_seconds is None:
         return upper_bound
     return min(timeout_seconds, upper_bound)
-
-
-def method_package_query_tags(
-    *,
-    knowledge_query: Any,
-    method_family: str,
-) -> list[str]:
-    """Build package tags from both the query and the selected method family."""
-
-    tags: list[str] = []
-    for value in [*(knowledge_query or []), method_family]:
-        tag = str(value or "").strip()
-        if not tag or tag == "__direction_selection_pending__" or tag in tags:
-            continue
-        tags.append(tag)
-    return tags
 
 
 def resolve_fast_method_package(

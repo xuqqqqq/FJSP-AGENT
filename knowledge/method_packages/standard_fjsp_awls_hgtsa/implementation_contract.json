@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "contract_id": "standard_fjsp_awls_hgtsa_complete_method",
-  "mode": "complete_method_package",
-  "completion_rule": "只有当每个必需组件都通过同向的、可达的求解器代码实现后，该方法声明才能通过语义审查。",
+  "contract_id": "standard_fjsp_awls_hgtsa_incremental_method",
+  "mode": "incremental_method_package",
+  "completion_rule": "短预算轮次只要求当前选中的算法阶段形成可达、可激活、可回退的闭环；未选组件保留为后续演进目标，不得要求 Worker 在单轮重写完整方法包。",
   "variant_rule": "必须让每个组件适配所有当前激活的需求与 IO 约束。变体特定知识应扩展本合同，而不是禁用其核心搜索生命周期。",
   "fallback_improvement_order": [
     "same_machine_neighborhood",
@@ -52,6 +52,7 @@
       "title": "N7/N8 风格与 K-insertion 机器顺序邻域",
       "required_behaviors": [
         "生成有界关键块端点移动以及非相邻 K-insertion 候选。",
+        "在 setup-aware zero-slack 关键块上保留一个窄的同机非相邻重插阶段；接受严格改善后从新状态重算关键块。",
         "修改显式机器顺序，而不只是对固定分配重新排程。",
         "仅保留完成解码后的合法候选，并在嵌套扫描内部保留截止时间检查。"
       ],
@@ -195,28 +196,30 @@
   ],
   "competition_tracks": [
     {
-      "track_id": "direct_evidence",
-      "title": "直接证据优先",
+      "track_id": "critical_block_reinsertion",
+      "title": "关键块非相邻重插",
       "component_ids": [
         "state_and_initialization",
         "progress_decoder",
         "critical_graph_and_blocks",
+        "same_machine_neighborhood",
         "alternative_machine_neighborhood",
         "tabu_and_aspiration",
         "diversification_and_best_preservation",
         "adaptive_weight_scoring"
       ],
-      "selection_hint": "优先选择当前 Core 证据最直接指向、且有清晰可达实现缺口的关键路径与异机邻域组件。",
+      "selection_hint": "从 promoted incumbent 出发，优先实现关键块端点与非相邻重插；每次严格改善后重新解码并重算关键结构。",
       "stages": [
-        {"stage_id": "critical_alternative_nk", "component_ids": ["state_and_initialization", "progress_decoder", "critical_graph_and_blocks", "alternative_machine_neighborhood"]},
+        {"stage_id": "critical_same_machine_reinsert", "component_ids": ["state_and_initialization", "progress_decoder", "critical_graph_and_blocks", "same_machine_neighborhood"]},
+        {"stage_id": "alternative_nk", "component_ids": ["alternative_machine_neighborhood"]},
         {"stage_id": "tabu", "component_ids": ["tabu_and_aspiration"]},
         {"stage_id": "diversification", "component_ids": ["diversification_and_best_preservation"]},
         {"stage_id": "adaptive_scoring", "component_ids": ["adaptive_weight_scoring"]}
       ]
     },
     {
-      "track_id": "minimal_risk",
-      "title": "最小风险修补",
+      "track_id": "machine_load_sequence_repair",
+      "title": "负载感知换机与顺序修复",
       "component_ids": [
         "state_and_initialization",
         "progress_decoder",
@@ -226,17 +229,17 @@
         "tabu_and_aspiration",
         "diversification_and_best_preservation"
       ],
-      "selection_hint": "先完成同机 N7/N8，再逐步加入异机 NK、tabu 和多样化，减少破坏 incumbent 合法性的风险。",
+      "selection_hint": "先完成关键工序的有界换机插入与顺序保留重解码，再逐步加入同机 N7/N8、tabu 和多样化。",
       "stages": [
-        {"stage_id": "critical_same_machine_n7_n8", "component_ids": ["state_and_initialization", "progress_decoder", "critical_graph_and_blocks", "same_machine_neighborhood"]},
-        {"stage_id": "alternative_nk", "component_ids": ["alternative_machine_neighborhood"]},
+        {"stage_id": "critical_alternative_nk", "component_ids": ["state_and_initialization", "progress_decoder", "critical_graph_and_blocks", "alternative_machine_neighborhood"]},
+        {"stage_id": "same_machine_n7_n8", "component_ids": ["same_machine_neighborhood"]},
         {"stage_id": "tabu", "component_ids": ["tabu_and_aspiration"]},
         {"stage_id": "diversification", "component_ids": ["diversification_and_best_preservation"]}
       ]
     },
     {
-      "track_id": "orthogonal_mechanism",
-      "title": "正交机制探索",
+      "track_id": "bounded_insertion_vnd",
+      "title": "有界插入 VND",
       "component_ids": [
         "state_and_initialization",
         "progress_decoder",
@@ -248,7 +251,7 @@
         "adaptive_weight_scoring",
         "diversification_and_best_preservation"
       ],
-      "selection_hint": "先形成同机、异机与事务 move 的组合闭环，再逐步加入 tabu、自适应评分和多样化。",
+      "selection_hint": "在共享 deadline 下交替执行同机重插与异机插入，接受改善后立即重算状态，先形成有界 VND 闭环再扩展 tabu。",
       "stages": [
         {"stage_id": "combined_transactional_neighborhoods", "component_ids": ["state_and_initialization", "progress_decoder", "critical_graph_and_blocks", "same_machine_neighborhood", "alternative_machine_neighborhood", "transactional_move_lifecycle"]},
         {"stage_id": "tabu", "component_ids": ["tabu_and_aspiration"]},

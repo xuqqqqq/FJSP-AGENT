@@ -425,8 +425,11 @@ def is_supported_starter_instance(path: Path) -> bool:
             ".nfafjsp",
             ".nfa.",
             ".priority.",
+            ".mofjsp.",
             ".rjsp.",
             ".pbpm.",
+            ".calendar_reentrant.",
+            ".fjcs.",
         )
     )
     named_text_variant = path.suffix.lower() == ".txt" and lowered.startswith(
@@ -435,7 +438,17 @@ def is_supported_starter_instance(path: Path) -> bool:
     return (
         path.suffix.lower() in STARTER_INSTANCE_SUFFIXES
         or compound_variant
-        or lowered.endswith((".mitfjsp", ".tlfjsp", ".apfjsp", ".rtfjsp", ".nfafjsp"))
+        or lowered.endswith(
+            (
+                ".mitfjsp",
+                ".tlfjsp",
+                ".apfjsp",
+                ".rtfjsp",
+                ".nfafjsp",
+                ".calendar_reentrant.json",
+                ".fjcs.json",
+            )
+        )
         or named_text_variant
     )
 
@@ -2303,6 +2316,8 @@ def inspect_instance_profile(instance_path: Path) -> dict[str, Any]:
                 (capacity for _, capacity in parsed.batch_machine_capacities), default=1
             ),
             "job_family_count": len(set(parsed.job_family_ids)),
+            "cell_count": len(set(parsed.machine_cell_ids)),
+            "has_total_tardiness_objective": parsed.has_cell_sdst_transport_tardiness,
             "original_operation_count": parsed.original_operation_count,
             "reentrant_added_operation_count": parsed.operation_count - parsed.original_operation_count,
             "reentrant_expansion_ratio": parsed.operation_count / max(1, parsed.original_operation_count),
@@ -2315,14 +2330,21 @@ def inspect_instance_profile(instance_path: Path) -> dict[str, Any]:
                 "fjsp_release_time": "examples/fjsp_release_time_evaluator.py",
                 "fjsp_machine_availability": "examples/fjsp_machine_availability_evaluator.py",
                 "fjsp_priority": "examples/fjsp_priority_evaluator.py",
+                "fjsp_multiobjective_workload": "examples/fjsp_multiobjective_workload_evaluator.py",
                 "fjsp_reentrant": "examples/fjsp_reentrant_evaluator.py",
+                "fjsp_calendar_reentrant": "examples/fjsp_calendar_reentrant_evaluator.py",
                 "fjsp_alternative_path": "examples/fjsp_alternative_path_evaluator.py",
                 "fjsp_jpc_tst": "examples/fjsp_jpc_tst_evaluator.py",
                 "fjsp_pbpm": "examples/fjsp_pbpm_evaluator.py",
+                "fjsp_cell_sdst_transport_tardiness": "examples/fjsp_cell_sdst_transport_tardiness_evaluator.py",
             }.get(parsed.variant, "examples/standard_fjsp_evaluator.py"),
             "objective_names": (
                 ["makespan", "priority_completion_time"]
                 if parsed.has_job_priorities
+                else ["makespan", "max_machine_workload", "total_workload"]
+                if parsed.has_workload_objectives
+                else ["makespan", "total_tardiness"]
+                if parsed.has_cell_sdst_transport_tardiness
                 else ["makespan"]
             ),
             "scale": parsed.job_count * parsed.machine_count * parsed.operation_count,
@@ -2423,6 +2445,14 @@ def method_package_features(profile: dict[str, Any]) -> list[str]:
         return ["fjsp_machine_availability", "machine_availability", "machine_calendar", "maintenance"]
     if bool(profile.get("has_job_priorities")):
         return ["fjsp_priority", "job_priority", "priority_completion_time", "priority_aware_search"]
+    if str(profile.get("variant") or "") == "fjsp_multiobjective_workload":
+        return [
+            "fjsp_multiobjective_workload",
+            "multiobjective_workload",
+            "max_machine_workload",
+            "total_workload",
+            "workload_balancing_search",
+        ]
     if bool(profile.get("has_reentrant_routes")):
         return ["fjsp_reentrant", "reentrant_route", "loop_expansion", "reentrant_aware_search"]
     if str(profile.get("variant") or "") == "fjsp_distributed_transfer":
@@ -2448,6 +2478,16 @@ def method_package_features(profile: dict[str, Any]) -> list[str]:
             "parallel_batch_machine",
             "batch_capacity",
             "incompatible_job_families",
+        ]
+    if str(profile.get("variant") or "") == "fjsp_cell_sdst_transport_tardiness":
+        return [
+            "fjsp_cell_sdst_transport_tardiness",
+            "cell_transport",
+            "family_sequence_dependent_setup",
+            "reentrant_route",
+            "due_date",
+            "total_tardiness",
+            "multi_feature",
         ]
     return []
 
@@ -2490,6 +2530,13 @@ def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
         "priority_completion_time",
         "priority_aware_search",
     }
+    workload_objective_aliases = {
+        "fjsp_multiobjective_workload",
+        "multiobjective_workload",
+        "max_machine_workload",
+        "total_workload",
+        "workload_balancing_search",
+    }
     reentrant_aliases = {
         "fjsp_reentrant",
         "reentrant_fjsp",
@@ -2517,6 +2564,13 @@ def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
         "batch_capacity",
         "incompatible_job_families",
     }
+    cell_sdst_transport_aliases = {
+        "fjsp_cell_sdst_transport_tardiness",
+        "cell_transport",
+        "family_sequence_dependent_setup",
+        "due_date",
+        "total_tardiness",
+    }
     for item in profile.get("variant_features") or []:
         text = str(item or "").strip().lower()
         if not text:
@@ -2535,6 +2589,8 @@ def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
             canonical.add("machine_availability")
         elif text in priority_aliases:
             canonical.add("job_priority")
+        elif text in workload_objective_aliases:
+            canonical.add("multiobjective_workload")
         elif text in reentrant_aliases:
             canonical.add("reentrant_route")
         elif text in distributed_aliases:
@@ -2542,6 +2598,8 @@ def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
         elif text in jpc_tst_aliases:
             canonical.add(text)
         elif text in pbpm_aliases:
+            canonical.add(text)
+        elif text in cell_sdst_transport_aliases:
             canonical.add(text)
         else:
             canonical.add(text)
@@ -2559,6 +2617,8 @@ def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
         canonical.add("machine_availability")
     if bool(profile.get("has_job_priorities")):
         canonical.add("job_priority")
+    if str(profile.get("variant") or "") == "fjsp_multiobjective_workload":
+        canonical.add("multiobjective_workload")
     if bool(profile.get("has_reentrant_routes")):
         canonical.add("reentrant_route")
     if str(profile.get("variant") or "") == "fjsp_distributed_transfer":
@@ -2568,6 +2628,20 @@ def canonical_variant_feature_set(profile: dict[str, Any]) -> set[str]:
     if str(profile.get("variant") or "") == "fjsp_pbpm":
         canonical.update(
             {"batching", "parallel_batch_machine", "batch_capacity", "incompatible_job_families"}
+        )
+    if str(profile.get("variant") or "") == "fjsp_calendar_reentrant":
+        canonical.update({"fjsp_calendar_reentrant", "multi_feature"})
+    if str(profile.get("variant") or "") == "fjsp_cell_sdst_transport_tardiness":
+        canonical.update(
+            {
+                "fjsp_cell_sdst_transport_tardiness",
+                "cell_transport",
+                "family_sequence_dependent_setup",
+                "reentrant_route",
+                "due_date",
+                "total_tardiness",
+                "multi_feature",
+            }
         )
     return canonical
 

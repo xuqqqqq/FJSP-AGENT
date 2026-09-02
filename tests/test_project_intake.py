@@ -13,10 +13,23 @@ ROOT = Path(__file__).resolve().parents[1]
 class ProjectIntakeTests(unittest.TestCase):
     def test_project_intake_writes_context_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            project_root = tmp_path / "project"
+            examples_dir = project_root / "examples"
+            examples_dir.mkdir(parents=True)
+            (project_root / "README.md").write_text("# Intake fixture\n", encoding="utf-8")
+            (examples_dir / "agent_generated_fjsp_solver.py").write_text(
+                "def main():\n    return 0\n",
+                encoding="utf-8",
+            )
+            (examples_dir / "standard_fjsp_evaluator.py").write_text(
+                "def main():\n    return 0\n",
+                encoding="utf-8",
+            )
             manifest = write_project_intake(
                 ProjectIntakeRequest(
-                    project_root=ROOT,
-                    output_dir=Path(tmp) / "project_intake",
+                    project_root=project_root,
+                    output_dir=tmp_path / "project_intake",
                     contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
                     max_files=60,
                     max_symbols_per_file=8,

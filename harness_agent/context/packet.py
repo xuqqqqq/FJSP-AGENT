@@ -24,6 +24,7 @@ from harness_agent.context.knowledge import (
     knowledge_query_catalog,
     method_family_catalog,
     method_package_catalog,
+    method_package_query_tags,
     resolve_worker_implementation_skills,
     resolve_method_package,
     select_knowledge_cards,
@@ -60,6 +61,7 @@ class ContextPacketRequest:
     output_path: Path
     docs: list[Path] = field(default_factory=list)
     knowledge_cards: list[Path] = field(default_factory=list)
+    guidance_mode: str = "full"
     project_root: Path | None = None
     hypothesis: str = ""
     previous_report: Path | None = None
@@ -77,6 +79,11 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
     都会在这里合并成同一份首轮上下文。
     """
 
+    guidance_mode = str(request.guidance_mode or "full").strip().lower()
+    if guidance_mode not in {"full", "none"}:
+        raise ValueError("guidance_mode must be 'full' or 'none'")
+    guidance_none = guidance_mode == "none"
+
     contract = TaskContract.load(request.contract_path)
     contract_raw = json.loads(request.contract_path.read_text(encoding="utf-8-sig"))
     domain_context_provider = get_domain_context_provider(contract.problem_family)
@@ -88,7 +95,7 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
     )
     previous_pipeline_memory = (
         _pipeline_memory_payload(request.previous_pipeline_memory)
-        if request.previous_pipeline_memory
+        if request.previous_pipeline_memory and not guidance_none
         else None
     )
     instance_diagnostics = domain_context_provider.inspect_instances(
@@ -106,7 +113,10 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
         else None
     )
     contract_review_evidence = _contract_review_payload(contract.review)
-    problem_family_capability = get_problem_family(contract.problem_family).to_payload()
+    problem_family_capability = _project_problem_family_capability(
+        get_problem_family(contract.problem_family).to_payload(),
+        guidance_mode=guidance_mode,
+    )
     agent_generated_solver = _uses_agent_generated_solver(contract)
     problem_family_tags = (
         [] if agent_generated_solver else list(problem_family_capability.get("knowledge_tags") or [])
@@ -120,44 +130,51 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
     )
     # 知识卡选择和 Method Package 推荐都建立在“领域能力 + 当前实例特征”之上。
     # Domain Pack 提供边界与素材，实例诊断/slot 确认决定当前 round 实际可用什么。
-    knowledge_selection = select_knowledge_cards(
-        problem_family=contract.problem_family,
-        problem_family_tags=problem_family_tags,
-        slot_manifest=slot_manifest,
-        instance_diagnostics=instance_diagnostics,
-        active_features=active_features,
-    )
-    auto_cards = knowledge_selection.cards
-    strategy_card_paths = selection_cards(
-        problem_family=contract.problem_family,
-        stage="strategy",
-    )
-    package_catalog = (
-        method_package_catalog(
+    if guidance_none:
+        knowledge_selection = None
+        auto_cards: list[Path] = []
+        strategy_card_paths: list[Path] = []
+        knowledge_cards: list[dict[str, Any]] = []
+        strategy_selection_cards: list[dict[str, Any]] = []
+    else:
+        knowledge_selection = select_knowledge_cards(
+            problem_family=contract.problem_family,
+            problem_family_tags=problem_family_tags,
+            slot_manifest=slot_manifest,
+            instance_diagnostics=instance_diagnostics,
+            active_features=active_features,
+        )
+        auto_cards = knowledge_selection.cards
+        strategy_card_paths = selection_cards(
+            problem_family=contract.problem_family,
+            stage="strategy",
+        )
+        package_catalog = (
+            method_package_catalog(
+                problem_family=contract.problem_family,
+                active_features=active_features,
+                knowledge_query_tags=["__direction_selection_pending__"],
+            )
+            if agent_generated_solver
+            else {
+                "status": "not_applicable",
+                "problem_family": contract.problem_family,
+                "active_features": active_features,
+                "packages": [],
+                "recommended_package_id": None,
+            }
+        )
+        query_catalog = knowledge_query_catalog(problem_family=contract.problem_family)
+        family_catalog = method_family_catalog(
             problem_family=contract.problem_family,
             active_features=active_features,
-            knowledge_query_tags=["__direction_selection_pending__"],
         )
-        if agent_generated_solver
-        else {
-            "status": "not_applicable",
-            "problem_family": contract.problem_family,
-            "active_features": active_features,
-            "packages": [],
-            "recommended_package_id": None,
-        }
-    )
-    query_catalog = knowledge_query_catalog(problem_family=contract.problem_family)
-    family_catalog = method_family_catalog(
-        problem_family=contract.problem_family,
-        active_features=active_features,
-    )
-    knowledge_card_paths = _unique_paths([*request.knowledge_cards, *auto_cards])
-    knowledge_cards = [_source_payload(path, request.max_chars_per_source) for path in knowledge_card_paths]
-    strategy_selection_cards = [
-        _source_payload(path, min(request.max_chars_per_source, 12_000))
-        for path in strategy_card_paths
-    ]
+        knowledge_card_paths = _unique_paths([*request.knowledge_cards, *auto_cards])
+        knowledge_cards = [_source_payload(path, request.max_chars_per_source) for path in knowledge_card_paths]
+        strategy_selection_cards = [
+            _source_payload(path, min(request.max_chars_per_source, 12_000))
+            for path in strategy_card_paths
+        ]
     # `required_order` 是 worker 的最小阅读顺序控制，用于把“先看契约/实例/slot，
     # 再改代码”这种流程固化在上下文里，而不是依赖模型自行猜顺序。
     required_order = [
@@ -266,22 +283,28 @@ def build_context_packet(request: ContextPacketRequest) -> dict[str, Any]:
             "required_order": required_order,
             "success_rule": "Do not claim success unless AlgoForge Core reruns evaluator/validator and accepts the result.",
         },
+        "guidance_ablation": _guidance_ablation_payload(guidance_mode),
         "hypothesis": request.hypothesis,
         "contract_review_evidence": contract_review_evidence,
         "project_intake": project_intake,
         "slot_manifest": slot_manifest,
         "instance_diagnostics": instance_diagnostics,
         "documents": docs,
-        "knowledge_cards": knowledge_cards,
-        "strategy_selection_cards": strategy_selection_cards,
-        "auto_knowledge_cards": [str(path) for path in auto_cards],
-        "knowledge_selection": knowledge_selection.audit,
-        "knowledge_query_catalog": query_catalog,
-        "method_family_catalog": family_catalog,
-        "method_package_catalog": package_catalog,
         "previous_report": previous_report,
-        "previous_pipeline_memory": previous_pipeline_memory,
     }
+    if not guidance_none:
+        packet.update(
+            {
+                "knowledge_cards": knowledge_cards,
+                "strategy_selection_cards": strategy_selection_cards,
+                "auto_knowledge_cards": [str(path) for path in auto_cards],
+                "knowledge_selection": knowledge_selection.audit,
+                "knowledge_query_catalog": query_catalog,
+                "method_family_catalog": family_catalog,
+                "method_package_catalog": package_catalog,
+                "previous_pipeline_memory": previous_pipeline_memory,
+            }
+        )
     packet["packet_hash"] = _hash_text(json.dumps(packet, ensure_ascii=False, sort_keys=True))
     return packet
 
@@ -358,23 +381,27 @@ def write_refreshed_context_packet(
         if incumbent_capability_audit:
             refreshed["incumbent_capability_audit"] = incumbent_capability_audit
     projected_feedback, feedback_compaction = _project_loop_feedback(loop_feedback)
+    if _guidance_none_context(refreshed):
+        projected_feedback["experience_memory"] = {}
+        projected_feedback["skill_usage_summary"] = {}
     refreshed["loop_feedback"] = projected_feedback
-    activate_method_package_context(
-        refreshed,
-        direction_plan=(
-            loop_feedback.get("current_direction_plan")
-            if isinstance(loop_feedback.get("current_direction_plan"), dict)
-            else None
-        ),
-    )
-    activate_direction_knowledge_context(
-        refreshed,
-        direction_plan=(
-            loop_feedback.get("current_direction_plan")
-            if isinstance(loop_feedback.get("current_direction_plan"), dict)
-            else None
-        ),
-    )
+    if not _guidance_none_context(refreshed):
+        activate_method_package_context(
+            refreshed,
+            direction_plan=(
+                loop_feedback.get("current_direction_plan")
+                if isinstance(loop_feedback.get("current_direction_plan"), dict)
+                else None
+            ),
+        )
+        activate_direction_knowledge_context(
+            refreshed,
+            direction_plan=(
+                loop_feedback.get("current_direction_plan")
+                if isinstance(loop_feedback.get("current_direction_plan"), dict)
+                else None
+            ),
+        )
     refreshed["hypothesis"] = _improvement_round_hypothesis(str(refreshed.get("hypothesis") or ""))
     if project_root is not None:
         refreshed["slot_manifest"] = _refresh_slot_manifest_sources(
@@ -1153,6 +1180,30 @@ def _short_text(value: Any, limit: int) -> str:
     return text if len(text) <= limit else text[: max(0, limit - 1)].rstrip() + "…"
 
 
+def _guidance_ablation_payload(mode: str) -> dict[str, Any]:
+    enabled = mode != "none"
+    return {
+        "mode": mode,
+        "domain_knowledge": enabled,
+        "worker_skills": enabled,
+        "method_packages": enabled,
+        "experience_memory": enabled,
+    }
+
+
+def _guidance_none_context(context: dict[str, Any]) -> bool:
+    ablation = context.get("guidance_ablation")
+    return isinstance(ablation, dict) and str(ablation.get("mode") or "").strip().lower() == "none"
+
+
+def _project_problem_family_capability(payload: dict[str, Any], *, guidance_mode: str) -> dict[str, Any]:
+    capability = dict(payload or {})
+    if guidance_mode == "none":
+        capability["knowledge_tags"] = []
+        capability["specialization_hooks"] = []
+    return capability
+
+
 def activate_method_package_context(
     context: dict[str, Any],
     *,
@@ -1165,6 +1216,10 @@ def activate_method_package_context(
     这不限制 Main 选择多个兼容方法族；互补实现知识由独立的 Worker Skills
     精确匹配并组合。
     """
+
+    if _guidance_none_context(context):
+        context.pop("active_method_package", None)
+        return None
 
     task = context.get("task") if isinstance(context.get("task"), dict) else {}
     catalog = (
@@ -1181,11 +1236,11 @@ def activate_method_package_context(
         problem_family=str(task.get("problem_family") or ""),
         package_id=requested_id,
         active_features=active_features,
-        knowledge_query_tags=[
-            str(item)
-            for item in (direction_plan or {}).get("knowledge_query") or []
-            if str(item).strip()
-        ],
+        knowledge_query_tags=method_package_query_tags(
+            knowledge_query=(direction_plan or {}).get("knowledge_query"),
+            method_family=str((direction_plan or {}).get("method_family") or ""),
+            active_features=active_features,
+        ),
     )
     if not package:
         context.pop("active_method_package", None)
@@ -1240,6 +1295,11 @@ def activate_direction_knowledge_context(
     max_chars_per_asset: int = 10_000,
 ) -> dict[str, Any] | None:
     """Run second-stage retrieval after Main has selected a method direction."""
+
+    if _guidance_none_context(context):
+        context.pop("active_direction_knowledge", None)
+        context.pop("active_worker_implementation_skills", None)
+        return None
 
     task = context.get("task") if isinstance(context.get("task"), dict) else {}
     catalog = context.get("method_package_catalog") if isinstance(context.get("method_package_catalog"), dict) else {}

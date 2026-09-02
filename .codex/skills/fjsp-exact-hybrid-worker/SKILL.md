@@ -88,8 +88,13 @@ description: 为受控编码代理实现 FJSP 的 CP-SAT、局部精确修复、
     exact schedule，必须原子更新 `schedule` 及其全部目标值，再写 JSON；禁止先创建包含旧
     incumbent 的 `result`，随后只替换局部变量。`solver_evidence.accepted=true` 时，其 objective
     与变种次目标必须和最终序列化 schedule 经固定 evaluator 重算的指标一致。
-    激活证据必须写入顶层 `diagnostics.solver_evidence`；不要创建 solver 自声明的顶层
-    `best_metrics`，该名称保留给固定 Core evaluator 汇总。
+    通用 exact 执行证据必须按 assignment 的声明路径直接写入最终 solution 顶层
+    `diagnostics`：至少包括 `diagnostics.cp_sat_called`，并在同一层报告 status、objective/bound、
+    `model_size`、runtime 和 `num_search_workers`。变体专属建模计数若 assignment 声明为
+    `diagnostics.solver_evidence.*`，才写入该子对象。不得把整份 diagnostics 再嵌套成
+    `diagnostics.solver_evidence.diagnostics`，也不得把 `diagnostics.cp_sat_called` 擅自移动到
+    `diagnostics.activation.cp_sat_called`；每项遥测必须服从 WorkerAssignment 中 activation check
+    的精确 path。不要创建 solver 自声明的顶层 `best_metrics`，该名称保留给固定 Core evaluator 汇总。
 12. 批槽 membership 的创建域和消费域必须一致。若 `member[(machine, slot, operation)]` 只为
     operation 对该批机 eligible 时创建，则容量、family、成员互斥、槽激活和解提取都必须迭代
     已创建 key 或同一个 eligible-operation 列表；不得在后续约束中按全部工序笛卡尔积直接索引，

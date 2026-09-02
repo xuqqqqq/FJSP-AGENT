@@ -190,6 +190,27 @@ class FjspPbpmTests(unittest.TestCase):
             }.issubset(runtime["variant_required_code_capabilities"])
         )
 
+    def test_available_non_pbpm_diagnostics_override_incidental_batch_wording(self) -> None:
+        runtime = build_solver_runtime_feature_contract(
+            {
+                "task": {
+                    "description": (
+                        "Evaluate the best fully decoded candidate per bounded batch of local-search moves."
+                    )
+                },
+                "instance_diagnostics": {
+                    "status": "available",
+                    "summary": {"profiled_count": 1, "pbpm_instance_count": 0},
+                    "instances": [
+                        {"variant": "fjsp_sdst", "batch_machine_count": 0}
+                    ],
+                },
+            }
+        )
+
+        self.assertNotIn("batching", runtime["active_features"])
+        self.assertNotIn("batch_capacity_guard", runtime["variant_required_code_capabilities"])
+
     def test_singleton_batches_form_a_valid_complete_schedule(self) -> None:
         errors, metrics = validate_standard_schedule(
             parse_standard_fjsp(INSTANCE),

@@ -1,0 +1,37 @@
+{
+  "format": "fjsp_calendar_reentrant_instance_v1",
+  "provenance": {
+    "kind": "semantic_validation_example",
+    "method_reference_doi": "10.1016/j.ejor.2021.03.069",
+    "paper_benchmark": false
+  },
+  "active_features": [
+    "release_time",
+    "machine_initial_availability",
+    "machine_availability",
+    "reentrant_route"
+  ],
+  "machine_count": 2,
+  "machine_initial_availability": [2, 0],
+  "unavailability_intervals": [[0, 8, 12], [1, 15, 18]],
+  "jobs": [
+    {
+      "release_time": 3,
+      "operations": [
+        [[0, 3], [1, 4]],
+        [[0, 2], [1, 3]],
+        [[1, 2]]
+      ],
+      "reentrant_loop": {"loop_start": 1, "loop_end": 1, "repeat": 2}
+    },
+    {
+      "release_time": 5,
+      "operations": [
+        [[1, 2]],
+        [[0, 4], [1, 3]],
+        [[0, 2]]
+      ],
+      "reentrant_loop": {"loop_start": 1, "loop_end": 1, "repeat": 2}
+    }
+  ]
+}

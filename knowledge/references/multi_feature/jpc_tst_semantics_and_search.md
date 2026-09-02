@@ -1,12 +1,14 @@
 ---
 id: fjsp-jpc-tst-semantics-and-search
 type: reference
-title: 多特性 FJSP-JPC-TST 语义与联合搜索
+title: 装配型 FJSP-JPC-TST 语义与联合搜索
 tags: [fjsp, multi_feature, job_precedence, machine_transport, operation_setup, cp_sat]
 status: active
 ---
 
 # 问题来源
+
+这是独立的装配/BOM 型研究变体，不是项目现有 `fjsp_priority`、`fjsp_distributed_transfer` 或 `fjsp_sdst` 的组合能力。
 
 首个组合验收集采用 Zheng 与 Xie（2025）的 FJSP-JPC-TST：
 

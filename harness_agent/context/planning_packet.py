@@ -258,9 +258,11 @@ def build_implementation_planning_packet(
             if isinstance(item, dict) and item.get("package_id")
         ],
     }
-    packet["io_digest"]["quality_contract"] = project_implementation_quality_contract(
-        _dict(packet["io_digest"].get("quality_contract"))
+    io_digest = _dict(packet.get("io_digest"))
+    io_digest["quality_contract"] = project_implementation_quality_contract(
+        _dict(io_digest.get("quality_contract"))
     )
+    packet["io_digest"] = io_digest
     completeness = _dict(packet.get("packet_completeness"))
     completeness["protected_sections"] = [
         path
@@ -1257,12 +1259,59 @@ def finalize_planning_packet(payload: dict[str, Any]) -> dict[str, Any]:
         _skeletonize_recent_rounds(packet)
         _record_packet_degradation(packet, "recent_rounds_skeletonized")
         _attach_budget_report(packet, protected_chars=protected_chars)
+    if _serialized_chars(packet) > PLANNING_PACKET_MAX_CHARS:
+        _drop_unprotected_root_sections_for_budget(
+            packet,
+            protected_paths=protected_paths,
+            protected_chars=protected_chars,
+        )
     final_chars = _serialized_chars(packet)
     if final_chars > PLANNING_PACKET_MAX_CHARS:
         raise PlanningPacketBudgetError(
             f"Planning Packet exceeds {PLANNING_PACKET_MAX_CHARS} chars after optional projections: {final_chars}"
         )
     return packet
+
+
+def _drop_unprotected_root_sections_for_budget(
+    packet: dict[str, Any],
+    *,
+    protected_paths: list[str],
+    protected_chars: int,
+) -> None:
+    """Guarantee the hard limit by dropping only unprotected root sections."""
+
+    protected_roots = {
+        path.strip("/").split("/", 1)[0].replace("~1", "/").replace("~0", "~")
+        for path in protected_paths
+        if path.strip("/")
+    }
+    always_keep = {
+        "schema_version",
+        "planning_stage",
+        "phase",
+        "direction_id",
+        "packet_completeness",
+        "packet_budget",
+    }
+    removable = [
+        key
+        for key in packet
+        if key not in protected_roots and key not in always_keep
+    ]
+    removable.sort(key=lambda key: _serialized_chars(packet.get(key)), reverse=True)
+    removed: list[str] = []
+    for key in removable:
+        if _serialized_chars(packet) <= PLANNING_PACKET_MAX_CHARS:
+            break
+        packet.pop(key, None)
+        removed.append(key)
+    if removed:
+        _record_packet_degradation(packet, "unprotected_root_sections_dropped")
+        completeness = _dict(packet.get("packet_completeness"))
+        completeness["dropped_optional_sections"] = removed
+        packet["packet_completeness"] = completeness
+        _attach_budget_report(packet, protected_chars=protected_chars)
 
 
 def planning_packet_text(packet: dict[str, Any]) -> str:

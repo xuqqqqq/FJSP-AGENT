@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from harness_agent.context.packet import ContextPacketRequest, write_context_packet
+from harness_agent.contract_metrics import build_contract_comparison
 from harness_agent.context.contract import (
     DraftContractRequest,
     draft_review_report_path,
@@ -27,6 +28,10 @@ from harness_agent.core.health import HealthCheckRequest, run_health_check
 from harness_agent.core.intent import IntentAlignmentRequest, write_intent_alignment
 from harness_agent.orchestration.loop import DEFAULT_IN_ROUND_REPAIR_ATTEMPTS, run_worker_loop
 from harness_agent.agents.main import DeepSeekMainAgent, EvidenceDrivenMainAgent
+from harness_agent.agents.semantic import (
+    DeepSeekAlgorithmSemanticReviewer,
+    OpenCodeAlgorithmSemanticReviewer,
+)
 from harness_agent.agents.opencode_main import OpenCodeMainAgent
 from harness_agent.core.models import TaskContract
 from harness_agent.domains.families import write_problem_family_card
@@ -40,6 +45,7 @@ from harness_agent.orchestration.cycle import run_worker_cycle
 
 
 DEFAULT_STANDARD_SEEDS = "0,1,2,3,4,5,6,7,8,9"
+MAX_CLI_OPENCODE_MAIN_TIMEOUT_SECONDS = 120
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +202,12 @@ def build_parser() -> argparse.ArgumentParser:
     add_worker_options(standard, default_worker="opencode")
     standard.add_argument("--doc", action="append", type=Path, default=[])
     standard.add_argument("--knowledge-card", action="append", type=Path, default=[])
+    standard.add_argument(
+        "--guidance-mode",
+        choices=("full", "none"),
+        default="full",
+        help="full 使用领域知识/Skill；none 仅保留任务、IO、实例和 Core 反馈，用于可审计消融",
+    )
     standard.add_argument("--slot-manifest", type=Path)
     standard.add_argument("--instance-dir", required=True, type=Path)
     standard.add_argument("--pattern", default="*.txt")
@@ -212,10 +224,23 @@ def build_parser() -> argparse.ArgumentParser:
     standard.add_argument("--max-runtime-seconds", type=int, default=120)
     standard.add_argument("--in-round-repair-attempts", type=int, default=DEFAULT_IN_ROUND_REPAIR_ATTEMPTS)
     standard.add_argument("--main-max-subagents", type=int, choices=range(0, 5), default=4)
+    standard.add_argument(
+        "--main-planning-mode",
+        choices=("fast", "research"),
+        default="fast",
+        help="fast 用有界方向选择并把具体机制交给 Worker；research 保留深度两阶段规划",
+    )
     standard.add_argument("--max-competing-workers", type=int, choices=range(1, 5), default=4)
     standard.add_argument("--promotion-repeats", type=int, default=1)
     standard.add_argument("--apply-worker", action="store_true")
     standard.add_argument("--agent-generated-solver-path", default="examples/agent_generated_fjsp_solver.py")
+    standard.add_argument(
+        "--provided-project-root",
+        type=Path,
+        help="可选的冻结共享 baseline 项目；Full/None 可从同一 Core 合法起点演进",
+    )
+    standard.add_argument("--provided-solver-command")
+    standard.add_argument("--provided-target-file")
     standard.add_argument("--experiment-id", default="standard_worker_loop")
     standard.add_argument("--hypothesis", default="")
 
@@ -223,6 +248,11 @@ def build_parser() -> argparse.ArgumentParser:
     evidence.add_argument("--input-dir", action="append", required=True, type=Path)
     evidence.add_argument("--output-dir", required=True, type=Path)
     evidence.add_argument("--title", default="Loop Engineering Evidence Index")
+
+    comparison = commands.add_parser("compare-contract-guidance", help="生成 Full/None 合同指标与协议门禁报告")
+    comparison.add_argument("--full-manifest", action="append", required=True, type=Path)
+    comparison.add_argument("--none-manifest", action="append", required=True, type=Path)
+    comparison.add_argument("--output-dir", required=True, type=Path)
 
     web = commands.add_parser("serve-web", help="启动本地 Web 平台")
     web.add_argument("--host", default="127.0.0.1")
@@ -262,7 +292,13 @@ def load_runnable_contract(args: argparse.Namespace) -> TaskContract | None:
     return contract
 
 
-def make_worker(name: str, *, deepseek_model: str, opencode_model: str | None = None):
+def make_worker(
+    name: str,
+    *,
+    deepseek_model: str,
+    opencode_model: str | None = None,
+    timeout_seconds: int | None = None,
+):
     """创建通用 Coding Agent 适配器，不根据问题类型注入算法实现。"""
 
     if name == "null":
@@ -274,7 +310,7 @@ def make_worker(name: str, *, deepseek_model: str, opencode_model: str | None = 
     if name == "opencode":
         from .workers.opencode_worker import OpenCodeWorker
 
-        return OpenCodeWorker(model=opencode_model)
+        return OpenCodeWorker(model=opencode_model, timeout_seconds=timeout_seconds)
     raise ValueError(f"unknown worker: {name}")
 
 
@@ -285,6 +321,8 @@ def make_main_agent(
     opencode_model: str | None,
     project_root: Path,
     max_subagents: int = 4,
+    timeout_seconds: int | None = None,
+    planning_mode: str | None = None,
 ):
     """CLI 与 Web 共用同一职责选择：OpenCode Worker 对应隔离的 OpenCode Main。"""
 
@@ -293,10 +331,18 @@ def make_main_agent(
             model=opencode_model,
             project_root=project_root,
             max_subagents=max(0, min(4, max_subagents)),
+            timeout_seconds=timeout_seconds,
+            planning_mode=planning_mode,
         )
     if is_deepseek_configured():
         return DeepSeekMainAgent(model=deepseek_model)
     return EvidenceDrivenMainAgent()
+
+
+def cli_main_timeout_seconds(max_runtime_seconds: int) -> int:
+    """Keep direction planning short while preserving the Worker generation budget."""
+
+    return min(max(1, max_runtime_seconds), MAX_CLI_OPENCODE_MAIN_TIMEOUT_SECONDS)
 
 
 def worker_result_payload(result: WorkerResult) -> dict[str, object]:
@@ -409,7 +455,12 @@ def build_slot_manifest_cmd(args: argparse.Namespace) -> int:
 def run_worker_cmd(args: argparse.Namespace) -> int:
     """只调用一次 Coding Worker，适合检查 prompt、provider 和代码应用。"""
 
-    worker = make_worker(args.worker, deepseek_model=args.deepseek_model, opencode_model=args.opencode_model)
+    worker = make_worker(
+        args.worker,
+        deepseek_model=args.deepseek_model,
+        opencode_model=args.opencode_model,
+        timeout_seconds=max(1, args.max_runtime_seconds),
+    )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     result = worker.run_experiment(
         ExperimentSpec(
@@ -443,7 +494,12 @@ def run_worker_cycle_cmd(args: argparse.Namespace) -> int:
         project_root=args.project_root,
         output_dir=args.output_dir,
         context_packet_path=args.context_packet,
-        worker=make_worker(args.worker, deepseek_model=args.deepseek_model, opencode_model=args.opencode_model),
+        worker=make_worker(
+            args.worker,
+            deepseek_model=args.deepseek_model,
+            opencode_model=args.opencode_model,
+            timeout_seconds=max(1, args.max_runtime_seconds),
+        ),
         experiment_id=args.experiment_id,
         max_steps=max(1, args.max_steps),
         max_runtime_seconds=max(1, args.max_runtime_seconds),
@@ -466,13 +522,19 @@ def run_worker_loop_cmd(args: argparse.Namespace) -> int:
         project_root=args.project_root,
         output_dir=args.output_dir,
         context_packet_path=args.context_packet,
-        worker=make_worker(args.worker, deepseek_model=args.deepseek_model, opencode_model=args.opencode_model),
+        worker=make_worker(
+            args.worker,
+            deepseek_model=args.deepseek_model,
+            opencode_model=args.opencode_model,
+            timeout_seconds=max(1, args.max_runtime_seconds),
+        ),
         main_agent=make_main_agent(
             args.worker,
             deepseek_model=args.deepseek_model,
             opencode_model=args.opencode_model,
             project_root=args.project_root,
             max_subagents=args.main_max_subagents,
+            timeout_seconds=cli_main_timeout_seconds(args.max_runtime_seconds),
         ),
         semantic_reviewer=None,
         experiment_id=args.experiment_id,
@@ -565,25 +627,43 @@ def intent_alignment_cmd(args: argparse.Namespace) -> int:
 def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
     """运行当前 Web 同款的“文档驱动、Agent 自写 FJSP solver”闭环。"""
 
-    worker = make_worker(args.worker, deepseek_model=args.deepseek_model, opencode_model=args.opencode_model)
+    worker = make_worker(
+        args.worker,
+        deepseek_model=args.deepseek_model,
+        opencode_model=args.opencode_model,
+        timeout_seconds=max(1, args.max_runtime_seconds),
+    )
     main_agent = make_main_agent(
         args.worker,
         deepseek_model=args.deepseek_model,
         opencode_model=args.opencode_model,
         project_root=args.project_root,
         max_subagents=args.main_max_subagents,
+        timeout_seconds=cli_main_timeout_seconds(args.max_runtime_seconds),
+        planning_mode=args.main_planning_mode,
     )
     manifest = run_standard_worker_loop(
         StandardWorkerLoopRequest(
             docs=args.doc,
             knowledge_cards=args.knowledge_card,
+            guidance_mode=args.guidance_mode,
             instance_dir=args.instance_dir,
             pattern=args.pattern,
             output_dir=args.output_dir,
             project_root=args.project_root,
             worker=worker,
             main_agent=main_agent,
-            semantic_reviewer=None,
+            semantic_reviewer=(
+                OpenCodeAlgorithmSemanticReviewer(
+                    model=str(getattr(worker, "model", "") or args.opencode_model or "deepseek/deepseek-v4-pro"),
+                    project_root=args.project_root,
+                    timeout_seconds=cli_main_timeout_seconds(args.max_runtime_seconds),
+                )
+                if args.guidance_mode == "full" and args.worker == "opencode"
+                else DeepSeekAlgorithmSemanticReviewer(model=args.deepseek_model)
+                if args.guidance_mode == "full"
+                else None
+            ),
             best_known_csv=args.best_known_csv,
             slot_manifest=args.slot_manifest,
             previous_pipeline_memory=args.previous_memory,
@@ -599,9 +679,16 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
             apply_worker_changes=bool(args.apply_worker),
             promotion_repeats=max(1, args.promotion_repeats),
             agent_generated_solver_path=args.agent_generated_solver_path,
+            provided_project_root=args.provided_project_root,
+            provided_solver_command=args.provided_solver_command,
+            provided_target_file=args.provided_target_file,
             experiment_id=args.experiment_id,
             hypothesis=args.hypothesis
-            or "根据需求、IO 和检索知识生成求解器；固定 Core 是唯一验收依据。",
+            or (
+                "仅根据需求、IO、实例事实和 Core 反馈生成求解器；项目知识库与 Skill 已禁用。"
+                if args.guidance_mode == "none"
+                else "根据需求、IO 和检索知识生成求解器；固定 Core 是唯一验收依据。"
+            ),
         )
     )
     print_json(
@@ -623,6 +710,22 @@ def build_evidence_index_cmd(args: argparse.Namespace) -> int:
     )
     print_json({"status": "ok", "entry_count": index["entry_count"], "artifacts": index["artifacts"]})
     return 0
+
+
+def compare_contract_guidance_cmd(args: argparse.Namespace) -> int:
+    comparison = build_contract_comparison(
+        full_manifest_paths=args.full_manifest,
+        none_manifest_paths=args.none_manifest,
+        output_dir=args.output_dir,
+    )
+    print_json(
+        {
+            "status": comparison["status"],
+            "verdicts": comparison["verdicts"],
+            "artifacts": comparison["artifacts"],
+        }
+    )
+    return 0 if comparison["status"] == "comparable" else 1
 
 
 def serve_web_cmd(args: argparse.Namespace) -> int:
@@ -648,6 +751,7 @@ HANDLERS = {
     "worker-status": worker_status,
     "run-standard-worker-loop": run_standard_worker_loop_cmd,
     "build-evidence-index": build_evidence_index_cmd,
+    "compare-contract-guidance": compare_contract_guidance_cmd,
     "serve-web": serve_web_cmd,
 }
 

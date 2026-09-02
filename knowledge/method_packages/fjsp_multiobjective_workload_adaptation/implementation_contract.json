@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "contract_id": "fjsp_multiobjective_workload_adaptation",
+  "mode": "complete_method_package",
+  "required_components": [
+    {
+      "component_id": "three_objective_recomputation",
+      "required_behaviors": [
+        "从完整排程和被选候选加工时长重算 makespan、最大机器负荷和总负荷。",
+        "机器负荷不包含等待、空闲或隐式准备时间。"
+      ]
+    },
+    {
+      "component_id": "lexicographic_acceptance",
+      "required_behaviors": [
+        "严格按 makespan、max_machine_workload、total_workload 的顺序比较候选。",
+        "后序目标的改善不得交换更差的前序目标。"
+      ]
+    },
+    {
+      "component_id": "workload_aware_search",
+      "required_behaviors": [
+        "同时提供顺序导向和换机负荷导向的有效搜索机制。",
+        "识别最大负荷机器与关键路径，但保留非关键柔性工序的探索。"
+      ]
+    },
+    {
+      "component_id": "consistent_export",
+      "required_behaviors": [
+        "最终 incumbent 决定后再生成输出。",
+        "序列化三目标与固定 evaluator 对 schedule 的重算值一致。"
+      ]
+    }
+  ],
+  "coupled_groups": [
+    {
+      "group_id": "workload_objective_semantics",
+      "component_ids": [
+        "three_objective_recomputation",
+        "lexicographic_acceptance",
+        "workload_aware_search",
+        "consistent_export"
+      ],
+      "rule": "搜索评分可以近似，但候选接受、晋升证据和最终导出必须共享同一个完整重算三元组。"
+    }
+  ],
+  "forbidden_shortcuts": [
+    "treat_total_workload_as_elapsed_time",
+    "weighted_sum_that_can_worsen_earlier_objectives",
+    "report_metrics_without_optimizing_them",
+    "trust_declared_workload_metrics",
+    "serialize_stale_incumbent",
+    "modify_evaluator"
+  ]
+}

@@ -96,7 +96,17 @@ class AssignmentPipelineIntegrationTests(unittest.TestCase):
                     (attempt_dir / "worker" / "opencode_context_budget.json").read_text(encoding="utf-8")
                 )
                 self.assertFalse(budget["full_context_packet_visible"])
-                self.assertLessEqual(budget["total_attached_chars"], 12_000)
+                self.assertLessEqual(
+                    budget["assignment_chars"],
+                    budget["assignment_hard_limit_chars"],
+                )
+                self.assertGreater(budget["authorized_source_file_count"], 0)
+                self.assertEqual(
+                    budget["prompt_chars"]
+                    + budget["assignment_chars"]
+                    + budget["authorized_source_chars"],
+                    budget["total_attached_chars"],
+                )
                 prompt = (attempt_dir / "worker" / "opencode_prompt.md").read_text(encoding="utf-8")
                 self.assertNotIn("method_package_catalog", prompt)
                 self.assertNotIn("experience_memory", prompt)

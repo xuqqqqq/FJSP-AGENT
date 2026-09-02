@@ -9,6 +9,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -105,6 +106,10 @@ def main() -> int:
         metric_names = ["makespan"]
         if config.get("problem_family") == "fjsp_distributed_transfer":
             metric_names.extend(["max_factory_workload", "total_energy_consumption"])
+        elif getattr(instance, "has_workload_objectives", False):
+            metric_names.extend(["max_machine_workload", "total_workload"])
+        elif getattr(instance, "has_cell_sdst_transport_tardiness", False):
+            metric_names.append("total_tardiness")
         for metric_name in metric_names:
             declared = float(payload[metric_name])
             computed = float(metrics[metric_name])
@@ -260,10 +265,7 @@ def run_worker_cycle(
             output_dir=harness_output_dir,
             cancellation=cancellation,
         )
-        try:
-            summary = runner.run()
-        finally:
-            runner.close()
+        summary = run_timed_core_evaluation(runner=runner, output_dir=harness_output_dir)
         full_evaluation_started = True
     else:
         summary = smoke_summary
@@ -472,7 +474,7 @@ def run_diagnostic_smoke(
         cancellation=cancellation,
     )
     try:
-        summary = runner.run()
+        summary = run_timed_core_evaluation(runner=runner, output_dir=output_dir)
     except TaskCancelled:
         raise
     except Exception as exc:  # noqa: BLE001 - diagnostic feedback should not abort a repairable round.
@@ -494,8 +496,6 @@ def run_diagnostic_smoke(
         )
         write_diagnostic_smoke_report(output_dir=output_dir, summary=summary)
         return summary
-    finally:
-        runner.close()
     return summary
 
 
@@ -530,7 +530,7 @@ def run_smoke_gate(
         cancellation=cancellation,
     )
     try:
-        return runner.run()
+        return run_timed_core_evaluation(runner=runner, output_dir=output_dir)
     except (OSError, subprocess.SubprocessError) as exc:
         detail = str(exc)
         stderr = getattr(exc, "stderr", None)
@@ -553,8 +553,34 @@ def run_smoke_gate(
         )
         write_diagnostic_smoke_report(output_dir=output_dir, summary=summary)
         return summary
+
+
+def run_timed_core_evaluation(*, runner: GraphHarnessRunner, output_dir: Path) -> RunSummary:
+    """Run one fixed Core evaluation and persist its wall-clock interval."""
+
+    started_at_epoch = time.time()
+    try:
+        return runner.run()
     finally:
-        runner.close()
+        try:
+            runner.close()
+        finally:
+            finished_at_epoch = time.time()
+            output_dir.mkdir(parents=True, exist_ok=True)
+            (output_dir / "core_evaluation_timing.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "started_at_epoch": started_at_epoch,
+                        "finished_at_epoch": finished_at_epoch,
+                        "wall_seconds": max(0.0, finished_at_epoch - started_at_epoch),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
 
 
 def prepare_candidate_worktree(

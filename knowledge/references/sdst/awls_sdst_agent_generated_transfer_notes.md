@@ -63,6 +63,39 @@ setup time 是 machine arc 的一部分。单独更低的 setup time 只能作�
 - target machine sequence：那些结束时间晚于 predecessor readiness 的 operation 附近位置，通常比更早的位置更相关；
 - fallback positions：保留少量边界位置，避免窗口为空或被过度裁剪。
 
+候选机器集合应包含当前机器。这样同一套 full-decode 插入逻辑既能评价换机重插，也能在关键块
+邻域停滞时评价非相邻同机重定位。若实例规模与 deadline 允许，先在一个有界批次中保存严格最优
+候选再提交；固定的 first-improvement 扫描顺序可能反复选择浅改善并提前耗尽搜索路径。
+
+对 setup-heavy、已具备合法 incumbent 的中等规模实例，一个可证伪的后备算子是：在当前完整
+析取图上用前向/后向最长路识别 zero-slack 工序，把同机连续关键工序组成最大块；对块内工序，
+只尝试块位置包络前后各扩少量位置（例如 3）的非相邻同机重插，跳过原位和相邻位。每个候选都
+经同一 setup-aware full decoder 与 validator；接受首个严格 makespan 改善后，必须从新 incumbent
+重新计算机器顺序、assignment 和关键块。若声明该算子，activation 必须单独报告关键块数、
+非相邻重插解码数与接受数。不要用 remaining-tail window、仅最晚完工工序或 setup delta proxy
+替代 zero-slack 关键块，除非独立消融已经证明该替代有效。
+
+在 setup-heavy FJSP-SDST 的首阶段，不要把全部 deadline 都交给先执行的同机扫描。应为两类候选
+保留显式预算：先对紧关键块做有界非相邻同机重插，再对仍为 zero-slack/关键尾部且具备替代机器
+的工序做 setup-aware 异机有界重插。异机候选必须从源机器删除、插入可加工目标机器的位置并完整
+解码；`machine_reassign_moves_evaluated` 只统计完成目标评价的候选。每个有界批次优先提交 fully
+decoded makespan 最优候选，严格改善后重算 assignment、机器顺序和关键结构。
+
+改进 promoted solver 时，新增耦合阶段必须消费既有搜索已经返回的全局最优 schedule。不要用新的
+同名函数替换 incumbent 的构造或目标改进路径，也不要从较弱的原始构造解重新开始。最终返回值必须
+至少保留进入新增阶段时的 incumbent；两类 `*_feasible` 计数仅在 full decoder 返回完整合法候选后
+递增，用来区分“枚举/调用过”与“真实穿过可行候选路径”。
+
+新增搜索函数的输出接线属于算子生命周期的一部分：它要么原地更新真实 CLI 后续用于计算 makespan
+和序列化的 incumbent，要么返回独立 best schedule，并在调用点显式替换或复制到该 incumbent。
+局部 best 即使记录了多次改善，只要调用者没有消费，就不能报告 `output_incumbent_consumed=true`；
+`best.copy_from(best)` 之类自拷贝也不构成提交。
+
+这里的“紧机器块”不等于机器顺序中任意连续的 zero-slack 工序。块内每条相邻机器弧还必须满足
+`start[next] == end[prev] + setup(prev,next)`；否则该弧不能连接同一紧块。重插跨度也必须按删除工序
+并完成重插后的最终索引差计算，跳过跨度 0 和 1。activation 中的非相邻 evaluated 计数只在候选
+完成 setup-aware full decode 与 makespan 评价后增加，生成数或配置窗口不能冒充执行数。
+
 窗口只用于筛选候选。接受分数必须基于考虑 setup-aware machine arc 后 fully decoded makespan。
 
 ## Head/Tail 与代理打分

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from harness_agent.cli import build_parser, run_standard_worker_loop_cmd, run_worker_loop_cmd
+from harness_agent.agents.semantic import OpenCodeAlgorithmSemanticReviewer
 from harness_agent.core.runner import RunSummary, solver_time_limit_seconds
 from harness_agent.orchestration.loop import (
     WorkerLoopResult,
@@ -166,9 +167,64 @@ class StandardWorkerLoopTests(unittest.TestCase):
         self.assertEqual("examples/custom_agent_generated.py", args.agent_generated_solver_path)
         self.assertEqual(4, args.main_max_subagents)
         self.assertEqual(4, args.max_competing_workers)
+        self.assertEqual("full", args.guidance_mode)
         self.assertFalse(hasattr(args, "solver"))
         self.assertFalse(hasattr(args, "baseline_source"))
         self.assertFalse(any(name.startswith("awls_") for name in vars(args)))
+
+    def test_contract_comparison_cli_accepts_paired_manifests(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "compare-contract-guidance",
+                "--full-manifest",
+                "outputs/full/standard_worker_loop_manifest.json",
+                "--none-manifest",
+                "outputs/none/standard_worker_loop_manifest.json",
+                "--output-dir",
+                "outputs/comparison",
+            ]
+        )
+
+        self.assertEqual(1, len(args.full_manifest))
+        self.assertEqual(1, len(args.none_manifest))
+
+    def test_standard_worker_cli_accepts_frozen_shared_baseline(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "run-standard-worker-loop",
+                "--instance-dir",
+                "examples",
+                "--output-dir",
+                "outputs/test",
+                "--provided-project-root",
+                "outputs/shared_baseline",
+                "--provided-solver-command",
+                "python examples/agent_generated_fjsp_solver.py --input {instance} --output {solution} --seed {seed}",
+                "--provided-target-file",
+                "examples/agent_generated_fjsp_solver.py",
+            ]
+        )
+
+        self.assertEqual(Path("outputs/shared_baseline"), args.provided_project_root)
+        self.assertEqual(
+            "examples/agent_generated_fjsp_solver.py",
+            args.provided_target_file,
+        )
+
+    def test_standard_worker_cli_accepts_guidance_ablation(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "run-standard-worker-loop",
+                "--instance-dir",
+                "examples",
+                "--output-dir",
+                "outputs/test",
+                "--guidance-mode",
+                "none",
+            ]
+        )
+
+        self.assertEqual("none", args.guidance_mode)
 
     def test_solver_time_limit_reserves_core_exit_headroom(self) -> None:
         self.assertEqual(48.0, solver_time_limit_seconds(60))
@@ -309,7 +365,7 @@ class StandardWorkerLoopTests(unittest.TestCase):
         self.assertIsNone(run_loop.call_args.kwargs["semantic_reviewer"])
         deepseek_status.assert_not_called()
 
-    def test_cli_standard_loop_passes_no_semantic_reviewer(self) -> None:
+    def test_cli_standard_loop_configures_semantic_reviewer_for_full_guidance(self) -> None:
         args = build_parser().parse_args(
             [
                 "run-standard-worker-loop",
@@ -317,6 +373,44 @@ class StandardWorkerLoopTests(unittest.TestCase):
                 "examples",
                 "--output-dir",
                 "outputs/test",
+                "--opencode-model",
+                "qiming/deepseek-v4-flash",
+            ]
+        )
+        manifest = {
+            "status": "ok",
+            "terminal_reason": None,
+            "baseline_key": [-100.0],
+            "final_key": [-90.0],
+            "promoted_rounds": 1,
+            "artifacts": {},
+        }
+        with patch("harness_agent.cli.make_worker", return_value=NullWorker()), patch(
+            "harness_agent.cli.make_main_agent", return_value=SimpleNamespace()
+        ), patch(
+            "harness_agent.cli.run_standard_worker_loop", return_value=manifest
+        ) as run_loop, patch("harness_agent.cli.print_json"), patch(
+            "harness_agent.cli.is_deepseek_configured"
+        ) as deepseek_status:
+            exit_code = run_standard_worker_loop_cmd(args)
+
+        self.assertEqual(0, exit_code)
+        request = run_loop.call_args.args[0]
+        self.assertIsInstance(request.semantic_reviewer, OpenCodeAlgorithmSemanticReviewer)
+        self.assertEqual("qiming/deepseek-v4-flash", request.semantic_reviewer.model)
+        self.assertEqual("qiming/deepseek-v4-flash", request.semantic_reviewer.model)
+        deepseek_status.assert_not_called()
+
+    def test_cli_standard_loop_passes_no_semantic_reviewer_for_none_guidance(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "run-standard-worker-loop",
+                "--instance-dir",
+                "examples",
+                "--output-dir",
+                "outputs/test",
+                "--guidance-mode",
+                "none",
             ]
         )
         manifest = {
@@ -340,6 +434,37 @@ class StandardWorkerLoopTests(unittest.TestCase):
         request = run_loop.call_args.args[0]
         self.assertIsNone(request.semantic_reviewer)
         deepseek_status.assert_not_called()
+
+    def test_cli_standard_loop_bounds_worker_runtime_and_caps_main_planning(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "run-standard-worker-loop",
+                "--instance-dir",
+                "examples",
+                "--output-dir",
+                "outputs/test",
+                "--max-runtime-seconds",
+                "321",
+            ]
+        )
+        manifest = {
+            "status": "ok",
+            "terminal_reason": None,
+            "baseline_key": [-100.0],
+            "final_key": [-90.0],
+            "promoted_rounds": 1,
+            "artifacts": {},
+        }
+        with patch("harness_agent.cli.make_worker", return_value=NullWorker()) as make_worker, patch(
+            "harness_agent.cli.make_main_agent", return_value=SimpleNamespace()
+        ) as make_main_agent, patch(
+            "harness_agent.cli.run_standard_worker_loop", return_value=manifest
+        ), patch("harness_agent.cli.print_json"):
+            exit_code = run_standard_worker_loop_cmd(args)
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual(321, make_worker.call_args.kwargs["timeout_seconds"])
+        self.assertEqual(120, make_main_agent.call_args.kwargs["timeout_seconds"])
 
     def test_repair_targets_prefer_result_revalidation_top_errors_and_drop_semantic_blocks(self) -> None:
         attempt = {

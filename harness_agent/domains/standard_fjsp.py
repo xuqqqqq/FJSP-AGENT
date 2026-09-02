@@ -56,20 +56,46 @@ class StandardFjspContextProvider:
             if profiled
             else "unavailable"
         )
-        sdst_instances = [item for item in profiled if item.get("variant") == "fjsp_sdst"]
+        sdst_instances = [
+            item
+            for item in profiled
+            if str(item.get("setup_time_kind") or "none").lower() != "none"
+        ]
         min_lag_instances = [item for item in profiled if item.get("variant") == "fjsp_min_time_lag"]
         max_lag_instances = [item for item in profiled if item.get("variant") == "fjsp_max_time_lag"]
         alternative_path_instances = [
             item for item in profiled if item.get("variant") == "fjsp_alternative_path"
         ]
-        release_instances = [item for item in profiled if item.get("variant") == "fjsp_release_time"]
+        release_instances = [
+            item
+            for item in profiled
+            if int(item.get("max_job_release_time") or 0) > 0
+            or int(item.get("max_machine_available_time") or 0) > 0
+            or item.get("variant") in {"fjsp_release_time", "fjsp_calendar_reentrant"}
+        ]
         availability_instances = [
-            item for item in profiled if item.get("variant") == "fjsp_machine_availability"
+            item
+            for item in profiled
+            if int(item.get("unavailability_interval_count") or 0) > 0
+            or item.get("variant") in {"fjsp_machine_availability", "fjsp_calendar_reentrant"}
         ]
         priority_instances = [item for item in profiled if item.get("variant") == "fjsp_priority"]
-        reentrant_instances = [item for item in profiled if item.get("variant") == "fjsp_reentrant"]
+        workload_objective_instances = [
+            item for item in profiled if item.get("variant") == "fjsp_multiobjective_workload"
+        ]
+        reentrant_instances = [
+            item
+            for item in profiled
+            if int(item.get("reentrant_loop_count") or 0) > 0
+            or item.get("variant") in {"fjsp_reentrant", "fjsp_calendar_reentrant"}
+        ]
         jpc_tst_instances = [item for item in profiled if item.get("variant") == "fjsp_jpc_tst"]
         pbpm_instances = [item for item in profiled if item.get("variant") == "fjsp_pbpm"]
+        cell_sdst_transport_instances = [
+            item
+            for item in profiled
+            if item.get("variant") == "fjsp_cell_sdst_transport_tardiness"
+        ]
         best_known_count = sum(1 for item in profiled if item.get("best_known_makespan") is not None)
         summary = {
             "instance_count": len(contract.instances),
@@ -81,9 +107,11 @@ class StandardFjspContextProvider:
             "release_time_instance_count": len(release_instances),
             "machine_availability_instance_count": len(availability_instances),
             "priority_instance_count": len(priority_instances),
+            "workload_objective_instance_count": len(workload_objective_instances),
             "reentrant_instance_count": len(reentrant_instances),
             "jpc_tst_instance_count": len(jpc_tst_instances),
             "pbpm_instance_count": len(pbpm_instances),
+            "cell_sdst_transport_instance_count": len(cell_sdst_transport_instances),
             "shape_group_count": len(_instance_shape_groups(profiled)),
             "setup_time_kinds": sorted(
                 {str(item.get("setup_time_kind")) for item in profiled if item.get("setup_time_kind")}
@@ -224,9 +252,15 @@ class StandardFjspContextProvider:
         diagnostics_show_release = int(summary.get("release_time_instance_count") or 0) > 0
         diagnostics_show_availability = int(summary.get("machine_availability_instance_count") or 0) > 0
         diagnostics_show_priority = int(summary.get("priority_instance_count") or 0) > 0
+        diagnostics_show_workload_objectives = (
+            int(summary.get("workload_objective_instance_count") or 0) > 0
+        )
         diagnostics_show_reentrant = int(summary.get("reentrant_instance_count") or 0) > 0
         diagnostics_show_jpc_tst = int(summary.get("jpc_tst_instance_count") or 0) > 0
         diagnostics_show_pbpm = int(summary.get("pbpm_instance_count") or 0) > 0
+        diagnostics_show_cell_sdst_transport = (
+            int(summary.get("cell_sdst_transport_instance_count") or 0) > 0
+        )
         features: list[str] = []
         if diagnostics_show_sdst:
             features.extend(["fjsp_sdst", "sequence_dependent_setup", "setup_time"])
@@ -246,6 +280,16 @@ class StandardFjspContextProvider:
             features.extend(
                 ["fjsp_priority", "job_priority", "priority_completion_time", "priority_aware_search"]
             )
+        if diagnostics_show_workload_objectives:
+            features.extend(
+                [
+                    "fjsp_multiobjective_workload",
+                    "multiobjective_workload",
+                    "max_machine_workload",
+                    "total_workload",
+                    "workload_balancing_search",
+                ]
+            )
         if diagnostics_show_reentrant:
             features.extend(
                 ["fjsp_reentrant", "reentrant_route", "loop_expansion", "reentrant_aware_search"]
@@ -262,6 +306,18 @@ class StandardFjspContextProvider:
                     "parallel_batch_machine",
                     "batch_capacity",
                     "incompatible_job_families",
+                ]
+            )
+        if diagnostics_show_cell_sdst_transport:
+            features.extend(
+                [
+                    "fjsp_cell_sdst_transport_tardiness",
+                    "cell_transport",
+                    "family_sequence_dependent_setup",
+                    "reentrant_route",
+                    "due_date",
+                    "total_tardiness",
+                    "multi_feature",
                 ]
             )
         if features:
@@ -320,7 +376,9 @@ class StandardFjspContextProvider:
             "required_top_level_fields": ["format", "makespan", "schedule"],
             "variant_required_top_level_fields": {
                 "fjsp_priority": ["priority_completion_time"],
+                "fjsp_multiobjective_workload": ["max_machine_workload", "total_workload"],
                 "fjsp_alternative_path": ["selected_routes"],
+                "fjsp_cell_sdst_transport_tardiness": ["total_tardiness"],
             },
             "selected_routes_contract": (
                 "For fjsp_alternative_path, map every 0-based job id to exactly one route id: "
@@ -752,6 +810,11 @@ def _instance_direction_hints(summary: dict[str, Any], profiled: list[dict[str, 
             f"batch_machines_max={summary.get('max_batch_machine_count', 0)}, "
             f"capacity_max={summary.get('max_batch_capacity', 1)}, "
             f"families_max={summary.get('max_job_family_count', 0)}."
+        )
+    if int(summary.get("cell_sdst_transport_instance_count", 0) or 0) > 0:
+        hints.append(
+            "Cell transport, family-sequence setup, explicit re-entry, due dates, and total tardiness "
+            "are jointly active; every move must re-decode both the job transport chain and machine setup chain."
         )
     hints.append(
         "Measured assignment structure: "

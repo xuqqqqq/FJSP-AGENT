@@ -113,7 +113,10 @@ def build_solver_runtime_feature_contract(context: dict[str, Any]) -> dict[str, 
     if "machine_initial_availability" in features:
         variant_required.append("machine_initial_availability_guard")
     if "reentrant_route" in features or "loop_expansion" in features:
-        variant_required.append("reentrant_loop_parser_and_expansion_guard")
+        if "fjsp_cell_sdst_transport_tardiness" in features:
+            variant_required.append("explicit_reentrant_operation_identity_guard")
+        else:
+            variant_required.append("reentrant_loop_parser_and_expansion_guard")
     if "release_dates" in features:
         variant_required.append("release_date_guard")
     if "due_dates" in features:
@@ -279,6 +282,10 @@ _CAPABILITY_PLAYBOOK = {
         "evidence": "Cite the exact job_count*3 tail parser, loop boundary/repeat validation, pre + body*repeat + post expansion, continuous expanded op_id assignment, and complete expanded-operation output guard.",
         "repair": "Consume every loop triple after the standard body, validate its job-local bounds, expand every pass before construction/search, and require exactly one output record for every expanded (job_id, op_id). Never ignore trailing loop tokens or schedule only the original route.",
     },
+    "explicit_reentrant_operation_identity_guard": {
+        "evidence": "Cite the parser and schedule coverage checks that retain every already-expanded route visit as a distinct (job_id, op_id), including repeated logical-machine visits.",
+        "repair": "Preserve the published full operation row order and assign a unique op_id to every visit; do not infer, collapse, or re-expand a loop tail that is absent from this IO contract.",
+    },
     "release_date_guard": {
         "evidence": "Cite the guard that prevents an operation or job from starting before its parsed release time/date.",
         "repair": "Initialize readiness from release dates and validate every output start against the parsed release constraint.",
@@ -433,6 +440,15 @@ def extract_variant_features(context: dict[str, Any]) -> set[str]:
             if isinstance(item, dict)
         )
     )
+    cell_sdst_transport_from_diagnostics = (
+        int(summary.get("cell_sdst_transport_instance_count") or 0) > 0
+        or any(
+            str(item.get("variant") or "").lower()
+            == "fjsp_cell_sdst_transport_tardiness"
+            for item in diagnostics.get("instances") or []
+            if isinstance(item, dict)
+        )
+    )
     active_text = _active_problem_feature_text(
         context,
         include_documents=not diagnostics_available,
@@ -483,12 +499,24 @@ def extract_variant_features(context: dict[str, Any]) -> set[str]:
                 "incompatible_job_families",
             }
         )
+    if cell_sdst_transport_from_diagnostics:
+        features.update(
+            {
+                "fjsp_cell_sdst_transport_tardiness",
+                "transportation",
+                "cell_transport",
+                "family_sequence_dependent_setup",
+                "reentrant_route",
+                "due_dates",
+                "multi_objective",
+                "total_tardiness",
+                "multi_feature",
+            }
+        )
     if _has_any_pattern(active_text, [r"\bno[-_\s]?wait\b"]):
         features.add("no_wait")
     if _has_any_pattern(active_text, [r"\btime[-_\s]?lag\b"]):
         features.add("time_lag")
-    if _has_any_pattern(active_text, [r"\bbatch(?:ing)?\b", r"\bbatch[-_\s]?capacity\b"]):
-        features.add("batching")
     if _has_any_pattern(active_text, [r"\btransport(?:ation)?\b"]):
         features.add("transportation")
     if _has_any_pattern(active_text, [r"\brelease[-_\s]?date(?:s)?\b"]):

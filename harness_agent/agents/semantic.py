@@ -186,7 +186,7 @@ class DeepSeekAlgorithmSemanticReviewer:
             usage_breakdown: dict[str, Any] = {"primary_review": response.usage}
             try:
                 raw = parse_json_object_response(response.content)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as primary_error:
                 retry_path = request.output_dir / "algorithm_semantic_review_json_retry.json"
                 retry = client.chat_with_usage(
                     [
@@ -213,9 +213,23 @@ class DeepSeekAlgorithmSemanticReviewer:
                 )
                 retry_path.write_text(retry.content + "\n", encoding="utf-8")
                 artifacts["json_retry_response"] = str(retry_path.resolve())
-                raw = parse_json_object_response(retry.content)
                 usage = merge_usage(response.usage, retry.usage)
                 usage_breakdown["json_retry"] = retry.usage
+                try:
+                    raw = parse_json_object_response(retry.content)
+                except json.JSONDecodeError as retry_error:
+                    recovery_path = request.output_dir / "algorithm_semantic_review_json_recovery.json"
+                    raw = conservative_semantic_review_recovery(
+                        required_components=required_components,
+                        required_coupled_groups=required_groups,
+                        primary_error=primary_error,
+                        retry_error=retry_error,
+                    )
+                    recovery_path.write_text(
+                        json.dumps(raw, ensure_ascii=False, indent=2) + "\n",
+                        encoding="utf-8",
+                    )
+                    artifacts["json_recovery"] = str(recovery_path.resolve())
             usage_breakdown["total"] = usage
             usage_path = request.output_dir / "algorithm_semantic_review_usage.json"
             usage_path.write_text(
@@ -250,6 +264,122 @@ class DeepSeekAlgorithmSemanticReviewer:
                 reviewed_files=[],
                 knowledge_paths=[],
                 reviewer="deepseek_algorithm_semantic_reviewer",
+                artifacts={**artifacts, "exception": str(exception_path.resolve())},
+            )
+
+
+class OpenCodeAlgorithmSemanticReviewer:
+    """Run the same evidence-grounded review through the configured OpenCode model."""
+
+    def __init__(
+        self,
+        *,
+        model: str,
+        project_root: Path,
+        timeout_seconds: int = 300,
+    ) -> None:
+        self.model = model
+        self.project_root = Path(project_root).resolve()
+        self.timeout_seconds = max(120, int(timeout_seconds))
+        self.fallback = EvidenceOnlySemanticReviewer()
+
+    def review(self, request: AlgorithmSemanticReviewRequest) -> AlgorithmSemanticReviewResult:
+        request.output_dir.mkdir(parents=True, exist_ok=True)
+        artifacts: dict[str, str] = {}
+        try:
+            context = load_context_dict(request.context_packet_path)
+            sources = load_review_sources(
+                context=context,
+                worktree_path=request.worktree_path,
+                changed_files=request.changed_files,
+            )
+            knowledge = load_review_knowledge(
+                context=context,
+                direction_plan=request.direction_plan,
+            )
+            required_components, required_groups = required_method_contract(request.direction_plan)
+            if not sources or not knowledge:
+                return self.fallback.review(request)
+
+            prompt_path = request.output_dir / "algorithm_semantic_review_prompt.md"
+            events_path = request.output_dir / "algorithm_semantic_review_events.jsonl"
+            prompt_path.write_text(
+                semantic_review_prompt(
+                    direction_plan=request.direction_plan,
+                    candidate_summary=request.candidate_summary,
+                    sources=sources,
+                    knowledge=knowledge,
+                ),
+                encoding="utf-8",
+            )
+            artifacts.update(
+                {
+                    "prompt": str(prompt_path.resolve()),
+                    "raw_response": str(events_path.resolve()),
+                }
+            )
+
+            # Lazy import avoids coupling the generic review contract to the
+            # OpenCode planning runtime at module import time.
+            from harness_agent.agents.opencode_main import (  # noqa: PLC0415
+                OpenCodeMainAgent,
+                bounded_invalid_response,
+                has_model_text,
+            )
+
+            agent = OpenCodeMainAgent(
+                model=self.model,
+                project_root=self.project_root,
+                max_subagents=0,
+                timeout_seconds=self.timeout_seconds,
+                planning_mode="fast",
+            )
+            run = agent._run_once(
+                output_dir=request.output_dir,
+                attachments=[prompt_path],
+                prompt=(
+                    "Read the attached semantic review packet. Review algorithm behavior only and return the "
+                    "single JSON object required by that packet. Do not use tools, markdown, or commentary."
+                ),
+                suffix="_semantic_review",
+                timeout_seconds=self.timeout_seconds,
+                allowed_skills=[],
+                attachments_only=True,
+                isolated_cwd=True,
+            )
+            events = str(run.get("stdout") or "")
+            events_path.write_text(events, encoding="utf-8")
+            if run.get("timed_out") or run.get("stalled") or not has_model_text(events):
+                raise RuntimeError(
+                    str(run.get("stderr") or "OpenCode semantic reviewer returned no model text")
+                )
+            raw = parse_json_object_response(
+                bounded_invalid_response(events, max_chars=250_000)
+            )
+            result = normalize_semantic_review(
+                raw,
+                sources=sources,
+                knowledge=knowledge,
+                required_components=required_components,
+                required_coupled_groups=required_groups,
+                reviewer="opencode_algorithm_semantic_reviewer",
+                artifacts=artifacts,
+            )
+            return write_semantic_review_artifacts(request.output_dir, result)
+        except Exception as exc:  # noqa: BLE001 - reviewer failure cannot replace Core authority.
+            exception_path = request.output_dir / "algorithm_semantic_review_exception.txt"
+            exception_path.write_text(
+                "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+                encoding="utf-8",
+            )
+            return AlgorithmSemanticReviewResult(
+                status="unavailable",
+                accepted=False,
+                summary=f"Semantic reviewer unavailable: {exc}",
+                findings=[],
+                reviewed_files=[],
+                knowledge_paths=[],
+                reviewer="opencode_algorithm_semantic_reviewer",
                 artifacts={**artifacts, "exception": str(exception_path.resolve())},
             )
 
@@ -365,6 +495,53 @@ def required_method_contract(
     components = [item for item in bundle.get("required_components") or [] if isinstance(item, dict)]
     groups = [item for item in bundle.get("coupled_groups") or [] if isinstance(item, dict)]
     return components, groups
+
+
+def conservative_semantic_review_recovery(
+    *,
+    required_components: list[dict[str, Any]],
+    required_coupled_groups: list[dict[str, Any]],
+    primary_error: Exception,
+    retry_error: Exception,
+) -> dict[str, Any]:
+    """Turn repeated malformed model output into an auditable repair gate.
+
+    Truncated JSON cannot prove implementation coverage. Marking every declared
+    component as missing preserves Core authority and prevents an unchecked
+    complete-method candidate from being promoted merely because the reviewer
+    provider failed twice.
+    """
+
+    return {
+        "summary": (
+            "语义审查两次返回无法解析的 JSON；未获得可验证的方法组件覆盖证据，"
+            "因此按保守策略要求修复。"
+        ),
+        "component_coverage": [
+            {
+                "component_id": str(item.get("component_id") or ""),
+                "status": "missing",
+                "missing_behaviors": ["审查输出截断，组件覆盖无法验证。"],
+            }
+            for item in required_components
+            if str(item.get("component_id") or "").strip()
+        ],
+        "coupled_group_coverage": [
+            {
+                "group_id": str(item.get("group_id") or ""),
+                "status": "missing",
+                "missing_behavior": "审查输出截断，耦合闭环无法验证。",
+            }
+            for item in required_coupled_groups
+            if str(item.get("group_id") or "").strip()
+        ],
+        "findings": [],
+        "recovery": {
+            "policy": "conservative_missing_coverage_after_two_json_failures",
+            "primary_error": str(primary_error)[:500],
+            "retry_error": str(retry_error)[:500],
+        },
+    }
 
 
 def required_method_components(direction_plan: dict[str, Any]) -> list[dict[str, Any]]:
@@ -614,6 +791,69 @@ def semantic_review_prompt(
         )
         for path, text in sources.items()
     }
+    direction_contract = {
+        key: direction_plan[key]
+        for key in (
+            "direction_id",
+            "title",
+            "strategy_type",
+            "method_family",
+            "method_families",
+            "method_package_id",
+            "hypothesis",
+            "worker_objective",
+            "review_scope",
+            "implementation_order",
+            "deliverables",
+            "activation_checks",
+            "worker_lane",
+        )
+        if key in direction_plan
+    }
+    candidate_variant = direction_plan.get("candidate_variant")
+    if isinstance(candidate_variant, dict):
+        direction_contract["candidate_variant"] = {
+            key: candidate_variant[key]
+            for key in (
+                "candidate_id",
+                "title",
+                "method_name",
+                "method_family",
+                "hypothesis",
+                "strategy_type",
+            )
+            if key in candidate_variant
+        }
+    implementation_bundle = direction_plan.get("implementation_bundle")
+    if isinstance(implementation_bundle, dict):
+        direction_contract["implementation_bundle"] = {
+            key: implementation_bundle[key]
+            for key in (
+                "contract_id",
+                "mode",
+                "completion_rule",
+                "variant_rule",
+                "required_components",
+                "coupled_groups",
+            )
+            if key in implementation_bundle
+        }
+    summary_contract = {
+        key: candidate_summary[key]
+        for key in (
+            "total",
+            "valid",
+            "failed",
+            "best_experiment_id",
+            "best_metrics",
+            "validation_summary",
+        )
+        if key in candidate_summary
+    }
+    source_json = json.dumps(numbered_sources, ensure_ascii=False, separators=(",", ":"))
+    knowledge_json = json.dumps(knowledge, ensure_ascii=False, separators=(",", ":"))
+    direction_json = json.dumps(direction_contract, ensure_ascii=False, separators=(",", ":"))
+    summary_json = json.dumps(summary_contract, ensure_ascii=False, separators=(",", ":"))
     return f"""
 Review the candidate algorithm implementation after Core legality evaluation and before promotion.
 
@@ -694,18 +934,22 @@ Rules:
 - Do not use benchmark target values or previous solution files as method knowledge.
 - Do not invent missing requirements. For free-form findings, incomplete evidence cannot block. For a declared component or
   coupled group, incomplete implementation evidence must be recorded as partial or missing in the coverage matrix.
-
-Knowledge contracts (stable across same-direction repairs):
-{json.dumps(knowledge, ensure_ascii=False, indent=2)}
-
-Direction plan:
-{json.dumps(direction_plan, ensure_ascii=False, indent=2)}
-
-Core candidate summary:
-{json.dumps(candidate_summary, ensure_ascii=False, indent=2)}
+- When direction_plan.review_scope.phase is agent_generated_baseline_foundation, its blocking_deliverables are the complete
+  blocking scope. Optional optimizer code, telemetry, or method labels outside those assigned deliverables may receive a
+  warning, but must not block a Core-valid foundation baseline. Do not import optimization obligations from earlier direction
+  labels that are absent from this review scope.
 
 Candidate source with authoritative line numbers (complete bounded files):
-{json.dumps(numbered_sources, ensure_ascii=False, indent=2)}
+{source_json}
+
+Direction semantic contract (package and runtime claims only):
+{direction_json}
+
+Knowledge contracts (stable across same-direction repairs):
+{knowledge_json}
+
+Core candidate summary:
+{summary_json}
 """.strip()
 
 

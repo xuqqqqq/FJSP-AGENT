@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "contract_id": "fjsp_cell_sdst_transport_tardiness_adaptation",
+  "mode": "complete_method_package",
+  "completion_rule": "解析、联合时序、双目标重算和固定 evaluator 验收必须闭合，缺少任一激活特性不算完成。",
+  "required_components": [
+    {"component_id": "normalized_fjcs_parser", "required_behaviors": ["严格读取物理机器副本、cell、family、due date 和 jobs[].operations 中已经完整展开的回流路线；每个数组位置就是独立访问身份，不要求或假设另有 reentrant_route 字段。"]},
+    {"component_id": "joint_cell_setup_decoder", "required_behaviors": ["联合传播工件前置、cell 运输、物理机器互斥和有向 family setup。"]},
+    {"component_id": "lexicographic_objectives", "required_behaviors": ["独立重算 makespan 和 total tardiness，并按严格词典序保存 incumbent。"]},
+    {"component_id": "transactional_candidate_acceptance", "required_behaviors": ["每个构造候选或搜索移动都先用统一联合语义完整重算并验收，只有合法且词典序更优时才替换 incumbent，失败候选不得污染 incumbent。"]}
+  ],
+  "coupled_groups": [
+    {"group_id": "fjcs_joint_legality", "component_ids": ["normalized_fjcs_parser", "joint_cell_setup_decoder", "lexicographic_objectives", "transactional_candidate_acceptance"], "rule": "构造、搜索、自检和输出必须共享同一联合语义；不要求构造方法实现未被选择的局部搜索算子。"}
+  ],
+  "method_family_rules": {
+    "constructive_search": {"required_behavior": "多起点构造至少覆盖关键路线、最早完工和拖期增量偏好。"},
+    "coupled_local_search": {"required_behavior": "联合换机重插和机器顺序移动，覆盖关键块、迟到工件与高 setup 弧；移动后完整重算运输链和 setup 链并事务式验收。"},
+    "population_memetic": {"required_behavior": "保持顺序和物理机器副本分配多样性，并执行有界联合局部改进；局部移动后完整重算运输链和 setup 链并事务式验收。"},
+    "exact_hybrid": {"required_behavior": "真实建模并调用 CP-SAT，或执行明确边界的局部 CP repair，报告 Solve 与提取证据。"}
+  },
+  "forbidden_shortcuts": [
+    "把 cell 运输替换成跨厂固定常数",
+    "把 family setup 当作工序固定准备",
+    "去重回流路线中的重复逻辑机器访问",
+    "只声明 makespan 而不重算 total_tardiness",
+    "把论文参考点注入求解"
+  ],
+  "checkpoint_checks": []
+}

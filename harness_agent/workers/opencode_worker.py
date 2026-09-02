@@ -215,9 +215,28 @@ class OpenCodeWorker(CodingWorker):
         provider_retries_path = output_dir / "opencode_provider_retries.json"
         prompt_path.write_text(prompt, encoding="utf-8")
         assignment_chars = len(assignment_path.read_text(encoding="utf-8"))
+        attachment_paths = [prompt_path, assignment_path]
+        seen_attachments = {os.path.normcase(str(path.resolve())) for path in attachment_paths}
+        authorized_source_chars = 0
+        for relative in [
+            assignment.target_file,
+            *(str(item.get("path") or "") for item in assignment.read_set),
+        ]:
+            normalized = relative.replace("\\", "/").strip()
+            if not normalized:
+                continue
+            source_path = _absolute_path_no_resolve(session_launch.launch_dir / normalized)
+            source_key = os.path.normcase(str(source_path.resolve()))
+            if source_key in seen_attachments or not source_path.is_file():
+                continue
+            seen_attachments.add(source_key)
+            attachment_paths.append(source_path)
+            authorized_source_chars += len(source_path.read_text(encoding="utf-8", errors="replace"))
         context_budget = worker_context_budget_payload(
             prompt_chars=len(prompt),
             assignment_chars=assignment_chars,
+            authorized_source_chars=authorized_source_chars,
+            authorized_source_file_count=max(0, len(attachment_paths) - 2),
         )
         budget_path.write_text(
             json_dumps(context_budget),
@@ -226,7 +245,7 @@ class OpenCodeWorker(CodingWorker):
         runtime_config = self._runtime_config(
             spec,
             assignment=assignment,
-            attachment_paths=[prompt_path, assignment_path],
+            attachment_paths=attachment_paths,
             workspace_roots=[worktree_path, session_launch.launch_dir],
         )
         runtime_config_path.write_text(json_dumps(runtime_config), encoding="utf-8")
@@ -235,6 +254,7 @@ class OpenCodeWorker(CodingWorker):
             assignment_path,
             worktree_path=session_launch.launch_dir,
             session_id=session_launch.command_session_id,
+            attachment_paths=attachment_paths[2:],
         )
         command_path.write_text(json_dumps(command), encoding="utf-8")
         self._write_session_launch_record(session_path, session_launch, observed_session_id=None)
@@ -274,7 +294,10 @@ class OpenCodeWorker(CodingWorker):
             ):
                 popen_kwargs: dict[str, object] = {
                     "cwd": str(session_launch.launch_dir),
-                    "env": opencode_subprocess_environment(runtime_config=runtime_config),
+                    "env": opencode_subprocess_environment(
+                        runtime_config=runtime_config,
+                        isolation_root=session_launch.state_path.parent / ".opencode_runtime",
+                    ),
                     "stdin": subprocess.DEVNULL,
                     "text": True,
                     "stdout": events_stream,
@@ -395,11 +418,21 @@ class OpenCodeWorker(CodingWorker):
                 break
             attempt_index += 1
             retry_session_id = observed_attempt_session or session_launch.command_session_id
+            if (
+                _is_zero_event_startup_retry_reason(retry_reason)
+                and session_launch.command_session_id
+                and not observed_attempt_session
+            ):
+                # A resumed session that cannot emit even its first event may be
+                # stale or provider-side wedged. Keep the materialized workspace
+                # and current assignment, but retry in a fresh OpenCode session.
+                retry_session_id = None
             attempt_command = self._command(
                 prompt_path,
                 assignment_path,
                 worktree_path=session_launch.launch_dir,
                 session_id=retry_session_id,
+                attachment_paths=attachment_paths[2:],
             )
             if self.provider_retry_backoff_seconds > 0:
                 delay = self.provider_retry_backoff_seconds * (2 ** (attempt_index - 1))
@@ -579,6 +612,7 @@ class OpenCodeWorker(CodingWorker):
         *,
         worktree_path: Path,
         session_id: str | None = None,
+        attachment_paths: list[Path] | None = None,
     ) -> list[str]:
         """构造最终命令行。
 
@@ -610,6 +644,8 @@ class OpenCodeWorker(CodingWorker):
         # `--file` 是数组参数；使用等号形式可避免把后续位置参数误吞成第二个文件。
         command.append(f"--file={prompt_path}")
         command.append(f"--file={assignment_path}")
+        for path in attachment_paths or []:
+            command.append(f"--file={path}")
         return command
 
     def _runtime_config(
@@ -789,32 +825,33 @@ class OpenCodeWorker(CodingWorker):
             if assignment.mode == "baseline" and baseline_trial <= 1
             else ""
         )
+        authorized_workspace_root = _absolute_path_no_resolve(session_launch.launch_dir)
         prompt = f"""
 # AlgoForge Coding Worker Runtime Policy
 
-Execute the attached `WorkerAssignment` as the sole planning input.
+Execute attached `WorkerAssignment` as the sole planning input.
 
-- Do not read or request the full Context Packet; no catalog, history, memory,
-  or unselected cards.
-- Load every listed `implementation_skills` entry and no unselected Skill.
-  Its examples are advisory implementation material.
-  Read only `target_file`, paths listed in `read_set`, and selected Skill folders;
-  do not list, glob, or broadly explore.
+- Do not read or request the full Context Packet, catalog, history, memory, or unselected cards.
+- Load listed `implementation_skills` only; examples are advisory implementation material.
+- Read only `target_file`, paths listed in `read_set`, and selected Skill folders; do not list,
+  glob, or broadly explore.
+- Authorized workspace root: `{authorized_workspace_root}`.
+- Resolve every relative `target_file` and `read_set` path against that exact root. Do not
+  derive or guess a workspace path from the attachment directory.
+- Authorized `target_file` and `read_set` files are attached to the first request when they
+  exist. Treat an attached file as already read; do not call the read tool for it again.
 - {target_file_policy}
 {write_first_policy}
-- Edit only `target_file`; never edit Harness, evaluator, contracts, knowledge,
-  or runtime configuration.
-- Work alone. Task/subagent, question, and network tools are disabled.
-- Implement every deliverable in `implementation_order`; preserve confirmed
-  mechanisms and obey the completion rule.
-- Repairs may close listed gaps but must preserve package and unrelated behavior.
-- Apply changes transactionally; failed actions must not leave partial state.
-- Run at most one compile and one optional bounded smoke, exactly via
-  `python .algoforge_worker_runtime/run_smoke.py`. Never run the evaluator,
-  full tests, benchmarks, parameter sweeps, or ad-hoc commands.
-- Stop after the bounded edit/checks; Harness gates decide acceptance.
+- Edit only `target_file`; never edit Harness, evaluator, contracts, knowledge, or runtime config.
+- Task/subagent, question, and network tools are disabled.
+- Implement `implementation_order`; preserve confirmed mechanisms and obey the completion rule.
+- Repairs close listed gaps while preserving package and unrelated behavior.
+- Apply changes transactionally; failed actions leave no partial state.
+- Run one compile and optional bounded smoke via `python .algoforge_worker_runtime/run_smoke.py`.
+  Never run evaluator, full tests, benchmarks, sweeps, or ad-hoc commands.
+- Stop after bounded checks; Harness decides acceptance.
 
-Runtime identifiers:
+Runtime IDs:
 - mode: {assignment.mode}
 - local_trial: {max(1, spec.local_trial_index + 1)}/{max(1, spec.local_trial_count)}
 - session_mode: {session_launch.prompt_mode}
@@ -1020,13 +1057,19 @@ def json_dumps(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2) + "\n"
 
 
-def worker_context_budget_payload(*, prompt_chars: int, assignment_chars: int) -> dict[str, object]:
+def worker_context_budget_payload(
+    *,
+    prompt_chars: int,
+    assignment_chars: int,
+    authorized_source_chars: int = 0,
+    authorized_source_file_count: int = 0,
+) -> dict[str, object]:
     assignment_budget_status = (
         "soft_target_exceeded"
         if assignment_chars > WORKER_ASSIGNMENT_SOFT_CHARS
         else "within_soft_target"
     )
-    total_attached_chars = prompt_chars + assignment_chars
+    total_attached_chars = prompt_chars + assignment_chars + max(0, authorized_source_chars)
     return {
         "stable_policy_chars": prompt_chars,
         "assignment_chars": assignment_chars,
@@ -1040,6 +1083,8 @@ def worker_context_budget_payload(*, prompt_chars: int, assignment_chars: int) -
             else None
         ),
         "prompt_chars": prompt_chars,
+        "authorized_source_chars": max(0, authorized_source_chars),
+        "authorized_source_file_count": max(0, authorized_source_file_count),
         "total_attached_chars": total_attached_chars,
         "approx_attached_tokens_at_4_chars": (total_attached_chars + 3) // 4,
         "full_context_packet_visible": False,
@@ -1297,7 +1342,9 @@ def _quarantine_invalid_worker_target(
 
 
 def opencode_subprocess_environment(
-    *, runtime_config: dict[str, object] | None = None
+    *,
+    runtime_config: dict[str, object] | None = None,
+    isolation_root: Path | None = None,
 ) -> dict[str, str]:
     """为子进程注入 provider 环境，但不把密钥文件复制进 worktree。
 
@@ -1307,6 +1354,10 @@ def opencode_subprocess_environment(
 
     load_local_env()
     environment = os.environ.copy()
+    if isolation_root is not None:
+        runtime_root = isolation_root.resolve()
+        environment["XDG_DATA_HOME"] = str(runtime_root / "data")
+        environment["XDG_STATE_HOME"] = str(runtime_root / "state")
     deepseek_key = resolve_secret("DEEPSEEK_API_KEY", file_env="DEEPSEEK_API_KEY_FILE")
     if deepseek_key:
         environment["DEEPSEEK_API_KEY"] = deepseek_key

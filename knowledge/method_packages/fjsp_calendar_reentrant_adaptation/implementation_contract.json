@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "contract_id": "fjsp_calendar_reentrant_adaptation",
+  "mode": "complete_method_package",
+  "completion_rule": "解析、回路展开、联合日历解码和固定 evaluator 验收必须闭合；仅解析成功或仅产生标准 FJSP 解不算完成。",
+  "required_components": [
+    {"component_id": "combined_json_parser", "required_behaviors": ["严格读取四项 active_features，拒绝缺失、额外或隐式变体字段。"]},
+    {"component_id": "reentrant_expansion", "required_behaviors": ["搜索前完整展开连续回路并保持连续工序身份。"]},
+    {"component_id": "joint_calendar_decoder", "required_behaviors": ["联合处理 job release、machine initial availability、固定 downtime、工件前置和机器互斥。"]},
+    {"component_id": "transactional_redecode", "required_behaviors": ["换机或顺序移动后从稳定状态完整重解码，失败候选不得污染 incumbent。"]}
+  ],
+  "coupled_groups": [
+    {"group_id": "calendar_reentrant_legality", "component_ids": ["combined_json_parser", "reentrant_expansion", "joint_calendar_decoder", "transactional_redecode"], "rule": "构造、移动评价、自检和最终输出必须共享同一套联合语义。"}
+  ],
+  "method_family_rules": {
+    "constructive_search": {"required_behavior": "日历感知 GRASP/多起点构造，受限候选集不能退化为固定单规则。"},
+    "coupled_local_search": {"required_behavior": "换机与机器序列位置联合移动，配合 SA/ILS/Tabu 接受和完整重解码。"},
+    "population_memetic": {"required_behavior": "保持多个展开路线的分配/排序盆地，并对个体执行有界联合局部改进。"},
+    "exact_hybrid": {"required_behavior": "只作小规模验证或局部修复，报告真实建模、Solve、提取和 Core 验收证据。"}
+  },
+  "forbidden_shortcuts": [
+    "只按标准 FJSP 解码后在输出阶段整体右移",
+    "只调度未展开的原始工序",
+    "让工序跨越 downtime 或把 downtime 当可抢占暂停",
+    "把论文 recipe SDST、recipe lag 或 size batching 冒充当前独立特性",
+    "用 smoke 样例宣称论文 benchmark 性能"
+  ],
+  "checkpoint_checks": []
+}

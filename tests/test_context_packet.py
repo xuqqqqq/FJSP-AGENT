@@ -121,6 +121,82 @@ class ContextPacketTests(unittest.TestCase):
             [item["skill_id"] for item in selected_skills["skills"]],
         )
 
+    def test_none_guidance_mode_strips_knowledge_and_pipeline_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            memory_path = tmp_path / "experience_memory.json"
+            memory_path.write_text(
+                json.dumps({"schema_version": 1, "memory_tiers": {"validated_lessons": [{"lesson_id": "x"}]}}),
+                encoding="utf-8",
+            )
+            output = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "context.json",
+                    guidance_mode="none",
+                    knowledge_cards=[ROOT / "README.md"],
+                    previous_pipeline_memory=memory_path,
+                )
+            )
+            packet = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            {
+                "mode": "none",
+                "domain_knowledge": False,
+                "worker_skills": False,
+                "method_packages": False,
+                "experience_memory": False,
+            },
+            packet["guidance_ablation"],
+        )
+        self.assertEqual([], packet["problem_family_capability"]["knowledge_tags"])
+        self.assertNotIn("knowledge_cards", packet)
+        self.assertNotIn("strategy_selection_cards", packet)
+        self.assertNotIn("auto_knowledge_cards", packet)
+        self.assertNotIn("knowledge_selection", packet)
+        self.assertNotIn("knowledge_query_catalog", packet)
+        self.assertNotIn("method_family_catalog", packet)
+        self.assertNotIn("method_package_catalog", packet)
+        self.assertNotIn("previous_pipeline_memory", packet)
+
+    def test_none_guidance_mode_skips_direction_activation_and_experience_projection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            base_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "base_context.json",
+                    guidance_mode="none",
+                )
+            )
+            refreshed_path = write_refreshed_context_packet(
+                base_context_packet_path=base_path,
+                output_path=tmp_path / "round_context.json",
+                loop_feedback={
+                    "round_index": 0,
+                    "experience_memory": {
+                        "memory_tiers": {"candidate_lessons": [{"lesson_id": "should_not_leak"}]}
+                    },
+                    "skill_usage_summary": {"fjsp-constructive-search-worker": 1},
+                    "current_direction_plan": {
+                        "direction_id": "d000",
+                        "method_family": "constructive_search",
+                        "method_families": [{"id": "constructive_search", "role": "primary"}],
+                        "knowledge_query": ["initialization"],
+                        "method_package_id": "standard_fjsp_awls_hgtsa",
+                    },
+                },
+                project_root=ROOT,
+            )
+            refreshed = json.loads(refreshed_path.read_text(encoding="utf-8"))
+
+        self.assertEqual({}, refreshed["loop_feedback"]["experience_memory"])
+        self.assertEqual({}, refreshed["loop_feedback"]["skill_usage_summary"])
+        self.assertNotIn("active_method_package", refreshed)
+        self.assertNotIn("active_direction_knowledge", refreshed)
+        self.assertNotIn("active_worker_implementation_skills", refreshed)
+
     def test_refreshed_context_packet_compacts_large_round_history(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -345,9 +421,21 @@ class ContextPacketTests(unittest.TestCase):
     def test_context_packet_embeds_project_intake_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
+            project_root = tmp_path / "project"
+            examples_dir = project_root / "examples"
+            examples_dir.mkdir(parents=True)
+            (project_root / "README.md").write_text("# Intake fixture\n", encoding="utf-8")
+            (examples_dir / "agent_generated_fjsp_solver.py").write_text(
+                "def main():\n    return 0\n",
+                encoding="utf-8",
+            )
+            (examples_dir / "standard_fjsp_evaluator.py").write_text(
+                "def main():\n    return 0\n",
+                encoding="utf-8",
+            )
             intake = write_project_intake(
                 ProjectIntakeRequest(
-                    project_root=ROOT,
+                    project_root=project_root,
                     output_dir=tmp_path / "project_intake",
                     contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
                     max_files=40,

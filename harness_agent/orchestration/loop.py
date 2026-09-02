@@ -8,6 +8,7 @@ import math
 import os
 import re
 import shlex
+import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
@@ -66,6 +67,16 @@ def planner_uses_fast_mode(planner: DirectionPlanningAgent) -> bool:
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _guidance_mode_from_context_packet(context_packet_path: Path) -> str:
+    context = load_context_packet(context_packet_path).effective_context
+    ablation = context.get("guidance_ablation")
+    if isinstance(ablation, dict):
+        mode = str(ablation.get("mode") or "").strip().lower()
+        if mode in {"full", "none"}:
+            return mode
+    return "full"
 
 
 @dataclass(frozen=True)
@@ -208,6 +219,7 @@ def run_worker_loop(
     output_dir.mkdir(parents=True, exist_ok=True)
     direction_planner = main_agent or EvidenceDrivenMainAgent()
     max_competing_workers = max(1, min(4, int(max_competing_workers)))
+    guidance_mode = _guidance_mode_from_context_packet(context_packet_path)
 
     # 阶段 1：首次运行建立 baseline；续跑则恢复原始 baseline、完整历史和
     # Core 已晋升的 incumbent，绝不重新生成 baseline 或丢失旧轮次证据。
@@ -328,7 +340,12 @@ def run_worker_loop(
             best_activated_incumbent=best_activated_incumbent,
             lane_development_states=lane_development_states,
         )
-        write_loop_report(output_dir=output_dir, result=result, problem_family=contract.problem_family)
+        write_loop_report(
+            output_dir=output_dir,
+            result=result,
+            problem_family=contract.problem_family,
+            guidance_mode=guidance_mode,
+        )
         return result
     if (
         resume_from is None
@@ -359,14 +376,21 @@ def run_worker_loop(
             best_activated_incumbent=best_activated_incumbent,
             lane_development_states=lane_development_states,
         )
-        write_loop_report(output_dir=output_dir, result=result, problem_family=contract.problem_family)
+        write_loop_report(
+            output_dir=output_dir,
+            result=result,
+            problem_family=contract.problem_family,
+            guidance_mode=guidance_mode,
+        )
         return result
     # 阶段 2：每个外层 round 对应一个改进方向；repair attempt 不额外消耗轮数。
     effective_repair_attempts = worker_loop_repair_attempt_budget(worker, in_round_repair_attempts)
     if planner_uses_fast_mode(direction_planner):
-        # A fast round is one parallel checkpoint. The selected lane continues
-        # in the next outer round with its existing session and Core feedback.
-        effective_repair_attempts = 0
+        # Fast rounds stay single-checkpoint when the first candidate is valid,
+        # but retain one targeted repair for runtime/activation failures. This
+        # keeps non-exact lanes from losing to the exact lane solely because the
+        # latter has a built-in repair minimum.
+        effective_repair_attempts = 2 if effective_repair_attempts > 0 else 0
     round_records = list(resume_from.rounds) if resume_from is not None else []
     seen_proposal_fingerprints = {
         item.proposal_fingerprint for item in round_records if item.proposal_fingerprint
@@ -394,6 +418,7 @@ def run_worker_loop(
             previous_rounds=round_records,
             current_round_repair=None,
             max_competing_workers=max_competing_workers,
+            guidance_mode=guidance_mode,
         )
         # Main must plan from the actual promoted worktree, not from the immutable
         # pre-baseline packet. This refreshed planning-only packet carries an
@@ -414,6 +439,7 @@ def run_worker_loop(
             output_dir=cycle_dir / "main_agent",
         )
         direction_plan = dict(direction_plan)
+        direction_plan["fast_checkpoint_mode"] = planner_uses_fast_mode(direction_planner)
         if round_records:
             previous_plan = round_records[-1].direction_plan or {}
             previous_direction_id = previous_plan.get("direction_id")
@@ -748,7 +774,12 @@ def run_worker_loop(
         best_activated_incumbent=best_activated_incumbent,
         lane_development_states=lane_development_states,
     )
-    write_loop_report(output_dir=output_dir, result=result, problem_family=contract.problem_family)
+    write_loop_report(
+        output_dir=output_dir,
+        result=result,
+        problem_family=contract.problem_family,
+        guidance_mode=guidance_mode,
+    )
     return result
 
 
@@ -1565,7 +1596,7 @@ def competitive_direction_plans(
             incumbent_worktree=incumbent_worktree,
             incumbent_key=incumbent_key,
         )
-    if limit <= 1 or not variants:
+    if not variants:
         return [direction_plan]
     result: list[dict[str, Any]] = []
     base_direction_id = str(direction_plan.get("direction_id") or "direction")
@@ -1610,7 +1641,12 @@ def competitive_direction_plans(
                 "implementation_bundle",
                 "knowledge_query",
             ):
-                if variant.get(name):
+                # Cross-family variants must be able to clear package-scoped
+                # fields inherited from the primary direction.  Treating an
+                # empty package id as "missing" binds every challenger to the
+                # primary package and makes incompatible lanes fail before
+                # their Worker can start.
+                if name in variant:
                     plan[name] = variant[name]
             bundle = (
                 plan.get("implementation_bundle")
@@ -1718,6 +1754,10 @@ def competitive_direction_plans(
             plan["next_mutation"] = variant["next_mutation"]
         plan["candidate_variant"] = variant
         plan["candidate_variants"] = []
+        # A variant may declare only a weak legality check (for example,
+        # coverage). Re-attach the non-replaceable family proof after merging
+        # parent and variant fields so the executable lane cannot lose it.
+        plan = ensure_method_family_activation_contract(plan)
         result.append(plan)
     return result or [direction_plan]
 
@@ -2007,13 +2047,23 @@ def delegated_worker_lane_plans(
             )
         plan["direction_id"] = f"{base_direction_id}-{candidate_id}"[:80]
         plan["title"] = f"{base_title}: {role_title}"[:200]
+        if track:
+            worker_action = (
+                f"Implement the named {role_id} algorithm stage without replacing or shortening the incumbent's "
+                "existing search path."
+            )
+        else:
+            worker_action = (
+                "Inspect the incumbent and authorized Skills first, then independently choose and implement one "
+                "concrete mechanism."
+            )
         plan["worker_objective"] = (
-            f"{role_objective} Inspect the incumbent and authorized Skills first, then independently choose and "
-            "implement one concrete mechanism. Preserve the incumbent fallback; do not stop at telemetry-only changes."
+            f"{role_objective} {worker_action} Preserve the incumbent fallback; do not stop at telemetry-only changes."
         )[:1200]
         plan["candidate_variant"] = {
             "candidate_id": candidate_id,
             "title": role_title,
+            "method_name": role_id,
             "hypothesis": base_hypothesis,
             "strategy_type": str(plan.get("strategy_type") or "worker_selected_mechanism"),
             "lane_role": role_id,
@@ -2206,10 +2256,12 @@ def evaluate_exact_solver_execution(
             or row.get("solve_status")
             or row.get("cp_sat_status")
             or row.get("solver_status")
+            or row.get("status_name")
             or nested_solver_evidence.get("status")
             or nested_solver_evidence.get("solve_status")
             or nested_solver_evidence.get("cp_sat_status")
             or nested_solver_evidence.get("solver_status")
+            or nested_solver_evidence.get("status_name")
             or ""
         ).strip().lower()
         if status:
@@ -2323,7 +2375,8 @@ def evaluate_exact_solver_execution(
             row.get("cp_sat_called") is True
             and solve_called
             and status in accepted_statuses
-            and all(value > 0 for value in sizes.values())
+            and sizes["variables"] > 0
+            and sizes["constraints"] > 0
             and no_runtime_error
         ):
             qualifying_rows.append(row)
@@ -2338,7 +2391,10 @@ def evaluate_exact_solver_execution(
         reason = "exact_hybrid_candidate_illegal"
     elif not any(status in accepted_statuses for status in status_values):
         reason = "exact_hybrid_solver_status_not_executed"
-    elif not any(all(value > 0 for value in sizes.values()) for sizes in model_sizes):
+    elif not any(
+        sizes["variables"] > 0 and sizes["constraints"] > 0
+        for sizes in model_sizes
+    ):
         reason = "exact_hybrid_model_size_not_observed"
     else:
         reason = "exact_hybrid_runtime_error_or_solve_not_called"
@@ -2410,7 +2466,20 @@ def _resolve_activation_path_with_canonical(
     path: str,
 ) -> tuple[bool, Any, str | None]:
     candidates = [path]
+    candidates.extend(_legacy_activation_path_aliases(path))
     if path.startswith("diagnostics."):
+        relative = path.removeprefix("diagnostics.")
+        # Per-run activation evidence preserves the solver payload under the
+        # evaluator's diagnostics wrapper. Accept the same canonical telemetry
+        # shape already consumed by exact-execution verification.
+        candidates.extend(
+            [
+                f"diagnostics.solver_evidence.{relative}",
+                f"diagnostics.solver_evidence.diagnostics.{relative}",
+                f"diagnostics.activation.{relative}",
+                f"best_metrics.solver_evidence.diagnostics.solver_evidence.{relative}",
+            ]
+        )
         candidates.append(f"best_metrics.solver_evidence.{path}")
     elif path != "diagnostics":
         candidates.append(f"best_metrics.solver_evidence.diagnostics.{path}")
@@ -2420,6 +2489,18 @@ def _resolve_activation_path_with_canonical(
         if found:
             return True, observed, candidate
     return False, None, None
+
+
+def _legacy_activation_path_aliases(path: str) -> list[str]:
+    """Read historical solver telemetry while new assignments use canonical paths."""
+
+    aliases = {
+        "diagnostics.activation.constructive_search.candidates_evaluated": [
+            "best_metrics.solver_evidence.diagnostics.constructive_candidates_evaluated",
+            "diagnostics.solver_evidence.diagnostics.constructive_candidates_evaluated",
+        ],
+    }
+    return aliases.get(path, [])
 
 
 def _resolve_dotted_path(payload: Any, path: str) -> tuple[bool, Any]:
@@ -2582,6 +2663,7 @@ def run_worker_cycle_with_in_round_repairs(
                 current_round_repair=repair_feedback,
                 current_direction_plan=effective_direction_plan,
                 user_intervention=user_intervention,
+                guidance_mode=_guidance_mode_from_context_packet(base_context_packet_path),
             ),
             project_root=direction_project_root,
         )
@@ -2707,6 +2789,17 @@ def run_worker_cycle_with_in_round_repairs(
             activation_required=attempt_payload["activation_required"],
         )
         exact_repair_only = str(effective_direction_plan.get("method_family") or "") == "exact_hybrid"
+        if effective_direction_plan.get("fast_checkpoint_mode") and not exact_repair_only:
+            fast_summary = getattr(last_cycle, "summary", None)
+            fast_runtime_repair_required = bool(
+                fast_summary is None
+                or int(getattr(fast_summary, "total", 0) or 0) <= 0
+                or int(getattr(fast_summary, "valid", 0) or 0)
+                != int(getattr(fast_summary, "total", 0) or 0)
+            )
+            if not fast_runtime_repair_required:
+                termination_reason = "fast_checkpoint_complete"
+                break
         if (not session_reuse_enabled or exact_repair_only) and not repair_required:
             termination_reason = "repair_not_required"
             break
@@ -3000,6 +3093,7 @@ def semantic_review_direction_plan(
         if isinstance(scoped.get("implementation_bundle"), dict)
         else {}
     )
+    scope_mode = "assignment_without_method_bundle"
     if bundle:
         assigned_ids = set(implementation_order)
         components = [
@@ -3008,24 +3102,32 @@ def semantic_review_direction_plan(
             if isinstance(item, dict)
             and str(item.get("component_id") or item.get("id") or "") in assigned_ids
         ]
-        selected_component_ids = {
-            str(item.get("component_id") or item.get("id") or "") for item in components
-        }
-        bundle["required_components"] = components
-        bundle["coupled_groups"] = [
-            item
-            for item in bundle.get("coupled_groups") or []
-            if isinstance(item, dict)
-            and set(str(value) for value in item.get("component_ids") or []).issubset(
-                selected_component_ids
-            )
-        ]
-        bundle["mode"] = "assigned_stage"
+        if components:
+            selected_component_ids = {
+                str(item.get("component_id") or item.get("id") or "") for item in components
+            }
+            bundle["required_components"] = components
+            bundle["coupled_groups"] = [
+                item
+                for item in bundle.get("coupled_groups") or []
+                if isinstance(item, dict)
+                and set(str(value) for value in item.get("component_ids") or []).issubset(
+                    selected_component_ids
+                )
+            ]
+            bundle["mode"] = "assigned_stage"
+            scope_mode = "assigned_method_components"
+        else:
+            # Repair assignments use repair_* IDs rather than package component
+            # IDs. They must not erase the complete-method coverage contract.
+            bundle["mode"] = "complete_method_package_with_repair_overlay"
+            scope_mode = "full_method_package_with_repair_overlay"
         scoped["implementation_bundle"] = bundle
     scoped["semantic_review_scope"] = {
         "source": "worker_assignment",
         "assignment_id": payload.get("assignment_id"),
         "assigned_components": implementation_order,
+        "mode": scope_mode,
     }
     return scoped
 
@@ -3439,26 +3541,39 @@ def collect_current_round_repair_targets(attempts: list[dict[str, Any]]) -> dict
             else {}
         )
         if attempt.get("activation_required") is True and mechanism_activation.get("passed") is not True:
+            failed_checks = [
+                {
+                    "id": item.get("id"),
+                    "path": item.get("path"),
+                    "operator": item.get("operator"),
+                    "expected": item.get("expected"),
+                    "observed": item.get("observed"),
+                }
+                for item in mechanism_activation.get("checks") or []
+                if isinstance(item, dict) and item.get("required") and not item.get("passed")
+            ][:12]
+            failed_paths = [
+                str(item["path"]).strip()
+                for item in failed_checks
+                if isinstance(item.get("path"), str) and str(item["path"]).strip()
+            ]
+            path_instruction = (
+                " Emit the failed telemetry at each exact declared path in the final solution.json: "
+                + ", ".join(failed_paths)
+                + ". Do not move a declared path under diagnostics.activation unless that path already says so."
+                if failed_paths
+                else " Emit every failed check at its exact declared path in the final solution.json."
+            )
             targets["mechanism_activation_failure"] = {
                 "status": mechanism_activation.get("status") or "not_declared",
                 "required_failure_count": int(
                     mechanism_activation.get("required_failure_count") or 0
                 ),
-                "failed_checks": [
-                    {
-                        "id": item.get("id"),
-                        "path": item.get("path"),
-                        "operator": item.get("operator"),
-                        "expected": item.get("expected"),
-                        "observed": item.get("observed"),
-                    }
-                    for item in mechanism_activation.get("checks") or []
-                    if isinstance(item, dict) and item.get("required") and not item.get("passed")
-                ][:12],
+                "failed_checks": failed_checks,
                 "required_evidence": (
                     "Invoke the selected method family from the real CLI entrypoint before output is written. "
-                    "Merge its observed counters into diagnostics.activation in the final solution.json that "
-                    "the fixed evaluator reads. Exercise every failed required check in the bounded smoke. "
+                    + path_instruction
+                    + " Exercise every failed required check in the bounded smoke. "
                     "A helper definition, an unreachable call, stdout-only telemetry, inherited incumbent "
                     "quality, or configuration values do not satisfy activation."
                 ),
@@ -4108,7 +4223,10 @@ def run_agent_generated_baseline(
                 reviewer=semantic_reviewer,
                 cycle=cycle,
                 context_packet_path=baseline_context_path,
-                direction_plan=attempt_direction_plan or baseline_semantic_direction_plan(baseline_context_path),
+                direction_plan=baseline_semantic_direction_plan(
+                    baseline_context_path,
+                    worker_assignment=assignment_issue.assignment,
+                ),
                 round_index=-1,
                 attempt_index=attempt_index,
                 output_dir=attempt_dir / "semantic_review",
@@ -4330,8 +4448,12 @@ def run_agent_generated_baseline(
         return summary, fallback_worktree, generation_payload
 
 
-def baseline_semantic_direction_plan(context_packet_path: Path) -> dict[str, Any]:
-    """Describe baseline review without embedding problem-family algorithm rules."""
+def baseline_semantic_direction_plan(
+    context_packet_path: Path,
+    *,
+    worker_assignment: WorkerAssignment | None = None,
+) -> dict[str, Any]:
+    """Scope baseline review to the foundation work Main actually assigned."""
 
     loaded = load_context_packet(context_packet_path).effective_context
     active_package = loaded.get("active_method_package") if isinstance(loaded.get("active_method_package"), dict) else {}
@@ -4342,29 +4464,25 @@ def baseline_semantic_direction_plan(context_packet_path: Path) -> dict[str, Any
         "strategy_type": "baseline_constructor",
         "hypothesis": str(loaded.get("hypothesis") or "Generate a legal standalone baseline solver.")[:1200],
         "knowledge_paths": list(loaded.get("auto_knowledge_cards") or [])[:12],
-        # 语义复核只能检查 Main 已显式激活的包；目录推荐项不能旁路两阶段选择。
-        "method_package_id": active_package.get("package_id"),
+        "method_package_id": (
+            (worker_assignment.method_package or {}).get("package_id")
+            if worker_assignment is not None
+            else active_package.get("package_id")
+        ),
+        "review_scope": {
+            "phase": "agent_generated_baseline_foundation",
+            "blocking_rule": (
+                "Only behavior explicitly required by blocking_deliverables may block acceptance of a Core-valid "
+                "baseline. Optional optimization operators outside this assignment may produce warnings only."
+            ),
+            "blocking_deliverables": (
+                [dict(item) for item in worker_assignment.deliverables]
+                if worker_assignment is not None
+                else []
+            ),
+            "completion_rule": worker_assignment.completion_rule if worker_assignment is not None else "",
+        },
     }
-    bundle = method_implementation_bundle(active_package)
-    if bundle:
-        plan["implementation_bundle"] = bundle
-        contract_paths = list(
-            dict.fromkeys(
-                str(item) for item in bundle.get("contract_paths") or [] if str(item).strip()
-            )
-        )
-        supplemental_paths = list(
-            dict.fromkeys(
-                [
-                    *(str(item) for item in active_package.get("assets") or []),
-                    *(str(item) for item in loaded.get("auto_knowledge_cards") or []),
-                ]
-            )
-        )
-        supplemental_paths = [
-            item for item in supplemental_paths if item and item not in contract_paths
-        ][: max(0, 12 - len(contract_paths))]
-        plan["knowledge_paths"] = [*contract_paths, *supplemental_paths]
     return plan
 
 
@@ -4679,17 +4797,26 @@ def write_baseline_generation_context_packet(
         ],
         "hidden_incumbent_files": hidden_incumbent_files or [],
     }
+    guidance_none = (
+        isinstance(refreshed.get("guidance_ablation"), dict)
+        and refreshed["guidance_ablation"].get("mode") == "none"
+    )
     if direction_plan:
         refreshed["loop_feedback"] = {
             "round_index": "agent_generated_baseline",
             "current_direction_plan": direction_plan,
-            "instructions": [
-                "Implement the selected method package against the active IO and solver contract.",
-                "Combine only the method families explicitly selected in this baseline direction.",
-            ],
+            "instructions": (
+                ["Implement a complete legal solver against the active IO and solver contract."]
+                if guidance_none
+                else [
+                    "Implement the selected method package against the active IO and solver contract.",
+                    "Combine only the method families explicitly selected in this baseline direction.",
+                ]
+            ),
         }
-        activate_method_package_context(refreshed, direction_plan=direction_plan)
-        activate_direction_knowledge_context(refreshed, direction_plan=direction_plan)
+        if not guidance_none:
+            activate_method_package_context(refreshed, direction_plan=direction_plan)
+            activate_direction_knowledge_context(refreshed, direction_plan=direction_plan)
     if current_round_repair:
         refreshed["loop_feedback"] = {
             "round_index": "agent_generated_baseline",
@@ -4704,7 +4831,10 @@ def write_baseline_generation_context_packet(
     worker_instruction = dict(refreshed.get("worker_instruction") or {})
     required_order = list(worker_instruction.get("required_order") or [])
     generation_step = (
-        "This is agent-generated baseline creation: write the initial runnable solver from docs, "
+        "This is agent-generated baseline creation: write the initial runnable solver from docs "
+        "and evaluator_protocol before Core measures baseline."
+        if guidance_none
+        else "This is agent-generated baseline creation: write the initial runnable solver from docs, "
         "knowledge_cards, and evaluator_protocol before Core measures baseline."
     )
     if generation_step not in required_order:
@@ -4720,6 +4850,11 @@ def write_baseline_generation_context_packet(
     hypothesis = str(refreshed.get("hypothesis") or "")
     generation_hypothesis = (
         "First generate a complete runnable solver entrypoint for the command in evaluator_protocol. "
+        "Base the implementation on the requirement document, IO document, and instance_diagnostics. "
+        "Project domain knowledge, method packages, and Worker Skills are intentionally ablated. "
+        "Do not edit the evaluator or benchmark data."
+        if guidance_none
+        else "First generate a complete runnable solver entrypoint for the command in evaluator_protocol. "
         "Base the implementation on the requirement document, IO document, instance_diagnostics, "
         "domain-pack metadata, and knowledge cards.  Do not edit the evaluator or benchmark data."
     )
@@ -4784,11 +4919,9 @@ def evaluate_promotion_check(
 ) -> dict[str, Any]:
     """Return the evaluator-backed promotion decision for a worker candidate.
 
-    The default path keeps the historic loop semantics: one evaluator-backed
-    strict improvement promotes. A Core-legal equal-objective candidate may
-    also promote when it newly satisfies explicit required activation checks
-    that the incumbent fails. When promotion_repeats is greater than one, the
-    same objective and activation relation must hold on repeated probes.
+    Promotion always requires an evaluator-backed strict objective improvement.
+    Activation is retained as mechanism evidence, but cannot replace objective
+    improvement or bypass semantic review for the accepted incumbent.
     """
 
     # 首次比较不过就无需重复运行；只有看起来严格提升时才支付复验成本。
@@ -4798,50 +4931,18 @@ def evaluate_promotion_check(
     candidate_activation = (
         candidate_activation if isinstance(candidate_activation, dict) else {}
     )
-    capability_candidate = bool(
-        candidate_key == incumbent_key
-        and int(candidate_activation.get("required_check_count") or 0) > 0
-        and candidate_activation.get("passed") is True
-    )
-    if not initially_better and not capability_candidate:
+    if not initially_better:
         return {
             "status": "skipped",
             "reason": "candidate_not_strictly_better",
             "required_repeats": repeats,
             "incumbent_key": list(incumbent_key),
             "candidate_key": list(candidate_key),
+            "candidate_activation": candidate_activation,
             "promoted": False,
             "accepted_key": list(incumbent_key),
         }
     if repeats <= 1:
-        if capability_candidate:
-            output_dir.mkdir(parents=True, exist_ok=True)
-            incumbent_summary = _run_harness(
-                contract=contract,
-                project_root=incumbent_worktree,
-                output_dir=output_dir / "capability_incumbent",
-                cancellation=cancellation,
-            )
-            incumbent_activation = evaluate_mechanism_activation(
-                activation_plan,
-                incumbent_summary,
-            )
-            promoted = incumbent_activation.get("passed") is not True
-            return {
-                "status": "single_run" if promoted else "skipped",
-                "reason": (
-                    "required_capability_activation_gain"
-                    if promoted
-                    else "incumbent_already_satisfies_required_activation"
-                ),
-                "required_repeats": repeats,
-                "incumbent_key": list(incumbent_key),
-                "candidate_key": list(candidate_key),
-                "incumbent_activation": incumbent_activation,
-                "candidate_activation": candidate_activation,
-                "promoted": promoted,
-                "accepted_key": list(candidate_key if promoted else incumbent_key),
-            }
         return {
             "status": "single_run",
             "reason": "strict_objective_improvement",
@@ -4884,27 +4985,9 @@ def evaluate_promotion_check(
         expected_runs=expected_runs,
     )
     repeated_objective_improved = candidate_repeat_key > incumbent_repeat_key
-    repeated_capability_gain = False
-    incumbent_activation: dict[str, Any] | None = None
-    repeated_candidate_activation: dict[str, Any] | None = None
-    if capability_candidate and candidate_repeat_key == incumbent_repeat_key:
-        incumbent_activation = evaluate_mechanism_activation(
-            activation_plan,
-            incumbent_summary,
-        )
-        repeated_candidate_activation = evaluate_mechanism_activation(
-            activation_plan,
-            candidate_summary,
-        )
-        repeated_capability_gain = bool(
-            repeated_candidate_activation.get("passed") is True
-            and incumbent_activation.get("passed") is not True
-        )
-    promoted = repeated_objective_improved or repeated_capability_gain
+    promoted = repeated_objective_improved
     if repeated_objective_improved:
         reason = "repeat_objective_improvement"
-    elif repeated_capability_gain:
-        reason = "repeat_required_capability_activation_gain"
     else:
         reason = "repeat_objective_not_strictly_better"
     return {
@@ -4918,8 +5001,7 @@ def evaluate_promotion_check(
         "candidate_repeat_key": list(candidate_repeat_key),
         "incumbent_summary": summary_payload(incumbent_summary),
         "candidate_summary": summary_payload(candidate_summary),
-        "incumbent_activation": incumbent_activation,
-        "candidate_activation": repeated_candidate_activation or candidate_activation,
+        "candidate_activation": candidate_activation,
         "promoted": promoted,
         "accepted_key": list(candidate_repeat_key if promoted else incumbent_key),
     }
@@ -5089,6 +5171,7 @@ def loop_feedback_payload(
     current_direction_plan: dict[str, Any] | None = None,
     user_intervention: dict[str, Any] | None = None,
     max_competing_workers: int = 4,
+    guidance_mode: str = "full",
 ) -> dict[str, Any]:
     """构建 Main/Coding Agent 共用的 evaluator-backed 动态反馈。
 
@@ -5106,14 +5189,19 @@ def loop_feedback_payload(
         baseline_generation,
         baseline_key=baseline_key,
     )
+    guidance_none = str(guidance_mode or "full").strip().lower() == "none"
     baseline_round_payload = baseline_memory.get("round_payload") if isinstance(baseline_memory, dict) else None
     history_round_payloads = (
         [baseline_round_payload] if isinstance(baseline_round_payload, dict) else []
     ) + previous_round_payloads
     direction_graph = summarize_direction_graph(history_round_payloads)
-    experience_memory = build_experience_memory(
-        history_round_payloads,
-        problem_family=contract.problem_family,
+    experience_memory = (
+        {}
+        if guidance_none
+        else build_experience_memory(
+            history_round_payloads,
+            problem_family=contract.problem_family,
+        )
     )
     protected_facts = protected_baseline_generation_facts(baseline_memory) + protected_promoted_facts(previous_rounds)
     payload = {
@@ -5169,7 +5257,7 @@ def loop_feedback_payload(
         "previous_rounds": previous_round_payloads,
         "direction_graph": direction_graph,
         "experience_memory": experience_memory,
-        "skill_usage_summary": experience_memory.get("skill_usage_summary") or {},
+        "skill_usage_summary": {} if guidance_none else experience_memory.get("skill_usage_summary") or {},
         "protected_promoted_facts": protected_facts[-8:],
         "failure_memory": round_failure_memory(previous_rounds),
         "next_round_guidance": next_round_guidance(
@@ -5185,7 +5273,6 @@ def loop_feedback_payload(
             "Treat protected_promoted_facts as mechanisms to preserve; do not remove or disable them in the next proposal unless the proposal explicitly ablates them with a legality-preserving fallback.",
             "Treat failure_memory.recent_failures as provisional observations requiring causal review. "
             "Do not turn a rollback into a method-family prohibition; only an identical patch lineage is barred from unchanged replay.",
-            "Use direction_graph and experience_memory to choose whether to preserve, mutate, or prune prior directions.",
             "Follow next_round_guidance.must_do before selecting a new code change.",
             "Do not repeat rolled-back edits unchanged; explain what is materially different if revisiting them.",
             "If promotion_check failed, treat the candidate as a noisy or unstable improvement and change the rule-level idea.",
@@ -5193,6 +5280,11 @@ def loop_feedback_payload(
             "Prefer small, reversible solver changes whose effect can be attributed in the next evaluator run.",
         ],
     }
+    if not guidance_none:
+        payload["instructions"].insert(
+            7,
+            "Use direction_graph and experience_memory to choose whether to preserve, mutate, or prune prior directions.",
+        )
     if current_round_repair:
         payload["current_round_repair"] = current_round_repair
         payload["instructions"].insert(
@@ -6129,6 +6221,7 @@ def compact_round_direction_plan(value: dict[str, Any] | None) -> dict[str, Any]
                 for key in (
                     "candidate_id",
                     "title",
+                    "method_name",
                     "hypothesis",
                     "strategy_type",
                     "method_family",
@@ -6784,13 +6877,24 @@ def rejected_proposal_edits(
 # 报告与持久化：同一批轮记录派生方向图、经验分层和知识使用记录。
 # ---------------------------------------------------------------------------
 
-def write_loop_report(*, output_dir: Path, result: WorkerLoopResult, problem_family: str | None = None) -> None:
+def write_loop_report(
+    *,
+    output_dir: Path,
+    result: WorkerLoopResult,
+    problem_family: str | None = None,
+    guidance_mode: str = "full",
+) -> None:
     """写出闭环的机器可读 JSON 和面向人的 Markdown，不再重新运行实验。"""
 
     round_payloads = [round_record_payload(item) for item in result.rounds]
     direction_graph = summarize_direction_graph(round_payloads)
-    experience_memory = build_experience_memory(round_payloads, problem_family=problem_family)
-    skill_usage_records = experience_memory.get("skill_usage_records") or []
+    guidance_none = str(guidance_mode or "full").strip().lower() == "none"
+    experience_memory = (
+        {}
+        if guidance_none
+        else build_experience_memory(round_payloads, problem_family=problem_family)
+    )
+    skill_usage_records = [] if guidance_none else experience_memory.get("skill_usage_records") or []
     payload = {
         "status": result.status,
         "stop_reason": result.stop_reason,
@@ -7023,9 +7127,15 @@ def _run_harness(
         output_dir=output_dir,
         cancellation=cancellation,
     )
+    started_at_epoch = time.time()
     try:
         return runner.run()
     finally:
+        _write_core_evaluation_timing(
+            output_dir=output_dir,
+            started_at_epoch=started_at_epoch,
+            finished_at_epoch=time.time(),
+        )
         runner.close()
 
 
@@ -7042,12 +7152,40 @@ def _run_harness_with_records(
         output_dir=output_dir,
         cancellation=cancellation,
     )
+    started_at_epoch = time.time()
     try:
         summary = runner.run()
         records = runner.ledger.list_records()
         return summary, records
     finally:
+        _write_core_evaluation_timing(
+            output_dir=output_dir,
+            started_at_epoch=started_at_epoch,
+            finished_at_epoch=time.time(),
+        )
         runner.close()
+
+
+def _write_core_evaluation_timing(
+    *,
+    output_dir: Path,
+    started_at_epoch: float,
+    finished_at_epoch: float,
+) -> None:
+    """Persist a Core interval so controller time can exclude overlapping lanes."""
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": 1,
+        "phase": "fixed_core_evaluation",
+        "started_at_epoch": started_at_epoch,
+        "finished_at_epoch": finished_at_epoch,
+        "wall_seconds": max(0.0, finished_at_epoch - started_at_epoch),
+    }
+    (output_dir / "core_evaluation_timing.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _hash_json(payload: Any) -> str:

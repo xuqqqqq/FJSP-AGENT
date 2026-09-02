@@ -669,6 +669,10 @@ class OpenCodeWorkerTests(unittest.TestCase):
             self.assertNotEqual(str(worktree.resolve()), _extract_dir_argument(command))
             self.assertTrue(command[command.index("--title") + 1].startswith("AlgoForge Worker "))
             self.assertEqual(subprocess.DEVNULL, popen.call_args.kwargs["stdin"])
+            worker_env = popen.call_args.kwargs["env"]
+            self.assertIn(".algoforge_opencode_session", worker_env["XDG_DATA_HOME"])
+            self.assertTrue(worker_env["XDG_DATA_HOME"].endswith(".opencode_runtime\\data"))
+            self.assertTrue(worker_env["XDG_STATE_HOME"].endswith(".opencode_runtime\\state"))
             runtime_config = json.loads(popen.call_args.kwargs["env"]["OPENCODE_CONFIG_CONTENT"])
             worker_config = runtime_config["agent"][OPENCODE_WORKER_AGENT]
             self.assertNotIn("subagent_depth", runtime_config)
@@ -1148,6 +1152,12 @@ class OpenCodeWorkerTests(unittest.TestCase):
             context_packet.write_text("{}", encoding="utf-8")
             executable = tmp_path / "opencode.exe"
             executable.write_text("placeholder", encoding="utf-8")
+            state_dir = round_root / ".algoforge_opencode_session" / "known-lane"
+            state_dir.mkdir(parents=True)
+            (state_dir / "session_state.json").write_text(
+                json.dumps({"observed_session_id": "ses_stale_resume"}),
+                encoding="utf-8",
+            )
             commands: list[list[str]] = []
 
             first_process = MagicMock()
@@ -1197,11 +1207,14 @@ class OpenCodeWorkerTests(unittest.TestCase):
                         output_dir=str(output_dir),
                         apply_changes=False,
                         worker_assignment_path=str(_write_assignment(tmp_path, worktree)),
+                        session_id="ses_stale_resume",
                     )
                 )
 
             self.assertEqual("completed", result.status)
             self.assertEqual(2, len(commands))
+            self.assertIn("--session", commands[0])
+            self.assertNotIn("--session", commands[1])
             retry_payload = json.loads(Path(result.artifacts["provider_retries"]).read_text(encoding="utf-8"))
             self.assertEqual(1, retry_payload["retry_count"])
             self.assertEqual("zero_event_stream_exit", retry_payload["attempts"][0]["reason"])
@@ -1921,6 +1934,9 @@ class OpenCodeWorkerTests(unittest.TestCase):
             worktree = tmp_path / "worktree"
             output_dir = tmp_path / "worker"
             worktree.mkdir()
+            target = worktree / "examples" / "agent_generated_fjsp_solver.py"
+            target.parent.mkdir()
+            target.write_text("print('attached incumbent')\n", encoding="utf-8")
             local_inputs = worktree / ".algoforge_worker_inputs"
             local_inputs.mkdir()
             (local_inputs / "manifest.json").write_text(
@@ -1974,8 +1990,14 @@ class OpenCodeWorkerTests(unittest.TestCase):
 
             self.assertEqual("completed", result.status)
             prompt = (output_dir / "opencode_prompt.md").read_text(encoding="utf-8")
+            command = json.loads((output_dir / "opencode_command.json").read_text(encoding="utf-8"))
+            command_worktree = _extract_dir_argument(command)
             self.assertIn("sole planning input", prompt)
             self.assertIn("Read only `target_file`, paths listed in `read_set`", prompt)
+            self.assertIn(f"Authorized workspace root: `{command_worktree}`", prompt)
+            self.assertIn("Resolve every relative `target_file` and `read_set` path", prompt)
+            self.assertIn("Do not\n  derive or guess a workspace path from the attachment directory", prompt)
+            self.assertIn("Treat an attached file as already read", prompt)
             self.assertIn("This is baseline mode", prompt)
             self.assertIn("if it is absent, create it", prompt)
             self.assertIn("Trial 1 write-first checkpoint", prompt)
@@ -1988,9 +2010,16 @@ class OpenCodeWorkerTests(unittest.TestCase):
             self.assertNotIn("agent_generated FJSP-SDST run", prompt)
             budget = json.loads((output_dir / "opencode_context_budget.json").read_text(encoding="utf-8"))
             self.assertLessEqual(budget["total_attached_chars"], 12_000)
-            command = json.loads((output_dir / "opencode_command.json").read_text(encoding="utf-8"))
+            self.assertGreaterEqual(budget["authorized_source_file_count"], 2)
+            self.assertGreater(budget["authorized_source_chars"], 0)
             self.assertIn("json", command)
             self.assertTrue(any("worker_assignment.json" in item for item in command))
+            self.assertTrue(
+                any(
+                    item.startswith("--file=") and item.endswith("examples\\agent_generated_fjsp_solver.py")
+                    for item in command
+                )
+            )
 
     def test_timeout_kills_opencode_child_process_tree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

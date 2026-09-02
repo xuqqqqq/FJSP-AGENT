@@ -6,6 +6,7 @@ import json
 import os
 import signal
 import subprocess
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from dataclasses import replace
@@ -171,6 +172,7 @@ class HarnessRunner:
         # 两者 stderr/stdout 分开保存，便于判断是生成失败还是判卷失败。
         try:
             solver_cmd = self.contract.commands.solver.format(**placeholders)
+            solver_started = time.perf_counter()
             solver_result = run_shell_command(
                 solver_cmd,
                 cwd=self.project_root,
@@ -178,12 +180,14 @@ class HarnessRunner:
                 check=False,
                 cancellation=self.cancellation,
             )
+            solver_wall_seconds = time.perf_counter() - solver_started
             solver_stdout.write_text(solver_result.stdout, encoding="utf-8")
             solver_stderr.write_text(solver_result.stderr, encoding="utf-8")
             if solver_result.returncode != 0:
                 raise RuntimeError(command_failure_message("solver", solver_result.returncode, solver_result.stderr))
 
             evaluator_cmd = self.contract.commands.evaluator.format(**placeholders)
+            evaluator_started = time.perf_counter()
             evaluator_result = run_shell_command(
                 evaluator_cmd,
                 cwd=self.project_root,
@@ -191,6 +195,7 @@ class HarnessRunner:
                 check=False,
                 cancellation=self.cancellation,
             )
+            evaluator_wall_seconds = time.perf_counter() - evaluator_started
             evaluator_stdout.write_text(evaluator_result.stdout, encoding="utf-8")
             evaluator_stderr.write_text(evaluator_result.stderr, encoding="utf-8")
             if evaluator_result.returncode != 0:
@@ -199,6 +204,14 @@ class HarnessRunner:
                 raise RuntimeError("evaluator did not create metrics file")
 
             evaluation = EvaluationResult.from_metrics_file(metrics_path, self.contract.objectives)
+            evaluation = replace(
+                evaluation,
+                metrics={
+                    **evaluation.metrics,
+                    "solver_wall_seconds": solver_wall_seconds,
+                    "evaluator_wall_seconds": evaluator_wall_seconds,
+                },
+            )
             solver_evidence = load_solver_evidence(solution_path)
             if solver_evidence:
                 consistency_errors = accepted_solver_output_errors(
@@ -455,6 +468,18 @@ def accepted_solver_output_errors(
         "priority_completion_time": exact.get(
             "priority_completion_time",
             exact.get("candidate_priority_completion_time"),
+        ),
+        "max_machine_workload": exact.get(
+            "max_machine_workload",
+            exact.get("candidate_max_machine_workload"),
+        ),
+        "total_workload": exact.get(
+            "total_workload",
+            exact.get("candidate_total_workload"),
+        ),
+        "total_tardiness": exact.get(
+            "total_tardiness",
+            exact.get("candidate_total_tardiness"),
         ),
     }
     errors: list[str] = []

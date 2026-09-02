@@ -179,7 +179,12 @@ def stability_summary(records: list[ExperimentRecord]) -> dict[str, Any]:
     for (instance_id, seed), group in sorted(grouped.items()):
         valid_group = [record for record in group if record.valid]
         objective_keys = sorted({tuple(record.objective_key) for record in valid_group})
-        metrics_fingerprints = sorted({json.dumps(record.metrics, sort_keys=True, ensure_ascii=False) for record in valid_group})
+        metrics_fingerprints = sorted(
+            {
+                json.dumps(stability_metrics(record.metrics), sort_keys=True, ensure_ascii=False)
+                for record in valid_group
+            }
+        )
         groups.append(
             {
                 "instance_id": instance_id,
@@ -194,6 +199,16 @@ def stability_summary(records: list[ExperimentRecord]) -> dict[str, Any]:
     return {
         "stable": bool(groups) and all(item["stable"] for item in groups),
         "groups": groups,
+    }
+
+
+def stability_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
+    """Exclude Core-observed wall time while retaining evaluator and objective metrics."""
+
+    return {
+        key: value
+        for key, value in metrics.items()
+        if key not in {"solver_wall_seconds", "evaluator_wall_seconds"}
     }
 
 

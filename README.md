@@ -16,6 +16,18 @@ method package 中，由 Coding Agent 根据需求、IO、算例诊断和历史�
 Core 不提供 FJSP 搜索代码。`knowledge/method_packages/` 中可以保存完整方法参考，
 但这些参考只能作为 Coding Agent 的学习材料，不能被编排层直接调用。
 
+## 当前问题族与执行语义
+
+当前 domain pack、知识库、Worker Skills 和固定 evaluator 已覆盖标准 FJSP、FJSP-SDST，
+以及时间间隔、替代工艺路径、释放时间、机器日历、可重入、批处理、运输、优先级、
+工作负荷多目标和多特性组合等扩展。变体算法仍由 Coding Agent 在候选 solver 中自主实现，
+通用 Harness 只负责特征识别、知识与技能授权、候选隔离、固定评测和晋升回滚。
+
+单轮可以同时运行多个候选 lane；lane 表示 `constructive_search`、
+`coupled_local_search`、`population_memetic`、`exact_hybrid` 等真实算法方法，
+不是通用 worker 角色。各 lane 从同一冻结 incumbent 出发并行竞争，外层不同算例及
+Full/None 对照任务顺序执行，避免多任务同时运行干扰性能测量。
+
 ## 目录结构
 
 ```text

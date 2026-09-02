@@ -84,6 +84,17 @@ class EvidenceDrivenMainAgent:
 
     def plan_direction(self, request: DirectionPlanRequest) -> dict[str, Any]:
         context = load_context_dict(request.context_packet_path)
+        guidance_ablation = (
+            context.get("guidance_ablation")
+            if isinstance(context.get("guidance_ablation"), dict)
+            else {}
+        )
+        if guidance_ablation.get("mode") == "none":
+            plan = generic_ablation_history_fallback_plan(
+                request=request,
+                context=context,
+            )
+            return write_direction_plan(request.output_dir, plan)
         guidance = request.loop_feedback.get("next_round_guidance")
         if not isinstance(guidance, dict):
             guidance = {}
@@ -237,6 +248,143 @@ class EvidenceDrivenMainAgent:
 
     def reflect_on_round(self, request: RoundReflectionRequest) -> dict[str, Any]:
         return write_round_reflection(request.output_dir, deterministic_round_reflection(request))
+
+
+def generic_ablation_history_fallback_plan(
+    *,
+    request: DirectionPlanRequest,
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    """Recover None planning from prior model methods without inventing role lanes."""
+
+    competition = (
+        request.loop_feedback.get("competition")
+        if isinstance(request.loop_feedback.get("competition"), dict)
+        else {}
+    )
+    expected = max(1, min(4, int(competition.get("max_competing_workers") or 1)))
+    variants: list[dict[str, Any]] = []
+    seen_methods: set[str] = set()
+    forbidden_role_names = {
+        "directevidence",
+        "minimalrisk",
+        "orthogonalmechanism",
+        "diagnosticvalue",
+    }
+    previous_rounds = [
+        item
+        for item in request.loop_feedback.get("previous_rounds") or []
+        if isinstance(item, dict)
+    ]
+    for previous in reversed(previous_rounds):
+        previous_plan = (
+            previous.get("direction_plan")
+            if isinstance(previous.get("direction_plan"), dict)
+            else {}
+        )
+        for index, item in enumerate(previous_plan.get("candidate_variants") or []):
+            if not isinstance(item, dict):
+                continue
+            method_name = str(item.get("method_name") or item.get("title") or "").strip()[:120]
+            method_key = re.sub(r"[^a-z0-9]+", "", method_name.lower())
+            hypothesis = str(item.get("hypothesis") or "").strip()[:1_200]
+            objective = str(item.get("worker_objective") or "").strip()[:1_200]
+            strategy_type = str(item.get("strategy_type") or "").strip()[:120]
+            if (
+                not method_key
+                or method_key in forbidden_role_names
+                or method_key in seen_methods
+                or not hypothesis
+                or not objective
+                or not strategy_type
+            ):
+                continue
+            seen_methods.add(method_key)
+            variants.append(
+                {
+                    "candidate_id": str(item.get("candidate_id") or f"history-method-{index + 1:02d}"),
+                    "title": method_name,
+                    "method_name": method_name,
+                    "hypothesis": hypothesis,
+                    "worker_objective": objective,
+                    "strategy_type": strategy_type,
+                    "change_scope": _strings(item.get("change_scope"), limit=8),
+                    "preserve": [
+                        "Preserve the complete legal incumbent and return it when the method does not improve it."
+                    ],
+                    "avoid": _strings(item.get("avoid"), limit=8),
+                    "activation_contract_version": 0,
+                    "activation_checks": [],
+                }
+            )
+            if len(variants) >= expected:
+                break
+        if len(variants) >= expected:
+            break
+    if len(variants) != expected:
+        raise RuntimeError(
+            "generic ablation planner failed and no complete historical algorithm-method tournament is available"
+        )
+
+    plan = {
+        "schema_version": 1,
+        "direction_id": f"d{request.round_index:03d}",
+        "title": "Continue the last generic algorithm-method tournament after planner infrastructure failure.",
+        "strategy_type": "generic_method_tournament",
+        "hypothesis": "Previously proposed generic methods remain independently falsifiable against the current incumbent.",
+        "worker_objective": "Reapply each prior generic method to the current incumbent with legal fallback.",
+        "diagnosis": "The model planner was unavailable; reuse only its latest valid method proposals.",
+        "experiment_stage": "research_tournament",
+        "method_family": "",
+        "method_families": [],
+        "knowledge_query": [],
+        "knowledge_paths": [],
+        "method_package_id": "",
+        "implementation_bundle": {},
+        "activation_contract_version": 0,
+        "activation_checks": [],
+        "candidate_variants": variants,
+        "preserve": [
+            "Preserve the promoted incumbent parser, representation, decoder, output contract, and legal fallback."
+        ],
+        "avoid": [
+            "Do not load domain Skills, knowledge cards, method packages, candidate operator libraries, or historical scores."
+        ],
+        "acceptance_checks": [
+            "Candidate passes deterministic checks and the fixed evaluator.",
+            "Candidate remains complete and legal under the active contract.",
+            "Candidate is promoted only when it strictly improves the incumbent.",
+        ],
+        "worker_lane_policy": {
+            "schema_version": 1,
+            "mechanism_selection": "generic_method_tournament_history_recovery",
+            "lane_count": expected,
+            "method_names": [item["method_name"] for item in variants],
+        },
+        "planning_contract_status": {
+            "schema_version": 1,
+            "status": "satisfied",
+            "source": "generic_ablation_history_recovery",
+            "maximum_worker_lanes": expected,
+            "planned_worker_lanes": expected,
+            "actual_started_candidates_source": "competition_result.candidates",
+            "activation_mode": "not_applicable",
+            "promotion_policy": "core_and_semantic_gates",
+        },
+        "planner": "generic_ablation_history_fallback",
+        "planning_evidence": {
+            "planning_mode": "generic_guidance_ablation",
+            "recovery_source": "latest_complete_historical_method_tournament",
+            "domain_knowledge_enabled": False,
+            "called_subagents": [],
+        },
+        "completion_rule": "Implement only the recovered generic method while preserving the complete legal incumbent.",
+    }
+    return enforce_improvement_direction_contract(
+        plan,
+        round_index=request.round_index,
+        loop_feedback=request.loop_feedback,
+    )
 
 
 def fallback_research_context(
@@ -454,12 +602,16 @@ def method_family_activation_checks(
         feature_terms.add("maximum_time_lag")
     if "fjsp_alternative_path" in feature_terms:
         feature_terms.update({"alternative_path", "route_choice"})
+    if "fjsp_multiobjective_workload" in feature_terms:
+        feature_terms.add("multiobjective_workload")
     if "maximum_time_lag" in feature_terms:
         checks = [*checks, *_maximum_time_lag_activation_checks(family)]
     if feature_terms.intersection({"alternative_path", "route_choice"}):
         checks = [*checks, *_alternative_path_activation_checks(family)]
     if feature_terms.intersection({"fjsp_pbpm", "batching", "parallel_batch_machine"}):
         checks = [*checks, *_pbpm_activation_checks(family)]
+    if "multiobjective_workload" in feature_terms:
+        checks = [*checks, *_multiobjective_workload_activation_checks(family)]
     return [dict(item) for item in checks]
 
 
@@ -503,6 +655,27 @@ def _maximum_time_lag_activation_checks(method_family: str) -> list[dict[str, An
         ],
     }
     return by_family.get(method_family, [])
+
+
+def _multiobjective_workload_activation_checks(method_family: str) -> list[dict[str, Any]]:
+    if method_family != "coupled_local_search":
+        return []
+    return [
+        {
+            "id": "workload_sequence_moves_evaluated",
+            "path": "diagnostics.activation.coupled_local_search.sequence_moves_evaluated",
+            "operator": "gt",
+            "expected": 0,
+            "required": True,
+        },
+        {
+            "id": "workload_machine_reassign_moves_evaluated",
+            "path": "diagnostics.activation.coupled_local_search.machine_reassign_moves_evaluated",
+            "operator": "gt",
+            "expected": 0,
+            "required": True,
+        },
+    ]
 
 
 def _pbpm_activation_checks(method_family: str) -> list[dict[str, Any]]:
@@ -604,13 +777,32 @@ def ensure_method_family_activation_contract(
     """Merge non-replaceable family/variant proof into a formal lane plan."""
 
     result = dict(plan)
+    if result.get("activation_required") is False:
+        result["activation_checks"] = []
+        result["activation_contract_version"] = 0
+        return result
     inferred_features = _activation_features_for_plan(result, active_features=active_features)
+    family_checks = method_family_activation_checks(
+        result.get("method_family"),
+        active_features=inferred_features,
+    )
+    if not family_checks:
+        result["activation_checks"] = []
+        result["activation_contract_version"] = 0
+        return result
+    implementation_bundle = (
+        result.get("implementation_bundle")
+        if isinstance(result.get("implementation_bundle"), dict)
+        else {}
+    )
+    package_checks = normalize_activation_checks(
+        implementation_bundle.get("activation_checks"),
+        limit=12,
+    )
     checks = [
         *normalize_activation_checks(result.get("activation_checks")),
-        *method_family_activation_checks(
-            result.get("method_family"),
-            active_features=inferred_features,
-        ),
+        *package_checks,
+        *family_checks,
     ]
     checks = list({(item["id"], item["path"]): item for item in checks}.values())[:12]
     result["activation_checks"] = checks
@@ -726,7 +918,11 @@ def fallback_planning_contract_status(
     minimum_variants = 2 if round_index >= 0 and max_workers > 1 else 0
     variants = [item for item in plan.get("candidate_variants") or [] if isinstance(item, dict)]
     issues: list[str] = []
-    if round_index >= 0 and not normalize_activation_checks(plan.get("activation_checks")):
+    if (
+        round_index >= 0
+        and not variants
+        and not normalize_activation_checks(plan.get("activation_checks"))
+    ):
         issues.append("main_activation_checks_missing")
     if len(variants) < minimum_variants:
         issues.append("minimum_candidate_variants_not_met")
@@ -909,18 +1105,14 @@ def configure_structured_worker_lanes(
             else "delegated_to_worker"
         ),
         "lane_count": max_workers,
-        "roles": [
-            "direct_evidence",
-            "minimal_risk",
-            "orthogonal_mechanism",
-            "diagnostic_value",
-        ][:max_workers],
     }
     if not tournament and not family_tournament and not preserve_inherited_experiment:
         plan["candidate_variants"] = []
-    if not preserve_inherited_experiment:
-        plan["activation_checks"] = []
-        plan["activation_contract_version"] = 0
+    plan["worker_lane_policy"]["method_names"] = candidate_method_names(
+        plan,
+        limit=max_workers,
+    )
+    plan = ensure_direction_activation_contracts(plan)
     plan["planning_contract_status"] = {
         "schema_version": 1,
         "status": "satisfied",
@@ -933,6 +1125,28 @@ def configure_structured_worker_lanes(
         "promotion_policy": "core_and_semantic_gates",
     }
     return plan
+
+
+def candidate_method_names(plan: dict[str, Any], *, limit: int = 4) -> list[str]:
+    """Describe worker lanes by their actual algorithm methods, never abstract roles."""
+
+    names: list[str] = []
+    for item in plan.get("candidate_variants") or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(
+            item.get("method_name")
+            or item.get("method_family")
+            or item.get("strategy_type")
+            or item.get("title")
+            or item.get("candidate_id")
+            or ""
+        ).strip()[:160]
+        if name and name not in names:
+            names.append(name)
+        if len(names) >= max(1, min(4, int(limit))):
+            break
+    return names
 
 
 def should_reserve_exact_probe(context: dict[str, Any], *, max_workers: int) -> bool:
@@ -1051,6 +1265,18 @@ def configure_exact_probe_tournament(
         else {}
     )
     active_features = [str(item) for item in active_catalog.get("active_features") or []]
+    active_feature_terms = {item.strip().lower() for item in active_features if item.strip()}
+    multiobjective_workload = bool(
+        active_feature_terms.intersection(
+            {
+                "fjsp_multiobjective_workload",
+                "multiobjective_workload",
+                "max_machine_workload",
+                "total_workload",
+                "workload_balancing_search",
+            }
+        )
+    )
     variant_adapted_families = {"constructive_search", "coupled_local_search", "exact_hybrid"}
     requires_dedicated_variant_package = bool(
         {"maximum_time_lag", "alternative_path", "route_choice"}.intersection(
@@ -1060,11 +1286,12 @@ def configure_exact_probe_tournament(
     ordered = [primary] if not requires_dedicated_variant_package or primary in variant_adapted_families else []
     if reserve_exact:
         ordered.append("exact_hybrid")
+    prioritize_constructive = requires_dedicated_variant_package or multiobjective_workload
     ordered.extend(
         family for family in (
             "coupled_local_search",
-            "constructive_search" if requires_dedicated_variant_package else "population_memetic",
-            "population_memetic" if requires_dedicated_variant_package else "constructive_search",
+            "constructive_search" if prioritize_constructive else "population_memetic",
+            "population_memetic" if prioritize_constructive else "constructive_search",
         )
         if family not in ordered
     )
@@ -1091,7 +1318,13 @@ def configure_exact_probe_tournament(
         if family == primary and not active_features:
             bound = dict(plan)
         else:
-            query = [family, *active_features]
+            high_flexibility_tags = default_direction_knowledge_query(
+                instance_diagnostics=context.get("instance_diagnostics"),
+                method_families=[{"id": family, "role": "primary"}],
+                fallback=[],
+                limit=5,
+            )
+            query = _strings([family, *high_flexibility_tags, *active_features], limit=10)
             catalog = method_package_catalog(
                 problem_family=str(task.get("problem_family") or ""),
                 active_features=active_features,
@@ -1100,9 +1333,21 @@ def configure_exact_probe_tournament(
             package_id = str(catalog.get("recommended_package_id") or "")
             package_context = dict(context)
             package_context["method_package_catalog"] = catalog
+            family_plan = {
+                key: value
+                for key, value in plan.items()
+                if key
+                not in {
+                    "implementation_bundle",
+                    "method_package_selection",
+                    "knowledge_paths",
+                    "checkpoint_checks",
+                    "acceptance_checks",
+                }
+            }
             bound = bind_direction_plan_to_method_catalog(
                 {
-                    **plan,
+                    **family_plan,
                     "method_family": family,
                     "method_families": [{"id": family, "role": "primary"}],
                     "method_package_id": package_id,
@@ -1160,7 +1405,11 @@ def configure_exact_probe_tournament(
                 "Run a population loop with distinct order fingerprints, legal offspring, and replacement."
             ),
             "constructive_search": (
-                "Evaluate multiple structurally distinct complete constructions or beam paths."
+                "Rebuild multiple complete legal schedules with global ready-list operation selection, "
+                "distinct remaining-work and bottleneck/load rules, and earliest feasible gap insertion; "
+                "evaluate every complete schedule by the full lexicographic objective."
+                if multiobjective_workload
+                else "Evaluate multiple structurally distinct complete constructions or beam paths."
             ),
         }.get(family, str(plan.get("worker_objective") or family_hypothesis))
         family_strategy = {
@@ -1238,6 +1487,20 @@ def configure_exact_probe_tournament(
             "activation_checks": activation_checks,
             "activation_contract_version": 1 if activation_checks else 0,
         }
+        if family != primary:
+            # These fields belong to the resolved family package.  Preserve
+            # explicit empties so expansion cannot fall back to the primary
+            # family's implementation contract.
+            for field in (
+                "implementation_bundle",
+                "method_package_selection",
+                "knowledge_paths",
+                "checkpoint_checks",
+                "acceptance_checks",
+            ):
+                variant[field] = bound.get(field) or (
+                    {} if field in {"implementation_bundle", "method_package_selection"} else []
+                )
         for field in (
             "implementation_order",
             "deliverables",
@@ -1525,7 +1788,7 @@ def normalize_activation_checks(value: Any, *, limit: int = 8) -> list[dict[str,
             continue
         path = str(item.get("path") or item.get("telemetry_path") or "").strip()[:300]
         operator = str(item.get("operator") or "exists").strip().lower()
-        if not path or operator not in allowed_operators:
+        if not path or operator not in allowed_operators or not _is_runtime_activation_path(path):
             continue
         result.append(
             {
@@ -1546,6 +1809,14 @@ def normalize_activation_checks(value: Any, *, limit: int = 8) -> list[dict[str,
         if len(result) >= max(1, min(12, limit)):
             break
     return result
+
+
+def _is_runtime_activation_path(path: str) -> bool:
+    """Reject artifact/file references masquerading as runtime telemetry paths."""
+
+    if any(marker in path for marker in ("/", "\\", "#")):
+        return False
+    return all(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", part) for part in path.split("."))
 
 
 def activation_check_schema_errors(
@@ -1626,7 +1897,18 @@ def high_flexibility_query_tags(
     summary = diagnostics.get("summary") if isinstance(diagnostics.get("summary"), dict) else {}
     avg_candidates = float(summary.get("avg_candidate_count", 0.0) or 0.0)
     flexible_ratio = float(summary.get("avg_flexible_operation_ratio", 0.0) or 0.0)
-    if not (avg_candidates >= 3.0 and flexible_ratio >= 0.5):
+    avg_duration_spread_ratio = float(
+        summary.get("avg_duration_spread_ratio", 0.0) or 0.0
+    )
+    max_duration_spread_ratio = float(
+        summary.get("max_duration_spread_ratio", avg_duration_spread_ratio) or 0.0
+    )
+    high_choice_density = avg_candidates >= 3.0 and flexible_ratio >= 0.5
+    near_three_high_coverage = avg_candidates >= 2.75 and flexible_ratio >= 0.8
+    if not (
+        (high_choice_density or near_three_high_coverage)
+        and max(avg_duration_spread_ratio, max_duration_spread_ratio) > 0.0
+    ):
         return []
     preferred = [
         "high_flexibility",
@@ -1636,6 +1918,8 @@ def high_flexibility_query_tags(
         "idle_gap",
     ]
     allowed = {str(item).strip().lower() for item in compatible_tags or [] if str(item).strip()}
+    if compatible_tags is not None and not allowed:
+        return []
     result: list[str] = []
     for tag in preferred:
         if allowed and tag not in allowed:
@@ -1885,6 +2169,14 @@ def bind_direction_plan_to_method_catalog(
                 str(item) for item in implementation_bundle.get("contract_paths") or [] if str(item).strip()
             ]
             plan["implementation_bundle"] = implementation_bundle
+            if plan.get("activation_required") is not False:
+                plan["activation_checks"] = normalize_activation_checks(
+                    [
+                        *(plan.get("activation_checks") or []),
+                        *(implementation_bundle.get("activation_checks") or []),
+                    ],
+                    limit=12,
+                )
             contract_paths = list(dict.fromkeys(contract_paths))
             supplemental_limit = max(0, 12 - len(contract_paths))
             supplemental_paths = (
@@ -2130,6 +2422,10 @@ def method_implementation_bundle(package: dict[str, Any]) -> dict[str, Any]:
         "diagnostics_serialization_rule": str(
             contract.get("diagnostics_serialization_rule") or ""
         )[:1200],
+        "activation_checks": normalize_activation_checks(
+            contract.get("activation_checks"),
+            limit=12,
+        ),
         "fallback_improvement_order": _strings(contract.get("fallback_improvement_order"), limit=32),
         # 完整性契约不能静默截断，否则后面的组件永远不会进入实现和审查。
         "required_components": components,
@@ -2305,6 +2601,8 @@ def _preserve_package_scope_for_tracked_lanes(
 ) -> bool:
     tracks = implementation_bundle.get("competition_tracks")
     if not isinstance(tracks, list) or not tracks:
+        return False
+    if str(implementation_bundle.get("mode") or "") == "incremental_method_package":
         return False
     if not requested_order:
         return True

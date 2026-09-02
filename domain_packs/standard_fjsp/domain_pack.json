@@ -9,9 +9,12 @@
     "fjsp_release_time",
     "fjsp_machine_availability",
     "fjsp_priority",
+    "fjsp_multiobjective_workload",
     "fjsp_reentrant",
+    "fjsp_calendar_reentrant",
     "fjsp_jpc_tst",
     "fjsp_pbpm",
+    "fjsp_cell_sdst_transport_tardiness",
     "reentrant_fjsp"
   ],
   "capability": {
@@ -27,9 +30,12 @@
       "fjsp_release_time",
       "fjsp_machine_availability",
       "fjsp_priority",
+      "fjsp_multiobjective_workload",
       "fjsp_reentrant",
+      "fjsp_calendar_reentrant",
       "fjsp_jpc_tst",
-      "fjsp_pbpm"
+      "fjsp_pbpm",
+      "fjsp_cell_sdst_transport_tardiness"
     ],
     "canonical_objectives": [
       {
@@ -47,6 +53,24 @@
         "name": "runtime_seconds",
         "direction": "minimize",
         "priority": 3,
+        "optional": true
+      },
+      {
+        "name": "max_machine_workload",
+        "direction": "minimize",
+        "priority": 2,
+        "optional": true
+      },
+      {
+        "name": "total_workload",
+        "direction": "minimize",
+        "priority": 3,
+        "optional": true
+      },
+      {
+        "name": "total_tardiness",
+        "direction": "minimize",
+        "priority": 2,
         "optional": true
       }
     ],
@@ -80,6 +104,10 @@
       "job_priority",
       "priority_completion_time",
       "priority_aware_search",
+      "multiobjective_workload",
+      "max_machine_workload",
+      "total_workload",
+      "workload_balancing_search",
       "reentrant_route",
       "loop_expansion",
       "reentrant_aware_search"
@@ -87,10 +115,16 @@
       ,"machine_transport"
       ,"operation_setup"
       ,"multi_feature"
+      ,"fjsp_calendar_reentrant"
       ,"batching"
       ,"parallel_batch_machine"
       ,"batch_capacity"
       ,"incompatible_job_families"
+      ,"fjsp_cell_sdst_transport_tardiness"
+      ,"cell_transport"
+      ,"family_sequence_dependent_setup"
+      ,"due_date"
+      ,"total_tardiness"
     ]
   },
   "agent_generated_baseline": {
@@ -102,8 +136,11 @@
       "harness_agent/core/bounds.py",
       "examples/standard_fjsp_evaluator.py",
       "examples/fjsp_priority_evaluator.py",
+      "examples/fjsp_multiobjective_workload_evaluator.py",
       "examples/fjsp_reentrant_evaluator.py",
+      "examples/fjsp_calendar_reentrant_evaluator.py",
       "examples/fjsp_pbpm_evaluator.py"
+      ,"examples/fjsp_cell_sdst_transport_tardiness_evaluator.py"
       ,"examples/fjsp_alternative_path_evaluator.py"
     ],
     "hidden_reference_paths": []
@@ -442,6 +479,18 @@
       "always_include": true
     },
     {
+      "skill_id": "fjsp-multiobjective-workload-adapter-worker",
+      "title": "工作负荷多目标 FJSP 实现适配器",
+      "description": "为已选方法族提供三目标重算、负荷导向搜索和严格词典序验收合同。",
+      "source_path": ".codex/skills/fjsp-multiobjective-workload-adapter-worker",
+      "method_families": ["constructive_search", "coupled_local_search", "exact_hybrid", "population_memetic"],
+      "activation_tags": ["multiobjective_workload", "max_machine_workload", "total_workload", "workload_balancing_search"],
+      "required_features": ["multiobjective_workload"],
+      "excluded_features": ["sequence_dependent_setup", "minimum_time_lag", "release_time", "machine_availability", "job_priority"],
+      "default_priority": 528,
+      "always_include": true
+    },
+    {
       "skill_id": "fjsp-reentrant-adapter-worker",
       "title": "Re-entrant FJSP 实现适配器",
       "description": "为已选方法族提供严格 loop 尾部解析、完整路线展开和可重入瓶颈搜索合同。",
@@ -451,6 +500,18 @@
       "required_features": ["reentrant_route"],
       "excluded_features": ["sequence_dependent_setup", "minimum_time_lag", "release_time", "machine_availability", "job_priority"],
       "default_priority": 530,
+      "always_include": true
+    },
+    {
+      "skill_id": "fjsp-calendar-reentrant-adapter-worker",
+      "title": "固定日历可重入 FJSP 联合适配器",
+      "description": "联合实现静态释放、机器初始可用、固定停机窗口和确定性连续回路展开。",
+      "source_path": ".codex/skills/fjsp-calendar-reentrant-adapter-worker",
+      "method_families": ["constructive_search", "coupled_local_search", "exact_hybrid", "population_memetic"],
+      "activation_tags": ["fjsp_calendar_reentrant", "release_time", "machine_availability", "reentrant_route", "multi_feature"],
+      "required_features": ["release_time", "machine_availability", "reentrant_route"],
+      "excluded_features": ["sequence_dependent_setup", "minimum_time_lag", "batching"],
+      "default_priority": 620,
       "always_include": true
     },
     {
@@ -475,6 +536,18 @@
       "required_features": ["batching"],
       "excluded_features": ["sequence_dependent_setup", "operation_setup"],
       "default_priority": 610,
+      "always_include": true
+    },
+    {
+      "skill_id": "fjsp-cell-sdst-transport-tardiness-adapter-worker",
+      "title": "单元运输、族准备、回流与拖期联合适配器",
+      "description": "联合实现物理机器副本、单元运输、有向族准备、完整回流路线和总拖期目标。",
+      "source_path": ".codex/skills/fjsp-cell-sdst-transport-tardiness-adapter-worker",
+      "method_families": ["constructive_search", "coupled_local_search", "exact_hybrid", "population_memetic"],
+      "activation_tags": ["fjsp_cell_sdst_transport_tardiness", "cell_transport", "family_sequence_dependent_setup", "reentrant_route", "due_date", "total_tardiness", "multi_feature"],
+      "required_features": ["fjsp_cell_sdst_transport_tardiness"],
+      "excluded_features": ["batching", "machine_availability"],
+      "default_priority": 625,
       "always_include": true
     }
   ],
@@ -745,6 +818,25 @@
       "default_priority": 155
     },
     {
+      "package_id": "fjsp_multiobjective_workload_adaptation",
+      "title": "工作负荷多目标 FJSP 横切适配",
+      "description": "将最大机器负荷和总负荷注入构造、局部搜索、种群和精确混合方法，并保持 makespan-first 三目标词典序验收。",
+      "method_families": ["constructive_search", "coupled_local_search", "exact_hybrid", "population_memetic"],
+      "selection_enabled": true,
+      "activation_tags": ["multiobjective_workload", "max_machine_workload", "total_workload", "workload_balancing_search"],
+      "strategy_types": ["baseline_constructor", "dispatch_rule", "local_search_operator", "path_selection"],
+      "required_features": ["multiobjective_workload"],
+      "excluded_features": ["sequence_dependent_setup", "minimum_time_lag", "release_time", "machine_availability", "job_priority"],
+      "assets": [
+        "knowledge/references/multiobjective/workload_objectives_and_search.md"
+      ],
+      "semantic_assets": [
+        "knowledge/references/multiobjective/workload_objectives_and_search.md"
+      ],
+      "implementation_contract_asset": "knowledge/method_packages/fjsp_multiobjective_workload_adaptation/implementation_contract.json",
+      "default_priority": 160
+    },
+    {
       "package_id": "fjsp_reentrant_adaptation",
       "title": "Re-entrant FJSP 横切适配",
       "description": "将严格 loop 展开、expanded identity、完整解码和重复访问瓶颈压力注入已选方法族。",
@@ -764,6 +856,28 @@
       ],
       "implementation_contract_asset": "knowledge/method_packages/fjsp_reentrant_adaptation/implementation_contract.json",
       "default_priority": 160
+    },
+    {
+      "package_id": "fjsp_calendar_reentrant_adaptation",
+      "title": "固定日历可重入 FJSP 联合适配",
+      "description": "以论文中的 GRASP、模拟退火和独立重启为主线，联合处理静态释放、机器日历和确定性回路展开。",
+      "method_families": ["constructive_search", "coupled_local_search", "exact_hybrid", "population_memetic"],
+      "selection_enabled": true,
+      "activation_tags": ["fjsp_calendar_reentrant", "release_time", "machine_initial_availability", "machine_availability", "machine_calendar", "reentrant_route", "loop_expansion", "multi_feature"],
+      "strategy_types": ["baseline_constructor", "dispatch_rule", "local_search_operator", "path_selection"],
+      "required_features": ["release_time", "machine_availability", "reentrant_route"],
+      "excluded_features": ["sequence_dependent_setup", "minimum_time_lag", "batching"],
+      "assets": [
+        "knowledge/references/multi_feature/calendar_reentrant_semantics_and_search.md",
+        "knowledge/references/release_time/release_time_semantics_and_decoder.md",
+        "knowledge/references/machine_availability/machine_availability_semantics_and_decoder.md",
+        "knowledge/references/reentrant/reentrant_semantics_and_expansion.md"
+      ],
+      "semantic_assets": [
+        "knowledge/references/multi_feature/calendar_reentrant_semantics_and_search.md"
+      ],
+      "implementation_contract_asset": "knowledge/method_packages/fjsp_calendar_reentrant_adaptation/implementation_contract.json",
+      "default_priority": 195
     },
     {
       "package_id": "fjsp_jpc_tst_adaptation",
@@ -803,6 +917,25 @@
       ],
       "implementation_contract_asset": "knowledge/method_packages/fjsp_pbpm_adaptation/implementation_contract.json",
       "default_priority": 190
+    },
+    {
+      "package_id": "fjsp_cell_sdst_transport_tardiness_adaptation",
+      "title": "单元运输、族准备、回流与拖期联合适配",
+      "description": "以公开 FJCS-SDFSTs-ITTs 语义联合处理物理机器副本、cell 运输、family setup、回流路线和双目标。",
+      "method_families": ["constructive_search", "coupled_local_search", "exact_hybrid", "population_memetic"],
+      "selection_enabled": true,
+      "activation_tags": ["fjsp_cell_sdst_transport_tardiness", "cell_transport", "family_sequence_dependent_setup", "reentrant_route", "due_date", "total_tardiness", "multi_feature", "constructive_search", "coupled_local_search", "exact_hybrid", "population_memetic", "cp_sat"],
+      "strategy_types": ["baseline_constructor", "dispatch_rule", "local_search_operator", "path_selection"],
+      "required_features": ["fjsp_cell_sdst_transport_tardiness"],
+      "excluded_features": ["batching", "machine_availability"],
+      "assets": [
+        "knowledge/references/multi_feature/cell_sdst_transport_tardiness_semantics_and_search.md"
+      ],
+      "semantic_assets": [
+        "knowledge/references/multi_feature/cell_sdst_transport_tardiness_semantics_and_search.md"
+      ],
+      "implementation_contract_asset": "knowledge/method_packages/fjsp_cell_sdst_transport_tardiness_adaptation/implementation_contract.json",
+      "default_priority": 198
     },
     {
       "package_id": "fjsp_sdst_awls_adaptation",
@@ -923,6 +1056,10 @@
         "job_priority": "软工件优先级集合及其不改变可行域的语义。",
         "priority_completion_time": "优先工件最大完工时间，作为 makespan 之后的词典序次目标。",
         "priority_aware_search": "在构造、邻域、群体或精确搜索中显式施加优先工件搜索压力。",
+        "multiobjective_workload": "同时评价 makespan、最大机器负荷和总加工负荷的标准 FJSP 目标变体。",
+        "max_machine_workload": "分配到单台机器的加工时长之和的最大值。",
+        "total_workload": "所有工序被选候选加工时长之和。",
+        "workload_balancing_search": "联合机器顺序与换机重插，在保护 makespan 时改善负荷目标。",
         "batching": "把同一批次视为一个机器活动，并让批内成员共享起止时间。",
         "parallel_batch_machine": "容量大于一且允许同族工序共享加工区间的并行组批机器。",
         "batch_capacity": "每个批次允许包含的最大工件数。",
@@ -1119,6 +1256,18 @@
       "priority_aware_search": [
         "knowledge/references/priority/priority_search_adaptation.md"
       ],
+      "multiobjective_workload": [
+        "knowledge/references/multiobjective/workload_objectives_and_search.md"
+      ],
+      "max_machine_workload": [
+        "knowledge/references/multiobjective/workload_objectives_and_search.md"
+      ],
+      "total_workload": [
+        "knowledge/references/multiobjective/workload_objectives_and_search.md"
+      ],
+      "workload_balancing_search": [
+        "knowledge/references/multiobjective/workload_objectives_and_search.md"
+      ],
       "reentrant_route": [
         "knowledge/references/reentrant/reentrant_semantics_and_expansion.md",
         "knowledge/references/reentrant/reentrant_search_adaptation.md"
@@ -1128,6 +1277,13 @@
       ],
       "reentrant_aware_search": [
         "knowledge/references/reentrant/reentrant_search_adaptation.md"
+      ],
+      "fjsp_calendar_reentrant": [
+        "knowledge/references/multi_feature/calendar_reentrant_semantics_and_search.md"
+      ],
+      "multi_feature": [
+        "knowledge/references/multi_feature/calendar_reentrant_semantics_and_search.md",
+        "knowledge/references/multi_feature/jpc_tst_semantics_and_search.md"
       ],
       "release_time": [
         "knowledge/references/release_time/release_time_semantics_and_decoder.md",

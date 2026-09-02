@@ -1,0 +1,248 @@
+{
+  "format": "fjsp_cell_sdst_transport_tardiness_instance_v1",
+  "source": {
+    "dataset_doi": "10.17632/rtzby7pv7m.1",
+    "data_article_doi": "10.1016/j.dib.2023.109946",
+    "method_article_doi": "10.1016/j.asoc.2021.107890",
+    "original_file": "Small/Ins.#7.csv"
+  },
+  "active_features": [
+    "cell_transport",
+    "family_sequence_dependent_setup",
+    "reentrant_route",
+    "due_date",
+    "total_tardiness"
+  ],
+  "objective_order": [
+    "makespan",
+    "total_tardiness"
+  ],
+  "name": "Deliktas-FJCS-Ins07",
+  "machine_count": 8,
+  "cell_count": 2,
+  "family_count": 2,
+  "machine_cell_ids": [
+    0,
+    0,
+    0,
+    0,
+    1,
+    1,
+    1,
+    1
+  ],
+  "logical_machine_ids": [
+    0,
+    1,
+    1,
+    4,
+    2,
+    3,
+    3,
+    5
+  ],
+  "cell_transport_times": [
+    [
+      0,
+      3
+    ],
+    [
+      4,
+      0
+    ]
+  ],
+  "family_setup_times": [
+    [
+      0,
+      3
+    ],
+    [
+      4,
+      0
+    ]
+  ],
+  "jobs": [
+    {
+      "source_job_id": 7,
+      "family_id": 0,
+      "due_date": 5,
+      "operations": [
+        [
+          [
+            5,
+            5
+          ],
+          [
+            6,
+            5
+          ]
+        ],
+        [
+          [
+            0,
+            6
+          ]
+        ],
+        [
+          [
+            3,
+            5
+          ]
+        ]
+      ]
+    },
+    {
+      "source_job_id": 8,
+      "family_id": 0,
+      "due_date": 110,
+      "operations": [
+        [
+          [
+            0,
+            3
+          ]
+        ],
+        [
+          [
+            1,
+            9
+          ],
+          [
+            2,
+            9
+          ]
+        ],
+        [
+          [
+            3,
+            4
+          ]
+        ]
+      ]
+    },
+    {
+      "source_job_id": 9,
+      "family_id": 0,
+      "due_date": 50,
+      "operations": [
+        [
+          [
+            1,
+            5
+          ],
+          [
+            2,
+            5
+          ]
+        ],
+        [
+          [
+            0,
+            4
+          ]
+        ],
+        [
+          [
+            1,
+            5
+          ],
+          [
+            2,
+            5
+          ]
+        ]
+      ]
+    },
+    {
+      "source_job_id": 10,
+      "family_id": 1,
+      "due_date": 8,
+      "operations": [
+        [
+          [
+            4,
+            9
+          ]
+        ],
+        [
+          [
+            1,
+            7
+          ],
+          [
+            2,
+            7
+          ]
+        ],
+        [
+          [
+            5,
+            3
+          ],
+          [
+            6,
+            3
+          ]
+        ]
+      ]
+    },
+    {
+      "source_job_id": 11,
+      "family_id": 1,
+      "due_date": 53,
+      "operations": [
+        [
+          [
+            7,
+            3
+          ]
+        ],
+        [
+          [
+            4,
+            5
+          ]
+        ],
+        [
+          [
+            7,
+            3
+          ]
+        ]
+      ]
+    },
+    {
+      "source_job_id": 12,
+      "family_id": 1,
+      "due_date": 21,
+      "operations": [
+        [
+          [
+            5,
+            4
+          ],
+          [
+            6,
+            4
+          ]
+        ],
+        [
+          [
+            7,
+            5
+          ]
+        ],
+        [
+          [
+            5,
+            4
+          ],
+          [
+            6,
+            4
+          ]
+        ]
+      ]
+    }
+  ]
+}

@@ -136,6 +136,23 @@ def method_package_catalog(
     }
 
 
+def method_package_query_tags(
+    *,
+    knowledge_query: Any,
+    method_family: str,
+    active_features: Any = None,
+) -> list[str]:
+    """Build the canonical package query used from planning through assignment."""
+
+    tags: list[str] = []
+    for value in [*(knowledge_query or []), method_family, *(active_features or [])]:
+        tag = str(value or "").strip()
+        if not tag or tag == "__direction_selection_pending__" or tag in tags:
+            continue
+        tags.append(tag)
+    return tags
+
+
 def method_family_catalog(
     *,
     problem_family: str,

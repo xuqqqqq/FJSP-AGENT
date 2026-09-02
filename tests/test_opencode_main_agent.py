@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from harness_agent.agents.main import DirectionPlanRequest
+from harness_agent.agents.main import DirectionPlanRequest, normalize_activation_checks
 from harness_agent.agents.main import RoundReflectionRequest, deterministic_round_reflection
 from harness_agent.agents.opencode_main import (
     OPENCODE_MAIN_AGENT,
@@ -33,6 +33,7 @@ from harness_agent.agents.opencode_main import (
 )
 from harness_agent.context.packet import ContextPacketRequest, write_context_packet
 from harness_agent.context.planning_packet import finalize_planning_packet, planning_packet_text
+from harness_agent.orchestration.loop import competitive_direction_plans
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,20 +51,147 @@ class OpenCodeMainAgentTests(unittest.TestCase):
             },
         }
 
+    def test_none_guidance_uses_generic_multilane_planning_without_retrieval_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = tmp_path / "context.json"
+            context_path.write_text(
+                json.dumps({"guidance_ablation": {"mode": "none"}}),
+                encoding="utf-8",
+            )
+            executable = tmp_path / "opencode.exe"
+            executable.write_text("placeholder", encoding="utf-8")
+            agent = OpenCodeMainAgent(
+                executable=str(executable),
+                project_root=ROOT,
+                planning_mode="research",
+            )
+            request = DirectionPlanRequest(
+                round_index=0,
+                context_packet_path=context_path,
+                loop_feedback={},
+                output_dir=tmp_path / "main",
+            )
+            generic_plan = {"planner": "generic_ablation_main_agent"}
+
+            with patch.object(agent, "_plan_direction_none", return_value=generic_plan) as generic:
+                result = agent.plan_direction(request)
+
+            self.assertEqual(generic_plan, result)
+            generic.assert_called_once_with(request)
+            runtime = agent._runtime_config(
+                attachment_paths=[context_path],
+                allowed_skills=[],
+                attachments_only=True,
+            )
+            permissions = runtime["agent"][OPENCODE_MAIN_AGENT]["permission"]
+            self.assertEqual("deny", permissions["read"]["*"])
+            self.assertEqual({"*": "deny"}, permissions["skill"])
+            self.assertEqual({"*": "deny"}, permissions["task"])
+
+    def test_none_generic_plan_delegates_requested_lanes_without_domain_guidance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = tmp_path / "context.json"
+            context_path.write_text(json.dumps({"guidance_ablation": {"mode": "none"}}), encoding="utf-8")
+            executable = tmp_path / "opencode.exe"
+            executable.write_text("placeholder", encoding="utf-8")
+            agent = OpenCodeMainAgent(executable=str(executable), project_root=ROOT)
+            request = DirectionPlanRequest(
+                round_index=0,
+                context_packet_path=context_path,
+                loop_feedback={"competition": {"max_competing_workers": 3}},
+                output_dir=tmp_path / "main",
+            )
+            methods = [
+                {
+                    "candidate_id": "greedy",
+                    "method_name": "Greedy construction",
+                    "hypothesis": "Build a better initial schedule.",
+                    "worker_objective": "Implement a greedy constructor with incumbent fallback.",
+                    "strategy_type": "constructive",
+                    "change_scope": ["solver"],
+                    "preserve": ["IO"],
+                    "avoid": ["evaluator edits"],
+                },
+                {
+                    "candidate_id": "local",
+                    "method_name": "Local improvement",
+                    "hypothesis": "Improve the incumbent by bounded moves.",
+                    "worker_objective": "Implement local improvement with incumbent fallback.",
+                    "strategy_type": "local_search",
+                    "change_scope": ["solver"],
+                    "preserve": ["IO"],
+                    "avoid": ["evaluator edits"],
+                },
+                {
+                    "candidate_id": "exact",
+                    "method_name": "Mathematical optimization",
+                    "hypothesis": "Use a bounded mathematical model.",
+                    "worker_objective": "Implement a bounded optimization model with incumbent fallback.",
+                    "strategy_type": "mathematical_optimization",
+                    "change_scope": ["solver"],
+                    "preserve": ["IO"],
+                    "avoid": ["evaluator edits"],
+                },
+            ]
+            stdout = json.dumps(
+                {
+                    "type": "text",
+                    "text": json.dumps({"direction_plan": {"candidate_variants": methods}}),
+                }
+            )
+
+            with patch.object(
+                agent,
+                "_run_once",
+                return_value={"stdout": stdout, "stderr": "", "returncode": 0, "timed_out": False},
+            ):
+                plan = agent._plan_direction_none(request)
+
+            self.assertEqual("generic_ablation_main_agent", plan["planner"])
+            self.assertEqual("generic_method_tournament", plan["worker_lane_policy"]["mechanism_selection"])
+            self.assertEqual(3, plan["worker_lane_policy"]["lane_count"])
+            self.assertEqual(
+                ["Greedy construction", "Local improvement", "Mathematical optimization"],
+                [item["method_name"] for item in plan["candidate_variants"]],
+            )
+            self.assertEqual([], plan["activation_checks"])
+            self.assertEqual("", plan["method_package_id"])
+            lanes = competitive_direction_plans(plan, limit=3)
+            self.assertEqual(3, len(lanes))
+            self.assertEqual(
+                ["Greedy construction", "Local improvement", "Mathematical optimization"],
+                [item["candidate_variant"]["method_name"] for item in lanes],
+            )
+
     def test_fallback_tournament_binds_variant_packages_after_pending_catalog(self) -> None:
         cases = (
             (
                 ["fjsp_max_time_lag", "maximum_time_lag", "time_lag"],
                 "fjsp_max_time_lag_coupled_local_search",
                 "fjsp_max_time_lag_exact_hybrid",
+                "",
             ),
             (
                 ["fjsp_alternative_path", "alternative_path", "route_choice"],
                 "fjsp_alternative_path_coupled_local_search",
                 "fjsp_alternative_path_exact_hybrid",
+                "",
+            ),
+            (
+                [
+                    "fjsp_multiobjective_workload",
+                    "multiobjective_workload",
+                    "max_machine_workload",
+                    "total_workload",
+                ],
+                "fjsp_multiobjective_workload_adaptation",
+                "fjsp_multiobjective_workload_adaptation",
+                "fjsp_multiobjective_workload_adaptation",
             ),
         )
-        for features, local_package, exact_package in cases:
+        for features, local_package, exact_package, population_package in cases:
             with self.subTest(features=features):
                 plan = {
                     "direction_id": "d000",
@@ -102,7 +230,7 @@ class OpenCodeMainAgentTests(unittest.TestCase):
                 self.assertEqual(exact_package, variants["exact"]["method_package_id"])
                 self.assertTrue(variants["local"]["implementation_bundle"]["required_components"])
                 self.assertTrue(variants["exact"]["deliverables"])
-                self.assertEqual("", variants["population"]["method_package_id"])
+                self.assertEqual(population_package, variants["population"]["method_package_id"])
                 self.assertTrue(variants["local"]["activation_checks"])
                 self.assertTrue(variants["exact"]["activation_checks"])
                 self.assertTrue(variants["population"]["activation_checks"])
@@ -110,7 +238,7 @@ class OpenCodeMainAgentTests(unittest.TestCase):
                     all(item["activation_contract_version"] == 1 for item in variants.values())
                 )
                 self.assertEqual(
-                    "no_compatible_package",
+                    "catalog_recommendation" if population_package else "no_compatible_package",
                     variants["population"]["method_package_selection"]["selection_source"],
                 )
 
@@ -211,6 +339,34 @@ class OpenCodeMainAgentTests(unittest.TestCase):
                 "family_hypothesis_tournament",
                 tournament["worker_lane_policy"]["mechanism_selection"],
             )
+            self.assertEqual(0, tournament["activation_contract_version"])
+            self.assertEqual([], tournament["activation_checks"])
+            self.assertTrue(
+                all(
+                    item.get("activation_contract_version") == 1
+                    and item.get("activation_checks")
+                    for item in tournament["candidate_variants"]
+                )
+            )
+
+    def test_activation_checks_reject_artifact_file_paths(self) -> None:
+        checks = normalize_activation_checks(
+            [
+                {
+                    "id": "invalid_file_evidence",
+                    "path": "examples/baseline_activation_telemetry.json",
+                    "operator": "exists",
+                },
+                {
+                    "id": "runtime_evidence",
+                    "path": "diagnostics.activation.coupled_local_search.moves_evaluated",
+                    "operator": "gt",
+                    "expected": 0,
+                },
+            ]
+        )
+
+        self.assertEqual(["runtime_evidence"], [item["id"] for item in checks])
 
     def test_method_package_query_tags_include_selected_family_after_fast_fallback(self) -> None:
         self.assertEqual(
@@ -325,6 +481,25 @@ class OpenCodeMainAgentTests(unittest.TestCase):
         self.assertLessEqual(len(rendered), 48_000)
         self.assertEqual(protected_state, packet["research_state"])
         self.assertTrue(packet["packet_budget"]["degradation_steps"])
+
+    def test_planning_packet_drops_unprotected_root_sections_at_hard_limit(self) -> None:
+        protected_state = {"evidence": "p" * 45_000}
+
+        packet = finalize_planning_packet(
+            {
+                "planning_stage": "implementation_planning",
+                "research_state": protected_state,
+                "unbounded_optional_blob": "x" * 10_000,
+                "packet_completeness": {
+                    "protected_complete": True,
+                    "protected_sections": ["/research_state"],
+                },
+            }
+        )
+
+        self.assertEqual(protected_state, packet["research_state"])
+        self.assertNotIn("unbounded_optional_blob", packet)
+        self.assertLessEqual(len(planning_packet_text(packet)), 48_000)
 
     def test_research_state_reselects_after_repeated_activation_inconclusive_rounds(self) -> None:
         rounds = [
@@ -697,8 +872,8 @@ class OpenCodeMainAgentTests(unittest.TestCase):
                 "exact_hybrid",
                 [item["method_family"] for item in plan["candidate_variants"]],
             )
-            self.assertEqual([], plan["activation_checks"])
-            self.assertEqual(0, plan["activation_contract_version"])
+            self.assertTrue(plan["activation_checks"])
+            self.assertEqual(1, plan["activation_contract_version"])
             self.assertEqual(
                 "exact_probe_tournament",
                 plan["worker_lane_policy"]["mechanism_selection"],
@@ -957,7 +1132,8 @@ class OpenCodeMainAgentTests(unittest.TestCase):
                 "exact_hybrid",
                 [item["method_family"] for item in plan["candidate_variants"]],
             )
-            self.assertEqual([], plan["activation_checks"])
+            self.assertTrue(plan["activation_checks"])
+            self.assertEqual(1, plan["activation_contract_version"])
             self.assertEqual("standard_fjsp_awls_hgtsa", plan["method_package_id"])
             self.assertEqual(
                 "catalog_recommendation",
@@ -1731,6 +1907,21 @@ class OpenCodeMainAgentTests(unittest.TestCase):
             [item["path"] for item in normalized["normalization_repairs"]],
         )
 
+    def test_implementation_packet_restores_missing_io_digest_after_history_compaction(self) -> None:
+        with patch(
+            "harness_agent.context.planning_packet.build_planning_packet",
+            return_value={"packet_completeness": {"protected_sections": []}},
+        ):
+            packet = build_implementation_planning_packet(
+                context={},
+                loop_feedback={},
+                round_index=2,
+                direction_selection={"method_family": "coupled_local_search"},
+            )
+
+        self.assertIn("io_digest", packet)
+        self.assertIn("quality_contract", packet["io_digest"])
+
     def test_direction_selection_prefers_high_flexibility_query_for_matching_profile(self) -> None:
         normalized = normalize_direction_selection(
             {
@@ -2236,6 +2427,15 @@ class OpenCodeMainAgentTests(unittest.TestCase):
             self.assertIn("最多调用一次", prompt_arg)
             self.assertIn("requirements-method-analyst", prompt_arg)
             self.assertEqual(2, popen.call_count)
+            main_env = popen.call_args_list[0].kwargs["env"]
+            self.assertEqual(
+                str((tmp_path / "main" / ".opencode_runtime" / "data").resolve()),
+                main_env["XDG_DATA_HOME"],
+            )
+            self.assertEqual(
+                str((tmp_path / "main" / ".opencode_runtime" / "state").resolve()),
+                main_env["XDG_STATE_HOME"],
+            )
             runtime = json.loads(popen.call_args_list[0].kwargs["env"]["OPENCODE_CONFIG_CONTENT"])
             self.assertEqual(
                 {
@@ -2506,7 +2706,7 @@ class OpenCodeMainAgentTests(unittest.TestCase):
                         "required_activation_checks": [
                             {
                                 "id": "cp_hits",
-                                "path": "solution.json#/diagnostics/search_counters/critical_path_hits",
+                                "path": "diagnostics.search_counters.critical_path_hits",
                                 "operator": "gt",
                                 "expected": 0,
                                 "description": "证明关键路径机制被真正执行。",
@@ -2537,7 +2737,7 @@ class OpenCodeMainAgentTests(unittest.TestCase):
                     "activation_checks": [
                         {
                             "id": "cp_hits",
-                            "path": "solution.json#/diagnostics/search_counters/critical_path_hits",
+                            "path": "diagnostics.search_counters.critical_path_hits",
                             "operator": "gt",
                             "expected": 0,
                         }

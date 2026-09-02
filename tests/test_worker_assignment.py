@@ -174,6 +174,56 @@ class WorkerAssignmentTests(unittest.TestCase):
             assignment.runtime_contract["diagnostics_json_contract"]["forbidden_runtime_objects"],
         )
 
+    def test_cell_adaptation_package_resolves_from_real_lane_queries(self) -> None:
+        features = [
+            "fjsp_cell_sdst_transport_tardiness",
+            "cell_transport",
+            "family_sequence_dependent_setup",
+            "reentrant_route",
+            "due_date",
+            "total_tardiness",
+            "multi_feature",
+        ]
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "evaluator_protocol": {"solver_command_template": "python solver.py --input {instance}"},
+            "edit_policy": {"allowed_paths": ["solver.py"], "forbidden_paths": ["outputs"]},
+            "method_package_catalog": {"active_features": features, "packages": []},
+        }
+        lane_queries = {
+            "coupled_local_search": [
+                "assignment_aware_local_search",
+                "machine_reassignment",
+                "critical_path",
+                "local_search",
+            ],
+            "population_memetic": ["population", "genetic", "memetic", "diversity"],
+        }
+
+        for family, query in lane_queries.items():
+            with self.subTest(family=family):
+                assignment = build_worker_assignment(
+                    context=context,
+                    direction_plan={
+                        "direction_id": f"cell-{family}",
+                        "method_family": family,
+                        "method_families": [{"id": family, "role": "primary"}],
+                        "method_package_id": "fjsp_cell_sdst_transport_tardiness_adaptation",
+                        "knowledge_query": query,
+                        "hypothesis": "Exercise the selected cell scheduling method family.",
+                    },
+                    loop_feedback={},
+                    round_index=0,
+                    attempt_index=0,
+                    max_steps=4,
+                    max_runtime_seconds=600,
+                )
+
+                self.assertEqual(
+                    "fjsp_cell_sdst_transport_tardiness_adaptation",
+                    assignment.method_package["package_id"],
+                )
+
     def test_unresolvable_requested_package_fails_closed(self) -> None:
         with self.assertRaisesRegex(ValueError, "requested method package is not resolvable"):
             build_worker_assignment(
@@ -807,6 +857,50 @@ class WorkerAssignmentTests(unittest.TestCase):
         read_paths = [item["path"] for item in assignment.read_set]
         self.assertTrue(any(path.endswith("cp_sat_hybrid_blueprint.md") for path in read_paths))
 
+    def test_none_guidance_assignment_omits_skills_method_package_and_knowledge_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "context.json",
+                    guidance_mode="none",
+                    docs=[
+                        ROOT / "examples" / "standard_fjsp_requirement.md",
+                        ROOT / "examples" / "standard_fjsp_io.md",
+                    ],
+                )
+            )
+            context = load_context_dict(context_path)
+
+            assignment = build_worker_assignment(
+                context=context,
+                direction_plan={
+                    "direction_id": "d000-none",
+                    "method_family": "exact_hybrid",
+                    "method_families": [{"id": "exact_hybrid", "role": "primary"}],
+                    "method_package_id": "standard_fjsp_awls_hgtsa",
+                    "knowledge_query": ["cp_sat", "adaptive_weight"],
+                    "hypothesis": "Run one bounded exact-hybrid probe without project guidance.",
+                    "change_scope": ["Implement one bounded improvement inside the solver target."],
+                },
+                loop_feedback={},
+                round_index=0,
+                attempt_index=0,
+                max_steps=4,
+                max_runtime_seconds=120,
+            )
+
+        self.assertEqual([], assignment.implementation_skills)
+        self.assertEqual("", assignment.method_package["package_id"])
+        self.assertEqual([], assignment.method_package["contract_paths"])
+        read_paths = [item["path"] for item in assignment.read_set]
+        self.assertIn(".algoforge_worker_inputs/manifest.json", read_paths)
+        self.assertIn(".algoforge_worker_inputs/instances/000_tiny.fjs", read_paths)
+        self.assertTrue(any(path.startswith(".algoforge_worker_inputs/docs/") for path in read_paths))
+        self.assertFalse(any("knowledge/" in path for path in read_paths))
+        self.assertFalse(any(".opencode/skills/" in path for path in read_paths))
+
     def test_baseline_assignment_is_bounded_and_names_only_selected_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -1169,6 +1263,50 @@ class WorkerAssignmentTests(unittest.TestCase):
         self.assertFalse(
             any(item["role"] == "requirement_or_io_contract" for item in assignment.read_set)
         )
+
+    def test_exact_probe_tournament_uses_focused_worker_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "context.json",
+                    docs=[
+                        ROOT / "examples" / "standard_fjsp_requirement.md",
+                        ROOT / "examples" / "standard_fjsp_io.md",
+                    ],
+                )
+            )
+            context = load_context_dict(context_path)
+            assignment = build_worker_assignment(
+                context=context,
+                direction_plan={
+                    "direction_id": "d000-tournament-constructive",
+                    "method_family": "constructive_search",
+                    "method_families": [{"id": "constructive_search", "role": "primary"}],
+                    "knowledge_query": ["constructive_search", "idle_gap"],
+                    "hypothesis": "Probe multiple complete ready-list constructions.",
+                    "change_scope": ["Preserve the legal incumbent and add one bounded construction probe."],
+                    "worker_lane_policy": {
+                        "mechanism_selection": "exact_probe_tournament",
+                        "lane_count": 3,
+                    },
+                },
+                loop_feedback={},
+                round_index=0,
+                attempt_index=0,
+                max_steps=4,
+                max_runtime_seconds=300,
+            )
+
+        skill_ids = [item["skill_id"] for item in assignment.implementation_skills]
+        self.assertIn("fjsp-constructive-search-worker", skill_ids)
+        self.assertNotIn("fjsp-solver-foundation-worker", skill_ids)
+        self.assertNotIn("fjsp-experiment-design-worker", skill_ids)
+        self.assertFalse(
+            any(item["role"] == "requirement_or_io_contract" for item in assignment.read_set)
+        )
+        self.assertLessEqual(len(assignment.read_set), 7)
 
     def test_agent_generated_high_flex_baseline_stages_scope_skills_and_materials(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -11,6 +11,7 @@ from harness_agent.agents.semantic import (
     AlgorithmSemanticReviewRequest,
     DeepSeekAlgorithmSemanticReviewer,
     EvidenceOnlySemanticReviewer,
+    OpenCodeAlgorithmSemanticReviewer,
     load_review_knowledge,
     load_review_sources,
     normalize_semantic_review,
@@ -20,6 +21,57 @@ from harness_agent.agents.semantic import (
 
 
 class SemanticReviewTests(unittest.TestCase):
+    def test_opencode_semantic_reviewer_normalizes_attached_json_response(self) -> None:
+        request = AlgorithmSemanticReviewRequest(
+            round_index=0,
+            attempt_index=0,
+            context_packet_path=Path("context.json"),
+            worktree_path=Path("worktree"),
+            changed_files=["solver.py"],
+            direction_plan={},
+            candidate_summary={},
+            output_dir=Path("review"),
+        )
+        reviewer = OpenCodeAlgorithmSemanticReviewer(
+            model="opencode/test",
+            project_root=Path.cwd(),
+        )
+        event = json.dumps(
+            {"type": "text", "part": {"type": "text", "text": '{"summary":"ok","findings":[]}'}},
+        )
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "harness_agent.agents.semantic.load_context_dict", return_value={}
+        ), patch(
+            "harness_agent.agents.semantic.load_review_sources",
+            return_value={"solver.py": "def solve(): return 1\n"},
+        ), patch(
+            "harness_agent.agents.semantic.load_review_knowledge",
+            return_value={"contract.md": "Return a result."},
+        ), patch(
+            "harness_agent.agents.opencode_main.OpenCodeMainAgent._run_once",
+            return_value={
+                "stdout": event,
+                "stderr": "",
+                "returncode": "0",
+                "timed_out": False,
+                "stalled": False,
+            },
+        ):
+            result = reviewer.review(
+                AlgorithmSemanticReviewRequest(
+                    **{
+                        **request.__dict__,
+                        "context_packet_path": Path(tmp) / "context.json",
+                        "worktree_path": Path(tmp) / "worktree",
+                        "output_dir": Path(tmp) / "review",
+                    }
+                )
+            )
+
+        self.assertEqual("pass", result.status)
+        self.assertTrue(result.accepted)
+        self.assertEqual("opencode_algorithm_semantic_reviewer", result.reviewer)
     def test_complete_package_review_excludes_reference_implementation_asset(self) -> None:
         root = Path(__file__).resolve().parents[1]
         contract = root / "knowledge" / "method_packages" / "standard_fjsp_awls_hgtsa" / "implementation_contract.json"
@@ -66,7 +118,7 @@ class SemanticReviewTests(unittest.TestCase):
 
     def test_semantic_primary_prompt_numbers_source_once(self) -> None:
         prompt = semantic_review_prompt(
-            direction_plan={},
+            direction_plan={"direction_id": "d0", "unrelated_large_field": "DROP_ME"},
             candidate_summary={},
             sources={"solver.py": "def solve():\n    return 1\n"},
             knowledge={"contract.md": "The solver must return a result."},
@@ -74,11 +126,31 @@ class SemanticReviewTests(unittest.TestCase):
 
         self.assertIn("1: def solve():", prompt)
         self.assertIn("2:     return 1", prompt)
-        self.assertLess(prompt.index("Knowledge contracts"), prompt.index("Direction plan"))
         self.assertLess(
-            prompt.index("Knowledge contracts"),
-            prompt.index("Candidate source with authoritative"),
+            prompt.index("\nCandidate source with authoritative"),
+            prompt.index("\nDirection semantic contract"),
         )
+        self.assertLess(
+            prompt.index("\nDirection semantic contract"),
+            prompt.index("\nKnowledge contracts (stable across same-direction repairs)"),
+        )
+        self.assertNotIn("DROP_ME", prompt)
+
+    def test_semantic_prompt_limits_baseline_blockers_to_signed_deliverables(self) -> None:
+        prompt = semantic_review_prompt(
+            direction_plan={
+                "review_scope": {
+                    "phase": "agent_generated_baseline_foundation",
+                    "blocking_deliverables": [{"id": "legal_baseline"}],
+                }
+            },
+            candidate_summary={},
+            sources={"solver.py": "def solve():\n    return []\n"},
+            knowledge={"contract.md": "Return one complete legal baseline."},
+        )
+
+        self.assertIn("blocking_deliverables are the complete", prompt)
+        self.assertIn("must not block a Core-valid foundation baseline", prompt)
 
     def test_verified_source_and_exact_knowledge_quote_can_block(self) -> None:
         result = normalize_semantic_review(
@@ -354,6 +426,72 @@ class SemanticReviewTests(unittest.TestCase):
         self.assertEqual(130, result.usage["prompt_tokens"])
         self.assertIn("json_retry_response", result.artifacts)
         self.assertIn("usage", result.artifacts)
+
+    def test_two_truncated_reviews_conservatively_block_complete_method(self) -> None:
+        reviewer = DeepSeekAlgorithmSemanticReviewer()
+        client = Mock()
+        client.chat_with_usage.side_effect = [
+            DeepSeekChatResult(
+                content='{"summary":"truncated',
+                usage={"prompt_tokens": 100, "completion_tokens": 10},
+            ),
+            DeepSeekChatResult(
+                content='{"summary":"still truncated',
+                usage={"prompt_tokens": 20, "completion_tokens": 5},
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            request = AlgorithmSemanticReviewRequest(
+                round_index=0,
+                attempt_index=0,
+                context_packet_path=root / "context.json",
+                worktree_path=root,
+                changed_files=["solver.py"],
+                direction_plan={
+                    "implementation_bundle": {
+                        "required_components": [
+                            {
+                                "component_id": "decoder",
+                                "required_behaviors": ["Decode every operation."],
+                            }
+                        ],
+                        "coupled_groups": [
+                            {
+                                "group_id": "decode_search",
+                                "component_ids": ["decoder"],
+                                "rule": "Search must use the complete decoder.",
+                            }
+                        ],
+                    }
+                },
+                candidate_summary={},
+                output_dir=root / "review",
+            )
+            with (
+                patch("harness_agent.agents.semantic.is_deepseek_configured", return_value=True),
+                patch("harness_agent.agents.semantic.load_context_dict", return_value={}),
+                patch(
+                    "harness_agent.agents.semantic.load_review_sources",
+                    return_value={"solver.py": "def solve():\n    return []\n"},
+                ),
+                patch(
+                    "harness_agent.agents.semantic.load_review_knowledge",
+                    return_value={"contract.md": "Decode every operation."},
+                ),
+                patch(
+                    "harness_agent.agents.semantic.DeepSeekClient.from_env",
+                    return_value=client,
+                ),
+            ):
+                result = reviewer.review(request)
+
+        self.assertEqual("repair_required", result.status)
+        self.assertFalse(result.accepted)
+        self.assertFalse(result.coverage_complete)
+        self.assertEqual("missing", result.component_coverage[0]["status"])
+        self.assertEqual(2, client.chat_with_usage.call_count)
+        self.assertIn("json_recovery", result.artifacts)
 
     def test_missing_or_partial_component_coverage_blocks_without_findings(self) -> None:
         result = normalize_semantic_review(

@@ -95,6 +95,8 @@ Adapter Skill **不自行选择方法族**。Main 选择 constructive、coupled 
 | Distributed Transfer | 2 | `fjsp-distributed-transfer-adapter-worker` | 1 | Constructive / Coupled / Population / Exact |
 | Priority | 2 | `fjsp-priority-adapter-worker` | 1 | 四方法族横切适配 |
 | Reentrant | 2 | `fjsp-reentrant-adapter-worker` | 1 | 四方法族横切适配 |
+| 固定日历 + 可重入 | 1 | `fjsp-calendar-reentrant-adapter-worker` | 1 | Constructive / Coupled / Population / Exact |
+| 工作负荷多目标 | 1 | `fjsp-multiobjective-workload-adapter-worker` | 1 | Constructive / Coupled / Population / Exact |
 
 ## 4. 各变种具体写了什么
 
@@ -419,6 +421,53 @@ Skill：[`fjsp-priority-adapter-worker`](../.codex/skills/fjsp-priority-adapter-
 Skill：[`fjsp-reentrant-adapter-worker`](../.codex/skills/fjsp-reentrant-adapter-worker/SKILL.md)  
 方法合同：[`fjsp_reentrant_adaptation`](../knowledge/method_packages/fjsp_reentrant_adaptation/implementation_contract.json)
 
+### 4.10 固定日历可重入多特性 FJSP
+
+**兼容子集**
+
+- 同时启用 job release、machine initial availability、固定 downtime 和确定性连续回路展开；
+- 目标仍为单一 makespan；
+- 依据 Tamssaouet 等（2022）复杂 FJSP 的联合时序与 GRASP/SA/独立重启方法；
+- recipe SDST、recipe-dependent lag 和 size/recipe-capacity batching 与当前单特性定义不一致，v1 明确排除。
+
+**知识与 Skill**
+
+- 严格 JSON `fjsp_calendar_reentrant_instance_v1` 防止同名特性漂移；
+- 搜索前完整展开回路，所有构造和 move 使用 expanded identity；
+- 日历感知 earliest-gap 同时满足 release、机器初始可用和不可抢占停机窗口；
+- 非 CP 主线为 GRASP 多起点、耦合局部搜索/模拟退火和独立重启；CP 只作小规模验证或局部修复。
+
+- 知识卡：[`calendar_reentrant_semantics_and_search.md`](../knowledge/references/multi_feature/calendar_reentrant_semantics_and_search.md)
+- Skill：[`fjsp-calendar-reentrant-adapter-worker`](../.codex/skills/fjsp-calendar-reentrant-adapter-worker/SKILL.md)
+- 方法合同：[`fjsp_calendar_reentrant_adaptation`](../knowledge/method_packages/fjsp_calendar_reentrant_adaptation/implementation_contract.json)
+
+### 4.11 工作负荷多目标 FJSP
+
+**目标语义**
+
+- 固定词典序目标为 `(makespan, max_machine_workload, total_workload)`；
+- `max_machine_workload` 是单台机器所选加工时长之和的最大值；
+- `total_workload` 是全部工序所选加工时长之和，不包含等待、空闲和隐式换型；
+- Fixed Evaluator 逐工序重算两个 workload 指标，不接受求解器自报值替代真值。
+
+**知识与 Skill**
+
+- 依据 Kacem、Hammadi、Borne（2002）的多目标 FJSP 定义，明确区分 Pareto 优化与本平台词典序验收口径；
+- 构造搜索使用完工时间、最大负荷压力和总加工负荷的分层 tie-break；
+- 耦合局部搜索同时包含关键路径顺序 move、最大负荷机器移出和降总加工时长的换机 move；
+- 群体/模因搜索保持分配与顺序双层编码，并按三目标保留精英与多样性；
+- exact/hybrid 可使用安全权重、分阶段求解或局部 trust-region CP，但不得把 CP 作为所有 lane 的唯一机制。
+
+自建 DeepSeek V4 Flash 在 Brandimarte Mk01 的一次正式三 lane 测试中：baseline 为 `(40,36,176)`，耦合局搜做到 `(40,36,172)`，真实 CP-SAT lane 做到并晋升 `(40,36,167)`。这证明非 CP 搜索能够改善第三目标，但当前最好结果仍来自 exact lane，后续需要加强 workload 定向邻域。
+
+修复正式 fallback 方法包路由后，第二次真实任务 `20260824_151624_270c1d88` 的三条 lane 均绑定 workload 方法包，规划合同为 `satisfied`。该次 baseline 为 `(50,44,199)`，exact lane 经修复后得到 `(40,36,167)`；构造和耦合局搜分别因 `serialize()` 参数遗漏与关键图反向传播 `KeyError` 在 smoke 阶段失败。该运行进一步暴露并促成两项框架修复：repair assignment 不得清空方法包语义覆盖，Fast Main 下运行时失败的非 exact lane 也应获得一次有界修复机会。
+
+- 知识卡：[`workload_objectives_and_search.md`](../knowledge/references/multiobjective/workload_objectives_and_search.md)
+- Skill：[`fjsp-multiobjective-workload-adapter-worker`](../.codex/skills/fjsp-multiobjective-workload-adapter-worker/SKILL.md)
+- 方法合同：[`fjsp_multiobjective_workload_adaptation`](../knowledge/method_packages/fjsp_multiobjective_workload_adaptation/implementation_contract.json)
+- 固定 evaluator：[`fjsp_multiobjective_workload_evaluator.py`](../examples/fjsp_multiobjective_workload_evaluator.py)
+- 回归测试：[`test_fjsp_multiobjective_workload.py`](../tests/test_fjsp_multiobjective_workload.py)
+
 ## 5. Agent 如何识别并加载新变种
 
 当前识别和加载链路如下：
@@ -515,6 +564,7 @@ Skill：[`fjsp-reentrant-adapter-worker`](../.codex/skills/fjsp-reentrant-adapte
 - [`test_fjsp_machine_availability.py`](../tests/test_fjsp_machine_availability.py)
 - [`test_fjsp_priority.py`](../tests/test_fjsp_priority.py)
 - [`test_fjsp_reentrant.py`](../tests/test_fjsp_reentrant.py)
+- [`test_fjsp_calendar_reentrant.py`](../tests/test_fjsp_calendar_reentrant.py)
 - [`test_variant_integration.py`](../tests/test_variant_integration.py)
 
 ## 9. 一句话总结

@@ -22,6 +22,7 @@ from harness_agent.orchestration.loop import (
     agent_generated_baseline_is_accepted,
     agent_generated_baseline_memory_payload,
     activation_contract_required,
+    baseline_semantic_direction_plan,
     candidate_incumbent_payload,
     candidate_worker_budgets,
     competitive_direction_plans,
@@ -39,6 +40,7 @@ from harness_agent.orchestration.loop import (
     load_worker_loop_result,
     lane_development_state_for_incumbent,
     local_trial_candidate_eligible,
+    loop_feedback_payload,
     round_attempt_payload,
     normalize_user_intervention,
     plan_agent_generated_baseline_direction,
@@ -57,6 +59,7 @@ from harness_agent.orchestration.loop import (
     update_lane_development_states,
     worker_proposal_diagnostics,
     worker_session_telemetry,
+    write_baseline_generation_context_packet,
 )
 from harness_agent.core.models import ObjectiveSpec, TaskContract
 from harness_agent.orchestration.standard import (
@@ -624,6 +627,70 @@ class SameDirectionRefinementWorker:
             summary=summary,
             artifacts={"proposal": str(proposal_path), "session_id": "ses_refinement"},
         )
+
+
+class FastRuntimeRepairWorker:
+    """Session worker that repairs a first-checkpoint runtime failure."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def capabilities(self) -> WorkerCapabilities:
+        return WorkerCapabilities(
+            name="fast-runtime-repair",
+            supports_code_generation=True,
+            supports_repair=True,
+            supports_structured_output=True,
+            supports_session_reuse=True,
+        )
+
+    def run_experiment(self, spec) -> WorkerResult:  # noqa: ANN001
+        self.calls += 1
+        solver_path = Path(spec.worktree_path) / "examples" / "dummy_solver.py"
+        text = solver_path.read_text(encoding="utf-8")
+        marker = "    raise RuntimeError('fast runtime repair probe')\n"
+        if self.calls == 1:
+            text = text.replace("    args = parser.parse_args()\n", "    args = parser.parse_args()\n" + marker)
+        else:
+            text = text.replace(marker, "")
+        solver_path.write_text(text, encoding="utf-8")
+        return WorkerResult(
+            status="applied",
+            changed_files=["examples/dummy_solver.py"],
+            summary="Break then repair the runtime path.",
+            artifacts={
+                "session_id": "ses_fast_repair",
+                "requested_session_id": spec.session_id,
+                "command_session_id": spec.session_id,
+                "observed_session_id": "ses_fast_repair",
+                "event_stream_bytes": 100,
+            },
+        )
+
+
+class NoActivationPlanner:
+    """Minimal planner for tests whose subject is not mechanism activation."""
+
+    def plan_direction(self, request):  # noqa: ANN001
+        return {
+            "schema_version": 1,
+            "direction_id": f"no-activation-{request.round_index}",
+            "title": "Test-only objective probe",
+            "method_family": "constructive_search",
+            "method_families": [{"id": "constructive_search", "role": "primary"}],
+            "strategy_type": "dispatch_rule",
+            "hypothesis": "Exercise the test's objective behavior without an activation gate.",
+            "worker_objective": "Apply the bounded test mutation.",
+            "change_scope": ["test fixture solver"],
+            "activation_required": False,
+            "activation_checks": [],
+            "activation_contract_version": 0,
+            "candidate_variants": [],
+            "worker_lane_policy": {
+                "mechanism_selection": "delegated_to_worker",
+                "lane_count": 1,
+            },
+        }
 
 
 class PromotingProposalWorker:
@@ -1415,6 +1482,52 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertEqual(-1, request.round_index)
         self.assertEqual("agent_generated_baseline", request.loop_feedback["round_type"])
 
+    def test_baseline_semantic_review_uses_signed_foundation_assignment_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            context_path = Path(tmp) / "context.json"
+            context_path.write_text(
+                json.dumps(
+                    {
+                        "hypothesis": "Earlier Main plan requested coupled local search.",
+                        "active_method_package": {
+                            "package_id": "overscoped_optimizer",
+                            "implementation_contract": {
+                                "mode": "complete_method_package",
+                                "required_components": [{"component_id": "local_search"}],
+                            },
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            assignment = SimpleNamespace(
+                method_package={},
+                deliverables=[
+                    {
+                        "id": "simple_legal_constructor",
+                        "behavior": "Build one complete legal baseline.",
+                        "evidence_required": "Core accepts every operation.",
+                    }
+                ],
+                completion_rule="Core validates one complete legal baseline.",
+            )
+
+            plan = baseline_semantic_direction_plan(
+                context_path,
+                worker_assignment=assignment,
+            )
+
+        self.assertNotIn("implementation_bundle", plan)
+        self.assertIsNone(plan["method_package_id"])
+        self.assertEqual(
+            "agent_generated_baseline_foundation",
+            plan["review_scope"]["phase"],
+        )
+        self.assertEqual(
+            ["simple_legal_constructor"],
+            [item["id"] for item in plan["review_scope"]["blocking_deliverables"]],
+        )
+
     def test_variant_agent_generated_baseline_rebinds_successful_main_plan_to_constructive_package(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -1688,6 +1801,51 @@ class WorkerLoopTests(unittest.TestCase):
             scoped["semantic_review_scope"]["assigned_components"],
         )
 
+    def test_semantic_review_repair_overlay_preserves_complete_package_components(self) -> None:
+        direction = {
+            "implementation_bundle": {
+                "mode": "complete_method_package",
+                "required_components": [
+                    {"component_id": "objective_recomputation"},
+                    {"component_id": "workload_search"},
+                ],
+                "coupled_groups": [
+                    {
+                        "group_id": "closed_loop",
+                        "component_ids": ["objective_recomputation", "workload_search"],
+                    }
+                ],
+            }
+        }
+        assignment = {
+            "assignment_id": "repair-002",
+            "implementation_order": [
+                "repair_exact_execution_not_exercised",
+                "repair_method_mechanism_activation",
+            ],
+            "deliverables": [],
+            "completion_rule": "Repair the failed runtime checks.",
+        }
+
+        scoped = semantic_review_direction_plan(direction, worker_assignment=assignment)
+
+        self.assertEqual(
+            "complete_method_package_with_repair_overlay",
+            scoped["implementation_bundle"]["mode"],
+        )
+        self.assertEqual(
+            ["objective_recomputation", "workload_search"],
+            [
+                item["component_id"]
+                for item in scoped["implementation_bundle"]["required_components"]
+            ],
+        )
+        self.assertEqual(1, len(scoped["implementation_bundle"]["coupled_groups"]))
+        self.assertEqual(
+            "full_method_package_with_repair_overlay",
+            scoped["semantic_review_scope"]["mode"],
+        )
+
     def test_session_reuse_requires_command_observation_and_nonempty_stream(self) -> None:
         requested = "ses_direction_123"
 
@@ -1788,7 +1946,7 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertEqual("packet budget failure", plan["planner_fallback"]["reason"])
         self.assertEqual(plan["planner_fallback"], stored["planner_fallback"])
 
-    def test_wrapper_planner_fallback_builds_family_tournament_but_marks_activation_degraded(self) -> None:
+    def test_wrapper_planner_fallback_builds_activated_family_tournament(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             plan = plan_direction_with_fallback(
@@ -1802,14 +1960,73 @@ class WorkerLoopTests(unittest.TestCase):
             )
 
         contract_status = plan["planning_contract_status"]
-        self.assertEqual("degraded", contract_status["status"])
+        self.assertEqual("satisfied", contract_status["status"])
         self.assertEqual(2, contract_status["minimum_candidate_variants"])
         self.assertEqual(3, contract_status["actual_candidate_variants"])
         self.assertNotIn("minimum_candidate_variants_not_met", contract_status["issues"])
-        self.assertIn("main_activation_checks_missing", contract_status["issues"])
-        self.assertEqual(0, plan["activation_contract_version"])
-        self.assertEqual("legacy_compatibility", contract_status["activation_mode"])
+        self.assertNotIn("main_activation_checks_missing", contract_status["issues"])
+        self.assertNotIn("candidate_activation_checks_missing", contract_status["issues"])
+        self.assertEqual(1, plan["activation_contract_version"])
+        self.assertEqual("declared_contract", contract_status["activation_mode"])
         self.assertEqual(3, len(plan["candidate_variants"]))
+        self.assertTrue(
+            all(
+                item.get("activation_contract_version") == 1
+                and item.get("activation_checks")
+                for item in plan["candidate_variants"]
+            )
+        )
+
+    def test_none_wrapper_planner_fallback_reuses_only_historical_method_lanes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = tmp_path / "context.json"
+            context_path.write_text(
+                json.dumps({"guidance_ablation": {"mode": "none"}}),
+                encoding="utf-8",
+            )
+            method_names = [
+                "multi_start_dispatch",
+                "bounded_local_search",
+                "elite_restart_search",
+            ]
+            variants = [
+                {
+                    "candidate_id": f"method-{index}",
+                    "title": method_name,
+                    "method_name": method_name,
+                    "hypothesis": f"Test {method_name} against the incumbent.",
+                    "worker_objective": f"Implement {method_name} with legal incumbent fallback.",
+                    "strategy_type": "generic_search_method",
+                    "change_scope": ["one bounded method"],
+                }
+                for index, method_name in enumerate(method_names, start=1)
+            ]
+
+            plan = plan_direction_with_fallback(
+                planner=SimpleNamespace(
+                    plan_direction=MagicMock(side_effect=RuntimeError("provider unavailable"))
+                ),
+                round_index=2,
+                context_packet_path=context_path,
+                loop_feedback={
+                    "competition": {"max_competing_workers": 3},
+                    "previous_rounds": [
+                        {"round_index": 1, "direction_plan": {"candidate_variants": variants}}
+                    ],
+                },
+                output_dir=tmp_path / "main",
+            )
+
+        self.assertEqual(method_names, [item["method_name"] for item in plan["candidate_variants"]])
+        self.assertNotIn("roles", plan["worker_lane_policy"])
+        self.assertFalse(
+            {"direct_evidence", "minimal_risk", "orthogonal_mechanism"}.intersection(
+                plan["worker_lane_policy"]["method_names"]
+            )
+        )
+        self.assertEqual("generic_ablation_history_fallback", plan["planner"])
+        self.assertEqual("provider unavailable", plan["planner_fallback"]["reason"])
 
     def test_user_revision_preserves_unspecified_candidates_activation_and_family(self) -> None:
         original = {
@@ -2081,13 +2298,18 @@ class WorkerLoopTests(unittest.TestCase):
                 baseline_generation={"status": "ok", "source": "agent_generated"},
             )
             contract = TaskContract.load(ROOT / "configs" / "standard_fjsp_tiny.example.json")
+            context_packet = tmp_path / "context.json"
+            context_packet.write_text(
+                json.dumps({"guidance_ablation": {"mode": "full"}}),
+                encoding="utf-8",
+            )
 
             with patch("harness_agent.orchestration.loop.run_agent_generated_baseline") as generate_baseline:
                 result = run_worker_loop(
                     contract=contract,
                     project_root=ROOT,
                     output_dir=tmp_path / "worker_loop",
-                    context_packet_path=tmp_path / "context.json",
+                    context_packet_path=context_packet,
                     worker=NullWorker(),
                     experiment_id="resume-test",
                     iterations=0,
@@ -2411,6 +2633,130 @@ class WorkerLoopTests(unittest.TestCase):
             [item["resolved_path"] for item in activation["checks"]],
         )
 
+    def test_mechanism_activation_resolves_evaluator_wrapped_solver_diagnostics(self) -> None:
+        summary = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="candidate",
+            best_metrics={"makespan": 28},
+            activation_evidence=[
+                {
+                    "experiment_id": "candidate",
+                    "diagnostics": {
+                        "solver_evidence": {
+                            "diagnostics": {
+                                "cp_sat_called": True,
+                                "solver_status": "OPTIMAL",
+                            }
+                        }
+                    },
+                }
+            ],
+        )
+        activation = evaluate_mechanism_activation(
+            {
+                "activation_checks": [
+                    {
+                        "id": "exact_cp_sat_called",
+                        "path": "diagnostics.cp_sat_called",
+                        "operator": "truthy",
+                        "expected": True,
+                    }
+                ]
+            },
+            summary,
+        )
+
+        self.assertTrue(activation["passed"])
+        self.assertEqual(
+            "diagnostics.solver_evidence.diagnostics.cp_sat_called",
+            activation["checks"][0]["resolved_path"],
+        )
+
+    def test_mechanism_activation_resolves_legacy_constructive_counter(self) -> None:
+        summary = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="candidate",
+            best_metrics={"makespan": 28},
+            activation_evidence=[
+                {
+                    "experiment_id": "candidate",
+                    "best_metrics": {
+                        "solver_evidence": {
+                            "diagnostics": {"constructive_candidates_evaluated": 11}
+                        }
+                    },
+                }
+            ],
+        )
+
+        activation = evaluate_mechanism_activation(
+            {
+                "activation_checks": [
+                    {
+                        "id": "constructive_candidates_evaluated",
+                        "path": "diagnostics.activation.constructive_search.candidates_evaluated",
+                        "operator": "gt",
+                        "expected": 1,
+                    }
+                ]
+            },
+            summary,
+        )
+
+        self.assertTrue(activation["passed"])
+        self.assertEqual(
+            "best_metrics.solver_evidence.diagnostics.constructive_candidates_evaluated",
+            activation["checks"][0]["resolved_path"],
+        )
+
+    def test_mechanism_activation_resolves_direct_solver_evidence_wrapper(self) -> None:
+        summary = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="candidate",
+            best_metrics={"makespan": 31},
+            activation_evidence=[
+                {
+                    "experiment_id": "candidate",
+                    "best_metrics": {
+                        "solver_evidence": {
+                            "diagnostics": {
+                                "solver_evidence": {
+                                    "cp_sat_called": True,
+                                    "solver_status": "OPTIMAL",
+                                }
+                            }
+                        }
+                    },
+                }
+            ],
+        )
+
+        activation = evaluate_mechanism_activation(
+            {
+                "activation_checks": [
+                    {
+                        "id": "exact_cp_sat_called",
+                        "path": "diagnostics.cp_sat_called",
+                        "operator": "truthy",
+                        "expected": True,
+                    }
+                ]
+            },
+            summary,
+        )
+
+        self.assertTrue(activation["passed"])
+        self.assertEqual(
+            "best_metrics.solver_evidence.diagnostics.solver_evidence.cp_sat_called",
+            activation["checks"][0]["resolved_path"],
+        )
+
     def test_mechanism_activation_aggregates_across_seed_evidence(self) -> None:
         summary = RunSummary(
             total=2,
@@ -2545,7 +2891,7 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertEqual("beam", probe["method_family"])
         self.assertEqual("beam-package", probe["method_package_id"])
         self.assertEqual("probe", probe["experiment_stage"])
-        self.assertEqual(1, len(probe["activation_checks"]))
+        self.assertEqual(0, len(probe["activation_checks"]))
 
         tournament = dict(base)
         tournament["experiment_stage"] = "research_tournament"
@@ -2721,6 +3067,57 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertFalse(activation["passed"])
         self.assertEqual(1, activation["required_failure_count"])
 
+    def test_sdst_operator_activation_rejects_generic_local_search_telemetry(self) -> None:
+        direction = {
+            "activation_checks": [
+                *method_family_activation_checks("coupled_local_search"),
+                {
+                    "id": "sdst_tight_critical_machine_arcs",
+                    "path": "diagnostics.activation.coupled_local_search.tight_critical_machine_arcs",
+                    "operator": "gt",
+                    "expected": 0,
+                    "required": True,
+                },
+                {
+                    "id": "sdst_nonadjacent_reinsert_moves_evaluated",
+                    "path": "diagnostics.activation.coupled_local_search.nonadjacent_reinsert_moves_evaluated",
+                    "operator": "gt",
+                    "expected": 0,
+                    "required": True,
+                },
+                {
+                    "id": "sdst_max_reinsert_span",
+                    "path": "diagnostics.activation.coupled_local_search.max_reinsert_span",
+                    "operator": "gt",
+                    "expected": 1,
+                    "required": True,
+                },
+            ]
+        }
+        summary = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="candidate",
+            best_metrics={
+                "solver_evidence": {
+                    "diagnostics": {
+                        "activation": {
+                            "coupled_local_search": {
+                                "moves_evaluated": 563,
+                                "blocks_found": 20,
+                            }
+                        }
+                    }
+                }
+            },
+        )
+
+        activation = evaluate_mechanism_activation(direction, summary)
+
+        self.assertFalse(activation["passed"])
+        self.assertEqual(3, activation["required_failure_count"])
+
     def test_research_tournament_compiles_each_family_to_one_package_stage(self) -> None:
         packages = {
             family: json.loads(
@@ -2802,6 +3199,103 @@ class WorkerLoopTests(unittest.TestCase):
             {check["check_id"] for check in local_search["checkpoint_checks"]},
         )
 
+    def test_family_tournament_empty_package_clears_primary_package_contract(self) -> None:
+        base = {
+            "direction_id": "standard-family-tournament",
+            "method_family": "coupled_local_search",
+            "method_package_id": "standard_fjsp_awls_hgtsa",
+            "implementation_bundle": {"contract_id": "standard_fjsp_awls_hgtsa"},
+            "candidate_variants": [
+                {
+                    "candidate_id": "local-search",
+                    "method_family": "coupled_local_search",
+                    "method_package_id": "standard_fjsp_awls_hgtsa",
+                },
+                {
+                    "candidate_id": "memetic",
+                    "method_family": "population_memetic",
+                    "method_package_id": "",
+                    "implementation_bundle": {},
+                },
+            ],
+            "worker_lane_policy": {
+                "mechanism_selection": "family_hypothesis_tournament",
+                "lane_count": 2,
+            },
+        }
+
+        expanded = competitive_direction_plans(base, limit=2)
+
+        self.assertEqual("standard_fjsp_awls_hgtsa", expanded[0]["method_package_id"])
+        self.assertEqual("", expanded[1]["method_package_id"])
+        self.assertEqual({}, expanded[1]["implementation_bundle"])
+
+    def test_single_lane_research_tournament_keeps_first_bound_variant(self) -> None:
+        contract = json.loads(
+            (
+                ROOT
+                / "knowledge"
+                / "method_packages"
+                / "fjsp_sdst_awls_adaptation"
+                / "implementation_contract.json"
+            ).read_text(encoding="utf-8")
+        )
+        variant = {
+            "candidate_id": "family-00-coupled_local_search",
+            "method_family": "coupled_local_search",
+            "method_families": [{"id": "coupled_local_search", "role": "primary"}],
+            "method_package_id": "fjsp_sdst_awls_adaptation",
+            "implementation_bundle": contract,
+            "activation_checks": [
+                {
+                    "id": "coverage_only",
+                    "path": "coverage",
+                    "operator": "eq",
+                    "expected": 100,
+                    "required": True,
+                }
+            ],
+        }
+        base = {
+            "direction_id": "sdst-family-tournament",
+            "experiment_stage": "research_tournament",
+            "method_family": "coupled_local_search",
+            "method_families": [
+                {"id": "coupled_local_search", "role": "primary"},
+                {"id": "exact_hybrid", "role": "complementary"},
+            ],
+            "method_package_id": "",
+            "candidate_variants": [variant],
+            "worker_lane_policy": {
+                "mechanism_selection": "family_hypothesis_tournament",
+                "lane_count": 1,
+            },
+        }
+
+        expanded = competitive_direction_plans(base, limit=1)
+
+        self.assertEqual(1, len(expanded))
+        plan = expanded[0]
+        self.assertEqual("coupled_local_search", plan["method_family"])
+        self.assertEqual("fjsp_sdst_awls_adaptation", plan["method_package_id"])
+        self.assertEqual(variant, plan["candidate_variant"])
+        self.assertEqual([], plan["candidate_variants"])
+        self.assertEqual(
+            {
+                "coverage_only",
+                "coupled_moves_evaluated",
+                "sdst_tight_critical_machine_arcs",
+                "sdst_critical_blocks_found",
+                "sdst_nonadjacent_reinsert_moves_evaluated",
+                "sdst_max_reinsert_span",
+                "sdst_machine_reassign_moves_evaluated",
+                "sdst_nonadjacent_reinsert_moves_feasible",
+                "sdst_machine_reassign_moves_feasible",
+                "sdst_output_incumbent_consumed",
+            },
+            {item["id"] for item in plan["activation_checks"]},
+        )
+
     def test_delegated_worker_lane_policy_expands_generic_parallel_lanes(self) -> None:
         base = {
             "direction_id": "d000",
@@ -2865,11 +3359,25 @@ class WorkerLoopTests(unittest.TestCase):
         expanded = competitive_direction_plans(base, limit=3)
         bundles = [tuple(item["implementation_order"]) for item in expanded]
 
+        self.assertEqual(
+            [
+                "critical_block_reinsertion",
+                "machine_load_sequence_repair",
+                "bounded_insertion_vnd",
+            ],
+            [item["candidate_variant"]["method_name"] for item in expanded],
+        )
+        self.assertFalse(
+            {"direct_evidence", "minimal_risk", "orthogonal_mechanism"}.intersection(
+                item["candidate_variant"]["method_name"] for item in expanded
+            )
+        )
+
         self.assertEqual(3, len(set(bundles)))
-        self.assertIn("alternative_machine_neighborhood", bundles[0])
-        self.assertNotIn("same_machine_neighborhood", bundles[0])
-        self.assertIn("same_machine_neighborhood", bundles[1])
-        self.assertNotIn("alternative_machine_neighborhood", bundles[1])
+        self.assertIn("same_machine_neighborhood", bundles[0])
+        self.assertNotIn("alternative_machine_neighborhood", bundles[0])
+        self.assertIn("alternative_machine_neighborhood", bundles[1])
+        self.assertNotIn("same_machine_neighborhood", bundles[1])
         self.assertIn("same_machine_neighborhood", bundles[2])
         self.assertIn("alternative_machine_neighborhood", bundles[2])
         self.assertTrue(all("progress_decoder" in bundle for bundle in bundles))
@@ -2903,8 +3411,8 @@ class WorkerLoopTests(unittest.TestCase):
         next_bundles = [tuple(item["implementation_order"]) for item in next_stage]
         self.assertEqual(3, len(set(next_bundles)))
         self.assertTrue(all(item["worker_lane"]["stage"] == 1 for item in next_stage))
-        self.assertIn("tabu_and_aspiration", next_bundles[0])
-        self.assertIn("alternative_machine_neighborhood", next_bundles[1])
+        self.assertIn("alternative_machine_neighborhood", next_bundles[0])
+        self.assertIn("same_machine_neighborhood", next_bundles[1])
         self.assertIn("tabu_and_aspiration", next_bundles[2])
 
         completed_states = {
@@ -3631,6 +4139,16 @@ class WorkerLoopTests(unittest.TestCase):
         compacted = compact_round_direction_plan(
             {
                 "direction_id": "d000",
+                "candidate_variants": [
+                    {
+                        "candidate_id": "beam",
+                        "title": "Beam search",
+                        "method_name": "bounded_beam_search",
+                        "hypothesis": "A bounded beam can improve the incumbent.",
+                        "worker_objective": "Implement a bounded beam with legal fallback.",
+                        "strategy_type": "generic_search_method",
+                    }
+                ],
                 "competition_result": {
                     "candidates": [
                         {
@@ -3645,6 +4163,10 @@ class WorkerLoopTests(unittest.TestCase):
         semantic = compacted["competition_result"]["candidates"][0]["semantic_review"]
         self.assertEqual("pass", semantic["status"])
         self.assertTrue(semantic["accepted"])
+        self.assertEqual(
+            "bounded_beam_search",
+            compacted["candidate_variants"][0]["method_name"],
+        )
 
     def test_compacted_exact_tournament_keeps_lane_package_and_deliverable_on_continue(self) -> None:
         original = {
@@ -3714,7 +4236,14 @@ class WorkerLoopTests(unittest.TestCase):
                     best_experiment_id=candidate_id,
                     best_metrics={
                         "makespan": makespan,
-                        "solver_evidence": {"diagnostics": {"telemetry": {"variant_ran": 1}}},
+                        "solver_evidence": {
+                            "diagnostics": {
+                                "telemetry": {"variant_ran": 1},
+                                "activation": {
+                                    "coupled_local_search": {"moves_evaluated": 1}
+                                },
+                            }
+                        },
                     },
                     best_candidate_id=candidate_id,
                     best_candidate_metrics={"avg_makespan": makespan},
@@ -3749,6 +4278,7 @@ class WorkerLoopTests(unittest.TestCase):
             direction_plan = {
                 "direction_id": "d000",
                 "target_file": "examples/solver.py",
+                "method_family": "coupled_local_search",
                 "activation_checks": [
                     {
                         "id": "variant_ran",
@@ -4002,7 +4532,7 @@ class WorkerLoopTests(unittest.TestCase):
                     "diagnostics": {
                         "exact_probe": {
                             "cp_sat_called": True,
-                            "solver_status": "OPTIMAL",
+                            "status_name": "OPTIMAL",
                             "model_variables": 331,
                             "model_constraints": 452,
                             "interval_count": 115,
@@ -4013,7 +4543,7 @@ class WorkerLoopTests(unittest.TestCase):
                 }
             },
         )
-        estimated_intervals_only = RunSummary(
+        zero_or_unreported_intervals = RunSummary(
             total=1,
             valid=1,
             failed=0,
@@ -4083,11 +4613,12 @@ class WorkerLoopTests(unittest.TestCase):
             alias_result["observed_model_sizes"],
         )
         estimated_result = evaluate_exact_solver_execution(
-            {"method_family": "exact_hybrid"}, estimated_intervals_only
+            {"method_family": "exact_hybrid"}, zero_or_unreported_intervals
         )
-        self.assertFalse(estimated_result["passed"])
-        self.assertEqual(
-            "exact_hybrid_model_size_not_observed", estimated_result["reason"]
+        self.assertTrue(estimated_result["passed"])
+        self.assertIn(
+            {"variables": 331, "constraints": 452, "intervals": 0},
+            estimated_result["observed_model_sizes"],
         )
         rejected = evaluate_exact_solver_execution(
             {"method_family": "exact_hybrid"}, runtime_error
@@ -4158,7 +4689,15 @@ class WorkerLoopTests(unittest.TestCase):
                     best_metrics={
                         "makespan": makespan,
                         "solver_evidence": {
-                            "diagnostics": {"cp_sat_available": False, "cp_sat_called": False}
+                            "diagnostics": {
+                                "cp_sat_available": False,
+                                "cp_sat_called": False,
+                                "activation": {
+                                    "coupled_local_search": {
+                                        "moves_evaluated": 1 if not is_exact else 0
+                                    }
+                                },
+                            }
                         },
                     },
                     best_candidate_id=candidate_id,
@@ -4748,6 +5287,11 @@ class WorkerLoopTests(unittest.TestCase):
         required_evidence = feedback["repair_targets"]["mechanism_activation_failure"]["required_evidence"]
         self.assertIn("real CLI entrypoint", required_evidence)
         self.assertIn("final solution.json", required_evidence)
+        self.assertIn(
+            "diagnostics.activation.coupled_local_search.moves_evaluated",
+            required_evidence,
+        )
+        self.assertIn("exact declared path", required_evidence)
 
     def test_round_gate_continue_skips_revision_call_and_keeps_active_direction(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -5270,6 +5814,66 @@ class WorkerLoopTests(unittest.TestCase):
             all(state.session_id == "ses_refinement" for state in restored.lane_development_states.values())
         )
 
+    def test_fast_planning_repairs_runtime_invalid_non_exact_lane_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+            context_path = _write_test_context(tmp_path)
+            worker = FastRuntimeRepairWorker()
+
+            class FastPlanner:
+                planning_mode = "fast"
+
+                def plan_direction(self, request):  # noqa: ANN001
+                    return {
+                        "schema_version": 1,
+                        "direction_id": "fast-runtime-repair",
+                        "title": "Repair one invalid checkpoint",
+                        "method_family": "constructive_search",
+                        "method_families": [{"id": "constructive_search", "role": "primary"}],
+                        "strategy_type": "dispatch_rule",
+                        "hypothesis": "A runtime-invalid candidate can be repaired in session.",
+                        "worker_objective": "Restore the runnable solver path.",
+                        "change_scope": ["solver runtime path"],
+                        "activation_checks": [],
+                        "candidate_variants": [],
+                        "worker_lane_policy": {
+                            "mechanism_selection": "delegated_to_worker",
+                            "lane_count": 1,
+                        },
+                    }
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=context_path,
+                worker=worker,
+                main_agent=FastPlanner(),
+                experiment_id="test_fast_runtime_repair",
+                iterations=1,
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=True,
+                in_round_repair_attempts=2,
+                max_competing_workers=1,
+            )
+
+            ledger = json.loads(
+                (tmp_path / "loop" / "round_000" / "local_trial_ledger.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        self.assertEqual(2, worker.calls)
+        self.assertEqual(2, len(ledger["attempts"]))
+        self.assertEqual(1, ledger["selected_attempt_index"])
+        self.assertGreater(result.rounds[0].candidate_summary["valid"], 0)
+        self.assertEqual(
+            result.rounds[0].candidate_summary["total"],
+            result.rounds[0].candidate_summary["valid"],
+        )
+
     def test_worker_session_is_cleared_only_for_direction_pivot(self) -> None:
         previous = SimpleNamespace(
             worker_session_id="ses_direction",
@@ -5463,6 +6067,7 @@ class WorkerLoopTests(unittest.TestCase):
                 output_dir=tmp_path / "loop",
                 context_packet_path=context_path,
                 worker=PartialApplyRejectionWorker(),
+                main_agent=NoActivationPlanner(),
                 experiment_id="test_failure_memory",
                 iterations=2,
                 max_steps=1,
@@ -5493,6 +6098,7 @@ class WorkerLoopTests(unittest.TestCase):
                 output_dir=tmp_path / "loop",
                 context_packet_path=context_path,
                 worker=PromotingProposalWorker(),
+                main_agent=NoActivationPlanner(),
                 experiment_id="test_protected_promoted_facts",
                 iterations=2,
                 max_steps=1,
@@ -5519,6 +6125,7 @@ class WorkerLoopTests(unittest.TestCase):
                 output_dir=tmp_path / "loop",
                 context_packet_path=context_path,
                 worker=worker,
+                main_agent=NoActivationPlanner(),
                 experiment_id="test_in_round_repair",
                 iterations=1,
                 max_steps=1,
@@ -5548,6 +6155,7 @@ class WorkerLoopTests(unittest.TestCase):
                 output_dir=tmp_path / "loop",
                 context_packet_path=context_path,
                 worker=worker,
+                main_agent=NoActivationPlanner(),
                 semantic_reviewer=reviewer,
                 experiment_id="test_semantic_repair",
                 iterations=1,
@@ -5587,6 +6195,7 @@ class WorkerLoopTests(unittest.TestCase):
                 output_dir=tmp_path / "loop",
                 context_packet_path=context_path,
                 worker=PromotingProposalWorker(),
+                main_agent=NoActivationPlanner(),
                 semantic_reviewer=reviewer,
                 experiment_id="test_semantic_rollback",
                 iterations=2,
@@ -5623,6 +6232,7 @@ class WorkerLoopTests(unittest.TestCase):
                 output_dir=tmp_path / "loop",
                 context_packet_path=context_path,
                 worker=worker,
+                main_agent=NoActivationPlanner(),
                 semantic_reviewer=reviewer,
                 experiment_id="test_semantic_unavailable",
                 iterations=1,
@@ -5657,6 +6267,7 @@ class WorkerLoopTests(unittest.TestCase):
                 output_dir=tmp_path / "loop",
                 context_packet_path=context_path,
                 worker=worker,
+                main_agent=NoActivationPlanner(),
                 experiment_id="test_same_direction_refinement",
                 iterations=1,
                 max_steps=1,
@@ -5676,6 +6287,34 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual(1, loop_result["hypothesis_graph"]["direction_count"])
             self.assertEqual(2, loop_result["hypothesis_graph"]["attempt_count"])
             self.assertTrue(loop_result["experience_memory"]["memory_tiers"]["candidate_lessons"])
+
+    def test_none_guidance_feedback_omits_experience_memory_and_skill_summary(self) -> None:
+        contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+        summary = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="baseline",
+            best_metrics={"makespan": 10.0},
+        )
+
+        feedback = loop_feedback_payload(
+            round_index=0,
+            contract=contract,
+            baseline_summary=summary,
+            baseline_key=(-10.0,),
+            incumbent_key_before=(-10.0,),
+            incumbent_worktree=ROOT,
+            previous_rounds=[],
+            guidance_mode="none",
+        )
+
+        self.assertEqual({}, feedback["experience_memory"])
+        self.assertEqual({}, feedback["skill_usage_summary"])
+        self.assertNotIn(
+            "Use direction_graph and experience_memory to choose whether to preserve, mutate, or prune prior directions.",
+            feedback["instructions"],
+        )
 
     def test_baseline_memory_keeps_better_core_valid_semantic_repair_anchor(self) -> None:
         generation = {
@@ -6124,6 +6763,40 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual("agent_generated_baseline", baseline_context["refresh_reason"])
             self.assertIn("baseline_generation_rule", baseline_context["worker_instruction"])
             self.assertEqual([], baseline_context["baseline_generation"]["hidden_incumbent_files"])
+
+    def test_none_guidance_baseline_does_not_reactivate_project_guidance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            base_path = write_context_packet(
+                ContextPacketRequest(
+                    contract_path=ROOT / "configs" / "standard_fjsp_tiny.example.json",
+                    output_path=tmp_path / "base_context.json",
+                    docs=[
+                        ROOT / "examples" / "standard_fjsp_requirement.md",
+                        ROOT / "examples" / "standard_fjsp_io.md",
+                    ],
+                    guidance_mode="none",
+                )
+            )
+            output_path = write_baseline_generation_context_packet(
+                base_context_packet_path=base_path,
+                output_path=tmp_path / "baseline_context.json",
+                direction_plan={
+                    "direction_id": "baseline-none",
+                    "method_family": "coupled_local_search",
+                    "method_families": [{"id": "coupled_local_search", "role": "primary"}],
+                    "method_package_id": "standard_fjsp_awls_hgtsa",
+                    "knowledge_query": ["critical_path", "tabu"],
+                },
+            )
+            packet = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("none", packet["guidance_ablation"]["mode"])
+        self.assertNotIn("active_method_package", packet)
+        self.assertNotIn("active_direction_knowledge", packet)
+        self.assertNotIn("active_worker_implementation_skills", packet)
+        self.assertNotIn("knowledge_cards", packet)
+        self.assertIn("Project domain knowledge", packet["hypothesis"])
 
     def test_agent_generated_baseline_does_not_repair_source_quality_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -6960,6 +7633,7 @@ class WorkerLoopTests(unittest.TestCase):
                 output_dir=tmp_path / "loop",
                 context_packet_path=context_path,
                 worker=PromotingProposalWorker(),
+                main_agent=NoActivationPlanner(),
                 semantic_reviewer=CoverageOnlySemanticReviewer(),
                 experiment_id="test_coverage_only_improvement_review",
                 iterations=1,
@@ -7099,6 +7773,7 @@ class WorkerLoopTests(unittest.TestCase):
                 output_dir=tmp_path / "loop",
                 context_packet_path=context_path,
                 worker=ImproveOnceWorker(),
+                main_agent=NoActivationPlanner(),
                 experiment_id="test_improve_once",
                 iterations=2,
                 max_steps=1,
@@ -7140,6 +7815,7 @@ class WorkerLoopTests(unittest.TestCase):
                 output_dir=tmp_path / "loop",
                 context_packet_path=context_path,
                 worker=UnstableImproveWorker(),
+                main_agent=NoActivationPlanner(),
                 experiment_id="test_unstable_improve",
                 iterations=1,
                 max_steps=1,
@@ -7160,7 +7836,7 @@ class WorkerLoopTests(unittest.TestCase):
             loop_result = json.loads((tmp_path / "loop" / "loop_result.json").read_text(encoding="utf-8"))
             self.assertEqual("failed", loop_result["rounds"][0]["promotion_check"]["status"])
 
-    def test_equal_objective_promotes_only_for_new_required_capability(self) -> None:
+    def test_equal_objective_activation_gain_is_observed_but_not_promoted(self) -> None:
         contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
         activation_plan = {
             "activation_checks": [
@@ -7180,17 +7856,9 @@ class WorkerLoopTests(unittest.TestCase):
             "required_failure_count": 0,
             "checks": [],
         }
-        incumbent_summary = RunSummary(
-            total=1,
-            valid=1,
-            failed=0,
-            best_experiment_id="incumbent",
-            best_metrics={"grouped_batch_count": 0},
-        )
         with tempfile.TemporaryDirectory() as tmp, patch(
             "harness_agent.orchestration.loop._run_harness",
-            return_value=incumbent_summary,
-        ):
+        ) as run_harness:
             result = evaluate_promotion_check(
                 contract=contract,
                 incumbent_worktree=Path(tmp) / "incumbent",
@@ -7203,9 +7871,10 @@ class WorkerLoopTests(unittest.TestCase):
                 candidate_activation=candidate_activation,
             )
 
-        self.assertTrue(result["promoted"])
-        self.assertEqual("required_capability_activation_gain", result["reason"])
-        self.assertFalse(result["incumbent_activation"]["passed"])
+        self.assertFalse(result["promoted"])
+        self.assertEqual("candidate_not_strictly_better", result["reason"])
+        self.assertTrue(result["candidate_activation"]["passed"])
+        run_harness.assert_not_called()
 
     def test_equal_objective_does_not_promote_when_incumbent_has_capability(self) -> None:
         contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
@@ -7252,7 +7921,7 @@ class WorkerLoopTests(unittest.TestCase):
 
         self.assertFalse(result["promoted"])
         self.assertEqual(
-            "incumbent_already_satisfies_required_activation",
+            "candidate_not_strictly_better",
             result["reason"],
         )
 
@@ -7282,6 +7951,7 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertFalse(result.full_evaluation_started)
             self.assertEqual(1, result.summary.total)
             self.assertTrue((tmp_path / "cycle" / "harness_smoke" / "report.md").exists())
+            self.assertTrue((tmp_path / "cycle" / "harness_smoke" / "core_evaluation_timing.json").is_file())
             self.assertFalse((tmp_path / "cycle" / "harness" / "report.md").exists())
             cycle_result = json.loads((tmp_path / "cycle" / "cycle_result.json").read_text(encoding="utf-8"))
             self.assertTrue(cycle_result["smoke_gate"]["enabled"])
@@ -7606,6 +8276,8 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertTrue(result.agentic_judgment.accepted)
             self.assertNotIn("incomplete_solution_acceptance_risk", result.agentic_judgment.issues)
             self.assertTrue(result.full_evaluation_started)
+            self.assertTrue((tmp_path / "cycle" / "harness_smoke" / "core_evaluation_timing.json").is_file())
+            self.assertTrue((tmp_path / "cycle" / "harness" / "core_evaluation_timing.json").is_file())
 
     def test_code_judgment_rejects_partial_apply_rejections(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

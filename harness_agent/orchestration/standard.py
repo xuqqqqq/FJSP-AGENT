@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import shutil
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
@@ -50,6 +52,7 @@ class StandardWorkerLoopRequest:
     semantic_reviewer: AlgorithmSemanticReviewer | None = None
     best_known_csv: Path | None = None
     knowledge_cards: list[Path] | None = None
+    guidance_mode: str = "full"
     slot_manifest: Path | None = None
     project_intake_manifest: Path | None = None
     previous_pipeline_memory: Path | None = None
@@ -81,6 +84,10 @@ class StandardWorkerLoopRequest:
 
 def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, Any]:
     """构建任务契约和上下文，并运行“生成、审查、评测、晋升”闭环。"""
+
+    run_started_at_epoch = time.time()
+    if request.guidance_mode not in {"full", "none"}:
+        raise ValueError("guidance_mode must be 'full' or 'none'")
 
     # 1. 将 Web/CLI 参数固化为本次运行唯一的 Task Contract。后续所有
     # Worker、Core 和报告都引用这份文件，避免调用过程中口径漂移。
@@ -117,6 +124,7 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
             output_path=context_path,
             docs=request.docs,
             knowledge_cards=request.knowledge_cards or [],
+            guidance_mode=request.guidance_mode,
             project_root=request.project_root,
             slot_manifest=request.slot_manifest,
             project_intake_manifest=request.project_intake_manifest,
@@ -161,6 +169,11 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
         loop_result=loop_result,
         output_dir=output_dir,
     )
+    manifest["execution_timing"] = standard_execution_timing(
+        output_dir=output_dir,
+        run_started_at_epoch=run_started_at_epoch,
+        run_finished_at_epoch=time.time(),
+    )
     manifest_path = output_dir / "standard_worker_loop_manifest.json"
     report_path = output_dir / "standard_worker_loop_report.md"
     manifest["artifacts"] = {
@@ -179,6 +192,51 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     report_path.write_text(render_standard_worker_report(manifest), encoding="utf-8")
     return manifest
+
+
+def standard_execution_timing(
+    *,
+    output_dir: Path,
+    run_started_at_epoch: float,
+    run_finished_at_epoch: float,
+) -> dict[str, Any]:
+    """Separate controller wall time from fixed Core evaluation wall time."""
+
+    intervals: list[tuple[float, float]] = []
+    for path in output_dir.rglob("core_evaluation_timing.json"):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8-sig"))
+            start = max(run_started_at_epoch, float(payload["started_at_epoch"]))
+            finish = min(run_finished_at_epoch, float(payload["finished_at_epoch"]))
+        except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+            continue
+        if finish > start:
+            intervals.append((start, finish))
+    benchmark_wall_seconds = merged_interval_seconds(intervals)
+    total_wall_seconds = max(0.0, run_finished_at_epoch - run_started_at_epoch)
+    return {
+        "schema_version": 1,
+        "total_wall_seconds": total_wall_seconds,
+        "fixed_core_evaluation_wall_seconds": benchmark_wall_seconds,
+        "controller_wall_seconds_excluding_core": max(0.0, total_wall_seconds - benchmark_wall_seconds),
+        "core_evaluation_interval_count": len(intervals),
+        "accounting": "wall_clock_union",
+    }
+
+
+def merged_interval_seconds(intervals: list[tuple[float, float]]) -> float:
+    if not intervals:
+        return 0.0
+    ordered = sorted(intervals)
+    merged_total = 0.0
+    current_start, current_finish = ordered[0]
+    for start, finish in ordered[1:]:
+        if start <= current_finish:
+            current_finish = max(current_finish, finish)
+            continue
+        merged_total += current_finish - current_start
+        current_start, current_finish = start, finish
+    return merged_total + current_finish - current_start
 
 
 def build_standard_worker_contract_payload(request: StandardWorkerLoopRequest) -> dict[str, Any]:
@@ -318,9 +376,12 @@ def fixed_problem_contract(paths: list[Path]) -> tuple[str, str, list[dict[str, 
         "fjsp_release_time": "examples/fjsp_release_time_evaluator.py",
         "fjsp_machine_availability": "examples/fjsp_machine_availability_evaluator.py",
         "fjsp_priority": "examples/fjsp_priority_evaluator.py",
+        "fjsp_multiobjective_workload": "examples/fjsp_multiobjective_workload_evaluator.py",
         "fjsp_reentrant": "examples/fjsp_reentrant_evaluator.py",
+        "fjsp_calendar_reentrant": "examples/fjsp_calendar_reentrant_evaluator.py",
         "fjsp_jpc_tst": "examples/fjsp_jpc_tst_evaluator.py",
         "fjsp_pbpm": "examples/fjsp_pbpm_evaluator.py",
+        "fjsp_cell_sdst_transport_tardiness": "examples/fjsp_cell_sdst_transport_tardiness_evaluator.py",
         "fjsp_distributed_transfer": "examples/fjsp_distributed_transfer_evaluator.py",
     }
     if identity not in evaluator_by_variant:
@@ -356,6 +417,32 @@ def fixed_problem_contract(paths: list[Path]) -> tuple[str, str, list[dict[str, 
                 "invalid_if_missing": True,
             }
         )
+    elif identity == "fjsp_multiobjective_workload":
+        objectives.extend(
+            [
+                {
+                    "name": "max_machine_workload",
+                    "direction": "minimize",
+                    "priority": 2,
+                    "invalid_if_missing": True,
+                },
+                {
+                    "name": "total_workload",
+                    "direction": "minimize",
+                    "priority": 3,
+                    "invalid_if_missing": True,
+                },
+            ]
+        )
+    elif identity == "fjsp_cell_sdst_transport_tardiness":
+        objectives.append(
+            {
+                "name": "total_tardiness",
+                "direction": "minimize",
+                "priority": 2,
+                "invalid_if_missing": True,
+            }
+        )
     return problem_family, evaluator_by_variant[identity], objectives
 
 
@@ -367,11 +454,14 @@ PROVIDED_PROJECT_QUARANTINE_FILES = frozenset(
         "fjsp_release_time_evaluator.py",
         "fjsp_machine_availability_evaluator.py",
         "fjsp_priority_evaluator.py",
+        "fjsp_multiobjective_workload_evaluator.py",
         "fjsp_reentrant_evaluator.py",
+        "fjsp_calendar_reentrant_evaluator.py",
         "fjsp_jpc_tst_evaluator.py",
         "fjsp_pbpm_evaluator.py",
         "fjsp_alternative_path_evaluator.py",
         "fjsp_distributed_transfer_evaluator.py",
+        "fjsp_cell_sdst_transport_tardiness_evaluator.py",
     }
 )
 PROVIDED_PROJECT_READ_SUFFIXES = frozenset(
@@ -439,11 +529,14 @@ def provided_project_read_paths(project_root: Path, *, target_file: str | None) 
         "examples/fjsp_release_time_evaluator.py",
         "examples/fjsp_machine_availability_evaluator.py",
         "examples/fjsp_priority_evaluator.py",
+        "examples/fjsp_multiobjective_workload_evaluator.py",
         "examples/fjsp_reentrant_evaluator.py",
+        "examples/fjsp_calendar_reentrant_evaluator.py",
         "examples/fjsp_jpc_tst_evaluator.py",
         "examples/fjsp_pbpm_evaluator.py",
         "examples/fjsp_alternative_path_evaluator.py",
         "examples/fjsp_distributed_transfer_evaluator.py",
+        "examples/fjsp_cell_sdst_transport_tardiness_evaluator.py",
     )
     result: list[str] = []
     for path in sorted(project_root.rglob("*"), key=lambda item: item.as_posix().casefold()):
@@ -509,6 +602,7 @@ def standard_worker_manifest(
             "slot_manifest": str(request.slot_manifest) if request.slot_manifest else None,
             "project_intake_manifest": str(request.project_intake_manifest) if request.project_intake_manifest else None,
             "previous_pipeline_memory": str(request.previous_pipeline_memory) if request.previous_pipeline_memory else None,
+            "guidance_mode": request.guidance_mode,
             "resume_loop_result": str(request.resume_loop_result) if request.resume_loop_result else None,
             "resumed_round_count": len(loop_result.rounds) - max(0, request.iterations)
             if request.resume_loop_result
@@ -522,16 +616,31 @@ def standard_worker_manifest(
             "provided_solver_command": request.provided_solver_command,
             "provided_target_file": request.provided_target_file,
             "iterations": max(0, request.iterations),
+            "timeout_seconds": max(1, request.timeout_seconds),
+            "max_workers": max(1, request.max_workers),
+            "max_steps": max(1, request.max_steps),
+            "max_runtime_seconds": max(1, request.max_runtime_seconds),
             "apply_worker_changes": bool(request.apply_worker_changes),
             "promotion_repeats": max(1, request.promotion_repeats),
             "in_round_repair_attempts": max(0, request.in_round_repair_attempts),
             "max_competing_workers": max(1, min(4, request.max_competing_workers)),
+            "main_planning_mode": str(getattr(request.main_agent, "planning_mode", "") or ""),
+            "worker_runtime": str(request.worker.capabilities().name),
+            "worker_model": str(getattr(request.worker, "model", "") or ""),
+            "main_agent_model": str(getattr(request.main_agent, "model", "") or ""),
             "semantic_reviewer": (
                 type(request.semantic_reviewer).__name__ if request.semantic_reviewer is not None else None
+            ),
+            "semantic_reviewer_model": str(
+                getattr(request.semantic_reviewer, "model", "") or ""
             ),
         },
         "contract_path": str(contract_path),
         "context_packet_path": str(context_path),
+        "input_fingerprints": standard_input_fingerprints(
+            request=request,
+            contract_path=contract_path,
+        ),
         "baseline_key": list(loop_result.baseline_key),
         "baseline_source": loop_result.baseline_source,
         "baseline_generation": loop_result.baseline_generation,
@@ -558,6 +667,38 @@ def standard_worker_manifest(
         "final_round_index": final_round_index,
         "latest_candidate_summary": latest_candidate_summary,
         "rounds": round_payloads,
+    }
+
+
+def standard_input_fingerprints(
+    *,
+    request: StandardWorkerLoopRequest,
+    contract_path: Path,
+) -> dict[str, Any]:
+    """Freeze comparison-critical inputs without exposing document contents."""
+
+    try:
+        contract = json.loads(contract_path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        contract = {}
+    files: list[dict[str, str]] = []
+    candidate_paths = [*request.docs]
+    candidate_paths.extend(
+        Path(str(item.get("path")))
+        for item in contract.get("instances") or []
+        if isinstance(item, dict) and item.get("path")
+    )
+    for raw_path in candidate_paths:
+        path = raw_path if raw_path.is_absolute() else request.project_root / raw_path
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            digest = "unavailable"
+        files.append({"path": str(raw_path), "sha256": digest})
+    return {
+        "files": files,
+        "evaluator_command": ((contract.get("commands") or {}).get("evaluator")),
+        "objectives": contract.get("objectives") or [],
     }
 
 

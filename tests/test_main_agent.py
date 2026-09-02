@@ -19,6 +19,7 @@ from harness_agent.agents.main import (
     fallback_improvement_order,
     fallback_research_context,
     fallback_tournament_families,
+    high_flexibility_query_tags,
     method_family_activation_checks,
     normalize_activation_checks,
     normalize_direction_plan,
@@ -30,6 +31,55 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class MainAgentTests(unittest.TestCase):
+    def test_none_evidence_fallback_reuses_historical_methods_without_role_lanes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            context_path = tmp_path / "context.json"
+            context_path.write_text(
+                json.dumps({"guidance_ablation": {"mode": "none"}}),
+                encoding="utf-8",
+            )
+            variants = [
+                {
+                    "candidate_id": f"method-{index}",
+                    "title": name,
+                    "method_name": name,
+                    "hypothesis": f"Test {name} against the incumbent.",
+                    "worker_objective": f"Implement {name} with legal incumbent fallback.",
+                    "strategy_type": "generic_search_method",
+                    "change_scope": ["one bounded method"],
+                }
+                for index, name in enumerate(
+                    ["multi_start_dispatch", "bounded_local_search", "elite_restart_search"],
+                    start=1,
+                )
+            ]
+
+            plan = EvidenceDrivenMainAgent().plan_direction(
+                DirectionPlanRequest(
+                    round_index=2,
+                    context_packet_path=context_path,
+                    loop_feedback={
+                        "competition": {"max_competing_workers": 3},
+                        "incumbent_key_before": [-2442.0],
+                        "previous_rounds": [{"direction_plan": {"candidate_variants": variants}}],
+                    },
+                    output_dir=tmp_path / "main",
+                )
+            )
+
+            self.assertEqual("generic_ablation_history_fallback", plan["planner"])
+            self.assertEqual(
+                ["multi_start_dispatch", "bounded_local_search", "elite_restart_search"],
+                [item["method_name"] for item in plan["candidate_variants"]],
+            )
+            self.assertEqual([], plan["knowledge_query"])
+            self.assertNotIn("roles", plan["worker_lane_policy"])
+            self.assertEqual(
+                "generic_method_tournament_history_recovery",
+                plan["worker_lane_policy"]["mechanism_selection"],
+            )
+
     def test_low_flexibility_tournament_prioritizes_sequence_exact_and_memetic(self) -> None:
         context = {
             "instance_diagnostics": {
@@ -229,6 +279,8 @@ class MainAgentTests(unittest.TestCase):
 
         self.assertEqual("delegated_to_worker", plan["worker_lane_policy"]["mechanism_selection"])
         self.assertEqual(3, plan["worker_lane_policy"]["lane_count"])
+        self.assertEqual([], plan["worker_lane_policy"]["method_names"])
+        self.assertNotIn("roles", plan["worker_lane_policy"])
         self.assertEqual([], plan["candidate_variants"])
         self.assertEqual([], plan["activation_checks"])
 
@@ -277,6 +329,46 @@ class MainAgentTests(unittest.TestCase):
         exact = plan["candidate_variants"][1]
         self.assertEqual("fjsp_machine_availability_adaptation", exact["method_package_id"])
         self.assertIn("objective bound", exact["worker_objective"])
+
+    def test_standard_family_challengers_do_not_inherit_primary_awls_package(self) -> None:
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "instance_diagnostics": {
+                "summary": {
+                    "max_operation_count": 387,
+                    "avg_candidate_count": 5.0,
+                    "avg_flexible_operation_ratio": 0.99,
+                }
+            },
+            "method_family_catalog": {
+                "families": [
+                    {"family_id": "constructive_search"},
+                    {"family_id": "coupled_local_search"},
+                    {"family_id": "exact_hybrid"},
+                    {"family_id": "population_memetic"},
+                ]
+            },
+            "method_package_catalog": {"active_features": []},
+        }
+        base = {
+            "direction_id": "standard-high-flex",
+            "method_family": "coupled_local_search",
+            "method_families": [{"id": "coupled_local_search", "role": "primary"}],
+            "method_package_id": "standard_fjsp_awls_hgtsa",
+            "implementation_bundle": {"contract_id": "standard_fjsp_awls_hgtsa"},
+            "hypothesis": "Compare distinct standard FJSP search families.",
+            "experiment_stage": "probe",
+        }
+
+        plan = configure_exact_probe_tournament(base, context=context, max_workers=3)
+
+        self.assertEqual(
+            ["coupled_local_search", "population_memetic", "constructive_search"],
+            [item["method_family"] for item in plan["candidate_variants"]],
+        )
+        for challenger in plan["candidate_variants"][1:]:
+            self.assertEqual("", challenger["method_package_id"])
+            self.assertEqual({}, challenger["implementation_bundle"])
 
     def test_variant_tournament_prefers_three_adapted_method_families(self) -> None:
         package_by_feature = {
@@ -343,6 +435,67 @@ class MainAgentTests(unittest.TestCase):
         }
 
         self.assertFalse(should_reserve_exact_probe(context, max_workers=3))
+
+    def test_multiobjective_low_flexibility_tournament_keeps_constructive_lane(self) -> None:
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "instance_diagnostics": {
+                "summary": {
+                    "max_operation_count": 225,
+                    "avg_candidate_count": 1.431111,
+                    "avg_flexible_operation_ratio": 0.431111,
+                },
+                "instances": [
+                    {
+                        "operation_count": 225,
+                        "avg_candidate_count": 1.431111,
+                        "flexible_operation_ratio": 0.431111,
+                    }
+                ],
+            },
+            "method_family_catalog": {
+                "families": [
+                    {"family_id": "constructive_search"},
+                    {"family_id": "coupled_local_search"},
+                    {"family_id": "exact_hybrid"},
+                    {"family_id": "population_memetic"},
+                ]
+            },
+            "method_package_catalog": {
+                "active_features": [
+                    "fjsp_multiobjective_workload",
+                    "max_machine_workload",
+                    "total_workload",
+                ]
+            },
+        }
+        base = {
+            "direction_id": "mk08",
+            "method_family": "coupled_local_search",
+            "method_families": [{"id": "coupled_local_search", "role": "primary"}],
+            "method_package_id": "fjsp_multiobjective_workload_adaptation",
+            "hypothesis": "Improve a weak legal incumbent under the lexicographic workload objective.",
+            "experiment_stage": "probe",
+        }
+
+        plan = configure_exact_probe_tournament(base, context=context, max_workers=3)
+
+        self.assertEqual(
+            ["coupled_local_search", "exact_hybrid", "constructive_search"],
+            [item["method_family"] for item in plan["candidate_variants"]],
+        )
+        coupled = plan["candidate_variants"][0]
+        self.assertEqual(
+            {
+                "coupled_moves_evaluated",
+                "workload_sequence_moves_evaluated",
+                "workload_machine_reassign_moves_evaluated",
+            },
+            {item["id"] for item in coupled["activation_checks"]},
+        )
+        constructive = plan["candidate_variants"][2]
+        self.assertIn("ready-list", constructive["worker_objective"])
+        self.assertIn("complete legal", constructive["worker_objective"])
 
     def test_large_low_flexibility_instance_reserves_local_exact_lane(self) -> None:
         context = {
@@ -475,6 +628,11 @@ class MainAgentTests(unittest.TestCase):
             4,
             len({item["worker_objective"] for item in plan["candidate_variants"]}),
         )
+        self.assertEqual(
+            [item["method_family"] for item in plan["candidate_variants"]],
+            plan["worker_lane_policy"]["method_names"],
+        )
+        self.assertNotIn("roles", plan["worker_lane_policy"])
         self.assertTrue(
             all(
                 item.get("activation_checks")
@@ -790,6 +948,79 @@ class MainAgentTests(unittest.TestCase):
         self.assertIn("high_flexibility", plan["knowledge_query"])
         self.assertIn("assignment_regret", plan["knowledge_query"])
 
+    def test_zero_duration_spread_does_not_enable_high_flex_assignment_route(self) -> None:
+        tags = high_flexibility_query_tags(
+            {
+                "summary": {
+                    "avg_candidate_count": 5.0,
+                    "avg_flexible_operation_ratio": 0.99,
+                    "avg_duration_spread_ratio": 0.0,
+                    "max_duration_spread_ratio": 0.0,
+                }
+            },
+            compatible_tags=["high_flexibility", "assignment_regret", "idle_gap"],
+        )
+
+        self.assertEqual([], tags)
+
+    def test_near_three_candidate_high_flexibility_profile_is_not_lost_to_rounding(self) -> None:
+        tags = high_flexibility_query_tags(
+            {
+                "summary": {
+                    "avg_candidate_count": 2.983333,
+                    "avg_flexible_operation_ratio": 0.920833,
+                    "avg_duration_spread_ratio": 0.880294,
+                    "max_duration_spread_ratio": 2.8,
+                }
+            },
+            compatible_tags=["high_flexibility", "assignment_regret", "idle_gap"],
+        )
+
+        self.assertEqual(
+            ["high_flexibility", "assignment_regret", "idle_gap"],
+            tags,
+        )
+
+    def test_multiobjective_tournament_propagates_high_flexibility_lane_tags(self) -> None:
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "instance_diagnostics": {
+                "summary": {
+                    "max_operation_count": 240,
+                    "avg_candidate_count": 2.983333,
+                    "avg_flexible_operation_ratio": 0.920833,
+                    "avg_duration_spread_ratio": 0.880294,
+                    "max_duration_spread_ratio": 2.8,
+                }
+            },
+            "method_family_catalog": {
+                "families": [
+                    {"family_id": "constructive_search"},
+                    {"family_id": "coupled_local_search"},
+                    {"family_id": "exact_hybrid"},
+                    {"family_id": "population_memetic"},
+                ]
+            },
+            "method_package_catalog": {
+                "active_features": ["fjsp_multiobjective_workload", "multiobjective_workload"]
+            },
+        }
+        base = {
+            "direction_id": "mk10",
+            "method_family": "constructive_search",
+            "method_families": [{"id": "constructive_search", "role": "primary"}],
+            "method_package_id": "fjsp_multiobjective_workload_adaptation",
+            "hypothesis": "Improve a high-flexibility workload instance.",
+            "experiment_stage": "probe",
+        }
+
+        plan = configure_exact_probe_tournament(base, context=context, max_workers=3)
+
+        by_family = {item["method_family"]: item for item in plan["candidate_variants"]}
+        self.assertIn("high_flexibility", by_family["constructive_search"]["knowledge_query"])
+        self.assertIn("assignment_regret", by_family["constructive_search"]["knowledge_query"])
+        self.assertNotIn("high_flexibility", by_family["exact_hybrid"]["knowledge_query"])
+
     def test_selected_method_package_binds_full_implementation_bundle(self) -> None:
         plan = bind_direction_plan_to_method_catalog(
             normalize_direction_plan(
@@ -820,6 +1051,15 @@ class MainAgentTests(unittest.TestCase):
                                 "mode": "complete_method_package",
                                 "completion_rule": "Implement every required component.",
                                 "variant_rule": "Keep toy constraints active.",
+                                "activation_checks": [
+                                    {
+                                        "id": "toy_moves_evaluated",
+                                        "path": "diagnostics.activation.coupled_local_search.toy_moves_evaluated",
+                                        "operator": "gt",
+                                        "expected": 0,
+                                        "required": True,
+                                    }
+                                ],
                                 "required_components": [
                                     {"component_id": "toy_decoder", "title": "Toy decoder"},
                                     {"component_id": "toy_search", "title": "Toy search"},
@@ -879,6 +1119,14 @@ class MainAgentTests(unittest.TestCase):
         self.assertEqual(
             ["toy_legality"],
             [item["check_id"] for item in plan["implementation_bundle"]["checkpoint_checks"]],
+        )
+        self.assertEqual(
+            ["toy_moves_evaluated"],
+            [item["id"] for item in plan["implementation_bundle"]["activation_checks"]],
+        )
+        self.assertEqual(
+            ["toy_moves_evaluated"],
+            [item["id"] for item in plan["activation_checks"]],
         )
         self.assertIn(
             "Implement and verify the complete selected method bundle in one coherent direction: toy_decoder, toy_search",

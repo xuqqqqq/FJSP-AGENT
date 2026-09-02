@@ -13,6 +13,7 @@ from harness_agent.agents.quality_contract import (
     build_solver_runtime_feature_contract,
 )
 from harness_agent.context.knowledge import (
+    method_package_query_tags,
     resolve_method_package,
     resolve_worker_implementation_skills,
     select_tagged_knowledge_cards,
@@ -110,12 +111,17 @@ def build_worker_assignment(
             if str(item).strip()
         }
     )
+    guidance_none = _guidance_none(context)
     target_file = _solver_target(context)
     runtime_feature_contract = build_solver_runtime_feature_contract(context)
-    active_package = _selected_method_package(
-        context,
-        direction_plan,
-        active_features=runtime_feature_contract.get("active_features") or [],
+    active_package = (
+        {}
+        if guidance_none
+        else _selected_method_package(
+            context,
+            direction_plan,
+            active_features=runtime_feature_contract.get("active_features") or [],
+        )
     )
     implementation_bundle = (
         direction_plan.get("implementation_bundle")
@@ -219,6 +225,7 @@ def build_worker_assignment(
         context=context,
         target_file=target_file,
         mode=mode,
+        guidance_none=guidance_none,
         # 完整参考实现只用于从零构建，或语义审查明确发现组件缺失时的修补。
         # 普通改进轮必须围绕 incumbent 做单组件增量修改，避免重新抄写整套方法。
         include_implementation_asset=(mode == "baseline" or bool(remaining_components)),
@@ -284,18 +291,26 @@ def build_worker_assignment(
         target_file=target_file,
         objective=objective,
         method_package={
-            "package_id": str(active_package.get("package_id") or direction_plan.get("method_package_id") or ""),
+            "package_id": (
+                ""
+                if guidance_none
+                else str(active_package.get("package_id") or direction_plan.get("method_package_id") or "")
+            ),
             "implementation_asset": (
                 active_package.get("implementation_asset")
-                if (mode == "baseline" and baseline_trial != 1) or remaining_components
+                if not guidance_none and ((mode == "baseline" and baseline_trial != 1) or remaining_components)
                 else None
             ),
-            "contract_paths": _unique_strings(
-                _safe_read_path(path)
-                for path in (
-                    active_package.get("implementation_contract_assets")
-                    or implementation_bundle.get("contract_paths")
-                    or [active_package.get("implementation_contract_asset")]
+            "contract_paths": (
+                []
+                if guidance_none
+                else _unique_strings(
+                    _safe_read_path(path)
+                    for path in (
+                        active_package.get("implementation_contract_assets")
+                        or implementation_bundle.get("contract_paths")
+                        or [active_package.get("implementation_contract_asset")]
+                    )
                 )
             ),
         },
@@ -548,11 +563,14 @@ def _selected_method_package(
             [str(item) for item in catalog.get("active_features") or []]
             or [str(item) for item in active_features or []]
         ),
-        knowledge_query_tags=[
-            str(item)
-            for item in direction_plan.get("knowledge_query") or []
-            if str(item).strip()
-        ],
+        knowledge_query_tags=method_package_query_tags(
+            knowledge_query=direction_plan.get("knowledge_query"),
+            method_family=str(direction_plan.get("method_family") or ""),
+            active_features=(
+                [str(item) for item in catalog.get("active_features") or []]
+                or [str(item) for item in active_features or []]
+            ),
+        ),
     )
     if resolved:
         return resolved
@@ -568,6 +586,8 @@ def _assignment_implementation_skills(
     baseline_trial: int | None = None,
     quality_active_features: list[str] | None = None,
 ) -> list[dict[str, Any]]:
+    if _guidance_none(context):
+        return []
     task = context.get("task") if isinstance(context.get("task"), dict) else {}
     catalog = context.get("method_package_catalog") if isinstance(context.get("method_package_catalog"), dict) else {}
     declared_families = direction_plan.get("method_families") or [direction_plan.get("method_family")]
@@ -600,9 +620,10 @@ def _assignment_implementation_skills(
         if isinstance(direction_plan.get("worker_lane_policy"), dict)
         else {}
     )
-    delegated_improvement = (
+    focused_improvement = (
         baseline_trial is None
-        and lane_policy.get("mechanism_selection") == "delegated_to_worker"
+        and lane_policy.get("mechanism_selection")
+        in {"delegated_to_worker", "exact_probe_tournament"}
     )
     # A baseline only carries full method-family Worker Skills when it must
     # implement a variant-specific method package (one that declares feature
@@ -634,7 +655,7 @@ def _assignment_implementation_skills(
             continue
         if baseline_trial == 2 and skill_id == "fjsp-experiment-design-worker":
             continue
-        if delegated_improvement and skill_id in {
+        if focused_improvement and skill_id in {
             "fjsp-solver-foundation-worker",
             "fjsp-experiment-design-worker",
         }:
@@ -659,6 +680,7 @@ def _assignment_read_set(
     context: dict[str, Any],
     target_file: str,
     mode: str,
+    guidance_none: bool,
     include_implementation_asset: bool,
     active_package: dict[str, Any],
     direction_plan: dict[str, Any],
@@ -685,9 +707,10 @@ def _assignment_read_set(
         if isinstance(direction_plan.get("worker_lane_policy"), dict)
         else {}
     )
-    delegated_improvement = (
+    focused_improvement = (
         mode == "improvement"
-        and lane_policy.get("mechanism_selection") == "delegated_to_worker"
+        and lane_policy.get("mechanism_selection")
+        in {"delegated_to_worker", "exact_probe_tournament"}
     )
     focused_retry = mode == "repair" or (
         baseline_trial is not None and baseline_trial > 1
@@ -695,7 +718,7 @@ def _assignment_read_set(
     for path in _unique_strings(evaluator_protocol.get("provided_project_read_paths") or [])[:200]:
         safe_path = _safe_read_path(path)
         if (
-            (delegated_improvement or focused_retry)
+            (focused_improvement or focused_retry)
             and safe_path
             and safe_path
             not in {
@@ -711,21 +734,29 @@ def _assignment_read_set(
                     "role": "provided_project_source",
                     "required": True,
                 }
-            )
+    )
     active_direction_knowledge = (
-        context.get("active_direction_knowledge")
-        if isinstance(context.get("active_direction_knowledge"), dict)
-        else {}
+        {}
+        if guidance_none
+        else (
+            context.get("active_direction_knowledge")
+            if isinstance(context.get("active_direction_knowledge"), dict)
+            else {}
+        )
     )
     task = context.get("task") if isinstance(context.get("task"), dict) else {}
     package_catalog = (
-        context.get("method_package_catalog")
-        if isinstance(context.get("method_package_catalog"), dict)
-        else {}
+        {}
+        if guidance_none
+        else (
+            context.get("method_package_catalog")
+            if isinstance(context.get("method_package_catalog"), dict)
+            else {}
+        )
     )
     query = [str(item).strip().lower() for item in direction_plan.get("knowledge_query") or [] if str(item).strip()]
     direction_paths = list(active_direction_knowledge.get("paths") or [])
-    if query:
+    if query and not guidance_none:
         direction_paths = [
             str(path)
             for path in select_tagged_knowledge_cards(
@@ -743,7 +774,7 @@ def _assignment_read_set(
         implementation_asset = _safe_read_path(active_package.get("implementation_asset"))
         if implementation_asset:
             rows.append({"path": implementation_asset, "role": "implementation", "required": True})
-    contract_paths = _unique_strings(
+    contract_paths = [] if guidance_none else _unique_strings(
         active_package.get("implementation_contract_assets")
         or [active_package.get("implementation_contract_asset")]
     )
@@ -778,7 +809,7 @@ def _assignment_read_set(
             *direction_paths,
         ]
     implementation_asset = _safe_read_path(active_package.get("implementation_asset"))
-    if delegated_improvement and str(active_package.get("package_id") or "").strip():
+    if focused_improvement and str(active_package.get("package_id") or "").strip():
         authorized_direction_paths = {
             path
             for value in direction_paths
@@ -815,7 +846,7 @@ def _assignment_read_set(
     if not focused_retry:
         rows.extend(_staged_instance_read_set(context))
     if not focused_retry and (
-        mode == "baseline" or lane_policy.get("mechanism_selection") != "delegated_to_worker"
+        mode == "baseline" or not focused_improvement
     ):
         rows.extend(_staged_document_read_set(context))
     if high_flexibility and baseline_trial is not None:
@@ -912,6 +943,11 @@ def _safe_read_path(value: Any) -> str:
     if ".." in path.parts:
         return ""
     return path.as_posix()
+
+
+def _guidance_none(context: dict[str, Any]) -> bool:
+    ablation = context.get("guidance_ablation")
+    return isinstance(ablation, dict) and str(ablation.get("mode") or "").strip().lower() == "none"
 
 
 def _agent_generated_baseline_deliverables(

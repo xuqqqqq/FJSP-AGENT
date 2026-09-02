@@ -129,6 +129,9 @@ class StandardFjspInstance:
     job_precedences: JobPrecedences = ()
     batch_machine_capacities: BatchMachineCapacities = ()
     job_family_ids: tuple[int, ...] = ()
+    job_due_dates: tuple[int, ...] = ()
+    source_job_ids: tuple[int, ...] = ()
+    machine_cell_ids: tuple[int, ...] = ()
     variant: str = "standard_fjsp"
 
     @property
@@ -149,19 +152,27 @@ class StandardFjspInstance:
 
     @property
     def has_release_times(self) -> bool:
-        return self.variant == "fjsp_release_time"
+        return self.variant in {"fjsp_release_time", "fjsp_calendar_reentrant"}
 
     @property
     def has_machine_availability(self) -> bool:
-        return self.variant == "fjsp_machine_availability"
+        return self.variant in {"fjsp_machine_availability", "fjsp_calendar_reentrant"}
 
     @property
     def has_job_priorities(self) -> bool:
         return self.variant == "fjsp_priority"
 
     @property
+    def has_workload_objectives(self) -> bool:
+        return self.variant == "fjsp_multiobjective_workload"
+
+    @property
     def has_reentrant_routes(self) -> bool:
-        return self.variant == "fjsp_reentrant"
+        return self.variant in {
+            "fjsp_reentrant",
+            "fjsp_calendar_reentrant",
+            "fjsp_cell_sdst_transport_tardiness",
+        }
 
     @property
     def has_alternative_routes(self) -> bool:
@@ -182,6 +193,10 @@ class StandardFjspInstance:
     @property
     def has_batch_processing(self) -> bool:
         return self.variant == "fjsp_pbpm"
+
+    @property
+    def has_cell_sdst_transport_tardiness(self) -> bool:
+        return self.variant == "fjsp_cell_sdst_transport_tardiness"
 
     def route_options(self, job_id: int) -> tuple[tuple[int, ...], ...]:
         original = tuple(range(len(self.jobs[job_id].operations)))
@@ -227,8 +242,12 @@ def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
     setup matrix (`machine_count * job_count * job_count`).
     """
 
+    if path.name.casefold().endswith(".calendar_reentrant.json"):
+        return _parse_calendar_reentrant_json(path)
     if path.name.casefold().endswith(".jpctst.json"):
         return _parse_jpc_tst_json(path)
+    if path.name.casefold().endswith(".fjcs.json"):
+        return _parse_cell_sdst_transport_tardiness_json(path)
     if ".pbpm." in path.name.casefold() or path.name.casefold().endswith(".pbpm"):
         return _parse_pbpm_fjsp(path)
 
@@ -356,6 +375,111 @@ def parse_standard_fjsp(path: Path) -> StandardFjspInstance:
     )
 
 
+def _parse_calendar_reentrant_json(path: Path) -> StandardFjspInstance:
+    """Parse the frozen release/calendar/reentrant compatibility subset."""
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("format") != "fjsp_calendar_reentrant_instance_v1":
+        raise ValueError(f"{path} has an unsupported calendar-reentrant format")
+    expected_features = {
+        "release_time",
+        "machine_initial_availability",
+        "machine_availability",
+        "reentrant_route",
+    }
+    raw_features = payload.get("active_features")
+    if not isinstance(raw_features, list) or set(map(str, raw_features)) != expected_features:
+        raise ValueError(
+            f"{path} active_features must be exactly {sorted(expected_features)}"
+        )
+
+    machine_count = int(payload.get("machine_count", 0))
+    raw_jobs = payload.get("jobs")
+    if machine_count <= 0 or not isinstance(raw_jobs, list) or not raw_jobs:
+        raise ValueError(f"{path} must declare positive machines and a non-empty jobs array")
+
+    jobs: list[Job] = []
+    loops: list[ReentrantLoop] = []
+    releases: list[int] = []
+    max_candidate_count = 0
+    for job_id, raw_job in enumerate(raw_jobs):
+        if not isinstance(raw_job, dict):
+            raise ValueError(f"{path} job {job_id} must be an object")
+        release_time = int(raw_job.get("release_time", -1))
+        if release_time < 0:
+            raise ValueError(f"{path} job {job_id} has a negative release_time")
+        releases.append(release_time)
+        raw_operations = raw_job.get("operations")
+        if not isinstance(raw_operations, list) or len(raw_operations) < 3:
+            raise ValueError(f"{path} job {job_id} must contain at least three operations")
+        operations: list[Operation] = []
+        for op_id, raw_candidates in enumerate(raw_operations):
+            if not isinstance(raw_candidates, list) or not raw_candidates:
+                raise ValueError(f"{path} job {job_id} operation {op_id} has no candidates")
+            candidates: list[MachineOption] = []
+            seen_machines: set[int] = set()
+            max_candidate_count = max(max_candidate_count, len(raw_candidates))
+            for raw_candidate in raw_candidates:
+                if not isinstance(raw_candidate, list) or len(raw_candidate) != 2:
+                    raise ValueError(f"{path} has a malformed candidate at job {job_id} op {op_id}")
+                machine_id, duration = map(int, raw_candidate)
+                if not 0 <= machine_id < machine_count or duration < 0:
+                    raise ValueError(f"{path} has an invalid candidate at job {job_id} op {op_id}")
+                if machine_id in seen_machines:
+                    raise ValueError(f"{path} repeats machine {machine_id} at job {job_id} op {op_id}")
+                seen_machines.add(machine_id)
+                candidates.append(MachineOption(machine_id=machine_id, duration=duration))
+            operations.append(Operation(job_id=job_id, op_id=op_id, candidates=tuple(candidates)))
+        jobs.append(Job(job_id=job_id, operations=tuple(operations)))
+
+        raw_loop = raw_job.get("reentrant_loop")
+        if not isinstance(raw_loop, dict):
+            raise ValueError(f"{path} job {job_id} must declare one reentrant_loop")
+        loop_start = int(raw_loop.get("loop_start", -1))
+        loop_end = int(raw_loop.get("loop_end", -1))
+        repeat = int(raw_loop.get("repeat", 0))
+        op_count = len(operations)
+        if not (0 < loop_start <= loop_end < op_count - 1) or repeat < 2:
+            raise ValueError(f"{path} job {job_id} has an invalid reentrant_loop")
+        loops.append(ReentrantLoop(job_id, loop_start, loop_end, repeat, op_count))
+
+    raw_machine_ready = payload.get("machine_initial_availability")
+    if not isinstance(raw_machine_ready, list) or len(raw_machine_ready) != machine_count:
+        raise ValueError(
+            f"{path} machine_initial_availability must contain {machine_count} values"
+        )
+    machine_ready = tuple(map(int, raw_machine_ready))
+    if any(value < 0 for value in machine_ready):
+        raise ValueError(f"{path} has a negative machine initial availability")
+    if not any(releases) and not any(machine_ready):
+        raise ValueError(f"{path} must activate at least one release or initial-availability bound")
+
+    intervals: list[MachineUnavailability] = []
+    for index, raw_interval in enumerate(payload.get("unavailability_intervals") or []):
+        if not isinstance(raw_interval, list) or len(raw_interval) != 3:
+            raise ValueError(f"{path} unavailability interval {index} is malformed")
+        machine_id, start, end = map(int, raw_interval)
+        if not 0 <= machine_id < machine_count or start < 0 or end <= start:
+            raise ValueError(f"{path} unavailability interval {index} is invalid")
+        intervals.append(MachineUnavailability(machine_id, start, end))
+    if not intervals:
+        raise ValueError(f"{path} must declare at least one fixed unavailability interval")
+
+    expanded_jobs = _expand_reentrant_jobs(tuple(jobs), tuple(loops))
+    return StandardFjspInstance(
+        name=path.name.removesuffix(".calendar_reentrant.json"),
+        job_count=len(jobs),
+        machine_count=machine_count,
+        max_candidate_count=max_candidate_count,
+        jobs=expanded_jobs,
+        job_release_times=tuple(releases),
+        machine_available_times=machine_ready,
+        unavailability_intervals=tuple(intervals),
+        reentrant_loops=tuple(loops),
+        variant="fjsp_calendar_reentrant",
+    )
+
+
 def _parse_jpc_tst_json(path: Path) -> StandardFjspInstance:
     """解析论文 FJSP-JPC-TST 的规范化公开算例。"""
 
@@ -421,6 +545,121 @@ def _parse_jpc_tst_json(path: Path) -> StandardFjspInstance:
         transport_times=transport_times,
         job_precedences=tuple(precedences),
         variant="fjsp_jpc_tst",
+    )
+
+
+def _parse_cell_sdst_transport_tardiness_json(path: Path) -> StandardFjspInstance:
+    """解析公开 FJCS-SDFSTs-ITTs 算例的规范化整数子集。"""
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("format") != "fjsp_cell_sdst_transport_tardiness_instance_v1":
+        raise ValueError(f"{path} has an unsupported FJCS-SDFSTs-ITTs format")
+    expected_features = {
+        "cell_transport",
+        "family_sequence_dependent_setup",
+        "reentrant_route",
+        "due_date",
+        "total_tardiness",
+    }
+    raw_features = payload.get("active_features")
+    if not isinstance(raw_features, list) or set(map(str, raw_features)) != expected_features:
+        raise ValueError(f"{path} active_features must be exactly {sorted(expected_features)}")
+
+    machine_count = int(payload.get("machine_count", 0))
+    machine_cells_raw = payload.get("machine_cell_ids")
+    if (
+        machine_count <= 0
+        or not isinstance(machine_cells_raw, list)
+        or len(machine_cells_raw) != machine_count
+    ):
+        raise ValueError(f"{path} must declare one cell id for every physical machine")
+    machine_cell_ids = tuple(map(int, machine_cells_raw))
+    cell_count = int(payload.get("cell_count", 0))
+    if cell_count <= 0 or any(not 0 <= cell < cell_count for cell in machine_cell_ids):
+        raise ValueError(f"{path} has an invalid cell count or machine cell id")
+
+    raw_transport = payload.get("cell_transport_times")
+    if not isinstance(raw_transport, list) or len(raw_transport) != cell_count:
+        raise ValueError(f"{path} cell_transport_times must be a square cell matrix")
+    cell_transport = tuple(tuple(map(int, row)) for row in raw_transport)
+    if any(len(row) != cell_count or any(value < 0 for value in row) for row in cell_transport):
+        raise ValueError(f"{path} cell_transport_times must be square and non-negative")
+    transport_times = tuple(
+        tuple(cell_transport[left_cell][right_cell] for right_cell in machine_cell_ids)
+        for left_cell in machine_cell_ids
+    )
+
+    raw_family_setup = payload.get("family_setup_times")
+    family_count = int(payload.get("family_count", 0))
+    if not isinstance(raw_family_setup, list) or len(raw_family_setup) != family_count:
+        raise ValueError(f"{path} family_setup_times must be a square family matrix")
+    family_setup = tuple(tuple(map(int, row)) for row in raw_family_setup)
+    if any(len(row) != family_count or any(value < 0 for value in row) for row in family_setup):
+        raise ValueError(f"{path} family_setup_times must be square and non-negative")
+
+    raw_jobs = payload.get("jobs")
+    if not isinstance(raw_jobs, list) or not raw_jobs:
+        raise ValueError(f"{path} must contain a non-empty jobs array")
+    jobs: list[Job] = []
+    family_ids: list[int] = []
+    due_dates: list[int] = []
+    source_job_ids: list[int] = []
+    max_candidate_count = 0
+    for job_id, raw_job in enumerate(raw_jobs):
+        if not isinstance(raw_job, dict):
+            raise ValueError(f"{path} job {job_id} must be an object")
+        family_id = int(raw_job.get("family_id", -1))
+        due_date = int(raw_job.get("due_date", -1))
+        source_job_id = int(raw_job.get("source_job_id", -1))
+        if not 0 <= family_id < family_count or due_date < 0 or source_job_id < 0:
+            raise ValueError(f"{path} job {job_id} has invalid family, due date, or source id")
+        raw_operations = raw_job.get("operations")
+        if not isinstance(raw_operations, list) or not raw_operations:
+            raise ValueError(f"{path} job {job_id} must contain operations")
+        operations: list[Operation] = []
+        for op_id, raw_candidates in enumerate(raw_operations):
+            if not isinstance(raw_candidates, list) or not raw_candidates:
+                raise ValueError(f"{path} job {job_id} operation {op_id} has no candidates")
+            candidates: list[MachineOption] = []
+            seen_machines: set[int] = set()
+            for raw_candidate in raw_candidates:
+                if not isinstance(raw_candidate, list) or len(raw_candidate) != 2:
+                    raise ValueError(f"{path} malformed candidate at job {job_id} op {op_id}")
+                machine_id, duration = map(int, raw_candidate)
+                if not 0 <= machine_id < machine_count or duration <= 0:
+                    raise ValueError(f"{path} invalid candidate at job {job_id} op {op_id}")
+                if machine_id in seen_machines:
+                    raise ValueError(f"{path} repeats machine {machine_id} at job {job_id} op {op_id}")
+                seen_machines.add(machine_id)
+                candidates.append(MachineOption(machine_id=machine_id, duration=duration))
+            max_candidate_count = max(max_candidate_count, len(candidates))
+            operations.append(Operation(job_id=job_id, op_id=op_id, candidates=tuple(candidates)))
+        jobs.append(Job(job_id=job_id, operations=tuple(operations)))
+        family_ids.append(family_id)
+        due_dates.append(due_date)
+        source_job_ids.append(source_job_id)
+    if len(set(source_job_ids)) != len(source_job_ids):
+        raise ValueError(f"{path} source_job_ids must be unique")
+
+    job_pair_setup = tuple(
+        tuple(family_setup[family_ids[left]][family_ids[right]] for right in range(len(jobs)))
+        for left in range(len(jobs))
+    )
+    setup_times = tuple(job_pair_setup for _ in range(machine_count))
+    return StandardFjspInstance(
+        name=str(payload.get("name") or path.name.removesuffix(".fjcs.json")),
+        job_count=len(jobs),
+        machine_count=machine_count,
+        max_candidate_count=max_candidate_count,
+        jobs=tuple(jobs),
+        setup_times=setup_times,
+        setup_time_kind="job_pair",
+        transport_times=transport_times,
+        job_family_ids=tuple(family_ids),
+        job_due_dates=tuple(due_dates),
+        source_job_ids=tuple(source_job_ids),
+        machine_cell_ids=machine_cell_ids,
+        variant="fjsp_cell_sdst_transport_tardiness",
     )
 
 
@@ -553,12 +792,16 @@ def _parse_optional_variant_tail(
     name = path.name.casefold()
     priority_name = ".priority." in name or name.endswith(".priority.txt") or name.endswith(".priority")
     reentrant_name = ".rjsp." in name or name.endswith(".rjsp.txt") or name.endswith(".rjsp")
+    workload_objective_name = (
+        ".mofjsp." in name or name.endswith(".mofjsp.txt") or name.endswith(".mofjsp")
+    )
     if not tail:
         if priority_name:
             raise ValueError(f"{path} priority tail is missing")
         if reentrant_name:
             raise ValueError(f"{path} reentrant loop tail is missing")
-        return (), "none", (), (), (), (), (), (), (), "standard_fjsp"
+        variant = "fjsp_multiobjective_workload" if workload_objective_name else "standard_fjsp"
+        return (), "none", (), (), (), (), (), (), (), variant
     machine_availability_name = (
         name.startswith(("ffcr", "nfa", "fjsp_nfa"))
         or ".nfafjsp" in name
@@ -1023,6 +1266,23 @@ def write_solution(
         ]
         payload["priority_completion_time"] = max(completion_times, default=0)
         payload["priority_policy"] = "lexicographic_after_makespan"
+    if instance.has_workload_objectives:
+        machine_workloads = [0 for _ in range(instance.machine_count)]
+        for record in schedule:
+            machine_workloads[record.machine_id] += record.duration
+        payload["max_machine_workload"] = max(machine_workloads, default=0)
+        payload["total_workload"] = sum(machine_workloads)
+        payload["workload_objective_policy"] = "lexicographic_after_makespan"
+    if instance.has_cell_sdst_transport_tardiness:
+        completion_times = [
+            max((record.end for record in schedule if record.job_id == job_id), default=0)
+            for job_id in range(instance.job_count)
+        ]
+        payload["total_tardiness"] = sum(
+            max(0, completion - instance.job_due_dates[job_id])
+            for job_id, completion in enumerate(completion_times)
+        )
+        payload["cell_objective_policy"] = "lexicographic_after_makespan"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -1387,6 +1647,30 @@ def validate_standard_schedule(
         )
         metrics["priority_completion_time"] = float(priority_completion_time)
         metrics["priority_job_count"] = float(len(instance.priority_job_ids))
+    if instance.has_workload_objectives:
+        machine_workloads = [0 for _ in range(instance.machine_count)]
+        for record in schedule:
+            if 0 <= record.machine_id < instance.machine_count:
+                machine_workloads[record.machine_id] += record.duration
+        metrics["max_machine_workload"] = float(max(machine_workloads, default=0))
+        metrics["total_workload"] = float(sum(machine_workloads))
+    if instance.has_cell_sdst_transport_tardiness:
+        completion_times = [
+            max((record.end for record in schedule if record.job_id == job_id), default=0)
+            for job_id in range(instance.job_count)
+        ]
+        total_tardiness = sum(
+            max(0, completion - instance.job_due_dates[job_id])
+            for job_id, completion in enumerate(completion_times)
+        )
+        metrics["total_tardiness"] = float(total_tardiness)
+        metrics["tardy_job_count"] = float(
+            sum(
+                completion > instance.job_due_dates[job_id]
+                for job_id, completion in enumerate(completion_times)
+            )
+        )
+        metrics["cell_count"] = float(len(set(instance.machine_cell_ids)))
     if instance.has_batch_processing:
         metrics["batch_count"] = float(batch_count)
         metrics["grouped_batch_count"] = float(grouped_batch_count)
