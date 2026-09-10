@@ -8,6 +8,7 @@ from typing import Any, Protocol
 
 from harness_agent.domains.standard_fjsp import StandardFjspContextProvider
 from harness_agent.domains.distributed_context import DistributedFjspContextProvider
+from harness_agent.domains.industrial_json import IndustrialJsonContextProvider
 from harness_agent.core.models import TaskContract
 
 
@@ -67,6 +68,7 @@ class GenericContextProvider:
 
 
 _PROVIDERS: dict[str, DomainContextProvider] = {
+    "fjsp_industrial_json": IndustrialJsonContextProvider(),
     "standard_fjsp": StandardFjspContextProvider(),
     "fjsp": StandardFjspContextProvider(),
     "fjsp_release_time": StandardFjspContextProvider(),

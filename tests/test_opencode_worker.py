@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
@@ -17,6 +18,7 @@ from harness_agent.workers.opencode_worker import (
     DEFAULT_OPENCODE_MODEL,
     OPENCODE_WORKER_AGENT,
     OpenCodeWorker,
+    OpenCodeSessionLaunch,
     _ensure_session_workspace_alias,
     _find_session_state,
     _invalid_python_sync_reason,
@@ -32,6 +34,31 @@ from harness_agent.workers.opencode_worker import (
 
 
 class OpenCodeWorkerTests(unittest.TestCase):
+    def test_explicit_task_step_budget_and_checks_reach_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            assignment = WorkerAssignment.load(_write_assignment(root, root))
+            spec = ExperimentSpec("test", "budget", str(root / "context.json"),
+                                  str(root), 4, 1800)
+            worker = OpenCodeWorker()
+            for edit_steps, expected in ((1, 8), (4, 12), (16, 16)):
+                runtime = worker._runtime_config(replace(spec, max_steps=edit_steps),
+                    assignment=assignment, attachment_paths=[])
+                self.assertEqual(expected, runtime["agent"][OPENCODE_WORKER_AGENT]["steps"])
+            assignment = replace(assignment, budgets={**assignment.budgets,
+                "max_agent_steps": 64, "max_solver_smokes": 3, "max_solver_smoke_seconds": 60})
+            runtime = worker._runtime_config(spec, assignment=assignment, attachment_paths=[])
+            agent = runtime["agent"][OPENCODE_WORKER_AGENT]
+            self.assertEqual(64, agent["steps"])
+            self.assertEqual("deny", agent["permission"]["task"])
+            self.assertEqual("deny", agent["permission"]["bash"]["*"])
+            launch = OpenCodeSessionLaunch(root, None, None, "fresh", None,
+                "test", root / "state.json", None, root, None)
+            prompt = worker._prompt(spec, assignment=assignment, session_launch=launch)
+            self.assertIn("at most 3 bounded smoke calls", prompt)
+            self.assertIn("60-second solver limit", prompt)
+            self.assertNotIn("Run one compile", prompt)
+
     def test_exact_worker_runtime_allows_only_fixed_ortools_probe(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

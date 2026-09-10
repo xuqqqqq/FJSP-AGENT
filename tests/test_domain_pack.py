@@ -1072,6 +1072,40 @@ class DomainPackTests(unittest.TestCase):
             ["fjsp_min_time_lag_exact_hybrid"],
             [item["package_id"] for item in min_lag_exact["packages"]],
         )
+
+        constructive_contract = json.loads(
+            (
+                ROOT
+                / "knowledge"
+                / "method_packages"
+                / "fjsp_min_time_lag_constructive_adaptation"
+                / "implementation_contract.json"
+            ).read_text(encoding="utf-8")
+        )
+        dispatch = next(
+            item
+            for item in constructive_contract["required_components"]
+            if item["component_id"] == "operation_ready_dispatch"
+        )
+        self.assertTrue(
+            any("最早合法空隙开始时刻" in item for item in dispatch["required_behaviors"])
+        )
+
+        exact_contract = json.loads(
+            (
+                ROOT
+                / "knowledge"
+                / "method_packages"
+                / "fjsp_min_time_lag_exact_hybrid"
+                / "implementation_contract.json"
+            ).read_text(encoding="utf-8")
+        )
+        exact_model = next(
+            item
+            for item in exact_contract["required_components"]
+            if item["component_id"] == "lag_exact_model"
+        )
+        self.assertTrue(any("add_minimize" in item for item in exact_model["required_behaviors"]))
         self.assertIsNone(
             resolve_method_package(
                 problem_family="FJSP",

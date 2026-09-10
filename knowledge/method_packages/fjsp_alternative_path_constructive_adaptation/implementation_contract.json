@@ -2,8 +2,8 @@
   "schema_version": 1,
   "contract_id": "fjsp_alternative_path_constructive_adaptation",
   "mode": "complete_method_package",
-  "completion_rule": "只有当路线感知构造、完整的所选路线解码与多起点结构多样性都可达并通过阶段检查时，才能声明对应阶段完成。",
-  "variant_rule": "每个 job 的候选路线集合由原始 route_id=0 和尾部 K 条路线组成；构造过程必须显式选择且只选择一条路线，并且只调度该路线的工序序列，同时输出 selected_routes。",
+  "completion_rule": "按当前Assignment的implementation_order完成一个已接入CLI、经完整路线解码验证的增量；未选中的后续阶段不是本次交付要求。保留原合法best，搜索计数只能来自本次真实调用。",
+  "variant_rule": "每job恰选route_id=0..K中的一条；只调度其原始op_id序列。路线切换、schedule和selected_routes必须原子一致，最终合法性及目标由固定Core裁决。",
   "activation_evidence": {
     "required_fields": {
       "diagnostics.activation.constructive_search.candidates_evaluated": "> 1",
@@ -37,14 +37,14 @@
         "在构造早期显式比较同一 job 的多条候选路线，而不是固定使用原始路线。",
         "评分必须让路线负载、瓶颈暴露、跳过工序收益或 regret 中至少一种真正进入选路决策。"
       ],
-      "evidence_required": "可达的 route 比较、非原始路线命中，以及至少两个不同 job 的真实选路证据。"
+      "evidence_required": "实际比较不同候选路线并完成诱导调度的证据；最终选原始路线同样允许。"
     },
     {
       "component_id": "operation_level_construction_on_induced_routes",
       "title": "基于所选路线的 operation-level 构造过程",
       "required_behaviors": [
-        "在所选路线诱导出的 ready operations 上执行逐工序 dispatch，而不是按完整 job permutation 一次性提交。",
-        "机器分配与 gap 插入只能作用于当前所选路线中的工序。"
+        "复用已有解码入口，在所选路线ready工序上比较最早空闲间隙和剩余路线工作量等派工优先信号。",
+        "通过参数扩展现有构造器，保留parser和输出；每个候选必须完整合法后才能比较makespan。"
       ],
       "evidence_required": "可达的 ready set、逐工序 dispatch，以及经过路线过滤的候选机器选择。"
     },
@@ -52,8 +52,8 @@
       "component_id": "route_regret_multistart_control",
       "title": "Route-regret 多起点控制",
       "required_behaviors": [
-        "保留多个 selected_routes 结构不同的起点或部分状态，而不是只改变随机种子。",
-        "按路线指纹与局部机器顺序去重，并独立保存全局最优解。"
+        "保留现有合法入口，在传入CLI deadline内完整评价不同路线向量和派工优先参数；实际候选穷尽时可提前停止。",
+        "按路线/顺序指纹去重并保存独立best；达到两个候选的激活下限不是停止质量搜索的理由。"
       ],
       "evidence_required": "可达的 multistart frontier、路线指纹去重与独立的最优解快照。"
     }
@@ -111,67 +111,8 @@
             "route_tail_parser_and_catalog",
             "selected_route_state_and_decoder",
             "route_first_or_regret_selection",
-            "operation_level_construction_on_induced_routes"
-          ]
-        },
-        {
-          "stage_id": "multistart",
-          "component_ids": [
+            "operation_level_construction_on_induced_routes",
             "route_regret_multistart_control"
-          ]
-        }
-      ]
-    },
-    {
-      "track_id": "minimal_risk",
-      "title": "Route-regret 渐进构造",
-      "selection_hint": "保留现有的逐工序构造，先让 route regret 真正进入选路，再扩展多起点与结构去重。",
-      "stages": [
-        {
-          "stage_id": "route_regret",
-          "component_ids": [
-            "route_tail_parser_and_catalog",
-            "selected_route_state_and_decoder",
-            "route_first_or_regret_selection"
-          ]
-        },
-        {
-          "stage_id": "route_induced_dispatch",
-          "component_ids": [
-            "operation_level_construction_on_induced_routes"
-          ]
-        },
-        {
-          "stage_id": "multistart",
-          "component_ids": [
-            "route_regret_multistart_control"
-          ]
-        }
-      ]
-    },
-    {
-      "track_id": "orthogonal_mechanism",
-      "title": "路线盆地多样化探索",
-      "selection_hint": "先用不同的 selected_routes 盆地做多起点探索，再补 route-first 细化与 dispatch 耦合。",
-      "stages": [
-        {
-          "stage_id": "route_basin_diversity",
-          "component_ids": [
-            "route_tail_parser_and_catalog",
-            "selected_route_state_and_decoder",
-            "route_regret_multistart_control"
-          ]
-        },
-        {
-          "stage_id": "route_scoring",
-          "component_ids": [
-            "route_first_or_regret_selection"
-          ]
-        },
-        {
-          "stage_id": "dispatch",
-          "component_ids": [
-            "operation_level_construction_on_induced_routes"
           ]
         }
       ]
@@ -179,32 +120,18 @@
   ],
   "checkpoint_checks": [
     {
-      "check_id": "selected_route_semantics",
+      "check_id": "route_search_closed",
       "component_ids": [
-        "selected_route_state_and_decoder"
-      ],
-      "requirement": "源码必须按 selected_routes 动态决定 expected operation set，不能输出原始 operation pool 中的全部工序。"
-    },
-    {
-      "check_id": "explicit_route_choice",
-      "component_ids": [
-        "route_first_or_regret_selection"
-      ],
-      "requirement": "源码必须存在显式的 route 比较与非原始路线命中证据，不能把 route choice 固定为 route_id=0。"
-    },
-    {
-      "check_id": "route_induced_dispatch",
-      "component_ids": [
-        "operation_level_construction_on_induced_routes"
-      ],
-      "requirement": "源码必须在所选路线诱导出的 ready set 上逐工序构造，不能调度未选路线工序。"
-    },
-    {
-      "check_id": "multistart_route_diversity",
-      "component_ids": [
+        "selected_route_state_and_decoder",
+        "operation_level_construction_on_induced_routes",
         "route_regret_multistart_control"
       ],
-      "requirement": "源码和诊断必须证明多起点覆盖了结构不同的 selected_routes，而不是只有同一路线配置。"
+      "requirement": "完整合法候选经CLI比较并保存best；不同路线与构造计数来自真实运行，剩余预算用于声明的有界搜索。"
     }
+  ],
+  "fallback_improvement_order": [
+    "operation_level_construction_on_induced_routes",
+    "route_regret_multistart_control",
+    "route_first_or_regret_selection"
   ]
 }

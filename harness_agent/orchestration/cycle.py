@@ -32,6 +32,7 @@ from harness_agent.worker import CodingWorker, ExperimentSpec, WorkerAssignment,
 WORKER_SMOKE_RUNNER_SOURCE = """from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -42,12 +43,88 @@ if str(PROJECT_ROOT) not in sys.path:
 
 def main() -> int:
     runtime_dir = Path(__file__).resolve().parent
-    used_path = runtime_dir / "smoke.used"
-    if used_path.exists():
-        print("bounded worker smoke was already used", file=sys.stderr)
+    lock_path = runtime_dir / "smoke.lock"
+    try:
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        print("bounded worker smoke is already running", file=sys.stderr)
         return 3
-    used_path.write_text("used\\n", encoding="utf-8")
+    os.close(descriptor)
+    try:
+        return run_bounded_smoke(runtime_dir)
+    finally:
+        lock_path.unlink(missing_ok=True)
+
+
+def emit_smoke_summary(payload, status, error=None):
+    # Report only values emitted by this solver; never infer activation counts.
+    summary = {"smoke_status": status, "reported": {}, "truncated": False}
+    if error is not None:
+        summary["error"] = str(error)[:256]
+        summary["truncated"] = len(str(error)) > 256
+    priority = ("solver_status", "status", "cp_sat_called", "model_size", "error",
+                "activation", "solver_evidence")
+    visited = 0
+
+    def visit(value, path, depth):
+        nonlocal visited
+        visited += 1
+        if visited > 128 or depth > 6:
+            summary["truncated"] = True
+            return
+        if isinstance(value, dict):
+            keys = [key for key in priority if key in value]
+            for key in value:
+                if key not in keys:
+                    if len(keys) >= 32:
+                        summary["truncated"] = True
+                        break
+                    keys.append(key)
+            for key in keys:
+                if len(str(key)) > 128:
+                    summary["truncated"] = True
+                    continue
+                visit(value[key], path + "." + str(key), depth + 1)
+            return
+        if isinstance(value, list):
+            summary["truncated"] = True
+            return
+        if isinstance(value, str) and len(value) > 256:
+            value = value[:256]
+            summary["truncated"] = True
+        if not isinstance(value, (str, int, float, bool, type(None))):
+            return
+        summary["reported"][path] = value
+        if len(summary["reported"]) > 64 or len(json.dumps(summary, ensure_ascii=True)) > 5900:
+            summary["reported"].pop(path)
+            summary["truncated"] = True
+
+    if isinstance(payload, dict):
+        for key in ("diagnostics", "solver_evidence"):
+            if key in payload:
+                visit(payload[key], key, 0)
+        for index, (key, value) in enumerate(payload.items()):
+            if index >= 32:
+                summary["truncated"] = True
+                break
+            if len(key) <= 128 and not isinstance(value, (dict, list)):
+                visit(value, key, 0)
+    print("WORKER_SMOKE_SUMMARY " + json.dumps(summary, ensure_ascii=True))
+
+
+def run_bounded_smoke(runtime_dir: Path) -> int:
     config = json.loads((runtime_dir / "smoke_config.json").read_text(encoding="utf-8"))
+    used_path = runtime_dir / "smoke.used"
+    previous = used_path.read_text(encoding="utf-8").strip() if used_path.exists() else "0"
+    used = 1 if previous == "used" else int(previous)
+    if used >= config.get("max_solver_smokes", 1):
+        print("bounded worker smoke budget was already used", file=sys.stderr)
+        return 3
+    pending_path = runtime_dir / "smoke.used.tmp"
+    pending_path.write_text(str(used + 1) + "\\n", encoding="utf-8")
+    pending_path.replace(used_path)
+    output_path = Path(config["output_path"])
+    output_path.unlink(missing_ok=True)
     command = [
         sys.executable,
         config["target_file"],
@@ -67,16 +144,25 @@ def main() -> int:
         return 124
     if completed.returncode:
         return int(completed.returncode)
-    output_path = Path(config["output_path"])
+    payload = None
     try:
         payload = json.loads(output_path.read_text(encoding="utf-8"))
         solution_contract = config.get("solution_contract") or {}
+        if not isinstance(payload, dict):
+            raise ValueError("solution must be a JSON object")
         expected_format = solution_contract.get("format")
         if expected_format and payload.get("format") != expected_format:
             raise ValueError(f"solution format must be {expected_format!r}")
         for field in solution_contract.get("required_top_level_fields") or []:
             if field not in payload:
                 raise ValueError(f"solution is missing required field: {field}")
+        if solution_contract.get("worker_smoke_validation") == "schema_only":
+            for field in solution_contract.get("required_object_fields") or []:
+                if not isinstance(payload.get(field), dict):
+                    raise ValueError(f"solution field must be a JSON object: {field}")
+            print("bounded worker smoke passed schema check only; Core has not validated legality or objectives")
+            emit_smoke_summary(payload, "schema_only")
+            return 0
         if config.get("problem_family") == "fjsp_distributed_transfer":
             from harness_agent.domains.distributed_fjsp import (
                 load_distributed_solution,
@@ -119,7 +205,9 @@ def main() -> int:
                 )
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         print(f"bounded worker smoke rejected candidate output: {exc}", file=sys.stderr)
+        emit_smoke_summary(payload, "rejected", exc)
         return 4
+    emit_smoke_summary(payload, "validated")
     return 0
 
 
@@ -735,7 +823,7 @@ def _stage_worker_implementation_skills(
 
 
 def stage_worker_runtime_controls(*, assignment_path: Path, worktree_path: Path) -> None:
-    """生成一次性 smoke wrapper，硬限制实例、seed、时限和调用次数。"""
+    """生成有界 smoke wrapper，硬限制实例、seed、时限和调用次数。"""
 
     assignment = WorkerAssignment.load(assignment_path)
     manifest_path = worktree_path / ".algoforge_worker_inputs" / "manifest.json"
@@ -748,12 +836,13 @@ def stage_worker_runtime_controls(*, assignment_path: Path, worktree_path: Path)
         return
     runtime_dir = worktree_path / ".algoforge_worker_runtime"
     runtime_dir.mkdir(parents=True, exist_ok=True)
-    time_limit = min(3, max(1, int(assignment.budgets.get("max_solver_smoke_seconds") or 3)))
+    time_limit = assignment.budgets.get("max_solver_smoke_seconds", 3)
     config = {
         "target_file": assignment.target_file,
         "instance_path": str(instances[0]["local_path"]),
         "output_path": ".algoforge_worker_runtime/smoke_solution.json",
         "time_limit_seconds": time_limit,
+        "max_solver_smokes": assignment.budgets.get("max_solver_smokes", 1),
         "problem_family": assignment.runtime_contract.get("problem_family"),
         "solution_contract": assignment.runtime_contract.get("solution_contract") or {},
     }

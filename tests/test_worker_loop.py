@@ -1377,7 +1377,7 @@ class SafeFeasibilityProtectedEditWorker:
 
 
 class WorkerLoopTests(unittest.TestCase):
-    def test_exact_candidate_reserves_verification_steps_and_one_repair_checkpoint(self) -> None:
+    def test_candidate_budgets_do_not_expand_declared_repair_budget(self) -> None:
         worker = MagicMock()
         worker.capabilities.return_value = WorkerCapabilities(
             name="exact-test",
@@ -1400,8 +1400,16 @@ class WorkerLoopTests(unittest.TestCase):
             repair_attempts=0,
         )
 
-        self.assertEqual((8, 2), exact)
+        self.assertEqual((8, 0), exact)
         self.assertEqual((4, 0), heuristic)
+
+        fast_exact = candidate_worker_budgets(
+            {"method_family": "exact_hybrid", "fast_checkpoint_mode": True},
+            worker=worker,
+            max_steps=4,
+            repair_attempts=2,
+        )
+        self.assertEqual((8, 1), fast_exact)
 
     def test_required_activation_candidate_reserves_runtime_wiring_repair(self) -> None:
         worker = MagicMock()
@@ -1439,7 +1447,7 @@ class WorkerLoopTests(unittest.TestCase):
             repair_attempts=1,
         )
 
-        self.assertEqual((6, 2), budget)
+        self.assertEqual((6, 1), budget)
 
     def test_exact_candidate_does_not_force_repair_on_worker_without_repair_support(self) -> None:
         worker = MagicMock()
@@ -2757,6 +2765,49 @@ class WorkerLoopTests(unittest.TestCase):
             activation["checks"][0]["resolved_path"],
         )
 
+    def test_mechanism_activation_resolves_flat_exact_counter(self) -> None:
+        summary = RunSummary(
+            total=1,
+            valid=1,
+            failed=0,
+            best_experiment_id="candidate",
+            best_metrics={"makespan": 31},
+            activation_evidence=[
+                {
+                    "experiment_id": "candidate",
+                    "best_metrics": {
+                        "solver_evidence": {
+                            "diagnostics": {
+                                "cp_sat_called": True,
+                                "solver_status": "FEASIBLE",
+                                "max_lag_constraints_posted": 268,
+                            }
+                        }
+                    },
+                }
+            ],
+        )
+
+        activation = evaluate_mechanism_activation(
+            {
+                "activation_checks": [
+                    {
+                        "id": "max_lag_constraints_posted",
+                        "path": "diagnostics.solver_evidence.max_lag_constraints_posted",
+                        "operator": "gt",
+                        "expected": 0,
+                    }
+                ]
+            },
+            summary,
+        )
+
+        self.assertTrue(activation["passed"])
+        self.assertEqual(
+            "best_metrics.solver_evidence.diagnostics.max_lag_constraints_posted",
+            activation["checks"][0]["resolved_path"],
+        )
+
     def test_mechanism_activation_aggregates_across_seed_evidence(self) -> None:
         summary = RunSummary(
             total=2,
@@ -3867,6 +3918,12 @@ class WorkerLoopTests(unittest.TestCase):
                 "method_package_id": "pkg",
                 "candidate_variant": {"candidate_id": "lane"},
                 "implementation_order": ["move"],
+                "checkpoint_checks": [
+                    {
+                        "check_id": "restart_path_reachable",
+                        "requirement": "The restart-equivalent path remains reachable.",
+                    }
+                ],
                 "worker_lane": {"track_id": "direct", "stage": 0, "stage_count": 2},
             }
             outcome = {
@@ -3900,6 +3957,78 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual([], states["lane"].verified_components)
             self.assertEqual(candidate.resolve(), states["lane"].checkpoint_worktree)
             self.assertEqual("session_continuity_failed", states["lane"].last_failure)
+
+    def test_lane_checkpoint_allows_intentional_restart_with_fresh_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            parent = tmp_path / "parent"
+            candidate = tmp_path / "candidate"
+            parent.mkdir()
+            candidate.mkdir()
+            states = {
+                "lane": LaneDevelopmentState(
+                    candidate_id="lane",
+                    method_family="coupled_local_search",
+                    method_package_id="pkg",
+                    checkpoint_worktree=parent,
+                    objective_key=(-102.0,),
+                    track="direct",
+                    stage=0,
+                    verified_components=[],
+                )
+            }
+            plan = {
+                "method_family": "coupled_local_search",
+                "method_package_id": "pkg",
+                "candidate_variant": {"candidate_id": "lane"},
+                "implementation_order": ["move"],
+                "checkpoint_checks": [
+                    {
+                        "check_id": "restart_path_reachable",
+                        "requirement": "The restart-equivalent path remains reachable.",
+                    }
+                ],
+                "worker_lane": {"track_id": "direct", "stage": 0, "stage_count": 2},
+            }
+            outcome = {
+                "candidate_id": "lane",
+                "status": "completed",
+                "core_eligible": True,
+                "semantic_eligible": True,
+                "ja_accepted": True,
+                "objective_key": [-101.0],
+                "summary": {"total": 1, "valid": 1, "failed": 0},
+                "worktree": str(candidate),
+                "requested_session_id": "ses-requested",
+                "command_session_id": None,
+                "observed_session_id": "ses-fresh",
+                "session_reused": False,
+                "session_event_stream_bytes": 12,
+                "session_resume_strategy": "restart_equivalent_context_missing_workspace_state",
+                "semantic_review": {
+                    "status": "pass",
+                    "accepted": True,
+                    "reviewer": "test_semantic_reviewer",
+                    "component_coverage": [{"component_id": "move", "status": "implemented"}],
+                },
+            }
+
+            update_lane_development_states(
+                states,
+                candidate_plans=[plan],
+                outcomes=[outcome],
+                incumbent_worktree=parent,
+                incumbent_key=(-102.0,),
+                round_index=1,
+            )
+
+            self.assertEqual("started", states["lane"].session_status)
+            self.assertEqual("ses-fresh", states["lane"].session_id)
+            self.assertEqual(1, states["lane"].stage)
+            self.assertEqual(["move"], states["lane"].verified_components)
+            self.assertEqual(candidate.resolve(), states["lane"].checkpoint_worktree)
+            self.assertIsNone(states["lane"].last_failure)
+            self.assertTrue(states["lane"].checkpoint_worktree.exists())
 
     def test_lane_checkpoint_keeps_parent_for_worse_or_invalid_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

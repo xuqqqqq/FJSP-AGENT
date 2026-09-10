@@ -263,6 +263,17 @@ def resolve_worker_implementation_skills(
         required = _normalized_terms(skill.required_features)
         excluded = _normalized_terms(skill.excluded_features)
         covered = set(skill.method_families).intersection(selected)
+        if (
+            "fjsp_cell_sdst_transport_tardiness" in features
+            and skill.skill_id == "fjsp-sdst-adapter-worker"
+        ):
+            excluded_skills.append(
+                {
+                    "skill_id": skill.skill_id,
+                    "reason": "superseded_by_cell_sdst_transport_tardiness_adapter",
+                }
+            )
+            continue
         if required - features or excluded & features:
             excluded_skills.append({"skill_id": skill.skill_id, "reason": "feature_incompatible"})
             continue
@@ -534,7 +545,9 @@ def select_knowledge_cards(
         "problem_family": problem_family,
         "domain_pack": pack.family_id,
         "active_variant": (
-            "fjsp_sdst"
+            pack.family_id
+            if pack.family_id != "standard_fjsp"
+            else "fjsp_sdst"
             if sdst_active
             else "fjsp_min_time_lag"
             if min_time_lag_active
@@ -696,7 +709,9 @@ def select_tagged_knowledge_cards(
         "domain_pack": pack.family_id,
         "selection_mode": "tagged_query",
         "active_variant": (
-            "fjsp_sdst"
+            pack.family_id
+            if pack.family_id != "standard_fjsp"
+            else "fjsp_sdst"
             if sdst_active
             else "fjsp_min_time_lag"
             if min_time_lag_active

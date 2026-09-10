@@ -345,9 +345,17 @@ def is_real_fjsp_solver_context(context: dict[str, Any]) -> bool:
 def extract_variant_features(context: dict[str, Any]) -> set[str]:
     """提取当前任务真正激活的约束特征，实例诊断优先于文档关键词。"""
 
+    diagnostics = context.get("instance_diagnostics") if isinstance(context.get("instance_diagnostics"), dict) else {}
+    explicit_features = diagnostics.get("active_features")
+    if (
+        isinstance(explicit_features, list)
+        and explicit_features
+        and all(isinstance(value, str) and value.strip() for value in explicit_features)
+    ):
+        return {value.strip() for value in explicit_features}
+
     features = {"alternative_machines", "operation_precedence", "machine_capacity", "makespan_objective"}
 
-    diagnostics = context.get("instance_diagnostics") if isinstance(context.get("instance_diagnostics"), dict) else {}
     summary = diagnostics.get("summary") if isinstance(diagnostics.get("summary"), dict) else {}
     setup_kinds = summary.get("setup_time_kinds") if isinstance(summary.get("setup_time_kinds"), list) else []
     diagnostics_available = bool(

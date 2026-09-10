@@ -9,6 +9,22 @@ from typing import Any
 from typing import Protocol
 
 
+WORKER_EXECUTION_BUDGET_LIMITS = {
+    "max_agent_steps": 256,
+    "max_solver_smokes": 10,
+    "max_solver_smoke_seconds": 120,
+}
+
+
+def worker_execution_budget_errors(budgets: dict[str, Any]) -> list[str]:
+    """Validate explicit execution controls without coercing booleans or strings."""
+    errors = []
+    for name, maximum in WORKER_EXECUTION_BUDGET_LIMITS.items():
+        if name in budgets and (type(budgets[name]) is not int or not 1 <= budgets[name] <= maximum):
+            errors.append(f"{name} must be an integer from 1 to {maximum}")
+    return errors
+
+
 @dataclass(frozen=True)
 class WorkerCapabilities:
     """Worker 向编排层声明的能力，不代表某次候选已经成功。
@@ -198,6 +214,7 @@ class WorkerAssignment:
             max_runtime = 0
         if max_steps <= 0 or max_runtime <= 0:
             errors.append("budgets must contain positive max_edit_steps and max_runtime_seconds")
+        errors.extend(worker_execution_budget_errors(self.budgets))
         return errors
 
 

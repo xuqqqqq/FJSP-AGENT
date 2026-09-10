@@ -116,6 +116,8 @@ def stable_worker_context(context: dict[str, Any]) -> dict[str, Any]:
         "task": context.get("task") or {},
         "problem_family_capability": context.get("problem_family_capability") or {},
         "evaluator_protocol": context.get("evaluator_protocol") or {},
+        **({"worker_execution_budget": context["worker_execution_budget"]}
+           if "worker_execution_budget" in context else {}),
         "edit_policy": context.get("edit_policy") or {},
         "worker_instruction": stable_instruction,
         "contract_review_evidence": context.get("contract_review_evidence") or {},

@@ -35,6 +35,7 @@ from harness_agent.core.models import TaskContract
 from harness_agent.domains.families import get_problem_family
 from harness_agent.slots.contract import ResolvedCodeSlot
 from harness_agent.slots.manifest import load_slot_manifest
+from harness_agent.worker import WORKER_EXECUTION_BUDGET_LIMITS, worker_execution_budget_errors
 
 
 SECTION_ROLE_PRIORITY = {
@@ -524,6 +525,20 @@ def _project_loop_feedback(loop_feedback: dict[str, Any]) -> tuple[dict[str, Any
 
 
 def _fit_refreshed_packet(payload: dict[str, Any], *, max_chars: int) -> tuple[dict[str, Any], dict[str, Any]]:
+    # Execution limits come from the trusted base packet, never model feedback.
+    # Preserve them outside generic key-count/depth compaction, just like Core evidence.
+    protected = {"loop_feedback": payload.get("loop_feedback")}
+    if "worker_execution_budget" in payload:
+        budget = payload["worker_execution_budget"]
+        if not isinstance(budget, dict):
+            raise ValueError("worker_execution_budget must be a dictionary")
+        unknown = set(budget) - set(WORKER_EXECUTION_BUDGET_LIMITS)
+        if unknown:
+            raise ValueError("unknown worker_execution_budget fields: " + ", ".join(sorted(map(str, unknown))))
+        errors = worker_execution_budget_errors(budget)
+        if errors:
+            raise ValueError("invalid worker_execution_budget: " + "; ".join(errors))
+        protected["worker_execution_budget"] = dict(budget)
     original_text = json.dumps(payload, ensure_ascii=False, indent=2)
     if len(original_text) <= max_chars:
         return payload, {
@@ -531,16 +546,16 @@ def _fit_refreshed_packet(payload: dict[str, Any], *, max_chars: int) -> tuple[d
             "compacted": False,
             "profile": "none",
         }
-    loop_feedback = payload.get("loop_feedback")
     other_payload = dict(payload)
-    other_payload.pop("loop_feedback", None)
+    for key in protected:
+        other_payload.pop(key, None)
     target_other_chars = max(
         4_000,
-        max_chars - len(json.dumps({"loop_feedback": loop_feedback}, ensure_ascii=False, indent=2)) - 1_024,
+        max_chars - len(json.dumps(protected, ensure_ascii=False, indent=2)) - 1_024,
     )
     fitted = compact_json(other_payload, max_chars=target_other_chars)
     merged = dict(fitted.payload)
-    merged["loop_feedback"] = loop_feedback
+    merged.update(protected)
     merged_text = json.dumps(merged, ensure_ascii=False, indent=2)
     attempts = 0
     while len(merged_text) > max_chars and attempts < 8:
@@ -548,7 +563,7 @@ def _fit_refreshed_packet(payload: dict[str, Any], *, max_chars: int) -> tuple[d
         target_other_chars = max(1_200, target_other_chars - overflow - 512)
         fitted = compact_json(other_payload, max_chars=target_other_chars)
         merged = dict(fitted.payload)
-        merged["loop_feedback"] = loop_feedback
+        merged.update(protected)
         merged_text = json.dumps(merged, ensure_ascii=False, indent=2)
         attempts += 1
     return merged, {

@@ -60,6 +60,13 @@ from harness_agent.workers.opencode_worker import (
 
 
 OPENCODE_MAIN_AGENT = "algoforge-main"
+MAIN_SPECIALIST_NAMES = (
+    "requirements-method-analyst",
+    "evidence-analyst",
+    "plan-critic",
+    "candidate-strategy-analyst",
+    "skill-summary-analyst",
+)
 PLANNING_PACKET_MAX_CHARS = planning_packets.PLANNING_PACKET_MAX_CHARS
 MAIN_FORMAT_RETRY_TIMEOUT_SECONDS = 90
 FAST_MAIN_TIMEOUT_SECONDS = 120
@@ -333,6 +340,10 @@ class OpenCodeMainAgent:
                 "其中 exists/truthy 可以省略 expected；eq/ne/gt/gte/lt/lte/contains 必须提供 expected；"
                 "aggregation=min_passes 时必须提供正整数 min_passes。"
                 "交付物必须覆盖所选知识要求的耦合组件，"
+                "若 runtime 启用了 skill-summary-analyst，必须调用一次，让它只根据 "
+                "active_worker_implementation_skills、active_direction_knowledge 与 eligible_method_packages "
+                "归纳 Skill 的适用依据、耦合组件、冲突和证据缺口；把审阅后的结论写入 "
+                "direction_plan.skill_synthesis，但不得据此自动修改或晋升长期 Skill。"
                 "并输出至少三步 reasoning_trace；最终回答只能包含 JSON，不得直接写代码。"
                 "所有 JSON 字段名必须严格使用附件 schema 的英文 key，不得翻译字段名；中文只用于字段值。"
                 "candidate_variants 必须放在 direction_plan 内；顶层只能包含 direction_plan、worker_assignment，"
@@ -340,7 +351,11 @@ class OpenCodeMainAgent:
                 "所有自然语言值使用简体中文。"
             ),
             suffix="_implementation",
-            allowed_specialist=["plan-critic", "candidate-strategy-analyst"][: self.max_subagents],
+            allowed_specialist=[
+                "skill-summary-analyst",
+                "plan-critic",
+                "candidate-strategy-analyst",
+            ][: self.max_subagents],
         )
         raw = extract_planned_direction(implementation_run["stdout"])
         usage_payload = merge_event_summaries(
@@ -693,6 +708,9 @@ class OpenCodeMainAgent:
             suffix="_fast",
             timeout_seconds=bounded_timeout_seconds(self.timeout_seconds, FAST_MAIN_TIMEOUT_SECONDS),
             allowed_specialist=None,
+            allowed_skills=[],
+            attachments_only=True,
+            isolated_cwd=True,
         )
         usage_payload = summarize_opencode_events(run["stdout"])
         usage_payload["attempts"] = 1
@@ -1186,12 +1204,7 @@ class OpenCodeMainAgent:
                 },
             }
         }
-        for name in (
-            "requirements-method-analyst",
-            "evidence-analyst",
-            "plan-critic",
-            "candidate-strategy-analyst",
-        ):
+        for name in MAIN_SPECIALIST_NAMES:
             agent_configs[name] = {
                 "disable": name not in allowed_specialists,
                 "permission": {
@@ -1877,6 +1890,7 @@ def normalize_generic_method_variants(value: Any, *, expected: int) -> list[dict
 
     result: list[dict[str, Any]] = []
     seen_methods: set[str] = set()
+    seen_candidate_ids: set[str] = set()
     for index, item in enumerate(value or []):
         if not isinstance(item, dict):
             continue
@@ -1888,11 +1902,18 @@ def normalize_generic_method_variants(value: Any, *, expected: int) -> list[dict
         if not method_key or method_key in seen_methods or not hypothesis or not objective or not strategy_type:
             continue
         seen_methods.add(method_key)
-        candidate_id = re.sub(
+        raw_candidate_id = re.sub(
             r"[^a-z0-9_-]+",
             "-",
             str(item.get("candidate_id") or f"method-{index + 1:02d}").strip().lower(),
-        ).strip("-")[:48] or f"method-{index + 1:02d}"
+        ).strip("-") or f"method-{index + 1:02d}"
+        candidate_id = raw_candidate_id[:48]
+        if candidate_id in seen_candidate_ids:
+            suffix = f"-{index + 1:02d}"
+            candidate_id = f"{raw_candidate_id[: 48 - len(suffix)].rstrip('-_')}{suffix}"
+        if candidate_id in seen_candidate_ids:
+            candidate_id = f"method-{index + 1:02d}"
+        seen_candidate_ids.add(candidate_id)
         result.append(
             {
                 "candidate_id": candidate_id,
@@ -2419,12 +2440,7 @@ def summarize_opencode_events(events_text: str) -> dict[str, Any]:
     for event in events:
         rendered = json.dumps(event, ensure_ascii=False)
         if "task" in rendered.lower():
-            for name in (
-                "requirements-method-analyst",
-                "evidence-analyst",
-                "plan-critic",
-                "candidate-strategy-analyst",
-            ):
+            for name in MAIN_SPECIALIST_NAMES:
                 if name in rendered and name not in called_subagents:
                     called_subagents.append(name)
         _sum_numeric_usage(event, usage)
@@ -2625,12 +2641,7 @@ def normalize_allowed_specialists(
     *,
     limit: int,
 ) -> list[str]:
-    known = {
-        "requirements-method-analyst",
-        "evidence-analyst",
-        "plan-critic",
-        "candidate-strategy-analyst",
-    }
+    known = set(MAIN_SPECIALIST_NAMES)
     values = [value] if isinstance(value, str) else list(value or [])
     result: list[str] = []
     for item in values:

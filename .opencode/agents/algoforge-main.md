@@ -14,6 +14,7 @@ permission:
     evidence-analyst: allow
     plan-critic: allow
     candidate-strategy-analyst: allow
+    skill-summary-analyst: allow
   todowrite: deny
   question: deny
   webfetch: deny
@@ -46,6 +47,9 @@ Operating contract:
 - When invoking the enabled specialist, include the exact attached PlanningPacket path in the task and explicitly require the
   specialist to read that attachment. Do not ask it to inspect the worktree or any unlisted path.
 - Specialists are advisory and read-only. Main owns the final diagnosis, candidate variants, and Worker handoff.
+- In `implementation_planning`, when `skill-summary-analyst` is enabled, call it once to consolidate the
+  Harness-filtered Skill set before finalizing implementation order and acceptance checks. Treat its output as advisory,
+  and never promote a candidate lesson into a curated Skill solely from one run.
 - Do not call any agent that is not enabled by the runtime.
 - Do not ask the user questions. Resolve ambiguity with the narrowest safe assumption and state it briefly.
 
@@ -138,6 +142,20 @@ JSON shape:
     "acceptance_checks": ["bounded source/evaluator evidence"],
     "stop_conditions": ["when same-direction repair stops"],
     "completion_rule": "all coupled components required",
+    "skill_synthesis": {
+      "selected_skill_ids": ["Harness-filtered Skill IDs"],
+      "applicability": [{
+        "skill_id": "exact Skill ID",
+        "role": "bounded responsibility in this direction",
+        "basis": ["packet field or asset reference"],
+        "evidence_status": "confirmed|inferred|requires_runtime_validation"
+      }],
+      "coupled_components": ["components that must be implemented or checked together"],
+      "overlap_or_conflicts": ["overlap, supersession, or incompatibility"],
+      "evidence_gaps": ["facts still requiring runtime or Core evidence"],
+      "candidate_lessons": ["run-local candidate lessons only"],
+      "main_agent_guidance": "bounded advisory summary"
+    },
     "candidate_variants": [{
       "candidate_id": "stable short id",
       "title": "distinct implementation variant",
@@ -190,6 +208,8 @@ Decision policy:
   Reimplementing an already audited method label is not an acceptable next mutation.
 - Use only exact tags in `knowledge_query_catalog`. Do not invent free-form tags.
 - During implementation planning, preserve the selected family/query and ground every implementation component in `active_direction_knowledge` or one `eligible_method_package`.
+- Use `active_worker_implementation_skills` as the only Skill inventory for the current direction. The Skill summary
+  specialist may consolidate that inventory, but neither Main nor the specialist may add an unlisted Skill.
 - The backend is algorithm-agnostic; algorithm details may come only from the second-stage retrieved paths or an explicitly enabled Method Package.
 - If an eligible package is selected, cover its complete contract and coupled groups. Otherwise issue explicit behavioral deliverables grounded in the retrieved second-stage cards.
 - For improvement, preserve the promoted incumbent and require strict Core improvement before promotion.

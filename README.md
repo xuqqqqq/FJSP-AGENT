@@ -145,7 +145,9 @@ OpenCode 由 `OPENCODE_EXECUTABLE` 和 `OPENCODE_MODEL` 配置。未设置模型
 `deepseek/deepseek-v4-pro`，避免非交互任务在新 worktree 中等待模型选择。OpenCode 是
 Coding Agent 运行时，DeepSeek 是其中使用的模型/provider，两者不是两个并列 Coding Agent。
 
-OpenCode Main 可使用最多四个原生只读子 Agent 审核需求、证据、计划和候选策略；Coding Worker 的 `task`
+OpenCode Main 内置需求方法分析、证据分析、Skill 总结归纳、计划批评和候选策略分析五类原生只读
+子 Agent；每个规划阶段按任务需要启用其中最多四个。Skill 总结归纳 Agent 只整理 Harness 已筛选的
+Skill、知识卡和方法包，输出适用边界、耦合关系及证据缺口，不直接修改或自动晋升长期 Skill。Coding Worker 的 `task`
 权限被硬禁用。baseline、正式轮和每次同轮修补都会保存独立任务书，缺少合法任务书时
 Worker 不启动。完整 Context Packet 不会传给 Worker。
 

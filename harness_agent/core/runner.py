@@ -24,6 +24,8 @@ SOLVER_DIAGNOSTICS_MAX_CHARS = 32_000
 SOLVER_DIAGNOSTICS_MAX_DEPTH = 6
 SOLVER_DIAGNOSTICS_MAX_ITEMS = 200
 ACTIVATION_DIAGNOSTICS_MAX_CHARS = 8_000
+CORE_VALIDATION_ERRORS_KEY = "_core_validation_errors"
+VALIDATION_ERROR_EXCERPT_MAX_CHARS = 1_600
 
 
 @dataclass(frozen=True)
@@ -240,7 +242,7 @@ class HarnessRunner:
                 status=evaluation.status,
                 valid=evaluation.valid,
                 objective_key=key,
-                metrics=evaluation.metrics,
+                metrics={**evaluation.metrics, CORE_VALIDATION_ERRORS_KEY: list(evaluation.errors)},
                 paths=self._paths(solution_path, metrics_path, solver_stdout, solver_stderr, evaluator_stdout, evaluator_stderr),
                 error="; ".join(evaluation.errors) if evaluation.errors else None,
             )
@@ -256,7 +258,7 @@ class HarnessRunner:
                 status="failed_runtime",
                 valid=False,
                 objective_key=tuple(float("-inf") for _ in self.contract.objectives),
-                metrics={},
+                metrics={CORE_VALIDATION_ERRORS_KEY: [str(exc)]},
                 paths=self._paths(solution_path, metrics_path, solver_stdout, solver_stderr, evaluator_stdout, evaluator_stderr),
                 error=str(exc),
             )
@@ -417,8 +419,10 @@ def load_solver_evidence(solution_path: Path) -> dict[str, object]:
         evidence["reported_operation_count"] = len(schedule)
     raw_diagnostics = raw.get("diagnostics")
     if raw_diagnostics in ({}, [], None, ""):
-        misplaced = raw.get("best_metrics")
-        misplaced = misplaced.get("solver_evidence") if isinstance(misplaced, dict) else None
+        misplaced = raw.get("solver_evidence")
+        if not isinstance(misplaced, dict):
+            misplaced = raw.get("best_metrics")
+            misplaced = misplaced.get("solver_evidence") if isinstance(misplaced, dict) else None
         if isinstance(misplaced, dict):
             exact = misplaced.get("diagnostics")
             if isinstance(exact, dict):
@@ -857,18 +861,56 @@ def pareto_frontier(candidates: list[dict[str, object]]) -> list[dict[str, objec
     return sorted(frontier, key=lambda item: item.get("objective_key", ()), reverse=True)
 
 
+def validation_error_evidence(record: ExperimentRecord) -> list[str]:
+    """Recover original error boundaries without splitting punctuation in evidence.
+
+    New ledger rows carry Core-owned errors in their existing metrics JSON. Old
+    rows may recover them from the evaluator artifact only when its flattened
+    errors match the recorded failure. A trailing Core consistency error remains
+    one intact item because its original boundaries cannot be reconstructed.
+    """
+    stored = record.metrics.get(CORE_VALIDATION_ERRORS_KEY)
+    if isinstance(stored, list) and all(isinstance(item, str) for item in stored):
+        return [item for item in stored if item]
+    if not record.error:
+        return []
+    metrics_path = record.paths.get("metrics")
+    if metrics_path and record.status != "failed_runtime":
+        try:
+            raw = json.loads(Path(metrics_path).read_text(encoding="utf-8-sig"))
+            original = raw.get("errors") if isinstance(raw, dict) else None
+            if isinstance(original, list):
+                errors = [str(item) for item in original]
+                joined = "; ".join(errors)
+                if joined == record.error:
+                    return [item for item in errors if item]
+                if joined and record.error.startswith(joined + "; "):
+                    return [item for item in errors if item] + [record.error[len(joined) + 2:]]
+        except (OSError, ValueError):
+            pass
+    return [record.error]
+
+
+def _validation_error_excerpt(error: str) -> str:
+    if len(error) <= VALIDATION_ERROR_EXCERPT_MAX_CHARS:
+        return error
+    marker = " ... [error excerpt; full evidence in ledger/artifact] ... "
+    available = VALIDATION_ERROR_EXCERPT_MAX_CHARS - len(marker)
+    head = available * 2 // 3
+    return error[:head] + marker + error[-(available - head):]
+
+
 def validation_summary(records: list[ExperimentRecord]) -> dict[str, object]:
     status_counts: dict[str, int] = {}
     error_counts: dict[str, int] = {}
     for record in records:
         status_counts[record.status] = status_counts.get(record.status, 0) + 1
-        if record.error:
-            for error in record.error.split("; "):
-                error_counts[error] = error_counts.get(error, 0) + 1
+        for error in validation_error_evidence(record):
+            error_counts[error] = error_counts.get(error, 0) + 1
     return {
         "status_counts": dict(sorted(status_counts.items())),
         "top_errors": [
-            {"error": error, "count": count}
+            {"error": _validation_error_excerpt(error), "count": count}
             for error, count in sorted(error_counts.items(), key=lambda item: (-item[1], item[0]))[:10]
         ],
     }

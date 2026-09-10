@@ -33,6 +33,16 @@
       "rule": "解析、解码与接受必须使用同一组 release 向量。"
     }
   ],
+  "method_family_requirements": {
+    "exact_hybrid": [
+      "保留合法启发式 incumbent，并在 CP-SAT 支持时作为 hint。",
+      "正式 CLI 的 exact 阶段使用扣除解析、构造和输出余量后的主要剩余预算；Worker smoke 的 3 秒上限不得成为正式运行的固定 2.5/3 秒上限。",
+      "完整模型过大时缩小释放变量或采用局部信赖域，并报告实际 exact 求解时间。"
+    ],
+    "population_memetic": [
+      "最终激活计数必须直接写入顶层 diagnostics.activation.population_memetic，不得包在 solver_evidence 或 best_metrics 下。"
+    ]
+  },
   "forbidden_shortcuts": [
     "ignore_release_tail",
     "post_shift_without_full_redecode",

@@ -65,6 +65,12 @@ Read only `target_file`, those Skills, and `read_set`; edit only `target_file`,
 and keep unrelated behavior unchanged. In baseline mode, a missing `target_file`
 is expected: create it instead of treating its absence as a blocker. In
 improvement or repair mode, read the existing `target_file` before editing it.
+Current Core rejection takes precedence over a passing schema smoke or local
+self-check. Trace a listed counterexample from the actual input through parsing,
+constraint data, the executed checks and serialized output. A helper's presence
+does not prove it receives the input constraints or executes on the CLI path.
+If local checks pass while Core rejects, investigate that disagreement and repair
+the causal defect; report only what the bounded checks actually establish.
 Do not use subagents, questions, or network access. If the assignment is
 incomplete or contradictory, report the concrete blocker instead of expanding
 scope. During execution, publish concise Simplified Chinese commentary before
@@ -660,10 +666,16 @@ class OpenCodeWorker(CodingWorker):
 
         提示词中的 ``max_steps`` 只是自然语言约束，OpenCode 不会据此限制
         自己的工具轮次。这里用当前安装版本支持的 ``task: deny`` 真正禁止
-        子 Agent，并为读取、编辑、编译和一次 smoke 留出有限的主 Agent 步数。
+        子 Agent，并为读取、编辑、编译和 smoke 留出有限的主 Agent 步数。
         """
         requested_steps = max(1, int(spec.max_steps)) * 3
         agent_steps = min(MAX_OPENCODE_AGENT_STEPS, max(MIN_OPENCODE_AGENT_STEPS, requested_steps))
+        if "max_agent_steps" in assignment.budgets:
+            # Explicit task budgets are compiled by Harness, not chosen by Worker.
+            errors = assignment.validate()
+            if errors:
+                raise ValueError("; ".join(errors))
+            agent_steps = assignment.budgets["max_agent_steps"]
         actual_worktree_path = Path(spec.worktree_path).resolve()
         permitted_roots = _unique_workspace_roots(workspace_roots or [actual_worktree_path])
         read_permissions: dict[str, str] = {"*": "deny"}
@@ -700,6 +712,10 @@ class OpenCodeWorker(CodingWorker):
         smoke_wrapper = Path(spec.worktree_path) / ".algoforge_worker_runtime" / "run_smoke.py"
         if smoke_wrapper.is_file():
             bash_permissions["python .algoforge_worker_runtime/run_smoke.py"] = "allow"
+            for name in ("smoke_solution.json", "smoke.used"):
+                self._allow_worktree_path(
+                    read_permissions, permitted_roots, f".algoforge_worker_runtime/{name}"
+                )
         return {
             "$schema": "https://opencode.ai/config.json",
             "snapshot": False,
@@ -811,7 +827,9 @@ class OpenCodeWorker(CodingWorker):
         target_file_policy = (
             "This is baseline mode; if it is absent, create it (`target_file` is authorized)."
             if assignment.mode == "baseline"
-            else "Improvement/repair: read incumbent `target_file` first; preserve unrelated behavior."
+            else "Improvement/repair: map the attached incumbent to one small runnable patch and save it "
+            "before expanding the implementation; do not first build an entire replacement framework. "
+            "Preserve unrelated behavior."
         )
         try:
             baseline_trial = int(assignment.lineage.get("baseline_trial") or 1)
@@ -826,6 +844,8 @@ class OpenCodeWorker(CodingWorker):
             else ""
         )
         authorized_workspace_root = _absolute_path_no_resolve(session_launch.launch_dir)
+        smoke_count = assignment.budgets.get("max_solver_smokes", 1)
+        smoke_seconds = assignment.budgets.get("max_solver_smoke_seconds", 3)
         prompt = f"""
 # AlgoForge Coding Worker Runtime Policy
 
@@ -833,7 +853,7 @@ Execute attached `WorkerAssignment` as the sole planning input.
 
 - Do not read or request the full Context Packet, catalog, history, memory, or unselected cards.
 - Load listed `implementation_skills` only; examples are advisory implementation material.
-- Read only `target_file`, paths listed in `read_set`, and selected Skill folders; do not list,
+- Read only `target_file`, paths listed in `read_set`, selected Skill folders, and the smoke outputs named below; do not list,
   glob, or broadly explore.
 - Authorized workspace root: `{authorized_workspace_root}`.
 - Resolve every relative `target_file` and `read_set` path against that exact root. Do not
@@ -847,7 +867,15 @@ Execute attached `WorkerAssignment` as the sole planning input.
 - Implement `implementation_order`; preserve confirmed mechanisms and obey the completion rule.
 - Repairs close listed gaps while preserving package and unrelated behavior.
 - Apply changes transactionally; failed actions leave no partial state.
-- Run one compile and optional bounded smoke via `python .algoforge_worker_runtime/run_smoke.py`.
+- Compile after edits with exactly `python -m py_compile {assignment.target_file}`.
+  Use at most {smoke_count} bounded smoke calls, each with a
+  {smoke_seconds}-second solver limit, via `python .algoforge_worker_runtime/run_smoke.py`.
+  Do not append echo, cd, &&, pipes, or redirection to these exact commands.
+  Inspect `WORKER_SMOKE_SUMMARY` in smoke stdout first: it reports actual diagnostics values
+  without the full schedule. Do not reread a truncated single-line solution to find its tail.
+  Use the read tool on `.algoforge_worker_runtime/smoke_solution.json` only when needed,
+  and `.algoforge_worker_runtime/smoke.used` to check consumed budget.
+  Failed smoke calls consume budget. Repair observed failures and recheck within the remaining budget.
   Never run evaluator, full tests, benchmarks, sweeps, or ad-hoc commands.
 - Stop after bounded checks; Harness decides acceptance.
 

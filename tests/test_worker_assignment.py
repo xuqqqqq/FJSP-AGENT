@@ -223,6 +223,55 @@ class WorkerAssignmentTests(unittest.TestCase):
                     "fjsp_cell_sdst_transport_tardiness_adaptation",
                     assignment.method_package["package_id"],
                 )
+                skill_ids = [item["skill_id"] for item in assignment.implementation_skills]
+                self.assertIn("fjsp-cell-sdst-transport-tardiness-adapter-worker", skill_ids)
+                self.assertNotIn("fjsp-sdst-adapter-worker", skill_ids)
+
+    def test_cell_focused_improvement_keeps_package_semantics(self) -> None:
+        features = [
+            "fjsp_cell_sdst_transport_tardiness",
+            "cell_transport",
+            "family_sequence_dependent_setup",
+            "reentrant_route",
+            "due_date",
+            "total_tardiness",
+        ]
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "evaluator_protocol": {"solver_command_template": "python solver.py --input {instance}"},
+            "edit_policy": {"allowed_paths": ["solver.py"], "forbidden_paths": ["outputs"]},
+            "method_package_catalog": {"active_features": features, "packages": []},
+            "active_direction_knowledge": {
+                "paths": ["knowledge/references/multi_feature/calendar_reentrant_semantics_and_search.md"]
+            },
+        }
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan={
+                "direction_id": "cell-coupled",
+                "method_family": "coupled_local_search",
+                "method_families": [{"id": "coupled_local_search", "role": "primary"}],
+                "method_package_id": "fjsp_cell_sdst_transport_tardiness_adaptation",
+                "knowledge_query": ["coupled_local_search", *features],
+                "hypothesis": "Improve the joint cell schedule with one coupled move.",
+                "worker_lane_policy": {"mechanism_selection": "delegated_to_worker"},
+            },
+            loop_feedback={},
+            round_index=1,
+            attempt_index=0,
+            max_steps=4,
+            max_runtime_seconds=300,
+        )
+
+        read_paths = [item["path"] for item in assignment.read_set]
+        self.assertIn(
+            "knowledge/references/multi_feature/cell_sdst_transport_tardiness_semantics_and_search.md",
+            read_paths,
+        )
+        self.assertNotIn(
+            "knowledge/references/multi_feature/calendar_reentrant_semantics_and_search.md",
+            read_paths,
+        )
 
     def test_unresolvable_requested_package_fails_closed(self) -> None:
         with self.assertRaisesRegex(ValueError, "requested method package is not resolvable"):
@@ -518,6 +567,11 @@ class WorkerAssignmentTests(unittest.TestCase):
             "knowledge/references/min_time_lag/min_time_lag_search_adaptation.md",
             read_paths,
         )
+        dispatch = next(
+            item for item in assignment.deliverables if item["id"] == "operation_ready_dispatch"
+        )
+        self.assertIn("最早合法空隙开始时刻", dispatch["behavior"])
+        self.assertIn("逐工序派工决策路径", dispatch["evidence_required"])
 
     def test_variant_baseline_uses_constructive_package_components_and_skills(self) -> None:
         package_catalog = method_package_catalog(
@@ -644,7 +698,9 @@ class WorkerAssignmentTests(unittest.TestCase):
         self.assertIn("JSON-native", assignment.completion_rule)
         self.assertIn("actually call the exact solver", assignment.completion_rule)
         self.assertTrue(assignment.runtime_contract["diagnostics_json_contract"]["json_native_values_only"])
-        self.assertTrue(any("machine_id, processing_time" in item for item in assignment.checks))
+        self.assertTrue(any("active IO contract" in item and "preserve their association" in item
+                            for item in assignment.checks))
+        self.assertFalse(any("structured (machine_id, processing_time) pairs" in item for item in assignment.checks))
         self.assertTrue(any("reachable call from main" in item for item in assignment.checks))
         self.assertTrue(any("cp_sat_called=true" in item for item in assignment.checks))
         skill_ids = [item["skill_id"] for item in assignment.implementation_skills]
@@ -1034,6 +1090,42 @@ class WorkerAssignmentTests(unittest.TestCase):
             ["knowledge/method_packages/fjsp_reentrant_adaptation/implementation_contract.json"],
             assignment.method_package["contract_paths"],
         )
+
+    def test_improvement_assignment_requires_top_level_activation_diagnostics(self) -> None:
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "evaluator_protocol": {"solver_command_template": "python solver.py --input {instance}"},
+            "edit_policy": {"allowed_paths": ["solver.py"], "forbidden_paths": ["outputs"]},
+            "method_package_catalog": {"active_features": [], "packages": []},
+        }
+        activation_path = "diagnostics.activation.population_memetic.generations_completed"
+        assignment = build_worker_assignment(
+            context=context,
+            direction_plan={
+                "direction_id": "d000-population",
+                "method_family": "population_memetic",
+                "hypothesis": "Run a real population loop.",
+                "activation_checks": [
+                    {
+                        "id": "generations_completed",
+                        "path": activation_path,
+                        "operator": "gt",
+                        "expected": 0,
+                        "required": True,
+                    }
+                ],
+            },
+            loop_feedback={},
+            round_index=0,
+            attempt_index=0,
+            max_steps=4,
+            max_runtime_seconds=300,
+        )
+
+        contract = assignment.runtime_contract["activation_evidence_output_contract"]
+        self.assertEqual("solution.json#/diagnostics", contract["location"])
+        self.assertEqual([activation_path], contract["required_paths"])
+        self.assertIn("solution.json#/solver_evidence/diagnostics", contract["forbidden_wrappers"])
 
     def test_verbose_baseline_plan_does_not_repeat_incumbent_narrative_to_worker(self) -> None:
         context = {
@@ -1482,7 +1574,7 @@ class WorkerAssignmentTests(unittest.TestCase):
         self.assertEqual("parser_and_model", parser["id"])
         self.assertIn("complete standard FJSP body for all jobs first", parser["behavior"])
         self.assertIn("exactly job_count trailing", parser["behavior"])
-        self.assertIn("run the one allowed smoke", parser["evidence_required"])
+        self.assertIn("run an allowed bounded smoke", parser["evidence_required"])
 
     def test_standard_baseline_keeps_generic_parser_deliverable(self) -> None:
         context = {

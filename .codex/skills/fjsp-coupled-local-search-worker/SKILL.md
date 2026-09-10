@@ -20,6 +20,13 @@ description: 为受控编码代理实现 FJSP 工序分配与机器顺序耦合�
 
 ## 执行步骤
 
+对`alternative_path`增量，当前Assignment阶段优先：若incumbent以路线向量和派工优先参数
+完整重建排程，可复用该表示和解码器闭合route-switch循环；不为满足下文标准机器序列形态
+而先重写DAG。只有当前阶段选中machine/order组件时再补相应邻域，未选中的后续Tabu、
+关键块和自适应机制不是本次交付要求。原有完整合法结果必须保留。此增量允许按Assignment
+在总deadline内分配旧搜索和新增阶段预算，不受下文“不得缩短既有预算”限制；先取得合法入口best，
+为新阶段预留可执行时间，并始终返回本次真实搜索中最好的合法结果。
+
 1. 维护同时包含 `assignment` 与每台机器 operation order 的显式状态。
    改进任务必须先原样运行 promoted incumbent 的现有构造与目标改进路径，并把其全局最优结果作为
    新阶段 warm start；不得通过替换同名搜索函数、缩短既有预算或改写调用顺序来换取新机制接线。

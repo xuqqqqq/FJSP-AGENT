@@ -101,6 +101,36 @@ class EvaluatorRunnerTests(unittest.TestCase):
         self.assertTrue(exact["accepted"])
         self.assertEqual(2, len(errors))
 
+    def test_top_level_solver_evidence_wrapper_keeps_activation_counters(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            solution = Path(tmp) / "solution.json"
+            solution.write_text(
+                json.dumps(
+                    {
+                        "makespan": 2468,
+                        "schedule": [],
+                        "solver_evidence": {
+                            "diagnostics": {
+                                "activation": {
+                                    "population_memetic": {
+                                        "population_size": 10,
+                                        "generations_completed": 16,
+                                    }
+                                }
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            evidence = load_solver_evidence(solution)
+
+        self.assertTrue(evidence["solver_evidence_path_repaired"])
+        activation = evidence["diagnostics"]["solver_evidence"]["activation"]
+        self.assertEqual(10, activation["population_memetic"]["population_size"])
+        self.assertEqual(16, activation["population_memetic"]["generations_completed"])
+
 
     def test_solver_evidence_keeps_bounded_runtime_diagnostics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

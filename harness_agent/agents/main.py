@@ -600,12 +600,16 @@ def method_family_activation_checks(
     }
     if "fjsp_max_time_lag" in feature_terms:
         feature_terms.add("maximum_time_lag")
+    if "fjsp_min_time_lag" in feature_terms:
+        feature_terms.add("minimum_time_lag")
     if "fjsp_alternative_path" in feature_terms:
         feature_terms.update({"alternative_path", "route_choice"})
     if "fjsp_multiobjective_workload" in feature_terms:
         feature_terms.add("multiobjective_workload")
     if "maximum_time_lag" in feature_terms:
         checks = [*checks, *_maximum_time_lag_activation_checks(family)]
+    if "minimum_time_lag" in feature_terms:
+        checks = [*checks, *_minimum_time_lag_activation_checks(family)]
     if feature_terms.intersection({"alternative_path", "route_choice"}):
         checks = [*checks, *_alternative_path_activation_checks(family)]
     if feature_terms.intersection({"fjsp_pbpm", "batching", "parallel_batch_machine"}):
@@ -648,6 +652,48 @@ def _maximum_time_lag_activation_checks(method_family: str) -> list[dict[str, An
             {
                 "id": "max_lag_individuals_decoded",
                 "path": "diagnostics.activation.maximum_time_lag.individuals_decoded",
+                "operator": "gt",
+                "expected": 0,
+                "required": True,
+            }
+        ],
+    }
+    return by_family.get(method_family, [])
+
+
+def _minimum_time_lag_activation_checks(method_family: str) -> list[dict[str, Any]]:
+    by_family = {
+        "constructive_search": [
+            {
+                "id": "min_lag_constructive_candidates_evaluated",
+                "path": "diagnostics.activation.minimum_time_lag.constructive_candidates_evaluated",
+                "operator": "gt",
+                "expected": 1,
+                "required": True,
+            }
+        ],
+        "coupled_local_search": [
+            {
+                "id": "min_lag_moves_evaluated",
+                "path": "diagnostics.activation.minimum_time_lag.moves_evaluated",
+                "operator": "gt",
+                "expected": 0,
+                "required": True,
+            }
+        ],
+        "exact_hybrid": [
+            {
+                "id": "min_lag_constraints_posted",
+                "path": "diagnostics.solver_evidence.min_lag_constraints_posted",
+                "operator": "gt",
+                "expected": 0,
+                "required": True,
+            }
+        ],
+        "population_memetic": [
+            {
+                "id": "min_lag_individuals_decoded",
+                "path": "diagnostics.activation.minimum_time_lag.individuals_decoded",
                 "operator": "gt",
                 "expected": 0,
                 "required": True,
@@ -1186,6 +1232,16 @@ def should_reserve_exact_probe(context: dict[str, Any], *, max_workers: int) -> 
             for item in instances
         )
     )
+    active_catalog = (
+        context.get("method_package_catalog")
+        if isinstance(context.get("method_package_catalog"), dict)
+        else {}
+    )
+    active_features = {
+        str(item).strip().lower()
+        for item in active_catalog.get("active_features") or []
+        if str(item).strip()
+    }
     small_instance = 0 < max_operations <= 60
     bounded_low_flexibility = 0 < max_operations <= 250 and low_flexibility
     large_low_flexibility = max_operations > 250 and low_flexibility
@@ -1193,6 +1249,15 @@ def should_reserve_exact_probe(context: dict[str, Any], *, max_workers: int) -> 
         0 < max_operations <= 250
         and 0 < estimated_optional_intervals <= 1200
         and estimated_optional_intervals + max_unavailability_intervals <= 1400
+        and not has_sequence_dependent_setup
+    )
+    release_time_trust_region = bool(
+        "release_time" in active_features
+        and 250 < max_operations <= 500
+        and avg_candidates is not None
+        and avg_candidates >= 2.5
+        and flexible_ratio is not None
+        and flexible_ratio >= 0.75
         and not has_sequence_dependent_setup
     )
     family_catalog = (
@@ -1209,6 +1274,7 @@ def should_reserve_exact_probe(context: dict[str, Any], *, max_workers: int) -> 
         or bounded_low_flexibility
         or bounded_interval_model
         or large_low_flexibility
+        or release_time_trust_region
     )
 
 
@@ -1242,11 +1308,12 @@ def configure_exact_probe_tournament(
     """Compile one independently bound exact lane without replacing Main's primary family."""
 
     primary = str(plan.get("method_family") or "").strip()
-    if (
-        max_workers < 2
-        or primary == "exact_hybrid"
-        or str(plan.get("experiment_stage") or "") == "research_tournament"
-    ):
+    existing_families = {
+        str(item.get("method_family") or "").strip()
+        for item in plan.get("candidate_variants") or []
+        if isinstance(item, dict) and str(item.get("method_family") or "").strip()
+    }
+    if max_workers < 2:
         return plan
     reserve_exact = should_reserve_exact_probe(context, max_workers=max_workers)
     family_catalog = (
@@ -1277,16 +1344,36 @@ def configure_exact_probe_tournament(
             }
         )
     )
+    cell_sdst_transport_tardiness = "fjsp_cell_sdst_transport_tardiness" in active_feature_terms
     variant_adapted_families = {"constructive_search", "coupled_local_search", "exact_hybrid"}
     requires_dedicated_variant_package = bool(
-        {"maximum_time_lag", "alternative_path", "route_choice"}.intersection(
+        {
+            "maximum_time_lag",
+            "minimum_time_lag",
+            "fjsp_min_time_lag",
+            "alternative_path",
+            "route_choice",
+        }.intersection(
             str(item).strip().lower() for item in active_features
         )
     )
+    if (
+        str(plan.get("experiment_stage") or "") == "research_tournament"
+        and len(existing_families) >= 2
+        and (
+            not requires_dedicated_variant_package
+            or existing_families.issubset(variant_adapted_families)
+        )
+    ):
+        return plan
     ordered = [primary] if not requires_dedicated_variant_package or primary in variant_adapted_families else []
-    if reserve_exact:
+    if reserve_exact and "exact_hybrid" not in ordered:
         ordered.append("exact_hybrid")
-    prioritize_constructive = requires_dedicated_variant_package or multiobjective_workload
+    prioritize_constructive = (
+        requires_dedicated_variant_package
+        or multiobjective_workload
+        or cell_sdst_transport_tardiness
+    )
     ordered.extend(
         family for family in (
             "coupled_local_search",
@@ -1351,6 +1438,7 @@ def configure_exact_probe_tournament(
                     "method_family": family,
                     "method_families": [{"id": family, "role": "primary"}],
                     "method_package_id": package_id,
+                    "implementation_scope": exact_scope if family == "exact_hybrid" else "",
                     "knowledge_query": query,
                     "candidate_variants": [],
                 },
@@ -1382,6 +1470,15 @@ def configure_exact_probe_tournament(
             " Wire the exact solve call into the active CLI path before final serialization, choose the "
             "best legal exact/incumbent schedule, and merge exact evidence into output diagnostics. "
             "A defined but unreachable model builder or solve function is incomplete."
+        )
+        exact_variant_verification_behavior = (
+            " Extract a complete schedule, run the full max-lag-aware verifier before output, and report "
+            "max_time_lag_violations=0; a feasible model status without a verified extracted schedule is incomplete."
+            if "maximum_time_lag" in active_feature_terms
+            else " Extract a complete schedule, run the full min-lag-aware verifier before output, and report "
+            "min_time_lag_violations=0; a feasible model status without a verified extracted schedule is incomplete."
+            if {"minimum_time_lag", "fjsp_min_time_lag"}.intersection(active_feature_terms)
+            else ""
         )
         family_hypothesis = {
             "coupled_local_search": (
@@ -1436,6 +1533,7 @@ def configure_exact_probe_tournament(
             "method_families": [{"id": family, "role": "primary"}],
             "knowledge_query": bound.get("knowledge_query") or [],
             "method_package_id": bound.get("method_package_id") or "",
+            "implementation_scope": exact_scope if family == "exact_hybrid" else "",
             "experiment_stage": str(plan.get("experiment_stage") or "probe"),
             "change_scope": [
                 "Implement one bounded family-specific probe while preserving the legal incumbent fallback."
@@ -1452,14 +1550,17 @@ def configure_exact_probe_tournament(
                     {
                         "id": "exact_active_variant_cp_sat_probe",
                         "behavior": (
-                            f"{exact_behavior}{exact_capacity_behavior}{exact_entrypoint_behavior} "
+                            f"{exact_behavior}{exact_capacity_behavior}{exact_entrypoint_behavior}"
+                            f"{exact_variant_verification_behavior} "
                             "Use bounded parallel CP-SAT search."
                         ),
                         "evidence_required": (
                             "Report cp_sat_called=true, solver status, objective/bound, model variable/constraint/"
                             "interval counts, runtime, num_search_workers, and fixed-evaluator legality. Convert "
                             "solver status and every diagnostic value to JSON-native scalars before output. The "
-                            "fixed smoke output itself must contain these diagnostics, proving CLI reachability."
+                            "fixed smoke output itself must contain these diagnostics, proving CLI reachability. "
+                            "When maximum_time_lag is active, include extracted schedule evidence and "
+                            "max_time_lag_violations=0 from the complete output verification."
                         ),
                     }
                 ]
@@ -1593,6 +1694,7 @@ def normalize_direction_plan(value: Any, *, round_index: int) -> dict[str, Any]:
         ),
         "stop_conditions": _strings(raw.get("stop_conditions"), limit=8),
         "completion_rule": str(raw.get("completion_rule") or "")[:1200],
+        "skill_synthesis": normalize_skill_synthesis(raw.get("skill_synthesis")),
         "candidate_variants": normalize_candidate_variants(raw.get("candidate_variants")),
         "planner": str(raw.get("planner") or "unknown")[:80],
     }
@@ -1609,6 +1711,38 @@ def normalize_direction_plan(value: Any, *, round_index: int) -> dict[str, Any]:
     if not plan["direction_judgment"]:
         plan["direction_judgment"] = plan["selection_rationale"]
     return plan
+
+
+def normalize_skill_synthesis(value: Any) -> dict[str, Any]:
+    """Bound a read-only specialist summary without turning it into trusted long-term knowledge."""
+
+    raw = value if isinstance(value, dict) else {}
+    applicability = []
+    for item in raw.get("applicability") or []:
+        if not isinstance(item, dict):
+            continue
+        status = str(item.get("evidence_status") or "requires_runtime_validation").strip().lower()
+        if status not in {"confirmed", "inferred", "requires_runtime_validation"}:
+            status = "requires_runtime_validation"
+        applicability.append(
+            {
+                "skill_id": str(item.get("skill_id") or "")[:120],
+                "role": str(item.get("role") or "")[:600],
+                "basis": _strings(item.get("basis"), limit=6),
+                "evidence_status": status,
+            }
+        )
+    return {
+        "schema_version": 1,
+        "selected_skill_ids": _strings(raw.get("selected_skill_ids"), limit=8),
+        "applicability": applicability[:8],
+        "coupled_components": _strings(raw.get("coupled_components"), limit=12),
+        "overlap_or_conflicts": _strings(raw.get("overlap_or_conflicts"), limit=8),
+        "evidence_gaps": _strings(raw.get("evidence_gaps"), limit=8),
+        "candidate_lessons": _strings(raw.get("candidate_lessons"), limit=6),
+        "main_agent_guidance": str(raw.get("main_agent_guidance") or "")[:1200],
+        "promotion_policy": "candidate_only_until_evaluator_backed_repetition_or_human_review",
+    }
 
 
 def normalize_candidate_variants(value: Any, *, limit: int = 4) -> list[dict[str, Any]]:
@@ -2163,7 +2297,10 @@ def bind_direction_plan_to_method_catalog(
         selected_package = available[selected]
         package_assets = [str(item) for item in selected_package.get("assets") or [] if str(item).strip()]
         plan["knowledge_paths"] = _strings([*package_assets, *plan.get("knowledge_paths", [])], limit=12)
-        implementation_bundle = method_implementation_bundle(selected_package)
+        implementation_bundle = method_implementation_bundle(
+            selected_package,
+            scope=str(plan.get("implementation_scope") or "").strip() or None,
+        )
         if implementation_bundle:
             contract_paths = [
                 str(item) for item in implementation_bundle.get("contract_paths") or [] if str(item).strip()
@@ -2250,18 +2387,50 @@ def bind_direction_plan_to_method_catalog(
                 and str(item.get("id") or item.get("component_id") or "") in selected_component_ids
             ]
             if declared_deliverables:
-                plan["deliverables"] = declared_deliverables
+                component_by_id = {
+                    str(item.get("component_id") or ""): item
+                    for item in implementation_bundle.get("required_components") or []
+                    if isinstance(item, dict) and str(item.get("component_id") or "").strip()
+                }
+                enriched_deliverables = []
+                for item in declared_deliverables:
+                    component_id = str(item.get("id") or item.get("component_id") or "")
+                    component = component_by_id.get(component_id, {})
+                    required_behavior = " ".join(
+                        _strings(component.get("required_behaviors"), limit=8)
+                    )
+                    enriched_deliverables.append(
+                        {
+                            **item,
+                            "behavior": (
+                                required_behavior
+                                or str(item.get("behavior") or item.get("title") or component_id)
+                            )[:600],
+                            "evidence_required": str(
+                                component.get("evidence_required")
+                                or item.get("evidence_required")
+                                or "Reachable source and bounded behavioral evidence."
+                            )[:600],
+                        }
+                    )
+                plan["deliverables"] = enriched_deliverables
             else:
                 plan["deliverables"] = [
                     {
                         "id": str(item.get("component_id") or "")[:160],
-                        "behavior": str(
-                            item.get("title")
-                            or item.get("description")
-                            or item.get("component_id")
-                            or "required method component"
+                        "behavior": (
+                            " ".join(_strings(item.get("required_behaviors"), limit=8))
+                            or str(
+                                item.get("title")
+                                or item.get("description")
+                                or item.get("component_id")
+                                or "required method component"
+                            )
                         )[:600],
-                        "evidence_required": "Reachable source and bounded behavioral evidence.",
+                        "evidence_required": str(
+                            item.get("evidence_required")
+                            or "Reachable source and bounded behavioral evidence."
+                        )[:600],
                     }
                     for item in implementation_bundle.get("required_components") or []
                     if isinstance(item, dict)
@@ -2392,13 +2561,32 @@ def _validate_assignment_issue(
         raise ValueError("Main Agent assignment artifact was not written")
 
 
-def method_implementation_bundle(package: dict[str, Any]) -> dict[str, Any]:
-    """把知识包契约原样绑定到方向计划；后端只处理通用组件 schema。"""
+def method_implementation_bundle(
+    package: dict[str, Any],
+    *,
+    scope: str | None = None,
+) -> dict[str, Any]:
+    """按可选 scope 绑定知识包契约；后端只处理通用组件 schema。"""
 
     contract = package.get("implementation_contract")
     if not isinstance(contract, dict):
         return {}
-    components = [item for item in contract.get("required_components") or [] if isinstance(item, dict)]
+    scope_profiles = contract.get("scope_profiles") if isinstance(contract.get("scope_profiles"), dict) else {}
+    profile = scope_profiles.get(scope) if scope and isinstance(scope_profiles.get(scope), dict) else {}
+    scoped_component_ids = {
+        component_id
+        for component_id in _strings(profile.get("component_ids"), limit=64)
+        if component_id
+    }
+    components = [
+        item
+        for item in contract.get("required_components") or []
+        if isinstance(item, dict)
+        and (
+            not scoped_component_ids
+            or str(item.get("component_id") or "").strip() in scoped_component_ids
+        )
+    ]
     if not components:
         return {}
     component_ids = [
@@ -2407,7 +2595,32 @@ def method_implementation_bundle(package: dict[str, Any]) -> dict[str, Any]:
         if str(item.get("component_id") or "").strip()
     ]
     known_component_ids = set(component_ids)
-    return {
+    raw_checkpoint_checks = [
+        item
+        for item in contract.get("checkpoint_checks") or []
+        if isinstance(item, dict)
+        and (
+            not scoped_component_ids
+            or not _strings(item.get("component_ids"), limit=32)
+            or any(
+                component_id in known_component_ids
+                for component_id in _strings(item.get("component_ids"), limit=32)
+            )
+        )
+    ]
+    coupled_groups: list[dict[str, Any]] = []
+    for item in contract.get("coupled_groups") or []:
+        if not isinstance(item, dict):
+            continue
+        component_ids_in_group = [
+            component_id
+            for component_id in _strings(item.get("component_ids"), limit=32)
+            if component_id in known_component_ids
+        ]
+        if not component_ids_in_group:
+            continue
+        coupled_groups.append({**item, "component_ids": component_ids_in_group})
+    bundle = {
         "contract_id": str(contract.get("contract_id") or "")[:160],
         "contract_path": str(package.get("implementation_contract_asset") or ""),
         "contract_paths": [
@@ -2417,8 +2630,8 @@ def method_implementation_bundle(package: dict[str, Any]) -> dict[str, Any]:
             if str(item or "").strip()
         ],
         "mode": str(contract.get("mode") or "complete_method_package")[:80],
-        "completion_rule": str(contract.get("completion_rule") or "")[:1200],
-        "variant_rule": str(contract.get("variant_rule") or "")[:1200],
+        "completion_rule": str(profile.get("completion_rule") or contract.get("completion_rule") or "")[:1200],
+        "variant_rule": str(profile.get("variant_rule") or contract.get("variant_rule") or "")[:1200],
         "diagnostics_serialization_rule": str(
             contract.get("diagnostics_serialization_rule") or ""
         )[:1200],
@@ -2426,23 +2639,30 @@ def method_implementation_bundle(package: dict[str, Any]) -> dict[str, Any]:
             contract.get("activation_checks"),
             limit=12,
         ),
-        "fallback_improvement_order": _strings(contract.get("fallback_improvement_order"), limit=32),
+        "fallback_improvement_order": [
+            component_id
+            for component_id in _strings(contract.get("fallback_improvement_order"), limit=32)
+            if component_id in known_component_ids
+        ],
         # 完整性契约不能静默截断，否则后面的组件永远不会进入实现和审查。
         "required_components": components,
         "component_dependencies": normalized_component_dependencies(
             contract.get("component_dependencies"),
             known_component_ids=known_component_ids,
         ),
-        "coupled_groups": [item for item in contract.get("coupled_groups") or [] if isinstance(item, dict)],
+        "coupled_groups": coupled_groups,
         "competition_tracks": normalized_competition_tracks(
             contract.get("competition_tracks"),
             known_component_ids=known_component_ids,
         ),
         "checkpoint_checks": normalized_checkpoint_checks(
-            contract.get("checkpoint_checks"),
+            raw_checkpoint_checks,
             known_component_ids=known_component_ids,
         ),
     }
+    if scope and profile:
+        bundle["scope"] = scope
+    return bundle
 
 
 def normalized_component_dependencies(

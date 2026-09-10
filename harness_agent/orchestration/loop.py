@@ -386,10 +386,8 @@ def run_worker_loop(
     # 阶段 2：每个外层 round 对应一个改进方向；repair attempt 不额外消耗轮数。
     effective_repair_attempts = worker_loop_repair_attempt_budget(worker, in_round_repair_attempts)
     if planner_uses_fast_mode(direction_planner):
-        # Fast rounds stay single-checkpoint when the first candidate is valid,
-        # but retain one targeted repair for runtime/activation failures. This
-        # keeps non-exact lanes from losing to the exact lane solely because the
-        # latter has a built-in repair minimum.
+        # Session-capable heuristic lanes interpret this as the total checkpoint
+        # count, so two checkpoints preserve one configured repair.
         effective_repair_attempts = 2 if effective_repair_attempts > 0 else 0
     round_records = list(resume_from.rounds) if resume_from is not None else []
     seen_proposal_fingerprints = {
@@ -1482,17 +1480,33 @@ def update_lane_development_states(
         requested_session = str(outcome.get("requested_session_id") or "") or None
         commanded_session = str(outcome.get("command_session_id") or "") or None
         observed_session = str(outcome.get("observed_session_id") or "") or None
+        resume_strategy = str(
+            outcome.get("session_resume_strategy")
+            or outcome.get("resume_strategy")
+            or ""
+        ).strip()
+        restart_equivalent_strategies = {
+            "restart_equivalent_context",
+            "restart_equivalent_context_missing_workspace_state",
+            "materialized_workspace_fresh_session_after_context_limit",
+            "materialized_workspace_fresh_session_after_stalled_worker",
+        }
+        intentional_restart = resume_strategy in restart_equivalent_strategies
         if observed_session is None and requested_session is None and event_bytes is None:
             observed_session = str(outcome.get("worker_session_id") or "") or None
         nonzero_stream = event_bytes is None or event_bytes > 0
         if requested_session:
-            continuity_ok = bool(
-                outcome.get("session_reused")
-                and commanded_session == requested_session
-                and observed_session == requested_session
-                and nonzero_stream
-            )
-            session_status = "continued" if continuity_ok else "continuity_failed"
+            if intentional_restart:
+                continuity_ok = bool(observed_session and nonzero_stream)
+                session_status = "started" if continuity_ok else "not_observed"
+            else:
+                continuity_ok = bool(
+                    outcome.get("session_reused")
+                    and commanded_session == requested_session
+                    and observed_session == requested_session
+                    and nonzero_stream
+                )
+                session_status = "continued" if continuity_ok else "continuity_failed"
         else:
             continuity_ok = bool(observed_session and nonzero_stream)
             session_status = "started" if continuity_ok else "not_observed"
@@ -1512,8 +1526,9 @@ def update_lane_development_states(
             "command_session_id": commanded_session,
             "observed_session_id": observed_session,
             "event_stream_status": event_stream_status,
+            "resume_strategy": resume_strategy or None,
         }
-        if requested_session and not continuity_ok:
+        if requested_session and not continuity_ok and not intentional_restart:
             stage_complete = False
             checkpoint["stage_complete"] = False
             checkpoint["stage_reason"] = "session_continuity_failed"
@@ -1532,7 +1547,7 @@ def update_lane_development_states(
             failure = str(checkpoint.get("reason") or "checkpoint_rejected")
         elif not stage_complete:
             failure = str(checkpoint.get("stage_reason") or "checkpoint_checks_failed")
-        elif requested_session and not continuity_ok:
+        elif requested_session and not continuity_ok and not intentional_restart:
             failure = "session_continuity_failed"
         state = LaneDevelopmentState(
             candidate_id=candidate_id,
@@ -2480,6 +2495,19 @@ def _resolve_activation_path_with_canonical(
                 f"best_metrics.solver_evidence.diagnostics.solver_evidence.{relative}",
             ]
         )
+        if relative.startswith("solver_evidence."):
+            # Some independently generated solvers flatten exact counters into
+            # the diagnostics object while keeping CP-SAT status/model evidence
+            # beside them. Treat that as an equivalent serialization shape;
+            # the exact-execution gate still proves the solver actually ran.
+            flat_relative = relative.removeprefix("solver_evidence.")
+            candidates.extend(
+                [
+                    f"diagnostics.{flat_relative}",
+                    f"diagnostics.solver_evidence.diagnostics.{flat_relative}",
+                    f"best_metrics.solver_evidence.diagnostics.{flat_relative}",
+                ]
+            )
         candidates.append(f"best_metrics.solver_evidence.{path}")
     elif path != "diagnostics":
         candidates.append(f"best_metrics.solver_evidence.diagnostics.{path}")
@@ -2953,9 +2981,14 @@ def candidate_worker_budgets(
     repairs = max(0, int(repair_attempts))
     family = str(direction_plan.get("method_family") or "")
     if family == "exact_hybrid":
+        # Fast planning expresses one configured repair as two heuristic
+        # checkpoints. Exact lanes already add the initial attempt themselves,
+        # so translate that internal representation back to one repair.
+        if direction_plan.get("fast_checkpoint_mode") and repairs > 0:
+            repairs -= 1
         return (
             max(steps, 8),
-            worker_loop_repair_attempt_budget(worker, max(repairs, 2)),
+            worker_loop_repair_attempt_budget(worker, repairs),
         )
     activation_checks = [
         item
@@ -2971,12 +3004,9 @@ def candidate_worker_budgets(
         if item.get("required") is not False
     )
     if variant_runtime_check:
-        # Session-capable workers interpret this value as the total checkpoint
-        # count. Variant adapters need one checkpoint after the first
-        # Core-observed activation, without doubling ordinary FJSP lanes.
         return (
             max(steps, 6),
-            worker_loop_repair_attempt_budget(worker, max(repairs, 2)),
+            worker_loop_repair_attempt_budget(worker, repairs),
         )
     return steps, repairs
 
@@ -3311,7 +3341,17 @@ def current_round_repair_feedback(
         for attempt in recent
         if isinstance(attempt, dict)
     )
-    repair_targets = collect_current_round_repair_targets(previous_attempts)
+    # Blocking evidence belongs to the worktree actually being repaired.
+    # Rejected descendants stay in history, not as defects in a restored anchor.
+    repair_source = (
+        repair_anchor
+        if isinstance(repair_anchor, dict) and repair_anchor
+        else next(
+            (item for item in reversed(previous_attempts) if isinstance(item, dict) and item),
+            None,
+        )
+    )
+    repair_targets = collect_current_round_repair_targets([repair_source] if repair_source else [])
     status = (
         "repair_required"
         if repair_targets
@@ -3332,7 +3372,7 @@ def current_round_repair_feedback(
             "candidate_key": repair_anchor.get("candidate_key") or [],
             "rule": (
                 "The candidate worktree for this repair was recreated from this best Core-valid attempt. "
-                "Preserve its effective mechanisms and repair accumulated findings with the smallest coherent edit."
+                "Preserve its effective mechanisms and repair findings observed on this anchor with the smallest coherent edit."
             ),
         }
     must_do = [
@@ -3452,10 +3492,10 @@ def collect_current_round_repair_targets(attempts: list[dict[str, Any]]) -> dict
             existing = []
             targets[key] = existing
         for item in value:
-            if item not in existing:
-                existing.append(item)
             if len(existing) >= limit:
                 break
+            if item not in existing:
+                existing.append(item)
 
     def add_dict(key: str, value: Any, *, limit: int = 8) -> None:
         if not isinstance(value, dict) or not value:
@@ -3464,10 +3504,11 @@ def collect_current_round_repair_targets(attempts: list[dict[str, Any]]) -> dict
         if not isinstance(existing, dict):
             existing = {}
             targets[key] = existing
-        for index, (item_key, item_value) in enumerate(value.items()):
-            if index >= limit:
+        for item_key, item_value in value.items():
+            normalized_key = str(item_key)
+            if normalized_key not in existing and len(existing) >= limit:
                 break
-            existing[str(item_key)] = item_value
+            existing[normalized_key] = item_value
 
     for attempt in attempts:
         if not isinstance(attempt, dict):
@@ -6184,6 +6225,7 @@ def compact_round_direction_plan(value: dict[str, Any] | None) -> dict[str, Any]
         "worker_lane_policy": plan.get("worker_lane_policy") or {},
         "exact_probe_policy": plan.get("exact_probe_policy") or {},
         "knowledge_query": _bounded_list(plan.get("knowledge_query"), limit=8),
+        "skill_synthesis": plan.get("skill_synthesis") or {},
         "hypothesis": _bounded_text(plan.get("hypothesis"), limit=500),
         "worker_objective": _bounded_text(plan.get("worker_objective"), limit=500),
         "diagnosis": _bounded_text(plan.get("diagnosis"), limit=500),

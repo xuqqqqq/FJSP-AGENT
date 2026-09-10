@@ -20,7 +20,8 @@
       "title": "工序级就绪集构造",
       "required_behaviors": [
         "每一步都要在所有就绪工序中选择工序，而不是一次提交一个完整作业。",
-        "优先级必须同时利用作业就绪状态、剩余加工/lag 链和机器压力。"
+        "优先级必须同时利用作业就绪状态、剩余加工/lag 链和机器压力。",
+        "至少评估一个低风险词典序候选：先最小化所有候选机器上的最早合法空隙开始时刻，再以较大的剩余最短加工时间加剩余 lag 链打破平局，最后按 job_id 确定性打破平局；该完整候选必须与父 incumbent 比较后再决定输出。"
       ],
       "evidence_required": "可达的就绪集与逐工序派工决策路径。"
     },
@@ -116,7 +117,7 @@
     {
       "check_id": "operation_level_reachability",
       "component_ids": ["operation_ready_dispatch"],
-      "requirement": "源码必须存在跨作业的工序级就绪集，不能仅打乱完整作业顺序。"
+      "requirement": "源码必须存在跨作业的工序级就绪集，不能仅打乱完整作业顺序；并须实际形成 EST 优先、剩余工作/lag 链次优的完整合法候选。"
     },
     {
       "check_id": "beam_state_evidence",

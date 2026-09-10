@@ -5,6 +5,27 @@
   "completion_rule": "只有真正的最大间隔感知精确模型或局部精确修复被执行、提取并经 Core 复核后，才可声明当前 exact-hybrid 阶段完成。",
   "variant_rule": "最大时间间隔必须作为真实的上界约束 start(to) <= end(from) + L 进入 CP-SAT；它不能扩张加工区间，也不能退化为名义标志或后继交期的替身。",
   "diagnostics_serialization_rule": "写入 solution diagnostics 前，solver status 必须转换为 status_name 字符串或其他 JSON 原生标量；不得直接序列化 CpSolverStatus、变量、interval 或绑定对象。",
+  "scope_profiles": {
+    "complete_or_bounded": {
+      "component_ids": [
+        "cp_sat_max_lag_model",
+        "constraint_activation_evidence",
+        "incumbent_bridge_and_fallback",
+        "extract_and_core_verify"
+      ],
+      "completion_rule": "完整或有界完整 CP-SAT probe 必须真实发布全部 maximum-lag 约束，提取完整合法排程，在输出前执行完整 max-lag-aware 验证，并在无合法改善时保留 incumbent；该作用域不要求实现局部 trust region。"
+    },
+    "local_trust_region": {
+      "component_ids": [
+        "cp_sat_max_lag_model",
+        "constraint_activation_evidence",
+        "incumbent_bridge_and_fallback",
+        "bounded_pair_trust_region",
+        "extract_and_core_verify"
+      ],
+      "completion_rule": "局部精确作用域必须围绕 tight pair、桥接链和相关机器块建立有界 trust region，真实发布 maximum-lag 约束，提取完整合法排程并经完整 max-lag-aware 验证。"
+    }
+  },
   "activation_evidence": {
     "required_fields": {
       "diagnostics.cp_sat_called": "truthy",

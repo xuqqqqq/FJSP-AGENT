@@ -28,7 +28,7 @@ PLANNING_PACKET_SECTION_SPECS = (
     ("research_state", "Cross-round transition state and next-action policy."),
     ("incumbent", "Incumbent evidence and static capability audit."),
     ("evidence_history", "Recent rounds, historical aggregates, and latest attempt evidence."),
-    ("direction_context", "Second-stage direction knowledge and eligible method packages."),
+    ("direction_context", "Second-stage direction knowledge, eligible method packages, and filtered Worker Skills."),
     ("control_context", "Guidance, intervention, memory, and artifact references."),
 )
 
@@ -249,6 +249,9 @@ def build_implementation_planning_packet(
     }
     catalog = _dict(context.get("method_package_catalog"))
     packet["eligible_method_packages"] = compact_method_package_candidates(catalog)
+    packet["active_worker_implementation_skills"] = compact_worker_skill_selection(
+        _dict(context.get("active_worker_implementation_skills"))
+    )
     packet["method_package_catalog"] = {
         "active_features": catalog.get("active_features") or [],
         "knowledge_query_tags": catalog.get("knowledge_query_tags") or [],
@@ -277,12 +280,65 @@ def build_implementation_planning_packet(
             "/active_direction_knowledge/query",
             "/active_direction_knowledge/paths",
             "/active_direction_knowledge/audit",
+            "/active_worker_implementation_skills",
             "/method_package_catalog",
         ]
     )
     packet["packet_completeness"] = completeness
     compact_implementation_history(packet)
     return finalize_planning_packet(packet)
+
+
+def compact_worker_skill_selection(value: dict[str, Any]) -> dict[str, Any]:
+    """Expose only Harness-filtered Skill metadata to the read-only planning agents."""
+
+    if not value:
+        return {}
+    skills = []
+    for item in value.get("skills") or []:
+        if not isinstance(item, dict):
+            continue
+        skills.append(
+            {
+                key: item.get(key)
+                for key in (
+                    "skill_id",
+                    "title",
+                    "description",
+                    "method_families",
+                    "matched_method_families",
+                    "activation_tags",
+                    "required_features",
+                    "excluded_features",
+                    "always_include",
+                    "require_activation_tag_match",
+                    "sandbox_path",
+                )
+                if item.get(key) not in (None, [], {}, "")
+            }
+        )
+    audit = _dict(value.get("audit"))
+    return {
+        "status": value.get("status"),
+        "problem_family": value.get("problem_family"),
+        "active_features": value.get("active_features") or [],
+        "method_families": value.get("method_families") or [],
+        "skills": skills[:8],
+        "audit": {
+            key: audit.get(key) or []
+            for key in (
+                "requested_method_families",
+                "rejected_method_families",
+                "uncovered_method_families",
+                "excluded_skills",
+                "selected_skill_ids",
+            )
+        },
+        "write_policy": (
+            "read_only_summary; candidate lessons require evaluator-backed repetition or human review before "
+            "curated Skill promotion"
+        ),
+    }
 
 
 def project_implementation_quality_contract(contract: dict[str, Any]) -> dict[str, Any]:
@@ -1622,6 +1678,7 @@ def _planning_packet_section_payload(packet: dict[str, Any], key: str) -> dict[s
                 "direction_selection",
                 "active_direction_knowledge",
                 "eligible_method_packages",
+                "active_worker_implementation_skills",
             )
             if packet.get(name) not in (None, [], {})
         }

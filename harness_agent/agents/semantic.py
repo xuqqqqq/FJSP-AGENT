@@ -1237,15 +1237,49 @@ def normalize_review_path(value: Any) -> str:
 def parse_json_object_response(content: str) -> dict[str, Any]:
     text = str(content or "").strip()
     try:
-        payload = json.loads(text)
+        payload = _load_json_with_terminal_container_repair(text)
     except json.JSONDecodeError as original:
         fenced = re.fullmatch(r"```(?:json)?\s*(\{.*\})\s*```", text, flags=re.DOTALL | re.IGNORECASE)
         if fenced is None:
             raise original
-        payload = json.loads(fenced.group(1))
+        payload = _load_json_with_terminal_container_repair(fenced.group(1))
     if not isinstance(payload, dict):
         raise json.JSONDecodeError("semantic review response is not a JSON object", text, 0)
     return payload
+
+
+def _load_json_with_terminal_container_repair(text: str) -> Any:
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as error:
+        if error.pos != len(text):
+            raise
+
+        stack: list[str] = []
+        in_string = False
+        escaped = False
+        pairs = {"}": "{", "]": "["}
+        for char in text:
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+            elif char in "{[":
+                stack.append(char)
+            elif char in "}]":
+                if not stack or stack.pop() != pairs[char]:
+                    raise error
+
+        if in_string or escaped or not stack:
+            raise error
+        suffix = "".join("}" if opener == "{" else "]" for opener in reversed(stack))
+        return json.loads(text + suffix)
 
 
 def merge_usage(*values: dict[str, int] | None) -> dict[str, int]:

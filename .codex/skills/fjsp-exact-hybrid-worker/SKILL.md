@@ -31,6 +31,10 @@ description: 为受控编码代理实现 FJSP 的 CP-SAT、局部精确修复、
 2. 按 assignment 实现完整模型、局部精确修复或等价的精确子问题，并闭合机器唯一选择、precedence、资源互斥和求解状态处理。
 3. 显式定义局部修复时被释放的变量，其余 assignment/order 由 incumbent 或可靠 hint 约束。
 4. 采用分层预算，区分短 probe 与主要连续求解预算，并使用绝对 deadline。
+   WorkerAssignment 的 `max_solver_smoke_seconds` 只限制编码阶段的自测，不能成为最终 CLI 中 exact
+   阶段的固定上限。最终 CLI 必须从用户传入的 `time_limit` 计算预算，保留解析、启发式 warm start、
+   验证与序列化余量后，让主要 exact 阶段消费合理比例的剩余时间；禁止把 60 秒等正式预算无条件
+   截断为 `2.5` 或 `3` 秒。已有合法启发式 incumbent 时应保留并在支持时作为 CP-SAT hint。
    时间变量上界必须是完整排程的安全上界，例如已验证 incumbent makespan 或全体工序候选
    最大加工时长之和；“最长单个 job 的加工时长和”通常只是资源冲突前的下界，不得用作全局
    horizon，否则机器拥堵会把本来可行的模型误截成 `INFEASIBLE`。
@@ -52,6 +56,8 @@ description: 为受控编码代理实现 FJSP 的 CP-SAT、局部精确修复、
    `model.new_fixed_size_interval_var(start, size, name)`；不要臆造
    `NewFixedIntervalVar`。模型规模使用 `len(model.Proto().variables)` 与
    `len(model.Proto().constraints)`，不要臆造 `NumVariables()` / `NumConstraints()`。
+   makespan 目标使用 `model.Minimize(makespan)` 或当前版本兼容的 `model.minimize(makespan)`；
+   `model.add_minimize` 不存在，严禁调用。
    若 assignment 开放了固定 capability probe，先验证相应方法存在。
    区间构造必须先区分是否需要显式结束变量，并优先按当前 9.15 签名的位置顺序调用，避免
    Python 绑定层的关键字名称随版本漂移：需要显式结束变量时使用

@@ -15,12 +15,27 @@ from harness_agent.agents.semantic import (
     load_review_knowledge,
     load_review_sources,
     normalize_semantic_review,
+    parse_json_object_response,
     semantic_review_json_repair_prompt,
     semantic_review_prompt,
 )
 
 
 class SemanticReviewTests(unittest.TestCase):
+    def test_parse_json_object_response_repairs_terminal_missing_container_closers(self) -> None:
+        self.assertEqual(
+            {"summary": "ok", "components": [{"status": "implemented"}]},
+            parse_json_object_response(
+                '{"summary":"ok","components":[{"status":"implemented"}]'
+            ),
+        )
+
+    def test_parse_json_object_response_rejects_non_terminal_or_string_truncation(self) -> None:
+        with self.assertRaises(json.JSONDecodeError):
+            parse_json_object_response('{"summary":"ok" "findings":[]}')
+        with self.assertRaises(json.JSONDecodeError):
+            parse_json_object_response('{"summary":"unterminated}')
+
     def test_opencode_semantic_reviewer_normalizes_attached_json_response(self) -> None:
         request = AlgorithmSemanticReviewRequest(
             round_index=0,

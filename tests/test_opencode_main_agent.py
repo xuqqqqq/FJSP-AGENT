@@ -27,6 +27,7 @@ from harness_agent.agents.opencode_main import (
     merge_event_summaries,
     method_package_query_tags,
     normalize_direction_selection,
+    normalize_generic_method_variants,
     opencode_event_stream_health,
     resolve_fast_method_package,
     summarize_opencode_events,
@@ -164,6 +165,37 @@ class OpenCodeMainAgentTests(unittest.TestCase):
                 ["Greedy construction", "Local improvement", "Mathematical optimization"],
                 [item["candidate_variant"]["method_name"] for item in lanes],
             )
+
+    def test_generic_method_ids_remain_unique_after_length_normalization(self) -> None:
+        shared_id = "contract_fjsp_max_time_lag_seti5c12_none_v1_qiming"
+        variants = normalize_generic_method_variants(
+            [
+                {
+                    "candidate_id": shared_id + suffix,
+                    "method_name": method,
+                    "hypothesis": f"Test {method}.",
+                    "worker_objective": f"Implement {method} with incumbent fallback.",
+                    "strategy_type": "generic_search",
+                }
+                for suffix, method in (
+                    ("_local", "Time-lag local search"),
+                    ("_gap", "Load-balanced gap insertion"),
+                    ("_insertion", "Time-lag driven insertion"),
+                )
+            ],
+            expected=3,
+        )
+
+        candidate_ids = [item["candidate_id"] for item in variants]
+        self.assertEqual(3, len(set(candidate_ids)))
+        self.assertTrue(all(len(candidate_id) <= 48 for candidate_id in candidate_ids))
+        self.assertEqual(3, len(competitive_direction_plans(
+            {
+                "candidate_variants": variants,
+                "worker_lane_policy": {"mechanism_selection": "generic_method_tournament"},
+            },
+            limit=3,
+        )))
 
     def test_fallback_tournament_binds_variant_packages_after_pending_catalog(self) -> None:
         cases = (
@@ -862,6 +894,9 @@ class OpenCodeMainAgentTests(unittest.TestCase):
             call = run_once.call_args.kwargs
             self.assertEqual("_fast", call["suffix"])
             self.assertIsNone(call["allowed_specialist"])
+            self.assertEqual([], call["allowed_skills"])
+            self.assertTrue(call["attachments_only"])
+            self.assertTrue(call["isolated_cwd"])
             self.assertIn("不要调用子 Agent", call["prompt"])
             self.assertEqual("opencode_main_agent_fast", plan["planner"])
             self.assertEqual("constructive_search", plan["method_family"])
@@ -1350,7 +1385,7 @@ class OpenCodeMainAgentTests(unittest.TestCase):
             "requirements-method-analyst",
             "evidence-analyst",
             "plan-critic",
-            "candidate-strategy-analyst",
+            "skill-summary-analyst",
         ]
 
         runtime = agent._runtime_config(
@@ -1451,6 +1486,18 @@ class OpenCodeMainAgentTests(unittest.TestCase):
         )
 
         self.assertEqual(["candidate-strategy-analyst"], summary["called_subagents"])
+
+    def test_main_usage_records_skill_summary_subagent(self) -> None:
+        summary = summarize_opencode_events(
+            json.dumps(
+                {
+                    "type": "tool_use",
+                    "part": {"tool": "task", "agent": "skill-summary-analyst"},
+                }
+            )
+        )
+
+        self.assertEqual(["skill-summary-analyst"], summary["called_subagents"])
 
     def test_extracts_planned_direction_from_json_event_text(self) -> None:
         planned = {
@@ -1728,6 +1775,28 @@ class OpenCodeMainAgentTests(unittest.TestCase):
                 ],
                 "audit": {"status": "complete", "selected_count": 1},
             },
+            "active_worker_implementation_skills": {
+                "status": "ok",
+                "problem_family": "FJSP",
+                "active_features": [],
+                "method_families": [{"id": "family_0", "role": "primary"}],
+                "skills": [
+                    {
+                        "skill_id": "fjsp-solver-foundation-worker",
+                        "title": "Solver foundation",
+                        "description": "Preserve CLI, parser, deadline, and complete output contracts.",
+                        "source_path": str(ROOT / ".codex" / "skills" / "fjsp-solver-foundation-worker"),
+                        "method_families": ["family_0"],
+                        "matched_method_families": ["family_0"],
+                        "always_include": True,
+                        "sandbox_path": ".opencode/skills/fjsp-solver-foundation-worker",
+                    }
+                ],
+                "audit": {
+                    "requested_method_families": ["family_0"],
+                    "selected_skill_ids": ["fjsp-solver-foundation-worker"],
+                },
+            },
             "method_package_catalog": {
                 "active_features": [],
                 "knowledge_query_tags": ["tag_00"],
@@ -1856,6 +1925,17 @@ class OpenCodeMainAgentTests(unittest.TestCase):
                 "family_0",
                 implementation_packet["active_direction_knowledge"]["method_family"],
             )
+            skill_selection = implementation_packet["active_worker_implementation_skills"]
+            self.assertEqual(
+                ["fjsp-solver-foundation-worker"],
+                skill_selection["audit"]["selected_skill_ids"],
+            )
+            self.assertNotIn("source_path", skill_selection["skills"][0])
+            self.assertEqual(
+                ".opencode/skills/fjsp-solver-foundation-worker",
+                skill_selection["skills"][0]["sandbox_path"],
+            )
+            self.assertIn("human review", skill_selection["write_policy"])
             implementation_attachment = planning_packet_text(implementation_packet)
             self.assertEqual(
                 len(implementation_attachment),
@@ -2617,6 +2697,11 @@ class OpenCodeMainAgentTests(unittest.TestCase):
             self.assertIn("都是 advisory", implementation_call["prompt"])
             self.assertIn("不得把它们解释成禁止选择完整方法", implementation_call["prompt"])
             self.assertIn("不鼓励机械照抄参考源码", implementation_call["prompt"])
+            self.assertIn("skill-summary-analyst", implementation_call["prompt"])
+            self.assertEqual(
+                ["skill-summary-analyst", "plan-critic", "candidate-strategy-analyst"],
+                implementation_call["allowed_specialist"],
+            )
 
             retry_call = run_once.call_args_list[2].kwargs
             retry_attachments = {path.name for path in retry_call["attachments"]}

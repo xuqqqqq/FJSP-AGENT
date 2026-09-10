@@ -1,73 +1,59 @@
 ---
 name: fjsp-alternative-path-adapter-worker
-description: 为受控编码代理把已选 FJSP 方法族适配到每个作业恰选一条工艺路线的替代工艺路径约束。仅在运行时契约明确激活 `alternative_path` 且 Harness 授权本技能时使用。
+description: 为已授权的方法族实现替代工艺路径FJSP的路线选择、完整重解码及有界改进；仅用于alternative_path或route_choice激活的WorkerAssignment。
 ---
 
-# FJSP 替代工艺路径适配执行器
+# 替代工艺路线适配
 
-## 触发条件
+只加载Assignment列出的技能；不要另行请求foundation或其他未授权技能。
+已完整内联的incumbent、IO与知识卡不重复打开；只提供路径时仍需读取获准文件。先用一句话指出本次要改的
+函数和规则，然后落盘一个能从真实CLI执行的小改动；不要先重写完整求解器或补齐所有未来阶段。
+`implementation_order`决定本次范围；下面只执行对应方法段落。
 
-- 运行时契约已明确激活 `alternative_path` 或 `route_choice`。
-- Harness 已授权本技能，且任务是在既定方法族上补入替代工艺路径语义，而不是重新选择方法族。
-- 活动 IO contract 的语义是：每个 job 的候选路线集合为原始路线 `route_id=0` 加上尾部给出的 `K` 条替代路线；`op_id` 始终引用原始 operation pool 中的 0-based 工序编号；每个 job 必须且只能选择一条路线。
+## 不变语义
 
-若任务同时引入可重入、时间间隔、日历、SDST、运输或跨作业路线耦合，本技能不足以单独覆盖，必须先取得对应变体合同。
+每个job恰选一条路线：0为原始顺序，1..K为尾部替代序列。工序key始终用原始
+`(job_id, op_id)`，不能把路线位置当op_id。只排所选路线工序；换路线后重建其顺序、
+覆盖集合、机器时间轴并完整重解码。未选路线可以有较少或重排的工序，不能“修复”为全工序池排程。
+最终`selected_routes`和`schedule`来自同一个合法best快照。
 
-## 读取顺序
+## 在现有表示上实现所选方法
 
-1. 先加载 `fjsp-solver-foundation-worker` 和当前方法族技能。
-2. 读取 Assignment `read_set` 中的需求与 IO 文档。
-3. 读取 `knowledge/references/alternative_path/alternative_path_semantics_and_validation.md`。
-4. 需要构造、邻域或精确建模细节时，再读取 `knowledge/references/alternative_path/alternative_path_search_adaptation.md`。
-5. 读取当前获准的方法包契约。
+- **constructive_search**：保留已有parser/decoder，先补最早空闲间隙插入或剩余工作量派工中
+  当前缺失的一项；对不同路线向量与派工优先参数完整构造、比较并保存最优。
+  路线静态工作量仅供初筛，最终按完整排程makespan选。不要跑两三个候选仅凑激活计数就退出；
+  有剩余CLI预算时继续不同路线与优先参数的有界多起点，重复状态去重。
+- **coupled_local_search**：优先复用incumbent的完整构造函数作为重解码器。
+  先闭合“复制当前路线→换一个job路线→完整重解码→严格改进才更新best”的循环；
+  接受后从新状态继续扫描。若当前阶段包含machine/order邻域，再复用原有优先序或分配参数
+  做一个交换/重插邻域，不强制把已合法的构造式表示改写成机器DAG或Tabu系统。
+  有预算且一轮无改进时可从独立扰动状态重启，全局best始终保留。
+- **exact_hybrid**：用已有合法解回退，新增一个可从CLI调用的路线模型函数。
+  每job-route有one-hot变量；工序presence等于包含该工序的所选route之和；
+  机器presence之和等于工序presence。所有路线共享工序起止变量，precedence按route条件激活。
+  先闭合真实模型、Solve和输出，再按模型规模决定是否局部释放；不要先实现复杂LNS外壳。
+  只从FEASIBLE/OPTIMAL提取，UNKNOWN或异常保留旧best。详见已授权
+  `knowledge/references/alternative_path/alternative_path_search_adaptation.md`的精确段。
+- **population_memetic**：路线向量是染色体的一部分，变异后仍通过同一完整重解码器评分。
 
-## 执行步骤
+CLI搜索预算来自`--time-limit-sec`，短smoke时限不应固化为正式搜索上限。
+先运行现有入口取得合法best；允许按Assignment在总deadline内划分旧搜索与新增阶段预算，
+提前预留新增阶段时间并将返回best接回输出，不能先让旧搜索耗尽全部时限。
+预算耗尽只停止搜索，不能输出未完成候选。若可枚举候选已穷尽，可以提前结束并报告原因。
 
-1. **确认语义边界**：原始 job 路线是 `route_id=0`，尾部每条路线是同一 job 的一个替代工序序列；它不是任意 route graph，也不是可多选的工序子集。
-2. **接入状态**：完整解析每个 job 的 `K` 和 K 条尾部路线，保留原始路线与所有替代路线的统一索引。`selected_routes[job_id]` 必须覆盖每个 job，且 route id 只能落在 `0..K`。
-3. **闭合解码**：所有构造、route switch、换机、交换、重插、repair 或 exact extraction 后，都必须由同一个 full decoder 验证“恰好调度所选路线的全部工序且仅这些工序”，并校验路线顺序 precedence、候选机器和机器不重叠。
-4. **适配已选方法族**：
-   - 构造搜索必须显式做 route-first 或 route-regret 决策，并保留多起点；
-   - 耦合局部搜索必须存在 route-switch 机制，并在 route 切换后做事务式完整重解码，再配合同机/异机顺序邻域；
-   - exact/hybrid 必须使用真实 route one-hot、optional intervals 与 conditional precedence，不得只用日志标志替代建模。
-5. **保留 incumbent**：部分路线、重复工序、遗漏所选工序、未更新 `selected_routes`、route switch 后 stale schedule、非法机器或目标退化的候选都不能覆盖当前合法 best。
-6. **提交证据**：报告解析的替代路线数、非原始路线使用数、route-first 或 route-switch 命中数、完整重解码次数、因 selected-route 不一致被拒绝的候选数，以及 exact lane 的非空 CP-SAT 执行状态。
+## 证据与一次闭环检查
 
-### 规范激活遥测
+只报告实际发生的计数，写入最终JSON的`diagnostics`，不要为了计数强选劣路线：
 
-这些字段名是 Harness 的机器验收合同，必须按所选方法族写入 solution `diagnostics`，不能改名、移层或用源码存在性代替：
+| 方法 | 规范字段 |
+|---|---|
+| 构造 | `activation.constructive_search.candidates_evaluated`；`activation.alternative_path.route_configurations_evaluated`（不同路线向量完成合法解码后计数） |
+| 局部 | `activation.coupled_local_search.moves_evaluated`；`activation.alternative_path.route_switch_moves_evaluated` |
+| 精确 | `cp_sat_called`；`solver_evidence.route_one_hot_constraints_posted`、`route_optional_intervals_posted`、`route_conditional_precedences_posted`及求解状态 |
+| 群体 | `activation.alternative_path.route_mutations_evaluated`及Assignment指定的群体计数 |
 
-- 构造：`diagnostics.activation.constructive_search.candidates_evaluated > 1` 且 `diagnostics.activation.alternative_path.route_configurations_evaluated > 1`；后者只统计 selected_routes 已确定并完成路线诱导全解码的候选。
-- 耦合局部搜索：`diagnostics.activation.coupled_local_search.moves_evaluated > 0` 且 `diagnostics.activation.alternative_path.route_switch_moves_evaluated > 0`；后者只统计真实切换 route、重建 operation set 并完整重解码的 move。
-- 精确混合：`diagnostics.cp_sat_called == true`，并同时满足 `diagnostics.solver_evidence.route_one_hot_constraints_posted > 0`、`route_optional_intervals_posted > 0`、`route_conditional_precedences_posted > 0`。
-- 群体/模因：除通用 population counters 外，还要有 `diagnostics.activation.alternative_path.route_mutations_evaluated > 0`，只统计切换路线并完整解码后的 mutation。
-
-固定 `route_id=0`、只输出 `selected_routes` metadata、普通非 optional intervals、无条件发布全部路线 precedence、生成未评估 route 邻居，均不得增加上述计数。
-
-对 coupled lane，定义 `run_coupled_local_search` 之类 helper 不等于适配完成。真实 CLI 必须给该搜索
-分配非零 deadline/迭代预算并实际调用，然后把同一次调用的 `moves_evaluated` 与
-`route_switch_moves_evaluated` 写入最终 solution diagnostics。可以保留 exact incumbent 作为回退，
-但不能因其目标更好而跳过获准方法族的 bounded probe。
-
-## 实现底线
-
-- 不允许把 route choice 误写成普通 machine flexibility。
-- 不允许对一个 job 同时混用多条路线的工序。
-- 不允许输出原始 operation pool 的全量工序，除非该 job 选择的就是完整原始路线。
-- 不允许只修改 `selected_routes` 而不重建 schedule，也不允许只修改 schedule 而不更新 `selected_routes`。
-- 不允许在 exact/hybrid 中省略真实 route one-hot 或条件 precedence。
-- 不允许从 Harness parser/evaluator 导入实现；求解器必须在允许路径内独立解析、选路和生成解。
-
-## 验证与停止条件
-
-至少覆盖以下微型行为：
-
-- `route_id=0` 等于原始顺序；
-- 非原始路线可以跳过原始 pool 中未被所选路线包含的工序；
-- 未选路线工序出现在输出中会被拒绝；
-- `selected_routes` 缺失、越界或与 schedule 不一致会被拒绝；
-- 一次 route switch 后，完整重解码仍满足 job precedence 和 machine capacity；
-- exact/hybrid 路径能证明真实 route one-hot、optional interval 和 conditional precedence 已被 posted，并有非空 CP-SAT 执行状态；
-- 输出包含每个 job 的 `selected_routes`，且 Core 返回 `valid=true`。
-
-只证明“最终 schedule 合法”不足以声称适配完成。若构造、局部搜索或精确模型仍不能显式处理 route choice，停止质量主张并继续修补当前阶段。
+字段相对`diagnostics`；具体必需值以Assignment为准。正计数证明调用发生，不证明质量提升。
+先保存代码，再原样执行获准的compile、固定smoke命令；不加`cd`、`&& echo`或另开自测命令。
+在同一次获准smoke中检查selected-route覆盖、路线前驱、机器资格与不重叠、incumbent保留及所选方法计数。
+若最终选择原始路线更好，就保留原始路线；路线探索能力不要求最终解采用非原始路线。
+若还激活时间间隔、组批、SDST或日历，须消费Assignment中的对应约束；本技能不能替代这些语义。

@@ -18,7 +18,11 @@ from harness_agent.context.knowledge import (
     resolve_worker_implementation_skills,
     select_tagged_knowledge_cards,
 )
-from harness_agent.worker import WorkerAssignment
+from harness_agent.worker import (
+    WORKER_EXECUTION_BUDGET_LIMITS,
+    WorkerAssignment,
+    worker_execution_budget_errors,
+)
 
 
 # Keep ordinary assignments concise, but do not reject evidence-heavy work only
@@ -53,6 +57,17 @@ def build_worker_assignment(
     有序交付物，不得到完整 Context Packet 或未选中的知识目录。
     """
 
+    execution_budget = context.get("worker_execution_budget", {})
+    if not isinstance(execution_budget, dict):
+        raise ValueError("worker_execution_budget must be a dictionary")
+    unknown = set(execution_budget) - set(WORKER_EXECUTION_BUDGET_LIMITS)
+    if unknown:
+        raise ValueError("unknown worker_execution_budget fields: " + ", ".join(sorted(map(str, unknown))))
+    budget_errors = worker_execution_budget_errors(execution_budget)
+    if budget_errors:
+        raise ValueError("invalid worker_execution_budget: " + "; ".join(budget_errors))
+    smoke_count = execution_budget.get("max_solver_smokes", 1)
+    smoke_seconds = execution_budget.get("max_solver_smoke_seconds", 3)
     direction_id = str(direction_plan.get("direction_id") or f"d{round_index:03d}").strip()
     latest_feedback = _assignment_feedback(loop_feedback, attempt_index=attempt_index)
     baseline_trial = attempt_index + 1 if round_index < 0 else None
@@ -182,7 +197,22 @@ def build_worker_assignment(
             evaluator_protocol=evaluator_protocol,
         )
     remaining_components = _remaining_component_ids(latest_feedback)
-    repair_deliverables = _repair_deliverables(latest_feedback) if mode == "repair" else []
+    # A foundation retry can remain in baseline mode, but an existing Core
+    # counterexample must replace the generic first-generation checklist.
+    baseline_targets = latest_feedback.get("repair_targets") or {}
+    baseline_core_repair = bool(
+        mode == "baseline"
+        and attempt_index > 0
+        and latest_feedback.get("resume_incomplete_baseline")
+        and not baseline_exact_rescue
+        and isinstance(baseline_targets, dict)
+        and (baseline_targets.get("result_revalidation_top_errors")
+             or baseline_targets.get("diagnostic_smoke_top_errors"))
+    )
+    repair_deliverables = (
+        _repair_deliverables(latest_feedback)
+        if mode == "repair" or baseline_core_repair else []
+    )
     if mode == "repair" and not repair_deliverables:
         raise ValueError(
             "repair assignment requires concrete compile/runtime/validator/mechanism-activation failures; "
@@ -348,8 +378,12 @@ def build_worker_assignment(
         latest_feedback=latest_feedback,
         checks=_unique_strings(
             [
-                "Compile the target solver once.",
-                "Run at most one fixed-seed solver smoke with a time limit no greater than 3 seconds.",
+                ("Compile the target solver once." if smoke_count == 1 else
+                 "Compile the target solver after edits before each bounded smoke."),
+                ("Run at most one fixed-seed solver smoke with a time limit no greater than 3 seconds."
+                 if smoke_count == 1 and smoke_seconds == 3 else
+                 f"Run at most {smoke_count} fixed-seed solver smokes, each with a time limit no greater "
+                 f"than {smoke_seconds} seconds; failed runs consume the budget. Repair between checks as needed."),
                 *(
                     [
                         "The CLI entrypoint must invoke the bounded exact solver before any failed constructive "
@@ -362,8 +396,9 @@ def build_worker_assignment(
                 ),
                 *(
                     [
-                        "Eligible-machine choices are structured (machine_id, processing_time) pairs. Unpack the pair "
-                        "before using the machine_id as a dictionary key or the processing_time as a duration."
+                        "Read eligible-machine IDs and processing durations from the active IO contract; preserve "
+                        "their association and unpack or look up values according to the actual parsed representation "
+                        "before indexing or arithmetic."
                     ]
                     if baseline_trial is not None
                     else []
@@ -387,8 +422,9 @@ def build_worker_assignment(
         budgets={
             "max_edit_steps": max(1, int(max_steps)),
             "max_runtime_seconds": max(1, int(max_runtime_seconds)),
-            "max_solver_smokes": 1,
-            "max_solver_smoke_seconds": 3,
+            "max_solver_smokes": smoke_count,
+            "max_solver_smoke_seconds": smoke_seconds,
+            **execution_budget,
         },
         completion_rule=completion_rule,
         lineage={
@@ -455,6 +491,28 @@ def build_worker_assignment(
                     "Core owns legality/objectives; required activation gates lineage/promotion."
                 ),
             },
+            **(
+                {
+                    "activation_evidence_output_contract": {
+                        "location": "solution.json#/diagnostics",
+                        "required_paths": [
+                            str(item.get("path") or "")
+                            for item in direction_plan.get("activation_checks") or []
+                            if isinstance(item, dict) and str(item.get("path") or "").strip()
+                        ][:12],
+                        "forbidden_wrappers": [
+                            "solution.json#/solver_evidence/diagnostics",
+                            "solution.json#/best_metrics/solver_evidence/diagnostics",
+                        ],
+                        "rule": (
+                            "Emit declared activation counters at their exact paths under the top-level diagnostics "
+                            "object. Do not add solver_evidence or best_metrics wrappers."
+                        ),
+                    }
+                }
+                if baseline_trial is None and direction_plan.get("activation_checks")
+                else {}
+            ),
             **(
                 {
                     "diagnostics_json_contract": {
@@ -815,13 +873,21 @@ def _assignment_read_set(
             for value in direction_paths
             if (path := _safe_read_path(value))
         }
+        authorized_package_semantics = {
+            path
+            for value in active_package.get("semantic_assets") or []
+            if (path := _safe_read_path(value))
+            and not Path(path).name.endswith("algorithm_semantic_review_contract.md")
+        }
         supporting_paths = [
             path
             for path in supporting_paths
             if Path(str(path)).name.endswith("_execution_skeleton.md")
             or _safe_read_path(path) in authorized_direction_paths
+            or _safe_read_path(path) in authorized_package_semantics
         ]
-    for path in _unique_strings(supporting_paths or [])[:6]:
+    supporting_limit = 2 if focused_improvement else 6
+    for path in _unique_strings(supporting_paths or [])[:supporting_limit]:
         safe_path = _safe_read_path(path)
         if (
             not safe_path
@@ -970,7 +1036,7 @@ def _agent_generated_baseline_deliverables(
                     else "Parse the assigned instance format into jobs, ordered operations, eligible machines, and durations."
                 ),
                 "evidence_required": (
-                    "Before other optional work, run the one allowed smoke on the staged sample and prove that "
+                    "Before other optional work, run an allowed bounded smoke on the staged sample and prove that "
                     "all job rows remain aligned, exactly job_count loop triples are consumed, and expanded "
                     "operation coverage matches the contract."
                     if reentrant
@@ -1174,7 +1240,10 @@ def _assignment_deliverables(
         return [
             {
                 "id": str(item.get("id") or item.get("component_id") or f"deliverable_{index}"),
-                "behavior": str(item.get("behavior") or item.get("title") or "")[:800],
+                "behavior": (
+                    " ".join(_strings(item.get("required_behaviors"), limit=8))
+                    or str(item.get("behavior") or item.get("title") or "")
+                )[:800],
                 "evidence_required": str(item.get("evidence_required") or "Reachable source and bounded check.")[:800],
             }
             for index, item in enumerate(declared[:20])
@@ -1188,7 +1257,10 @@ def _assignment_deliverables(
         result.append(
             {
                 "id": component_id,
-                "behavior": str(item.get("title") or component_id)[:800],
+                "behavior": (
+                    " ".join(_strings(item.get("required_behaviors"), limit=8))
+                    or str(item.get("title") or component_id)
+                )[:800],
                 "evidence_required": str(item.get("evidence_required") or "Reachable source evidence.")[:800],
             }
         )
@@ -1297,7 +1369,7 @@ def _repair_deliverables(feedback: dict[str, Any]) -> list[dict[str, str]]:
             {
                 "id": "repair_python_compile_errors",
                 "behavior": "Fix every reported Python compile error before making any semantic or objective change.",
-                "evidence_required": "The assignment's single py_compile check exits successfully.",
+                "evidence_required": "The assignment's bounded py_compile check exits successfully.",
             },
         )
     generic_issues = [

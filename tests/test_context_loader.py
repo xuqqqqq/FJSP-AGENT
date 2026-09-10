@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from harness_agent.context.loader import load_context_packet
+from harness_agent.context.compaction import stable_worker_context
 from harness_agent.context.packet import ContextPacketRequest, write_context_packet
 
 
@@ -14,6 +15,20 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ContextLoaderTests(unittest.TestCase):
+    def test_execution_budget_survives_stable_base_and_delta(self) -> None:
+        budget = {"max_agent_steps": 64, "max_solver_smokes": 3,
+                  "max_solver_smoke_seconds": 60}
+        with tempfile.TemporaryDirectory() as tmp:
+            base = self._base_payload()
+            base["worker_execution_budget"] = budget
+            payload = {"schema_version": 2, "base_context": stable_worker_context(base),
+                       "context_delta": {"hypothesis": "repair observed failure"}}
+            path = Path(tmp) / "context.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            loaded = load_context_packet(path)
+        self.assertEqual(budget, loaded.effective_context["worker_execution_budget"])
+        self.assertEqual(budget, loaded.stable_context["worker_execution_budget"])
+
     def test_v1_packet_is_split_into_stable_and_dynamic_views(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             packet_path = write_context_packet(

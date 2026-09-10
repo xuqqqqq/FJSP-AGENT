@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "family_id": "fjsp_industrial_json",
+  "aliases": [],
+  "capability": {
+    "display_name": "Industrial JSON finite-batch FJSP",
+    "description": "Original industrial JSON with a frozen external finite-batch validator. Experimental Agent-generated solver adaptation.",
+    "supported_variants": ["fjsp_industrial_json"],
+    "canonical_objectives": [
+      {"name": "completed_weight_within_horizon", "direction": "maximize", "priority": 1},
+      {"name": "setup_count_positive", "direction": "minimize", "priority": 2}
+    ],
+    "io_contract_notes": ["Use docs/variants/industrial_json/io.md; no standard schedule schema or makespan objective."],
+    "evaluator_invariants": ["Only the frozen external finite-batch validator establishes feasibility. Never read or modify its source in a Worker."],
+    "solver_entrypoints": ["examples/agent_generated_industrial_solver.py"],
+    "knowledge_tags": ["industrial_json"],
+    "specialization_hooks": ["agent_generated_solver"]
+  },
+  "agent_generated_baseline": {"preserve_paths": ["docs/variants/industrial_json"], "hidden_reference_paths": []},
+  "method_families": [
+    {"family_id": "constructive_search", "title": "Constructive search", "description": "Bounded multi-start or beam construction under the industrial contract.", "query_tags": ["industrial_json", "constructive_search"], "default_priority": 100},
+    {"family_id": "coupled_local_search", "title": "Coupled local search", "description": "Coupled route, machine, order and batch moves with full feasibility decoding.", "query_tags": ["industrial_json", "coupled_local_search"], "default_priority": 100},
+    {"family_id": "exact_hybrid", "title": "Exact hybrid", "description": "CP-SAT or bounded exact repair respecting industrial constraints.", "query_tags": ["industrial_json", "exact_hybrid"], "default_priority": 100},
+    {"family_id": "population_memetic", "title": "Population/memetic search", "description": "Diverse feasible route and assignment populations with bounded improvement.", "query_tags": ["industrial_json", "population_memetic"], "default_priority": 100}
+  ],
+  "worker_implementation_skills": [
+    {"skill_id": "fjsp-experiment-design-worker", "title": "Experiment evidence", "source_path": ".codex/skills/fjsp-experiment-design-worker", "always_include": true, "default_priority": 900},
+    {"skill_id": "industrial-fjsp-from-scratch", "title": "Independent industrial construction and conflict repair", "source_path": ".codex/skills/industrial-fjsp-from-scratch", "required_features": ["industrial_json"], "always_include": true, "default_priority": 860},
+    {"skill_id": "huawei-aluminum-fjsp", "title": "Industrial dispatch and finite-batch tuning", "source_path": ".codex/skills/huawei-aluminum-fjsp", "required_features": ["industrial_json"], "always_include": true, "default_priority": 850},
+    {"skill_id": "fjsp-solver-foundation-worker", "title": "Solver foundation; industrial IO takes precedence", "source_path": ".codex/skills/fjsp-solver-foundation-worker", "always_include": true, "default_priority": 800},
+    {"skill_id": "fjsp-constructive-search-worker", "title": "Constructive method", "source_path": ".codex/skills/fjsp-constructive-search-worker", "method_families": ["constructive_search"], "default_priority": 700},
+    {"skill_id": "fjsp-coupled-local-search-worker", "title": "Local search method", "source_path": ".codex/skills/fjsp-coupled-local-search-worker", "method_families": ["coupled_local_search"], "default_priority": 700},
+    {"skill_id": "fjsp-exact-hybrid-worker", "title": "Exact method", "source_path": ".codex/skills/fjsp-exact-hybrid-worker", "method_families": ["exact_hybrid"], "default_priority": 700},
+    {"skill_id": "fjsp-population-memetic-worker", "title": "Population method", "source_path": ".codex/skills/fjsp-population-memetic-worker", "method_families": ["population_memetic"], "default_priority": 700}
+  ],
+  "method_packages": [{
+    "package_id": "industrial_json_adaptation",
+    "title": "Industrial JSON finite-batch adaptation",
+    "description": "Feasibility propagation and method-specific adaptation under the exact industrial IO.",
+    "method_families": ["constructive_search", "coupled_local_search", "exact_hybrid", "population_memetic"],
+    "required_features": ["industrial_json"],
+    "activation_tags": ["industrial_json", "constructive_search", "coupled_local_search", "exact_hybrid", "population_memetic"],
+    "assets": ["knowledge/references/industrial_json/search_adaptation.md"],
+    "default_priority": 100
+  }],
+  "knowledge": {
+    "base_cards": ["knowledge/references/industrial_json/search_adaptation.md"],
+    "tagged_cards": {"industrial_json": ["knowledge/references/industrial_json/search_adaptation.md"]},
+    "knowledge_query": {
+      "default_limit": 3,
+      "exclude_path_markers": ["experiment_memory", "outputs", "tmp"],
+      "tag_descriptions": {
+        "industrial_json": "Frozen industrial IO, finite batches, Q-time and objective adaptation.",
+        "constructive_search": "Multi-start and bounded construction.",
+        "coupled_local_search": "Route/order/assignment/batch local moves.",
+        "exact_hybrid": "Actual CP-SAT or bounded exact repair.",
+        "population_memetic": "Diverse feasible populations and local improvement."
+      }
+    }
+  }
+}
