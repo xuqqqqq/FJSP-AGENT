@@ -2365,6 +2365,10 @@ def bind_direction_plan_to_method_catalog(
                     selected_component_ids = package_fallback or ordered_component_ids
                 else:
                     selected_component_ids = requested_order or package_fallback[:1] or ordered_component_ids[:1]
+                selected_component_ids = coupled_component_closure(
+                    selected_component_ids,
+                    implementation_bundle.get("coupled_groups"),
+                )
                 selected_component_ids = ordered_component_ids_from_contract(
                     component_ids=component_ids,
                     preferred_order=selected_component_ids,
@@ -2647,7 +2651,18 @@ def method_implementation_bundle(
         # 完整性契约不能静默截断，否则后面的组件永远不会进入实现和审查。
         "required_components": components,
         "component_dependencies": normalized_component_dependencies(
-            contract.get("component_dependencies"),
+            [
+                *(contract.get("component_dependencies") or []),
+                *(
+                    {
+                        "component_id": str(item.get("component_id") or ""),
+                        "depends_on": item.get("depends_on") or item.get("dependencies") or [],
+                    }
+                    for item in components
+                    if isinstance(item, dict)
+                    and (item.get("depends_on") or item.get("dependencies"))
+                ),
+            ],
             known_component_ids=known_component_ids,
         ),
         "coupled_groups": coupled_groups,
@@ -2696,6 +2711,34 @@ def normalized_component_dependencies(
         if component_id not in order:
             order.append(component_id)
     return [merged[component_id] for component_id in order]
+
+
+def coupled_component_closure(
+    component_ids: list[str],
+    coupled_groups: Any,
+) -> list[str]:
+    """Expand selected components to behaviorally inseparable package groups."""
+
+    selected = _strings(component_ids, limit=64)
+    groups = [item for item in coupled_groups or [] if isinstance(item, dict)]
+    closed: list[str] = []
+    changed = True
+    while changed:
+        changed = False
+        active = set([*selected, *closed])
+        for group in groups:
+            members = _strings(group.get("component_ids"), limit=64)
+            if not members:
+                continue
+            should_expand = bool(group.get("always_required")) or (
+                bool(group.get("expand_on_selection")) and bool(active.intersection(members))
+            )
+            if should_expand:
+                for member in members:
+                    if member not in closed:
+                        closed.append(member)
+                        changed = True
+    return list(dict.fromkeys([*closed, *selected]))
 
 
 def normalized_competition_tracks(

@@ -57,7 +57,8 @@ OPENCODE_WORKER_ROLE_PROMPT = """You are `algoforge-worker`.
 
 Execute the attached validated WorkerAssignment as the sole planning input.
 Do not re-diagnose or replace the assigned direction. Load every selected
-`implementation_skills` entry, study its implementation guidance, and decide
+`implementation_skills` entry via its sandbox_path/SKILL.md (direct read is valid),
+study its implementation guidance, and decide
 how to combine only the method families selected by Main. Skill references and
 code examples are advisory: adopt, adapt, combine, or reject them based on the
 incumbent and task evidence while preserving the assignment's hard contracts.
@@ -227,6 +228,8 @@ class OpenCodeWorker(CodingWorker):
         for relative in [
             assignment.target_file,
             *(str(item.get("path") or "") for item in assignment.read_set),
+            *(str(Path(str(item.get("sandbox_path") or "")) / "SKILL.md")
+              for item in assignment.implementation_skills if item.get("sandbox_path")),
         ]:
             normalized = relative.replace("\\", "/").strip()
             if not normalized:
@@ -682,13 +685,9 @@ class OpenCodeWorker(CodingWorker):
         self._allow_worktree_path(read_permissions, permitted_roots, assignment.target_file)
         for item in assignment.read_set:
             self._allow_worktree_path(read_permissions, permitted_roots, str(item.get("path") or ""))
-        skill_permissions: str | dict[str, str] = "deny"
         if assignment.implementation_skills:
-            skill_permissions = {"*": "deny"}
             for item in assignment.implementation_skills:
-                skill_id = str(item.get("skill_id") or "").strip()
                 sandbox_path = str(item.get("sandbox_path") or "").strip()
-                skill_permissions[skill_id] = "allow"
                 self._allow_worktree_tree(read_permissions, permitted_roots, sandbox_path)
         edit_permissions: dict[str, str] = {"*": "deny"}
         self._allow_worktree_path(edit_permissions, permitted_roots, assignment.target_file)
@@ -745,7 +744,7 @@ class OpenCodeWorker(CodingWorker):
                         "lsp": "deny",
                         "todowrite": "deny",
                         "doom_loop": "deny",
-                        "skill": skill_permissions,
+                        "skill": "deny",
                     },
                 }
             },
@@ -853,6 +852,9 @@ Execute attached `WorkerAssignment` as the sole planning input.
 
 - Do not read or request the full Context Packet, catalog, history, memory, or unselected cards.
 - Load listed `implementation_skills` only; examples are advisory implementation material.
+  Selected sandbox_path/SKILL.md files are attached when present; use their content directly.
+  Skill discovery is disabled; read a missing attachment by its exact authorized path,
+  and do not retry Skill discovery or use shell commands to load it.
 - Read only `target_file`, paths listed in `read_set`, selected Skill folders, and the smoke outputs named below; do not list,
   glob, or broadly explore.
 - Authorized workspace root: `{authorized_workspace_root}`.
@@ -870,7 +872,8 @@ Execute attached `WorkerAssignment` as the sole planning input.
 - Compile after edits with exactly `python -m py_compile {assignment.target_file}`.
   Use at most {smoke_count} bounded smoke calls, each with a
   {smoke_seconds}-second solver limit, via `python .algoforge_worker_runtime/run_smoke.py`.
-  Do not append echo, cd, &&, pipes, or redirection to these exact commands.
+  No shell preflight or suffix (echo, cd, if, pipes, redirection); denied commands
+  must be replaced by the exact allowed command, not retried with new wrappers.
   Inspect `WORKER_SMOKE_SUMMARY` in smoke stdout first: it reports actual diagnostics values
   without the full schedule. Do not reread a truncated single-line solution to find its tail.
   Use the read tool on `.algoforge_worker_runtime/smoke_solution.json` only when needed,
@@ -886,9 +889,10 @@ Runtime IDs:
 """.strip()
         if session_launch.requested_session_id or spec.local_trial_index > 0:
             prompt += (
-                "\n\nFor a continued Local Trial, the Harness may restore an earlier best valid parent "
-                "into a new isolated worktree. Treat the current assignment, worktree, and runtime feedback "
-                "as authoritative; use session memory only to avoid repeated failed edits in this direction."
+                "\n\nThe current attached target is authoritative after restoration/rebase. "
+                "Session edits or smoke files may have been discarded; do not assume they remain. "
+                "Do not check smoke.used before running smoke. Reconcile missing edits with the current "
+                "assignment; preserve the full existing solver, not merely its initial seed."
             )
         if session_launch.prompt_note:
             prompt += f"\n\nSession continuity note:\n- {session_launch.prompt_note}"

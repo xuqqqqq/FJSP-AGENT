@@ -1638,6 +1638,49 @@ class MainAgentTests(unittest.TestCase):
 
         self.assertEqual(["toy_decoder"], plan["implementation_order"])
 
+    def test_improvement_expands_selected_component_to_coupled_group(self) -> None:
+        context = {
+            "method_package_catalog": {
+                "packages": [
+                    {
+                        "package_id": "toy_coupled",
+                        "implementation_contract": {
+                            "contract_id": "toy_coupled",
+                            "required_components": [
+                                {"component_id": "parser"},
+                                {"component_id": "decoder", "depends_on": ["parser"]},
+                                {"component_id": "grouped_seed", "depends_on": ["decoder"]},
+                            ],
+                            "coupled_groups": [
+                                {
+                                    "group_id": "activation",
+                                    "always_required": True,
+                                    "component_ids": ["parser", "decoder", "grouped_seed"],
+                                }
+                            ],
+                        },
+                    }
+                ]
+            }
+        }
+        plan = bind_direction_plan_to_method_catalog(
+            normalize_direction_plan(
+                {
+                    "strategy_type": "local_search_operator",
+                    "method_package_id": "toy_coupled",
+                    "implementation_order": ["parser"],
+                },
+                round_index=0,
+            ),
+            context=context,
+        )
+
+        self.assertEqual(["parser", "decoder", "grouped_seed"], plan["implementation_order"])
+        self.assertEqual(
+            ["parser", "decoder", "grouped_seed"],
+            [item["id"] for item in plan["deliverables"]],
+        )
+
     def test_tracked_competition_plan_keeps_full_package_scope_for_delegated_lanes(self) -> None:
         context = {
             "method_package_catalog": {

@@ -18,6 +18,7 @@ from harness_agent.orchestration.loop import (
 from harness_agent.orchestration.standard import (
     StandardWorkerLoopRequest,
     build_standard_worker_contract_payload,
+    controller_budget_from_manifest,
     prepare_provided_project_source,
     provided_project_read_paths,
     run_standard_worker_loop,
@@ -71,9 +72,18 @@ class StandardWorkerLoopTests(unittest.TestCase):
         command = standard_solver_command(self.make_request())
 
         self.assertIn("examples/generated_solver_for_test.py", command)
-        self.assertIn("--input {instance}", command)
-        self.assertIn("--output {solution}", command)
+        self.assertIn('--input "{instance}"', command)
+        self.assertIn('--output "{solution}"', command)
         self.assertIn("--seed {seed}", command)
+
+    def test_generated_contract_quotes_runtime_paths_with_spaces(self) -> None:
+        payload = build_standard_worker_contract_payload(self.make_request())
+
+        self.assertIn('--input "{instance}"', payload["commands"]["solver"])
+        self.assertIn('--output "{solution}"', payload["commands"]["solver"])
+        self.assertIn('--instance "{instance}"', payload["commands"]["evaluator"])
+        self.assertIn('--solution "{solution}"', payload["commands"]["evaluator"])
+        self.assertIn('--metrics "{metrics}"', payload["commands"]["evaluator"])
 
     def test_provided_project_contract_uses_existing_cli_and_primary_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -171,6 +181,36 @@ class StandardWorkerLoopTests(unittest.TestCase):
         self.assertFalse(hasattr(args, "solver"))
         self.assertFalse(hasattr(args, "baseline_source"))
         self.assertFalse(any(name.startswith("awls_") for name in vars(args)))
+
+    def test_standard_worker_cli_accepts_matched_time_budget(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "run-standard-worker-loop",
+                "--instance-dir",
+                "examples",
+                "--output-dir",
+                "outputs/test",
+                "--unlimited-rounds",
+                "--match-controller-budget-from",
+                "outputs/full/standard_worker_loop_manifest.json",
+            ]
+        )
+
+        self.assertTrue(args.unlimited_rounds)
+        self.assertEqual(
+            Path("outputs/full/standard_worker_loop_manifest.json"),
+            args.match_controller_budget_from,
+        )
+
+    def test_controller_budget_can_be_read_from_full_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "manifest.json"
+            path.write_text(
+                '{"execution_timing":{"controller_wall_seconds_excluding_core":1800.25}}',
+                encoding="utf-8",
+            )
+
+            self.assertEqual(1800.25, controller_budget_from_manifest(path))
 
     def test_contract_comparison_cli_accepts_paired_manifests(self) -> None:
         args = build_parser().parse_args(

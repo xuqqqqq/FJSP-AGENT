@@ -14,7 +14,7 @@ from harness_agent.worker import WorkerAssignment
 
 
 class WorkerCheckBudgetTests(unittest.TestCase):
-    def assignment(self, budget=None):
+    def assignment(self, budget=None, *, max_runtime_seconds=300):
         context = {
             "task": {"problem_family": "FJSP"},
             "guidance_ablation": {"mode": "none"},
@@ -34,7 +34,7 @@ class WorkerCheckBudgetTests(unittest.TestCase):
             context=context,
             direction_plan={"direction_id": "test", "hypothesis": "Create a standalone candidate."},
             loop_feedback={}, round_index=-1, attempt_index=0,
-            max_steps=4, max_runtime_seconds=900,
+            max_steps=4, max_runtime_seconds=max_runtime_seconds,
         )
 
     def stage(self, root, budget=None):
@@ -67,7 +67,15 @@ class WorkerCheckBudgetTests(unittest.TestCase):
         self.assertEqual(1, default.budgets["max_solver_smokes"])
         self.assertEqual(3, default.budgets["max_solver_smoke_seconds"])
         self.assertIn("Compile the target solver once.", default.checks)
-        custom = self.assignment({"max_agent_steps": 96, "max_solver_smokes": 4, "max_solver_smoke_seconds": 30})
+        long = self.assignment(max_runtime_seconds=900)
+        self.assertEqual(24, long.budgets["max_agent_steps"])
+        self.assertEqual(3, long.budgets["max_solver_smokes"])
+        self.assertEqual(3, long.budgets["max_solver_smoke_seconds"])
+        self.assertFalse(long.validate())
+        custom = self.assignment(
+            {"max_agent_steps": 96, "max_solver_smokes": 4, "max_solver_smoke_seconds": 30},
+            max_runtime_seconds=900,
+        )
         self.assertEqual(96, custom.budgets["max_agent_steps"])
         self.assertTrue(any("4 fixed-seed" in check and "30 seconds" in check for check in custom.checks))
         self.assertFalse(custom.validate())

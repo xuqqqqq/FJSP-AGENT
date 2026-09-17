@@ -67,7 +67,8 @@ class WorkerSmokeReadAccessTests(unittest.TestCase):
             self.assertIn("smoke.used", prompt)
             self.assertIn("diagnostics", prompt)
             self.assertIn("small runnable patch", prompt)
-            self.assertIn("Do not append", prompt)
+            self.assertIn("No shell preflight or suffix", prompt)
+            self.assertIn("exact allowed command", prompt)
             self.assertLessEqual(len(prompt), WORKER_RUNTIME_POLICY_MAX_CHARS)
 
 

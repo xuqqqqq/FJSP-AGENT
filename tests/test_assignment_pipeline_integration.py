@@ -118,12 +118,17 @@ class AssignmentPipelineIntegrationTests(unittest.TestCase):
                 self.assertEqual("deny", bash["*"])
                 self.assertIn("python .algoforge_worker_runtime/run_smoke.py", bash)
                 self.assertFalse(any("agent_generated_fjsp_solver.py *" in command for command in bash))
-                self.assertEqual("deny", permissions["skill"]["*"])
-                self.assertEqual("allow", permissions["skill"]["fjsp-solver-foundation-worker"])
-                if attempt_dir.name == "agent_generated_baseline":
-                    self.assertNotIn("fjsp-coupled-local-search-worker", permissions["skill"])
-                else:
-                    self.assertEqual("allow", permissions["skill"]["fjsp-coupled-local-search-worker"])
+                self.assertEqual("deny", permissions["skill"])
+                assignment = json.loads(
+                    (attempt_dir / "worker_assignment.json").read_text(encoding="utf-8")
+                )
+                command = json.loads(
+                    (attempt_dir / "worker" / "opencode_command.json").read_text(encoding="utf-8")
+                )
+                attachments = [arg.replace("\\", "/") for arg in command if arg.startswith("--file=")]
+                for skill in assignment["implementation_skills"]:
+                    expected = "/" + skill["sandbox_path"].replace("\\", "/") + "/SKILL.md"
+                    self.assertTrue(any(arg.endswith(expected) for arg in attachments), expected)
 
             baseline_worktree = Path(manifest["baseline_generation"]["worktree"])
             self.assertTrue(

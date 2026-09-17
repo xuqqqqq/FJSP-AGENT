@@ -502,9 +502,9 @@
                 </div>
 
                 <label class="field" id="task-instance-field">
-                  <span>标准 FJSP / FJSP-SDST 算例</span>
-                  <input type="file" id="instance-file" accept=".fjs,.txt" />
-                  <textarea id="instance-text" rows="5" placeholder="粘贴 .fjs 算例，或选择文件后自动填入"></textarea>
+                  <span>FJSP / FJSP 变种算例</span>
+                  <input type="file" id="instance-file" accept=".fjs,.fjsp,.txt,.json" />
+                  <textarea id="instance-text" rows="5" placeholder="粘贴算例内容，或选择 .fjs、.fjsp、.txt、.json 文件"></textarea>
                 </label>
 
                 <details class="advanced" open>
@@ -533,6 +533,13 @@
                       </select>
                     </label>
                     <label class="field compact">
+                      <span>Main 规划模式</span>
+                      <select id="main-planning-mode">
+                        <option value="fast">Fast Main（快速规划）</option>
+                        <option value="research">Research（专业分析 Agent）</option>
+                      </select>
+                    </label>
+                    <label class="field compact">
                       <span>Coding Worker 模型</span>
                       <select id="coding-worker-model-setup">
                         <option value="qiming/deepseek-v4-flash">DeepSeek V4 Flash</option>
@@ -552,6 +559,14 @@
                     <label class="field compact">
                       <span>迭代轮次</span>
                       <input id="max-rounds" type="number" min="1" max="20" value="10" />
+                    </label>
+                    <label class="field compact">
+                      <span>主控累计预算（分钟）</span>
+                      <input id="controller-budget-minutes" type="number" min="0" max="1440" step="0.1" value="0" />
+                    </label>
+                    <label class="field compact checkbox-field">
+                      <input id="unlimited-rounds" type="checkbox" />
+                      <span>不限轮数</span>
                     </label>
                     <label class="field compact">
                       <span>Main 子 Agent 上限</span>

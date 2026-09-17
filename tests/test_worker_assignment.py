@@ -33,6 +33,30 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WorkerAssignmentTests(unittest.TestCase):
+    def test_long_coding_budget_preserves_solver_limit_and_allows_repair_checks(self) -> None:
+        context = {
+            "task": {"problem_family": "FJSP"},
+            "evaluator_protocol": {"solver_command_template": "python examples/solver.py --input {instance}"},
+            "edit_policy": {"allowed_paths": ["examples"], "forbidden_paths": ["outputs"]},
+        }
+        plan = {"direction_id": "probe", "worker_objective": "Improve makespan", "implementation_order": ["search"]}
+        def build(seconds, budget=None):
+            return build_worker_assignment(
+                context={**context, **({"worker_execution_budget": budget} if budget is not None else {})},
+                direction_plan=plan, loop_feedback={}, round_index=0, attempt_index=0,
+                max_steps=4, max_runtime_seconds=seconds,
+            )
+        short = build(300)
+        long = build(900)
+        self.assertEqual(1, short.budgets["max_solver_smokes"])
+        self.assertNotIn("max_agent_steps", short.budgets)
+        self.assertEqual(3, long.budgets["max_solver_smokes"])
+        self.assertEqual(24, long.budgets["max_agent_steps"])
+        self.assertEqual(3, long.budgets["max_solver_smoke_seconds"])
+        explicit = build(900, {"max_solver_smokes": 1, "max_agent_steps": 12})
+        self.assertEqual(1, explicit.budgets["max_solver_smokes"])
+        self.assertEqual(12, explicit.budgets["max_agent_steps"])
+
     def test_staged_baseline_repair_may_upgrade_implementation_skills(self) -> None:
         base = WorkerAssignment(
             assignment_id="baseline-a00",

@@ -83,8 +83,11 @@ def comparison_protocol_checks(*, full: list[dict[str, Any]], none: list[dict[st
     )
     add(
         "same_budgets",
-        bool(paired) and all(_budget_signature(a) == _budget_signature(b) for a, b in paired),
-        "Seeds, iterations, solver timeout, controller budget, worker count, and lane count must match.",
+        bool(paired) and all(_comparable_budget_protocol(a, b) for a, b in paired),
+        (
+            "Either use identical round budgets, or run None without a round cap using the measured "
+            "Full controller time; all atomic solver/Worker/lane budgets must still match."
+        ),
     )
     declared_models = [
         _agent_model_signature(item)
@@ -110,15 +113,10 @@ def comparison_protocol_checks(*, full: list[dict[str, Any]], none: list[dict[st
         "actual_lane_counts_match",
         bool(paired)
         and all(
-            _actual_lane_counts(a) == _actual_lane_counts(b)
-            and len(_actual_lane_counts(a)) == int(_request(a).get("iterations", 0) or 0)
-            and all(
-                count == int(_request(a).get("max_competing_workers", 1) or 1)
-                for count in _actual_lane_counts(a)
-            )
+            _lane_count_contract_passes(a) and _lane_count_contract_passes(b)
             for a, b in paired
         ),
-        "Every direction round must start the configured number of lanes in both modes.",
+        "Every attempted direction round must start the configured number of lanes in both modes.",
     )
     add(
         "lanes_are_distinct_methods",
@@ -303,8 +301,34 @@ def _budget_signature(manifest: dict[str, Any]) -> tuple[Any, ...]:
     keys = (
         "seeds", "iterations", "timeout_seconds", "max_workers", "max_steps",
         "max_runtime_seconds", "promotion_repeats", "in_round_repair_attempts", "max_competing_workers",
+        "controller_budget_seconds", "unlimited_rounds",
     )
     return tuple(json.dumps(request.get(key), sort_keys=True) for key in keys)
+
+
+def _atomic_budget_signature(manifest: dict[str, Any]) -> tuple[Any, ...]:
+    request = _request(manifest)
+    keys = (
+        "seeds", "timeout_seconds", "max_workers", "max_steps",
+        "max_runtime_seconds", "promotion_repeats", "in_round_repair_attempts", "max_competing_workers",
+    )
+    return tuple(json.dumps(request.get(key), sort_keys=True) for key in keys)
+
+
+def _comparable_budget_protocol(full: dict[str, Any], none: dict[str, Any]) -> bool:
+    if _budget_signature(full) == _budget_signature(none):
+        return True
+    if _atomic_budget_signature(full) != _atomic_budget_signature(none):
+        return False
+    none_request = _request(none)
+    if none_request.get("unlimited_rounds") is not True:
+        return False
+    limit = none_request.get("controller_budget_seconds")
+    full_observed = _controller_seconds(full)
+    if not isinstance(limit, (int, float)) or float(limit) <= 0 or full_observed is None:
+        return False
+    tolerance = max(1.0, full_observed * 0.01)
+    return abs(float(limit) - full_observed) <= tolerance
 
 
 def _agent_model_signature(manifest: dict[str, Any]) -> tuple[str, str]:
@@ -330,6 +354,18 @@ def _actual_lane_counts(manifest: dict[str, Any]) -> list[int]:
         if isinstance(value, int):
             counts.append(value)
     return counts
+
+
+def _lane_count_contract_passes(manifest: dict[str, Any]) -> bool:
+    request = _request(manifest)
+    counts = _actual_lane_counts(manifest)
+    expected = int(request.get("max_competing_workers", 1) or 1)
+    if any(count != expected for count in counts):
+        return False
+    iterations = request.get("iterations")
+    if request.get("unlimited_rounds") is True or iterations is None:
+        return bool(counts)
+    return len(counts) == int(iterations or 0)
 
 
 def _declared_lane_methods(manifest: dict[str, Any]) -> list[list[str]]:

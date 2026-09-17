@@ -16,6 +16,9 @@ from harness_agent.agents.main import (
 )
 from harness_agent.orchestration.loop import (
     CandidateIncumbent,
+    CompetitionCandidate,
+    CompetingWorkerCyclesResult,
+    ControllerTimeBudget,
     LaneDevelopmentState,
     WorkerLoopResult,
     apply_user_direction_revision,
@@ -24,6 +27,8 @@ from harness_agent.orchestration.loop import (
     activation_contract_required,
     baseline_semantic_direction_plan,
     candidate_incumbent_payload,
+    candidate_pool_records_for_round,
+    candidate_synthesis_opportunities,
     candidate_worker_budgets,
     competitive_direction_plans,
     compact_round_direction_plan,
@@ -36,6 +41,7 @@ from harness_agent.orchestration.loop import (
     evaluate_exact_solver_execution,
     evaluate_mechanism_activation,
     evaluate_promotion_check,
+    evaluate_ranked_promotion_candidates,
     evaluate_lane_checkpoint,
     load_worker_loop_result,
     lane_development_state_for_incumbent,
@@ -59,6 +65,7 @@ from harness_agent.orchestration.loop import (
     update_lane_development_states,
     worker_proposal_diagnostics,
     worker_session_telemetry,
+    write_loop_report,
     write_baseline_generation_context_packet,
 )
 from harness_agent.core.models import ObjectiveSpec, TaskContract
@@ -1377,6 +1384,79 @@ class SafeFeasibilityProtectedEditWorker:
 
 
 class WorkerLoopTests(unittest.TestCase):
+    def test_controller_budget_excludes_overlapping_core_intervals(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for index, interval in enumerate(((102.0, 108.0), (104.0, 110.0))):
+                timing_dir = root / str(index)
+                timing_dir.mkdir()
+                (timing_dir / "core_evaluation_timing.json").write_text(
+                    json.dumps(
+                        {
+                            "started_at_epoch": interval[0],
+                            "finished_at_epoch": interval[1],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            budget = ControllerTimeBudget(
+                limit_seconds=5.0,
+                timing_root=root,
+                started_at_epoch=100.0,
+            )
+
+            self.assertEqual(4.0, budget.used_seconds(now_epoch=112.0))
+            self.assertEqual(1.0, budget.remaining_seconds(now_epoch=112.0))
+            self.assertFalse(budget.exhausted(now_epoch=112.0))
+            self.assertTrue(budget.exhausted(now_epoch=113.0))
+
+    def test_controller_budget_excludes_an_active_core_interval(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "core_evaluation_timing.json").write_text(
+                json.dumps(
+                    {
+                        "status": "running",
+                        "started_at_epoch": 102.0,
+                        "finished_at_epoch": 102.0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            budget = ControllerTimeBudget(
+                limit_seconds=3.0,
+                timing_root=root,
+                started_at_epoch=100.0,
+            )
+
+            self.assertEqual(2.0, budget.used_seconds(now_epoch=110.0))
+            self.assertFalse(budget.exhausted(now_epoch=110.0))
+
+    def test_unlimited_loop_stops_normally_when_controller_budget_is_exhausted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            contract = TaskContract.load(ROOT / "configs" / "task_contract.example.json")
+
+            result = run_worker_loop(
+                contract=contract,
+                project_root=ROOT,
+                output_dir=tmp_path / "loop",
+                context_packet_path=_write_test_context(tmp_path),
+                worker=NullWorker(),
+                experiment_id="controller-budget-stop",
+                iterations=None,
+                max_steps=1,
+                max_runtime_seconds=30,
+                apply_worker_changes=False,
+                controller_budget_seconds=0.000001,
+            )
+
+        self.assertEqual("ok", result.status)
+        self.assertEqual("controller_budget_exhausted", result.stop_reason)
+        self.assertEqual([], result.rounds)
+        self.assertTrue(result.controller_budget["exhausted"])
+
     def test_candidate_budgets_do_not_expand_declared_repair_budget(self) -> None:
         worker = MagicMock()
         worker.capabilities.return_value = WorkerCapabilities(
@@ -4349,6 +4429,45 @@ class WorkerLoopTests(unittest.TestCase):
             {item["id"] for item in exact["activation_checks"]},
         )
 
+    def test_competitive_variant_prepends_always_required_coupled_components(self) -> None:
+        base = {
+            "direction_id": "pbpm",
+            "implementation_bundle": {
+                "required_components": [
+                    {"component_id": "parser"},
+                    {"component_id": "decoder"},
+                    {"component_id": "grouped_seed"},
+                ],
+                "component_dependencies": [
+                    {"component_id": "decoder", "depends_on": ["parser"]},
+                    {"component_id": "grouped_seed", "depends_on": ["decoder"]},
+                ],
+                "coupled_groups": [
+                    {
+                        "group_id": "activation",
+                        "always_required": True,
+                        "component_ids": ["parser", "decoder", "grouped_seed"],
+                    }
+                ],
+            },
+            "candidate_variants": [
+                {
+                    "candidate_id": "exact",
+                    "method_family": "exact_hybrid",
+                    "implementation_order": ["exact_probe"],
+                    "deliverables": [{"id": "exact_probe", "behavior": "Call Solve."}],
+                }
+            ],
+        }
+
+        exact = competitive_direction_plans(base, limit=1)[0]
+
+        self.assertEqual(
+            ["parser", "decoder", "grouped_seed", "exact_probe"],
+            exact["implementation_order"],
+        )
+        self.assertEqual(exact["implementation_order"], [item["id"] for item in exact["deliverables"]])
+
     def test_competing_workers_select_best_core_candidate_with_semantic_advisory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -4992,6 +5111,191 @@ class WorkerLoopTests(unittest.TestCase):
             noop = next(item for item in result["candidates"] if item["candidate_id"] == "noop")
             self.assertFalse(noop["eligible"])
             self.assertFalse(noop["target_changed"])
+
+    def test_ranked_promotion_falls_through_to_stable_runner_up(self) -> None:
+        contract = TaskContract.load(ROOT / "configs" / "standard_fjsp_tiny.example.json")
+        candidates = [
+            CompetitionCandidate(
+                candidate_index=index,
+                objective_key=key,
+                eligible=True,
+                cycle=SimpleNamespace(worktree_path=ROOT / candidate_id),
+                context_packet_path=ROOT / f"{candidate_id}.json",
+                attempts=[],
+                plan={"candidate_variant": {"candidate_id": candidate_id}},
+                outcome={"candidate_id": candidate_id},
+            )
+            for index, (candidate_id, key) in enumerate(
+                [("first", (-80.0,)), ("second", (-90.0,)), ("third", (-95.0,))]
+            )
+        ]
+        checks = [
+            {"status": "failed", "reason": "repeat_not_better", "promoted": False},
+            {"status": "passed", "reason": "strictly_better", "promoted": True},
+        ]
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "harness_agent.orchestration.loop.evaluate_promotion_check",
+            side_effect=checks,
+        ) as promotion:
+            selected, attempts = evaluate_ranked_promotion_candidates(
+                contract=contract,
+                incumbent_worktree=ROOT,
+                incumbent_key=(-100.0,),
+                ranked_candidates=candidates,
+                output_dir=Path(tmp),
+                promotion_repeats=2,
+                cancellation=None,
+            )
+
+        self.assertEqual("second", selected.candidate_id)
+        self.assertEqual(["first", "second"], [item["candidate_id"] for item in attempts])
+        self.assertEqual(2, promotion.call_count)
+
+    def test_ranked_promotion_stops_when_best_is_not_strictly_better(self) -> None:
+        contract = TaskContract.load(ROOT / "configs" / "standard_fjsp_tiny.example.json")
+        candidates = [
+            CompetitionCandidate(
+                candidate_index=index,
+                objective_key=key,
+                eligible=True,
+                cycle=SimpleNamespace(worktree_path=ROOT / candidate_id),
+                context_packet_path=ROOT / f"{candidate_id}.json",
+                attempts=[],
+                plan={"candidate_variant": {"candidate_id": candidate_id}},
+                outcome={"candidate_id": candidate_id},
+            )
+            for index, (candidate_id, key) in enumerate(
+                [("equal", (-100.0,)), ("worse", (-110.0,))]
+            )
+        ]
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "harness_agent.orchestration.loop.evaluate_promotion_check",
+        ) as promotion:
+            selected, attempts = evaluate_ranked_promotion_candidates(
+                contract=contract,
+                incumbent_worktree=ROOT,
+                incumbent_key=(-100.0,),
+                ranked_candidates=candidates,
+                output_dir=Path(tmp),
+                promotion_repeats=2,
+                cancellation=None,
+            )
+
+        self.assertIsNone(selected)
+        self.assertEqual(["equal"], [item["candidate_id"] for item in attempts])
+        self.assertEqual("candidate_not_strictly_better", attempts[0]["promotion_check"]["reason"])
+        promotion.assert_not_called()
+
+    def test_candidate_pool_keeps_ineligible_lanes_and_same_parent_synthesis_only(self) -> None:
+        parent = str(ROOT)
+        candidates = [
+            CompetitionCandidate(
+                candidate_index=index,
+                objective_key=(-80.0 - index,),
+                eligible=eligible,
+                cycle=SimpleNamespace(),
+                context_packet_path=ROOT / f"{candidate_id}.json",
+                attempts=[],
+                plan={
+                    "candidate_variant": {"candidate_id": candidate_id},
+                    "method_family": method_family,
+                },
+                outcome={},
+            )
+            for index, (candidate_id, eligible, method_family) in enumerate(
+                [("local", True, "coupled_local_search"), ("exact", True, "exact_hybrid")]
+            )
+        ]
+        outcomes = [
+            {
+                "candidate_id": "local",
+                "status": "completed",
+                "objective_rank": 1,
+                "objective_key": [-80.0],
+                "eligible": True,
+                "core_eligible": True,
+                "target_changed": True,
+                "activation_eligible": True,
+                "exact_execution_eligible": True,
+                "worker_changed_files": ["solver.py"],
+                "parent_checkpoint": parent,
+                "patch_path": "local.patch",
+            },
+            {
+                "candidate_id": "exact",
+                "status": "completed",
+                "objective_rank": 2,
+                "objective_key": [-81.0],
+                "eligible": True,
+                "core_eligible": True,
+                "target_changed": True,
+                "activation_eligible": True,
+                "exact_execution_eligible": True,
+                "worker_changed_files": ["solver.py"],
+                "parent_checkpoint": parent,
+                "patch_path": "exact.patch",
+            },
+            {
+                "candidate_id": "noop",
+                "status": "completed",
+                "objective_key": [-70.0],
+                "eligible": False,
+                "core_eligible": True,
+                "target_changed": False,
+                "activation_eligible": True,
+                "exact_execution_eligible": True,
+                "worker_changed_files": [],
+                "parent_checkpoint": parent,
+            },
+        ]
+        competition = CompetingWorkerCyclesResult(
+            cycle=SimpleNamespace(),
+            context_packet_path=ROOT / "context.json",
+            attempts=[],
+            result={"competition_winner_id": "local", "candidates": outcomes},
+            selected_plan=candidates[0].plan,
+            ranked_candidates=candidates,
+        )
+        records = candidate_pool_records_for_round(
+            round_index=0,
+            competition=competition,
+            promotion_attempts=[],
+            promoted_candidate_id=None,
+        )
+
+        self.assertEqual(3, len(records))
+        noop = next(item for item in records if item["candidate_id"] == "noop")
+        self.assertFalse(noop["formal_candidate"])
+        self.assertIn("changed_files_empty", noop["gate_reasons"])
+        opportunities = candidate_synthesis_opportunities(records)
+        self.assertEqual(1, len(opportunities))
+        self.assertEqual(parent, opportunities[0]["common_parent_checkpoint"])
+        self.assertEqual({"local", "exact"}, set(opportunities[0]["source_candidate_ids"]))
+
+    def test_loop_report_round_trips_candidate_pool_and_best_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            incumbent = output_dir / "incumbent"
+            incumbent.mkdir()
+            candidate_pool = [{"candidate_record_id": "round-000:c0", "formal_candidate": True}]
+            best_history = [{"revision": 1, "candidate_record_id": "round-000:c0"}]
+            result = WorkerLoopResult(
+                baseline_key=(-100.0,),
+                final_key=(-90.0,),
+                final_worktree=incumbent,
+                rounds=[],
+                baseline_summary=RunSummary(1, 1, 0, "baseline", {"makespan": 100}),
+                candidate_pool=candidate_pool,
+                best_history=best_history,
+            )
+
+            write_loop_report(output_dir=output_dir, result=result)
+            restored = load_worker_loop_result(output_dir / "loop_result.json")
+
+            self.assertEqual(candidate_pool, restored.candidate_pool)
+            self.assertEqual(best_history, restored.best_history)
+            self.assertTrue((output_dir / "candidate_pool.json").is_file())
+            self.assertTrue((output_dir / "best_history.json").is_file())
 
     def test_failed_required_activation_cannot_become_local_trial_parent(self) -> None:
         cycle = SimpleNamespace(
@@ -6338,6 +6642,8 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertEqual("promoted", result.rounds[0].decision)
             self.assertNotEqual(result.baseline_key, result.final_key)
             self.assertTrue(result.rounds[0].promotion_check["promoted"])
+            self.assertEqual(1, len(result.best_history))
+            self.assertTrue(any(item["promoted"] for item in result.candidate_pool))
             payload = json.loads((tmp_path / "loop" / "loop_result.json").read_text(encoding="utf-8"))
             self.assertEqual("repair_required", payload["rounds"][0]["semantic_review"]["status"])
             round_one_context = json.loads(
@@ -7961,6 +8267,9 @@ class WorkerLoopTests(unittest.TestCase):
             self.assertFalse(result.rounds[0].promotion_check["promoted"])
             self.assertEqual([990.0, -0.01], result.rounds[0].promotion_check["incumbent_repeat_key"])
             self.assertEqual([986.0, -0.01], result.rounds[0].promotion_check["candidate_repeat_key"])
+            self.assertEqual([], result.best_history)
+            self.assertTrue(result.candidate_pool)
+            self.assertFalse(any(item["promoted"] for item in result.candidate_pool))
 
             loop_result = json.loads((tmp_path / "loop" / "loop_result.json").read_text(encoding="utf-8"))
             self.assertEqual("failed", loop_result["rounds"][0]["promotion_check"]["status"])

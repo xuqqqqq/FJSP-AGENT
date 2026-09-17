@@ -120,6 +120,72 @@ class ContractMetricsTests(unittest.TestCase):
             frozen = next(item for item in result["protocol_checks"] if item["check"] == "frozen_shared_baseline")
             self.assertFalse(frozen["passed"])
 
+    def test_comparison_accepts_none_with_more_rounds_under_matched_controller_time(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            full_payload = self.make_manifest(mode="full", makespan=90.0)
+            none_payload = self.make_manifest(mode="none", makespan=100.0)
+            none_request = none_payload["request"]
+            assert isinstance(none_request, dict)
+            none_request["iterations"] = None
+            none_request["unlimited_rounds"] = True
+            none_request["controller_budget_seconds"] = 100.0
+            none_rounds = none_payload["rounds"]
+            assert isinstance(none_rounds, list)
+            none_rounds.append(
+                {
+                    "direction_plan": {
+                        "candidate_variants": [
+                            {"method_name": "method g"},
+                            {"method_name": "method h"},
+                            {"method_name": "method i"},
+                        ],
+                        "competition_result": {"candidate_count": 3},
+                    }
+                }
+            )
+            none_payload["round_count"] = 3
+            full = self.write_manifest(root, "full.json", full_payload)
+            none = self.write_manifest(root, "none.json", none_payload)
+
+            result = build_contract_comparison(
+                full_manifest_paths=[full],
+                none_manifest_paths=[none],
+                output_dir=root / "report",
+            )
+
+            self.assertEqual("comparable", result["status"])
+            same_budgets = next(
+                item for item in result["protocol_checks"] if item["check"] == "same_budgets"
+            )
+            self.assertTrue(same_budgets["passed"])
+
+    def test_comparison_rejects_unmatched_controller_time(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            full_payload = self.make_manifest(mode="full", makespan=90.0)
+            none_payload = self.make_manifest(mode="none", makespan=100.0)
+            none_request = none_payload["request"]
+            assert isinstance(none_request, dict)
+            none_request.update(
+                iterations=None,
+                unlimited_rounds=True,
+                controller_budget_seconds=80.0,
+            )
+            full = self.write_manifest(root, "full.json", full_payload)
+            none = self.write_manifest(root, "none.json", none_payload)
+
+            result = build_contract_comparison(
+                full_manifest_paths=[full],
+                none_manifest_paths=[none],
+                output_dir=root / "report",
+            )
+
+            same_budgets = next(
+                item for item in result["protocol_checks"] if item["check"] == "same_budgets"
+            )
+            self.assertFalse(same_budgets["passed"])
+
     def test_overlapping_core_intervals_are_counted_once(self) -> None:
         self.assertEqual(8.0, merged_interval_seconds([(1.0, 5.0), (3.0, 7.0), (9.0, 11.0)]))
 

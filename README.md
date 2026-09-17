@@ -55,6 +55,9 @@ tests/             单元与闭环回归测试
 
 更详细的职责和数据流见 [架构说明](docs/architecture.md)。
 
+首次试用请参阅 [自建 DeepSeek 部署与逐步操作指南](docs/deepseek_agent_step_by_step.md)，
+包含从 GitHub 拉取、`.env` 配置、Docker/原生启动和带截图的网页完整操作流程。
+
 ## Docker Compose 启动
 
 仓库已包含 Web 服务、Python 依赖、Git、uv 和 OpenCode CLI 所需的完整镜像配置。

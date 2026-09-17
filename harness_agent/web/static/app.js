@@ -131,6 +131,8 @@ async function loadDemo(options = {}) {
   $("best-text").value = demo.best_known_csv.text;
   $("best-text").dataset.filename = demo.best_known_csv.name;
   $("max-rounds").value = demo.config.max_rounds;
+  $("controller-budget-minutes").value = Number(demo.config.controller_budget_seconds || 0) / 60;
+  $("unlimited-rounds").checked = demo.config.unlimited_rounds === true;
   $("seeds").value = demo.config.seeds;
   $("max-workers").value = demo.config.max_workers || 2;
   $("timeout-seconds").value = demo.config.timeout_seconds;
@@ -138,6 +140,7 @@ async function loadDemo(options = {}) {
   $("worker-max-runtime-seconds").value = demo.config.worker_max_runtime_seconds;
   $("in-round-repair-attempts").value = demo.config.in_round_repair_attempts;
   $("main-max-subagents").value = demo.config.main_max_subagents ?? 4;
+  $("main-planning-mode").value = demo.config.main_planning_mode || "fast";
   $("max-competing-workers").value = demo.config.max_competing_workers ?? 4;
   $("promotion-repeats").value = demo.config.promotion_repeats;
   $("pause-between-rounds").checked = demo.config.pause_between_rounds !== false;
@@ -702,11 +705,14 @@ function buildPayload() {
       text: $("best-text").value,
     },
     max_rounds: Number($("max-rounds").value || 2),
+    controller_budget_seconds: Math.round(Number($("controller-budget-minutes").value || 0) * 60),
+    unlimited_rounds: $("unlimited-rounds").checked,
     seeds: $("seeds").value || DEFAULT_STANDARD_SEEDS,
     max_workers: Number($("max-workers").value || 1),
     coding_backend: "opencode",
     main_agent_model: selectedAgentModel("main-agent"),
     main_agent_variant: selectedAgentVariant("main-agent"),
+    main_planning_mode: $("main-planning-mode").value || "fast",
     coding_worker_model: selectedAgentModel("coding-worker"),
     coding_worker_variant: selectedAgentVariant("coding-worker"),
     main_max_subagents: Number($("main-max-subagents").value ?? 4),
@@ -1775,8 +1781,12 @@ function renderWorkerInsight(worker) {
     const mutation = round.next_mutation || {};
     const competition = round.competition || {};
     const competitionCandidates = (competition.candidates || []).map((candidate) => {
-      const gate = candidate.eligible
-        ? "候选可晋升"
+      const gate = candidate.promoted
+        ? "已晋升"
+        : candidate.promotion_attempted && candidate.promotion_check && candidate.promotion_check.promoted === false
+          ? "复验未通过"
+          : candidate.eligible
+            ? "合格候选"
         : !candidate.ja_accepted
           ? "预检拦截"
           : !candidate.core_eligible
@@ -1786,7 +1796,8 @@ function renderWorkerInsight(worker) {
         ? candidate.objective_key.map((value) => formatMetric(value)).join(" / ")
         : "-";
       const selected = candidate.candidate_id === competition.selected_candidate_id;
-      return `<span class="tag ${candidate.eligible ? "success" : "warning"}">${selected ? "胜出 " : ""}${escapeHtml(candidate.candidate_id || "candidate")} · ${escapeHtml(gate)} · ${escapeHtml(objective)}</span>`;
+      const objectiveWinner = candidate.candidate_id === competition.competition_winner_id;
+      return `<span class="tag ${candidate.promoted ? "success" : candidate.eligible ? "" : "warning"}">${objectiveWinner ? "客观第一 " : ""}${selected ? "入选 " : ""}${escapeHtml(candidate.candidate_id || "candidate")} · ${escapeHtml(gate)} · ${escapeHtml(objective)}</span>`;
     }).join("");
     card.innerHTML = `
       <header>
@@ -1815,6 +1826,7 @@ function renderWorkerInsight(worker) {
       ${competition.candidate_count ? `
         <div class="direction-meta competition-meta">
           <span class="tag">竞争候选 ${competition.eligible_candidate_count ?? 0}/${competition.candidate_count}</span>
+          ${competition.promotion_fallback_used ? '<span class="tag warning">顺位晋升</span>' : ""}
           ${competitionCandidates}
         </div>
       ` : ""}
@@ -1955,6 +1967,8 @@ function labelForArtifact(name) {
     report: "演示报告",
     loop_report: "Worker Loop 报告",
     loop_result: "Worker Loop 结果",
+    candidate_pool: "候选池",
+    best_history: "Best 版本历史",
     hypothesis_graph: "假设图谱",
     hypothesis_graph_report: "假设图谱报告",
     experience_memory: "经验记忆",

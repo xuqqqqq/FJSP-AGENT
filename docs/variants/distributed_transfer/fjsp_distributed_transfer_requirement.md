@@ -29,12 +29,12 @@
 
 ## 3. 优化目标
 
-主要目标是最小化 makespan。辅助观察指标包括：
+按以下顺序严格词典序最小化，makespan始终是主目标；只有上一目标相等时才比较下一目标：
 
 - `max_factory_workload`：各工厂的总加工时间（负载）的最大值。
 - `total_energy_consumption`：加工能耗 + 转移能耗之和。
-- `priority_completion_time`：优先级工件的最大完工时间。
-- `runtime_seconds`：候选求解器运行时间。
+
+候选求解耗时作为实验观察指标，不参与上述目标排序。本变种不包含优先级工件目标。
 
 只有 evaluator 判定合法的解才能参与质量比较。非法解不能因为 makespan 较小而被接受。
 

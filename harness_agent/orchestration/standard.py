@@ -61,9 +61,10 @@ class StandardWorkerLoopRequest:
     seeds: list[int] | None = None
     timeout_seconds: int = 60
     max_workers: int = 1
-    iterations: int = 1
+    iterations: int | None = 1
     max_steps: int = 4
     max_runtime_seconds: int = 120
+    controller_budget_seconds: float | None = None
     apply_worker_changes: bool = False
     promotion_repeats: int = 1
     in_round_repair_attempts: int = DEFAULT_IN_ROUND_REPAIR_ATTEMPTS
@@ -148,7 +149,7 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
         main_agent=request.main_agent,
         semantic_reviewer=request.semantic_reviewer,
         experiment_id=request.experiment_id,
-        iterations=max(0, request.iterations),
+        iterations=(None if request.iterations is None else max(0, request.iterations)),
         max_steps=max(1, request.max_steps),
         max_runtime_seconds=max(1, request.max_runtime_seconds),
         apply_worker_changes=bool(request.apply_worker_changes),
@@ -160,6 +161,9 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
         round_intervention=request.round_intervention,
         cancellation=request.cancellation,
         resume_from=resume_result,
+        controller_budget_seconds=request.controller_budget_seconds,
+        budget_started_at_epoch=run_started_at_epoch,
+        budget_timing_root=output_dir,
     )
     # 4. 闭环结束后只做报告汇总，不重新解释或改写 Core 的 promotion 结论。
     manifest = standard_worker_manifest(
@@ -183,6 +187,8 @@ def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, An
         "context_packet": str(context_path.resolve()),
         "loop_report": str((output_dir / "worker_loop" / "loop_report.md").resolve()),
         "loop_result": str((output_dir / "worker_loop" / "loop_result.json").resolve()),
+        "candidate_pool": str((output_dir / "worker_loop" / "candidate_pool.json").resolve()),
+        "best_history": str((output_dir / "worker_loop" / "best_history.json").resolve()),
         "hypothesis_graph": str((output_dir / "worker_loop" / "hypothesis_graph.json").resolve()),
         "hypothesis_graph_report": str((output_dir / "worker_loop" / "hypothesis_graph.md").resolve()),
         "experience_memory": str((output_dir / "worker_loop" / "experience_memory.json").resolve()),
@@ -239,6 +245,21 @@ def merged_interval_seconds(intervals: list[tuple[float, float]]) -> float:
     return merged_total + current_finish - current_start
 
 
+def controller_budget_from_manifest(path: Path) -> float:
+    """Read the measured Full controller time for a matched-time None run."""
+
+    source = path.resolve()
+    try:
+        payload = json.loads(source.read_text(encoding="utf-8-sig"))
+        timing = payload["execution_timing"]
+        seconds = float(timing["controller_wall_seconds_excluding_core"])
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+        raise ValueError(f"manifest has no valid controller timing: {source}") from exc
+    if seconds <= 0:
+        raise ValueError(f"manifest controller timing must be positive: {source}")
+    return seconds
+
+
 def build_standard_worker_contract_payload(request: StandardWorkerLoopRequest) -> dict[str, Any]:
     """把文档式 FJSP 请求转换为固定 Core 可执行的契约 JSON。
 
@@ -267,7 +288,10 @@ def build_standard_worker_contract_payload(request: StandardWorkerLoopRequest) -
     solver = standard_solver_command(request)
     quick_test = f"python -m py_compile {solver_path}"
     problem_family, evaluator_path, objectives = fixed_problem_contract(paths)
-    evaluator = f"python {evaluator_path} --instance {{instance}} --solution {{solution}} --metrics {{metrics}}"
+    evaluator = (
+        f'python {evaluator_path} --instance "{{instance}}" '
+        '--solution "{solution}" --metrics "{metrics}"'
+    )
     if request.best_known_csv:
         best_known_csv = resolve_input_path(request.project_root, request.best_known_csv)
         resources["best_known_csv"] = str(best_known_csv)
@@ -333,7 +357,7 @@ def standard_solver_command(request: StandardWorkerLoopRequest) -> str:
         "\\", "/"
     )
     return (
-        f"python {solver_path} --input {{instance}} --output {{solution}} --seed {{seed}} "
+        f'python {solver_path} --input "{{instance}}" --output "{{solution}}" --seed {{seed}} '
         "--time-limit-sec {solver_time_limit_seconds}"
     )
 
@@ -564,6 +588,16 @@ def standard_worker_manifest(
     """从 WorkerLoopResult 派生 Web/CLI 共享的运行摘要和产物索引。"""
 
     promoted_rounds = sum(1 for item in loop_result.rounds if item.decision == "promoted")
+    configured_iterations = (
+        None if request.iterations is None else max(0, request.iterations)
+    )
+    resumed_round_count: int | None = 0
+    if request.resume_loop_result:
+        resumed_round_count = (
+            len(loop_result.rounds) - configured_iterations
+            if configured_iterations is not None
+            else None
+        )
     round_payloads = [round_record_payload(item) for item in loop_result.rounds]
     loop_result_path = output_dir / "worker_loop" / "loop_result.json"
     loop_payload = {}
@@ -604,10 +638,8 @@ def standard_worker_manifest(
             "previous_pipeline_memory": str(request.previous_pipeline_memory) if request.previous_pipeline_memory else None,
             "guidance_mode": request.guidance_mode,
             "resume_loop_result": str(request.resume_loop_result) if request.resume_loop_result else None,
-            "resumed_round_count": len(loop_result.rounds) - max(0, request.iterations)
-            if request.resume_loop_result
-            else 0,
-            "additional_iterations": max(0, request.iterations)
+            "resumed_round_count": resumed_round_count,
+            "additional_iterations": configured_iterations
             if request.resume_loop_result
             else 0,
             "seeds": request.seeds or [0],
@@ -615,7 +647,13 @@ def standard_worker_manifest(
             "agent_generated_solver_path": request.agent_generated_solver_path,
             "provided_solver_command": request.provided_solver_command,
             "provided_target_file": request.provided_target_file,
-            "iterations": max(0, request.iterations),
+            "iterations": configured_iterations,
+            "unlimited_rounds": request.iterations is None,
+            "controller_budget_seconds": (
+                float(request.controller_budget_seconds)
+                if request.controller_budget_seconds is not None
+                else None
+            ),
             "timeout_seconds": max(1, request.timeout_seconds),
             "max_workers": max(1, request.max_workers),
             "max_steps": max(1, request.max_steps),
@@ -644,9 +682,12 @@ def standard_worker_manifest(
         "baseline_key": list(loop_result.baseline_key),
         "baseline_source": loop_result.baseline_source,
         "baseline_generation": loop_result.baseline_generation,
+        "controller_budget": loop_result.controller_budget,
         "final_key": list(loop_result.final_key),
         "best_legal_incumbent": candidate_incumbent_payload(loop_result.best_legal_incumbent),
         "best_activated_incumbent": candidate_incumbent_payload(loop_result.best_activated_incumbent),
+        "candidate_pool": loop_result.candidate_pool,
+        "best_history": loop_result.best_history,
         "improved": loop_result.final_key > loop_result.baseline_key,
         "round_count": len(loop_result.rounds),
         "promoted_rounds": promoted_rounds,
@@ -908,6 +949,7 @@ def render_standard_worker_report(manifest: dict[str, Any]) -> str:
         f"- Improved: `{manifest.get('improved')}`",
         f"- Rounds: `{manifest.get('round_count')}`",
         f"- Promoted rounds: `{manifest.get('promoted_rounds')}`",
+        f"- Controller budget: `{json.dumps(manifest.get('controller_budget') or {}, ensure_ascii=False)}`",
         f"- Direction graph: `{json.dumps((manifest.get('hypothesis_graph') or {}).get('status_counts') or {}, ensure_ascii=False)}`",
         f"- Candidate lessons: `{len(((manifest.get('experience_memory') or {}).get('memory_tiers') or {}).get('candidate_lessons') or [])}`",
         f"- In-round repair: `{json.dumps(manifest.get('in_round_repair') or {}, ensure_ascii=False)}`",

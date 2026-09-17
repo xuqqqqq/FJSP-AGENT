@@ -20,6 +20,7 @@ from harness_agent.web.server import (
     _ROUND_GATES,
     agent_status_snapshot,
     browser_safe_json,
+    compact_competition_result,
     compact_lane_development_states,
     create_project_resource,
     create_job,
@@ -121,6 +122,37 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(2, compacted["lane-01"]["stage"])
         self.assertEqual("ses-01", compacted["lane-01"]["session_id"])
 
+    def test_compact_competition_result_exposes_ranked_fallback_promotion(self) -> None:
+        compacted = compact_competition_result(
+            {
+                "status": "selected",
+                "competition_winner_id": "lane-01",
+                "ranked_candidate_ids": ["lane-01", "lane-02"],
+                "selected_candidate_id": "lane-02",
+                "promoted_candidate_id": "lane-02",
+                "promotion_fallback_used": True,
+                "promotion_attempts": [
+                    {"candidate_id": "lane-01", "promotion_check": {"promoted": False}},
+                    {"candidate_id": "lane-02", "promotion_check": {"promoted": True}},
+                ],
+                "candidates": [
+                    {
+                        "candidate_id": "lane-02",
+                        "status": "completed",
+                        "eligible": True,
+                        "promoted": True,
+                        "promotion_attempted": True,
+                        "promotion_check": {"promoted": True},
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual("lane-01", compacted["competition_winner_id"])
+        self.assertEqual("lane-02", compacted["promoted_candidate_id"])
+        self.assertTrue(compacted["promotion_fallback_used"])
+        self.assertTrue(compacted["candidates"][0]["promoted"])
+
     def test_stale_running_job_is_marked_interrupted_without_losing_history(self) -> None:
         payload = {
             "id": "stale-job",
@@ -188,6 +220,15 @@ class WebAppTests(unittest.TestCase):
             job = create_job(self.job_payload(), output_root=Path(tmp))
 
         self.assertEqual("fast", job["config"]["main_planning_mode"])
+
+    def test_create_job_preserves_research_main_planning_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job = create_job(
+                self.job_payload(main_planning_mode="research"),
+                output_root=Path(tmp),
+            )
+
+        self.assertEqual("research", job["config"]["main_planning_mode"])
 
     def test_create_job_rejects_zip_path_traversal_and_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -478,6 +519,7 @@ class WebAppTests(unittest.TestCase):
         instance_field_end = index.index("</label>", instance_field_start)
         instance_field = index[instance_field_start:instance_field_end]
         self.assertIn('id="instance-file"', instance_field)
+        self.assertIn('accept=".fjs,.fjsp,.txt,.json"', instance_field)
         self.assertIn('id="instance-text"', instance_field)
         self.assertNotIn('id="title"', instance_field)
         self.assertIn("file.arrayBuffer()", project_script)
@@ -849,10 +891,33 @@ class WebAppTests(unittest.TestCase):
         self.assertIn('"2057","2127"', demo["best_known_csv"]["text"])
         self.assertEqual(10, config["max_rounds"])
         self.assertEqual(600, config["worker_max_runtime_seconds"])
+        self.assertEqual(0, config["controller_budget_seconds"])
+        self.assertFalse(config["unlimited_rounds"])
         self.assertEqual(1, config["promotion_repeats"])
         self.assertFalse(any(key.startswith("awls_") for key in config))
         for removed in ("solver", "run_mode", "evolution_mode", "baseline_source", "profile_mode"):
             self.assertNotIn(removed, config)
+
+    def test_web_job_accepts_controller_time_budget_and_unlimited_rounds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job = create_job(
+                self.job_payload(
+                    controller_budget_seconds=1800,
+                    unlimited_rounds=True,
+                ),
+                output_root=Path(tmp),
+            )
+
+        self.assertEqual(1800, job["config"]["controller_budget_seconds"])
+        self.assertTrue(job["config"]["unlimited_rounds"])
+
+    def test_web_job_rejects_unlimited_rounds_without_time_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "不限轮模式"):
+                create_job(
+                    self.job_payload(unlimited_rounds=True),
+                    output_root=Path(tmp),
+                )
 
     def test_provider_status_exposes_model_and_key_presence_without_secret(self) -> None:
         os.environ["OPENAI_API_KEY"] = "test-secret-must-not-leak"
@@ -936,11 +1001,13 @@ class WebAppTests(unittest.TestCase):
 
         self.assertIn('id="main-agent-model-setup"', index)
         self.assertIn('id="main-agent-variant-setup"', index)
+        self.assertIn('id="main-planning-mode"', index)
         self.assertIn('id="coding-worker-model-setup"', index)
         self.assertIn('id="coding-worker-variant-setup"', index)
         self.assertIn('id="main-max-subagents"', index)
         self.assertIn('id="max-competing-workers"', index)
         self.assertIn("main_agent_model: selectedAgentModel(\"main-agent\")", app)
+        self.assertIn('main_planning_mode: $("main-planning-mode").value || "fast"', app)
         self.assertIn("coding_worker_model: selectedAgentModel(\"coding-worker\")", app)
         self.assertNotIn('id="openai-api-key"', index)
 

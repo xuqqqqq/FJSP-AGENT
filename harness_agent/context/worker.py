@@ -66,7 +66,9 @@ def build_worker_assignment(
     budget_errors = worker_execution_budget_errors(execution_budget)
     if budget_errors:
         raise ValueError("invalid worker_execution_budget: " + "; ".join(budget_errors))
-    smoke_count = execution_budget.get("max_solver_smokes", 1)
+    # Longer coding budgets need bounded repair checks, not longer solver runs.
+    long_coding_budget = max_runtime_seconds >= 900
+    smoke_count = execution_budget.get("max_solver_smokes", 3 if long_coding_budget else 1)
     smoke_seconds = execution_budget.get("max_solver_smoke_seconds", 3)
     direction_id = str(direction_plan.get("direction_id") or f"d{round_index:03d}").strip()
     latest_feedback = _assignment_feedback(loop_feedback, attempt_index=attempt_index)
@@ -424,6 +426,8 @@ def build_worker_assignment(
             "max_runtime_seconds": max(1, int(max_runtime_seconds)),
             "max_solver_smokes": smoke_count,
             "max_solver_smoke_seconds": smoke_seconds,
+            **({"max_agent_steps": max(24, min(48, max_steps * 3))}
+               if long_coding_budget else {}),
             **execution_budget,
         },
         completion_rule=completion_rule,

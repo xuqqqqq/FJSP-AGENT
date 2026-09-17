@@ -99,9 +99,8 @@ class IndustrialFromScratchSkillDeliveryTests(unittest.TestCase):
                 target = worktree / ".opencode/skills" / SKILL_ID
                 read_pattern = f".opencode/skills/{SKILL_ID}/**"
                 self.assertEqual("deny", permission["read"]["*"])
+                self.assertEqual("deny", permission["skill"])
                 if mode == "full" and industrial:
-                    self.assertEqual("allow", permission["skill"][SKILL_ID])
-                    self.assertEqual("deny", permission["skill"]["*"])
                     self.assertEqual("allow", permission["read"][read_pattern])
                     self.assertEqual(expected_files, {p.relative_to(target).as_posix() for p in target.rglob("*") if p.is_file()})
                     for name in expected_files:
@@ -109,10 +108,6 @@ class IndustrialFromScratchSkillDeliveryTests(unittest.TestCase):
                 else:
                     self.assertFalse(target.exists())
                     self.assertNotIn(read_pattern, permission["read"])
-                    if isinstance(permission["skill"], dict):
-                        self.assertNotIn(SKILL_ID, permission["skill"])
-                    else:
-                        self.assertEqual("deny", permission["skill"])
 
 
 if __name__ == "__main__":

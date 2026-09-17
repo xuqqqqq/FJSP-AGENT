@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import math
 import os
 import re
 import shlex
+import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
@@ -42,6 +44,7 @@ from harness_agent.agents.main import (
     RoundReflectionRequest,
     WorkerAssignmentRequest,
     bind_direction_plan_to_method_catalog,
+    coupled_component_closure,
     ensure_direction_activation_contracts,
     ensure_method_family_activation_contract,
     method_implementation_bundle,
@@ -158,6 +161,106 @@ class WorkerLoopResult:
     best_legal_incumbent: CandidateIncumbent | None = None
     best_activated_incumbent: CandidateIncumbent | None = None
     lane_development_states: dict[str, LaneDevelopmentState] = field(default_factory=dict)
+    candidate_pool: list[dict[str, Any]] = field(default_factory=list)
+    best_history: list[dict[str, Any]] = field(default_factory=list)
+    controller_budget: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ControllerTimeBudget:
+    """Online wall-clock budget for Agent work, excluding fixed Core intervals."""
+
+    limit_seconds: float | None
+    timing_root: Path
+    started_at_epoch: float = field(default_factory=time.time)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def enabled(self) -> bool:
+        return self.limit_seconds is not None and self.limit_seconds > 0
+
+    def used_seconds(self, *, now_epoch: float | None = None) -> float:
+        now = time.time() if now_epoch is None else float(now_epoch)
+        with self._lock:
+            intervals = _core_timing_intervals(
+                self.timing_root,
+                started_at_epoch=self.started_at_epoch,
+                finished_at_epoch=now,
+            )
+        return max(0.0, now - self.started_at_epoch - _merged_interval_seconds(intervals))
+
+    def remaining_seconds(self, *, now_epoch: float | None = None) -> float | None:
+        if not self.enabled():
+            return None
+        return max(0.0, float(self.limit_seconds) - self.used_seconds(now_epoch=now_epoch))
+
+    def exhausted(self, *, now_epoch: float | None = None) -> bool:
+        remaining = self.remaining_seconds(now_epoch=now_epoch)
+        return remaining is not None and remaining <= 0.0
+
+    def cap_runtime_seconds(self, configured_seconds: int) -> int:
+        remaining = self.remaining_seconds()
+        if remaining is None:
+            return max(1, int(configured_seconds))
+        return max(1, min(int(configured_seconds), int(math.ceil(remaining))))
+
+    def snapshot(self, *, now_epoch: float | None = None) -> dict[str, Any]:
+        now = time.time() if now_epoch is None else float(now_epoch)
+        used = self.used_seconds(now_epoch=now)
+        limit = float(self.limit_seconds) if self.enabled() else None
+        remaining = max(0.0, limit - used) if limit is not None else None
+        return {
+            "schema_version": 1,
+            "metric": "controller_wall_seconds_excluding_fixed_core",
+            "enabled": limit is not None,
+            "limit_seconds": limit,
+            "used_seconds": used,
+            "remaining_seconds": remaining,
+            "exhausted": bool(limit is not None and used >= limit),
+            "overshoot_seconds": max(0.0, used - limit) if limit is not None else 0.0,
+            "accounting": "wall_clock_minus_fixed_core_interval_union",
+        }
+
+
+class ControllerBudgetExhausted(RuntimeError):
+    """Raised before starting another Agent trial after the controller budget ends."""
+
+
+@dataclass(frozen=True)
+class CompetitionCandidate:
+    """One completed lane plus the runtime artifacts needed for promotion."""
+
+    candidate_index: int
+    objective_key: tuple[float, ...]
+    eligible: bool
+    cycle: Any
+    context_packet_path: Path
+    attempts: list[dict[str, Any]]
+    plan: dict[str, Any]
+    outcome: dict[str, Any]
+
+    @property
+    def candidate_id(self) -> str:
+        variant = self.plan.get("candidate_variant") or {}
+        return str(variant.get("candidate_id") or self.outcome.get("candidate_id") or "c00")
+
+
+@dataclass(frozen=True)
+class CompetingWorkerCyclesResult:
+    """Competition result with legacy five-value unpacking compatibility."""
+
+    cycle: Any
+    context_packet_path: Path
+    attempts: list[dict[str, Any]]
+    result: dict[str, Any]
+    selected_plan: dict[str, Any]
+    ranked_candidates: list[CompetitionCandidate]
+
+    def __iter__(self):
+        yield self.cycle
+        yield self.context_packet_path
+        yield self.attempts
+        yield self.result
+        yield self.selected_plan
 
 
 def materialize_selected_round_artifacts(
@@ -192,7 +295,7 @@ def run_worker_loop(
     main_agent: DirectionPlanningAgent | None = None,
     semantic_reviewer: AlgorithmSemanticReviewer | None = None,
     experiment_id: str,
-    iterations: int,
+    iterations: int | None,
     max_steps: int,
     max_runtime_seconds: int,
     apply_worker_changes: bool,
@@ -205,6 +308,9 @@ def run_worker_loop(
     round_intervention: Callable[[int, LoopRoundRecord, dict[str, Any]], Any] | None = None,
     cancellation: CancellationToken | None = None,
     resume_from: WorkerLoopResult | None = None,
+    controller_budget_seconds: float | None = None,
+    budget_started_at_epoch: float | None = None,
+    budget_timing_root: Path | None = None,
 ) -> WorkerLoopResult:
     """运行完整闭环；每轮只推进一个方向，incumbent 始终由 Core 证据保护。
 
@@ -217,6 +323,21 @@ def run_worker_loop(
         cancellation.raise_if_cancelled()
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    if iterations is None and not controller_budget_seconds:
+        raise ValueError("unlimited rounds require controller_budget_seconds")
+    controller_budget = ControllerTimeBudget(
+        limit_seconds=(
+            float(controller_budget_seconds)
+            if controller_budget_seconds is not None and float(controller_budget_seconds) > 0
+            else None
+        ),
+        timing_root=(budget_timing_root or output_dir).resolve(),
+        started_at_epoch=(
+            float(budget_started_at_epoch)
+            if budget_started_at_epoch is not None
+            else time.time()
+        ),
+    )
     direction_planner = main_agent or EvidenceDrivenMainAgent()
     max_competing_workers = max(1, min(4, int(max_competing_workers)))
     guidance_mode = _guidance_mode_from_context_packet(context_packet_path)
@@ -243,7 +364,7 @@ def run_worker_loop(
                 worker=baseline_worker_for_generation,
                 experiment_id=experiment_id,
                 max_steps=max_steps,
-                max_runtime_seconds=max_runtime_seconds,
+                max_runtime_seconds=controller_budget.cap_runtime_seconds(max_runtime_seconds),
                 semantic_reviewer=semantic_reviewer,
                 assignment_issuer=direction_planner,
                 direction_plan=plan_agent_generated_baseline_direction(
@@ -256,6 +377,7 @@ def run_worker_loop(
                     in_round_repair_attempts,
                 ),
                 cancellation=cancellation,
+                controller_budget=controller_budget,
             )
         else:
             baseline_worktree = output_dir / "baseline_worktree"
@@ -305,6 +427,8 @@ def run_worker_loop(
         if resume_from is not None
         else {}
     )
+    candidate_pool = list(resume_from.candidate_pool or []) if resume_from is not None else []
+    best_history = list(resume_from.best_history or []) if resume_from is not None else []
     if (
         resume_from is None
         and normalized_baseline_source == "agent_generated"
@@ -339,6 +463,7 @@ def run_worker_loop(
             best_legal_incumbent=best_legal_incumbent,
             best_activated_incumbent=best_activated_incumbent,
             lane_development_states=lane_development_states,
+            controller_budget=controller_budget.snapshot(),
         )
         write_loop_report(
             output_dir=output_dir,
@@ -375,6 +500,7 @@ def run_worker_loop(
             best_legal_incumbent=best_legal_incumbent,
             best_activated_incumbent=best_activated_incumbent,
             lane_development_states=lane_development_states,
+            controller_budget=controller_budget.snapshot(),
         )
         write_loop_report(
             output_dir=output_dir,
@@ -394,7 +520,12 @@ def run_worker_loop(
         item.proposal_fingerprint for item in round_records if item.proposal_fingerprint
     }
     first_round_index = max((item.round_index for item in round_records), default=-1) + 1
-    for round_offset in range(max(0, iterations)):
+    round_offsets = itertools.count() if iterations is None else range(max(0, iterations))
+    stop_reason: str | None = None
+    for round_offset in round_offsets:
+        if controller_budget.exhausted():
+            stop_reason = "controller_budget_exhausted"
+            break
         round_index = first_round_index + round_offset
         if cancellation is not None:
             cancellation.raise_if_cancelled()
@@ -417,6 +548,7 @@ def run_worker_loop(
             current_round_repair=None,
             max_competing_workers=max_competing_workers,
             guidance_mode=guidance_mode,
+            candidate_pool=candidate_pool,
         )
         # Main must plan from the actual promoted worktree, not from the immutable
         # pre-baseline packet. This refreshed planning-only packet carries an
@@ -524,14 +656,11 @@ def run_worker_loop(
                     )
                     user_intervention["direction_patch_path"] = str(patch_path.resolve())
                 direction_plan["user_intervention"] = user_intervention
+        if controller_budget.exhausted():
+            stop_reason = "controller_budget_exhausted"
+            break
         try:
-            (
-                cycle,
-                round_context_packet_path,
-                in_round_attempts,
-                competition_result,
-                selected_direction_plan,
-            ) = run_competing_worker_cycles(
+            competition = run_competing_worker_cycles(
                 contract=contract,
                 project_root=incumbent_worktree,
                 worker=worker,
@@ -540,7 +669,7 @@ def run_worker_loop(
                 round_index=round_index,
                 experiment_id=experiment_id,
                 max_steps=max_steps,
-                max_runtime_seconds=max_runtime_seconds,
+                max_runtime_seconds=controller_budget.cap_runtime_seconds(max_runtime_seconds),
                 apply_worker_changes=apply_worker_changes,
                 baseline_summary=baseline_summary,
                 incumbent_key=incumbent_key,
@@ -555,11 +684,17 @@ def run_worker_loop(
                 max_competing_workers=max_competing_workers,
                 lane_development_states=lane_development_states,
                 cancellation=cancellation,
+                controller_budget=controller_budget,
             )
+            (
+                cycle,
+                round_context_packet_path,
+                in_round_attempts,
+                competition_result,
+                selected_direction_plan,
+            ) = competition
             direction_plan = dict(direction_plan)
             direction_plan["competition_result"] = competition_result
-            direction_plan["selected_candidate_variant"] = selected_direction_plan.get("candidate_variant") or {}
-            direction_plan["mechanism_activation"] = selected_direction_plan.get("mechanism_activation") or {}
             best_legal_incumbent = update_candidate_incumbent(
                 best_legal_incumbent,
                 competition_result.get("best_legal_candidate"),
@@ -569,12 +704,6 @@ def run_worker_loop(
                 best_activated_incumbent,
                 competition_result.get("best_activated_candidate"),
                 round_index=round_index,
-            )
-            materialize_selected_round_artifacts(
-                cycle_dir=cycle_dir,
-                context_packet_path=round_context_packet_path,
-                delta_path=cycle.delta_path,
-                patch_path=cycle.patch_path,
             )
         except TaskCancelled:
             raise
@@ -651,22 +780,169 @@ def run_worker_loop(
                 direction_plan=direction_plan,
                 semantic_review=None,
             )
-            reflection = reflect_on_completed_round(
-                planner=direction_planner,
-                request=RoundReflectionRequest(
-                    round_index=round_index,
-                    direction_plan=direction_plan,
-                    competition_result=competition_result,
-                    promotion_check=promotion_check,
-                    incumbent_key_before=incumbent_key_before_round,
-                    incumbent_key_after=incumbent_key,
-                    output_dir=cycle_dir / "main_agent_reflection",
-                ),
+            reflection = (
+                {"status": "skipped", "reason": "controller_budget_exhausted"}
+                if controller_budget.exhausted()
+                else reflect_on_completed_round(
+                    planner=direction_planner,
+                    request=RoundReflectionRequest(
+                        round_index=round_index,
+                        direction_plan=direction_plan,
+                        competition_result=competition_result,
+                        promotion_check=promotion_check,
+                        incumbent_key_before=incumbent_key_before_round,
+                        incumbent_key_after=incumbent_key,
+                        output_dir=cycle_dir / "main_agent_reflection",
+                    ),
+                )
             )
             round_records.append(replace(round_record, round_reflection=reflection))
+            if controller_budget.exhausted():
+                stop_reason = "controller_budget_exhausted"
+                break
             continue
 
-        # 阶段 3：将最终 attempt 归一化为轮级证据，并判断是否更新 incumbent。
+        # 阶段 3：按客观排名顺位复验。第一名不稳定时继续检查下一名，
+        # 但任何候选都必须独立通过相同的固定 Core 和严格提升门禁。
+        promoted_candidate, promotion_attempts = evaluate_ranked_promotion_candidates(
+            contract=contract,
+            incumbent_worktree=incumbent_worktree,
+            incumbent_key=incumbent_key,
+            ranked_candidates=competition.ranked_candidates,
+            output_dir=cycle_dir / "promotion_checks",
+            promotion_repeats=promotion_repeats,
+            cancellation=cancellation,
+        )
+        eligible_ranked = [item for item in competition.ranked_candidates if item.eligible]
+        selected_runtime = (
+            promoted_candidate
+            or (eligible_ranked[0] if eligible_ranked else None)
+            or competition.ranked_candidates[0]
+        )
+        cycle = selected_runtime.cycle
+        round_context_packet_path = selected_runtime.context_packet_path
+        in_round_attempts = selected_runtime.attempts
+        selected_direction_plan = selected_runtime.plan
+        candidate_key = selected_runtime.objective_key
+        promoted = promoted_candidate is not None
+        promoted_candidate_id = promoted_candidate.candidate_id if promoted_candidate else None
+        promotion_check = (
+            dict(
+                next(
+                    item["promotion_check"]
+                    for item in promotion_attempts
+                    if item.get("candidate_id") == promoted_candidate_id
+                )
+            )
+            if promoted
+            else dict((promotion_attempts[0].get("promotion_check") or {}))
+            if promotion_attempts
+            else {
+                "status": "skipped",
+                "reason": "no_eligible_competition_candidate",
+                "promoted": False,
+                "required_repeats": max(1, promotion_repeats),
+            }
+        )
+        promotion_check["ranked_attempts"] = promotion_attempts
+        promotion_check["competition_winner_id"] = competition_result.get("competition_winner_id")
+        promotion_check["promoted_candidate_id"] = promoted_candidate_id
+        promotion_check["fallback_used"] = bool(
+            promoted_candidate_id
+            and promoted_candidate_id != competition_result.get("competition_winner_id")
+        )
+        competition_result["promotion_attempts"] = promotion_attempts
+        competition_result["promoted_candidate_id"] = promoted_candidate_id
+        competition_result["promotion_fallback_used"] = promotion_check["fallback_used"]
+        competition_result["selected_candidate_id"] = (
+            selected_runtime.candidate_id if selected_runtime.eligible else None
+        )
+        competition_result["selected_objective_key"] = (
+            list(selected_runtime.objective_key) if selected_runtime.eligible else []
+        )
+        competition_result["selected_session_id"] = str(
+            selected_runtime.outcome.get("worker_session_id") or ""
+        ) or None
+        selected_lane_state = (
+            selected_runtime.outcome.get("lane_development_state")
+            if isinstance(selected_runtime.outcome.get("lane_development_state"), dict)
+            else {}
+        )
+        continued_session_id = (
+            str(selected_lane_state.get("session_id") or "") or None
+            if selected_lane_state.get("session_status") == "continued"
+            else None
+        )
+        competition_result["continued_session_id"] = continued_session_id
+        competition_result["continued_session_candidate_id"] = (
+            selected_runtime.candidate_id if continued_session_id else None
+        )
+        for outcome in competition_result.get("candidates") or []:
+            if not isinstance(outcome, dict):
+                continue
+            attempt = next(
+                (
+                    item
+                    for item in promotion_attempts
+                    if item.get("candidate_id") == outcome.get("candidate_id")
+                ),
+                None,
+            )
+            outcome["promotion_attempted"] = attempt is not None
+            outcome["promotion_check"] = attempt.get("promotion_check") if attempt else None
+            outcome["promoted"] = outcome.get("candidate_id") == promoted_candidate_id
+        (cycle_dir / "competition_result.json").write_text(
+            json.dumps(competition_result, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        round_candidate_records = candidate_pool_records_for_round(
+            round_index=round_index,
+            competition=competition,
+            promotion_attempts=promotion_attempts,
+            promoted_candidate_id=promoted_candidate_id,
+        )
+        candidate_pool.extend(round_candidate_records)
+        if promoted:
+            previous_key = incumbent_key
+            incumbent_key = tuple(
+                float(item) for item in promotion_check.get("accepted_key", candidate_key)
+            )
+            incumbent_worktree = cycle.worktree_path
+            promoted_record = next(
+                (
+                    item
+                    for item in round_candidate_records
+                    if item.get("candidate_id") == promoted_candidate_id
+                ),
+                {},
+            )
+            best_history.append(
+                {
+                    "revision": len(best_history) + 1,
+                    "round_index": round_index,
+                    "candidate_record_id": promoted_record.get("candidate_record_id"),
+                    "candidate_id": promoted_candidate_id,
+                    "previous_objective_key": list(previous_key),
+                    "objective_key": list(incumbent_key),
+                    "worktree": str(incumbent_worktree),
+                    "promotion_check": promotion_check,
+                }
+            )
+        direction_plan["competition_result"] = competition_result
+        direction_plan["selected_candidate_variant"] = (
+            selected_direction_plan.get("candidate_variant") or {}
+        )
+        direction_plan["mechanism_activation"] = (
+            selected_direction_plan.get("mechanism_activation") or {}
+        )
+        materialize_selected_round_artifacts(
+            cycle_dir=cycle_dir,
+            context_packet_path=round_context_packet_path,
+            delta_path=cycle.delta_path,
+            patch_path=cycle.patch_path,
+        )
+
+        # 将实际选中的 attempt 归一化为轮级证据。
         proposal_fingerprint = worker_proposal_fingerprint(cycle.worker_result)
         duplicate_proposal = proposal_fingerprint in seen_proposal_fingerprints
         seen_proposal_fingerprints.add(proposal_fingerprint)
@@ -690,39 +966,13 @@ def run_worker_loop(
         )
         if isinstance(semantic_review, dict):
             proposal_diagnostics["algorithm_semantic_review"] = semantic_review
-        candidate_key = summary_objective_key(cycle.summary, contract.objectives)
         mechanism_activation = (
             direction_plan.get("mechanism_activation")
             if isinstance(direction_plan.get("mechanism_activation"), dict)
             else {}
         )
-        if competition_result.get("selected_for_promotion") is False:
-            promotion_check = {
-                "status": "skipped",
-                "reason": "no_eligible_competition_candidate",
-                "promoted": False,
-                "required_repeats": max(1, promotion_repeats),
-            }
-        else:
-            promotion_check = evaluate_promotion_check(
-                contract=contract,
-                incumbent_worktree=incumbent_worktree,
-                candidate_worktree=cycle.worktree_path,
-                output_dir=cycle_dir / "promotion_check",
-                incumbent_key=incumbent_key,
-                candidate_key=candidate_key,
-                promotion_repeats=promotion_repeats,
-                activation_plan=selected_direction_plan,
-                candidate_activation=mechanism_activation,
-                cancellation=cancellation,
-            )
         if isinstance(semantic_review, dict):
             promotion_check["semantic_review_advisory"] = semantic_review
-        promoted = bool(promotion_check.get("promoted"))
-        # 只有 promotion check 能修改 incumbent 指针；rollback 只保留产物。
-        if promoted:
-            incumbent_key = tuple(float(item) for item in promotion_check.get("accepted_key", candidate_key))
-            incumbent_worktree = cycle.worktree_path
         round_record = LoopRoundRecord(
             round_index=round_index,
             decision="promoted" if promoted else "rolled_back",
@@ -746,19 +996,26 @@ def run_worker_loop(
             mechanism_activation=mechanism_activation,
             worker_session_id=str(competition_result.get("selected_session_id") or "") or None,
         )
-        reflection = reflect_on_completed_round(
-            planner=direction_planner,
-            request=RoundReflectionRequest(
-                round_index=round_index,
-                direction_plan=direction_plan,
-                competition_result=competition_result,
-                promotion_check=promotion_check,
-                incumbent_key_before=incumbent_key_before_round,
-                incumbent_key_after=incumbent_key,
-                output_dir=cycle_dir / "main_agent_reflection",
-            ),
+        reflection = (
+            {"status": "skipped", "reason": "controller_budget_exhausted"}
+            if controller_budget.exhausted()
+            else reflect_on_completed_round(
+                planner=direction_planner,
+                request=RoundReflectionRequest(
+                    round_index=round_index,
+                    direction_plan=direction_plan,
+                    competition_result=competition_result,
+                    promotion_check=promotion_check,
+                    incumbent_key_before=incumbent_key_before_round,
+                    incumbent_key_after=incumbent_key,
+                    output_dir=cycle_dir / "main_agent_reflection",
+                ),
+            )
         )
         round_records.append(replace(round_record, round_reflection=reflection))
+        if controller_budget.exhausted():
+            stop_reason = "controller_budget_exhausted"
+            break
 
     result = WorkerLoopResult(
         baseline_key=baseline_key,
@@ -771,6 +1028,10 @@ def run_worker_loop(
         best_legal_incumbent=best_legal_incumbent,
         best_activated_incumbent=best_activated_incumbent,
         lane_development_states=lane_development_states,
+        candidate_pool=candidate_pool,
+        best_history=best_history,
+        stop_reason=stop_reason,
+        controller_budget=controller_budget.snapshot(),
     )
     write_loop_report(
         output_dir=output_dir,
@@ -808,7 +1069,8 @@ def run_competing_worker_cycles(
     initial_session_candidate_id: str | None = None,
     lane_development_states: dict[str, LaneDevelopmentState] | None = None,
     cancellation: CancellationToken | None = None,
-) -> tuple[Any, Path, list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    controller_budget: ControllerTimeBudget | None = None,
+) -> CompetingWorkerCyclesResult:
     """Evaluate isolated Coding Worker variants and return the best eligible lane."""
 
     lane_states = lane_development_states if lane_development_states is not None else {}
@@ -863,6 +1125,8 @@ def run_competing_worker_cycles(
             repair_attempts=repair_attempts,
         )
         try:
+            if controller_budget is not None and controller_budget.exhausted():
+                raise ControllerBudgetExhausted("controller budget exhausted before candidate lane")
             cycle, context_path, attempts = run_worker_cycle_with_in_round_repairs(
                 contract=contract,
                 project_root=parent_worktree,
@@ -872,7 +1136,11 @@ def run_competing_worker_cycles(
                 round_index=round_index,
                 experiment_id=f"{experiment_id}__{candidate_id}",
                 max_steps=candidate_max_steps,
-                max_runtime_seconds=max_runtime_seconds,
+                max_runtime_seconds=(
+                    controller_budget.cap_runtime_seconds(max_runtime_seconds)
+                    if controller_budget is not None
+                    else max_runtime_seconds
+                ),
                 apply_worker_changes=apply_worker_changes,
                 baseline_summary=baseline_summary,
                 incumbent_key=incumbent_key,
@@ -889,6 +1157,7 @@ def run_competing_worker_cycles(
                 user_intervention=user_intervention,
                 initial_session_id=requested_session_id,
                 cancellation=cancellation,
+                controller_budget=controller_budget,
             )
             key = summary_objective_key(cycle.summary, contract.objectives)
             selected_attempt = next(
@@ -966,8 +1235,11 @@ def run_competing_worker_cycles(
                 "session_event_stream_bytes": (selected_attempt or {}).get("session_event_stream_bytes"),
                 "semantic_review": semantic_review or {},
                 "cycle_dir": str(candidate_dir),
+                "context_packet_path": str(context_path),
                 "worktree": str(cycle.worktree_path),
                 "patch_path": str(cycle.patch_path),
+                "method_family": str(candidate_plan.get("method_family") or ""),
+                "method_package_id": str(candidate_plan.get("method_package_id") or ""),
                 "parent_checkpoint": str(parent_worktree),
                 "parent_objective_key": list(
                     parent_state.objective_key if parent_state is not None else incumbent_key
@@ -1033,9 +1305,29 @@ def run_competing_worker_cycles(
         incumbent_key=incumbent_key,
         round_index=round_index,
     )
-    completed = [item[2] for item in candidate_results if item[2] is not None]
-    eligible_completed = [item for item in completed if item[1]]
-    selection_pool = eligible_completed or completed
+    completed_candidates = [
+        CompetitionCandidate(
+            candidate_index=candidate_index,
+            objective_key=completed[0],
+            eligible=completed[1],
+            cycle=completed[2],
+            context_packet_path=completed[3],
+            attempts=completed[4],
+            plan=completed[5],
+            outcome=outcome,
+        )
+        for candidate_index, outcome, completed in candidate_results
+        if completed is not None
+    ]
+    ranked_candidates = sorted(
+        completed_candidates,
+        key=lambda item: item.objective_key,
+        reverse=True,
+    )
+    for rank, candidate in enumerate(ranked_candidates, start=1):
+        candidate.outcome["objective_rank"] = rank
+    eligible_completed = [item for item in ranked_candidates if item.eligible]
+    selection_pool = eligible_completed or ranked_candidates
     if not selection_pool:
         result = {
             "status": "all_candidates_failed",
@@ -1051,11 +1343,11 @@ def run_competing_worker_cycles(
             encoding="utf-8",
         )
         raise RuntimeError("all competing Coding Worker candidates failed before Core selection")
-    winner = max(selection_pool, key=lambda item: item[0])
+    winner = selection_pool[0]
     has_eligible_winner = bool(eligible_completed)
-    selected_plan = winner[5]
+    selected_plan = winner.plan
     selected_variant = selected_plan.get("candidate_variant") or {}
-    winner_attempts = winner[4]
+    winner_attempts = winner.attempts
     winner_attempt = next(
         (
             item
@@ -1104,9 +1396,14 @@ def run_competing_worker_cycles(
         "selected_candidate_id": (
             (selected_variant.get("candidate_id") or "c00") if has_eligible_winner else None
         ),
-        "selected_objective_key": list(winner[0]) if has_eligible_winner else [],
+        "selected_objective_key": list(winner.objective_key) if has_eligible_winner else [],
         "measured_candidate_id": selected_variant.get("candidate_id") or "c00",
-        "measured_objective_key": list(winner[0]),
+        "measured_objective_key": list(winner.objective_key),
+        "competition_winner_id": (
+            (selected_variant.get("candidate_id") or "c00") if has_eligible_winner else None
+        ),
+        "ranked_candidate_ids": [item.candidate_id for item in eligible_completed],
+        "all_ranked_candidate_ids": [item.candidate_id for item in ranked_candidates],
         "continued_session_id": continued_session_id,
         "continued_session_candidate_id": (
             (selected_variant.get("candidate_id") or "c00")
@@ -1132,7 +1429,252 @@ def run_competing_worker_cycles(
         json.dumps(result, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    return winner[2], winner[3], winner[4], result, selected_plan
+    return CompetingWorkerCyclesResult(
+        cycle=winner.cycle,
+        context_packet_path=winner.context_packet_path,
+        attempts=winner.attempts,
+        result=result,
+        selected_plan=selected_plan,
+        ranked_candidates=ranked_candidates,
+    )
+
+
+def evaluate_ranked_promotion_candidates(
+    *,
+    contract: TaskContract,
+    incumbent_worktree: Path,
+    incumbent_key: tuple[float, ...],
+    ranked_candidates: list[CompetitionCandidate],
+    output_dir: Path,
+    promotion_repeats: int,
+    cancellation: CancellationToken | None,
+) -> tuple[CompetitionCandidate | None, list[dict[str, Any]]]:
+    """Repeat-check eligible lanes in objective order until one is promotable."""
+
+    attempts: list[dict[str, Any]] = []
+    eligible = [candidate for candidate in ranked_candidates if candidate.eligible]
+    for rank, candidate in enumerate(eligible, start=1):
+        if candidate.objective_key <= incumbent_key:
+            attempts.append(
+                {
+                    "candidate_id": candidate.candidate_id,
+                    "rank": rank,
+                    "promotion_check": {
+                        "status": "skipped",
+                        "reason": "candidate_not_strictly_better",
+                        "promoted": False,
+                        "required_repeats": max(1, promotion_repeats),
+                        "candidate_key": list(candidate.objective_key),
+                        "incumbent_key": list(incumbent_key),
+                    },
+                }
+            )
+            break
+        try:
+            check = evaluate_promotion_check(
+                contract=contract,
+                incumbent_worktree=incumbent_worktree,
+                candidate_worktree=candidate.cycle.worktree_path,
+                output_dir=output_dir / f"rank_{rank:02d}_{safe_candidate_id(candidate.candidate_id)}",
+                incumbent_key=incumbent_key,
+                candidate_key=candidate.objective_key,
+                promotion_repeats=promotion_repeats,
+                activation_plan=candidate.plan,
+                candidate_activation=candidate.plan.get("mechanism_activation") or {},
+                cancellation=cancellation,
+            )
+        except TaskCancelled:
+            raise
+        except Exception as exc:  # noqa: BLE001 - one unstable repeat must not hide lower-ranked lanes.
+            check = {
+                "status": "failed",
+                "reason": "promotion_check_exception",
+                "error": str(exc),
+                "promoted": False,
+                "required_repeats": max(1, promotion_repeats),
+            }
+        selected_attempt = next(
+            (
+                item
+                for item in candidate.attempts
+                if isinstance(item, dict) and item.get("disposition") == "selected"
+            ),
+            candidate.attempts[-1] if candidate.attempts else None,
+        )
+        semantic_review = (
+            selected_attempt.get("semantic_review")
+            if isinstance(selected_attempt, dict)
+            else None
+        )
+        if isinstance(semantic_review, dict):
+            check["semantic_review_advisory"] = semantic_review
+        attempts.append(
+            {
+                "candidate_id": candidate.candidate_id,
+                "rank": rank,
+                "promotion_check": check,
+            }
+        )
+        if check.get("promoted") is True:
+            return candidate, attempts
+    return None, attempts
+
+
+def safe_candidate_id(value: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
+    return normalized[:80] or "candidate"
+
+
+def candidate_pool_records_for_round(
+    *,
+    round_index: int,
+    competition: CompetingWorkerCyclesResult,
+    promotion_attempts: list[dict[str, Any]],
+    promoted_candidate_id: str | None,
+) -> list[dict[str, Any]]:
+    attempts_by_id = {
+        str(item.get("candidate_id") or ""): item
+        for item in promotion_attempts
+        if isinstance(item, dict)
+    }
+    plans_by_id = {
+        candidate.candidate_id: candidate.plan
+        for candidate in competition.ranked_candidates
+    }
+    records: list[dict[str, Any]] = []
+    for outcome in competition.result.get("candidates") or []:
+        if not isinstance(outcome, dict):
+            continue
+        candidate_id = str(outcome.get("candidate_id") or "unknown")
+        plan = plans_by_id.get(candidate_id, {})
+        promotion_attempt = attempts_by_id.get(candidate_id)
+        promotion_check = (
+            promotion_attempt.get("promotion_check")
+            if isinstance(promotion_attempt, dict)
+            and isinstance(promotion_attempt.get("promotion_check"), dict)
+            else None
+        )
+        changed_files = [
+            str(item)
+            for item in outcome.get("worker_changed_files") or []
+            if str(item).strip()
+        ]
+        gate_reasons = candidate_gate_reasons(outcome)
+        records.append(
+            {
+                "candidate_record_id": f"round-{round_index:03d}:{candidate_id}",
+                "round_index": round_index,
+                "candidate_id": candidate_id,
+                "rank": outcome.get("objective_rank"),
+                "method_family": str(plan.get("method_family") or outcome.get("method_family") or ""),
+                "method_package_id": str(
+                    plan.get("method_package_id") or outcome.get("method_package_id") or ""
+                ),
+                "parent_checkpoint": outcome.get("parent_checkpoint"),
+                "worktree": outcome.get("worktree"),
+                "patch_path": outcome.get("patch_path"),
+                "context_packet_path": outcome.get("context_packet_path"),
+                "objective_key": list(outcome.get("objective_key") or []),
+                "eligible": bool(outcome.get("eligible")),
+                "formal_candidate": bool(outcome.get("eligible")),
+                "core_eligible": bool(outcome.get("core_eligible")),
+                "activation_eligible": outcome.get("activation_eligible"),
+                "exact_execution_eligible": outcome.get("exact_execution_eligible"),
+                "semantic_eligible": outcome.get("semantic_eligible"),
+                "target_changed": bool(outcome.get("target_changed")),
+                "worker_changed_files": changed_files,
+                "worker_status": outcome.get("worker_status") or outcome.get("status"),
+                "worker_session_id": outcome.get("worker_session_id"),
+                "requested_session_id": outcome.get("requested_session_id"),
+                "command_session_id": outcome.get("command_session_id"),
+                "observed_session_id": outcome.get("observed_session_id"),
+                "session_reused": bool(outcome.get("session_reused")),
+                "session_event_stream_bytes": outcome.get("session_event_stream_bytes"),
+                "mechanism_activation": outcome.get("mechanism_activation") or {},
+                "exact_execution": outcome.get("exact_execution") or {},
+                "summary": outcome.get("summary") or {},
+                "gate_reasons": gate_reasons,
+                "competition_winner": candidate_id
+                == str(competition.result.get("competition_winner_id") or ""),
+                "promotion_attempted": promotion_attempt is not None,
+                "promotion_check": promotion_check,
+                "promoted": candidate_id == promoted_candidate_id,
+            }
+        )
+    return records
+
+
+def candidate_gate_reasons(outcome: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    if str(outcome.get("status") or "") != "completed":
+        reasons.append("lane_not_completed")
+    for field, reason in (
+        ("core_eligible", "core_ineligible"),
+        ("target_changed", "target_not_changed"),
+        ("activation_eligible", "required_mechanism_not_activated"),
+        ("exact_execution_eligible", "exact_solver_not_executed"),
+    ):
+        if outcome.get(field) is False:
+            reasons.append(reason)
+    if not outcome.get("worker_changed_files"):
+        reasons.append("changed_files_empty")
+    return _dedupe(reasons)
+
+
+def candidate_synthesis_opportunities(
+    candidate_pool: list[dict[str, Any]],
+    *,
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    """Find compatible evidence pairs; synthesis still requires a fresh Worker run."""
+
+    by_parent: dict[str, list[dict[str, Any]]] = {}
+    for record in candidate_pool:
+        if not isinstance(record, dict) or not record.get("formal_candidate"):
+            continue
+        parent = str(record.get("parent_checkpoint") or "").strip()
+        changed = [str(item) for item in record.get("worker_changed_files") or [] if str(item).strip()]
+        if parent and changed:
+            by_parent.setdefault(parent, []).append(record)
+    opportunities: list[dict[str, Any]] = []
+    for parent, records in by_parent.items():
+        ordered = sorted(
+            records,
+            key=lambda item: (
+                -int(item.get("round_index", -1) or -1),
+                int(item.get("rank", 10_000) or 10_000),
+            ),
+        )
+        for left_index, left in enumerate(ordered):
+            for right in ordered[left_index + 1 :]:
+                left_family = str(left.get("method_family") or "")
+                right_family = str(right.get("method_family") or "")
+                left_files = set(left.get("worker_changed_files") or [])
+                right_files = set(right.get("worker_changed_files") or [])
+                if left_family == right_family and left_files == right_files:
+                    continue
+                sources = [left, right]
+                opportunities.append(
+                    {
+                        "opportunity_id": "synthesis:"
+                        + "+".join(str(item.get("candidate_record_id") or "") for item in sources),
+                        "common_parent_checkpoint": parent,
+                        "source_candidate_record_ids": [
+                            item.get("candidate_record_id") for item in sources
+                        ],
+                        "source_candidate_ids": [item.get("candidate_id") for item in sources],
+                        "source_patch_paths": [item.get("patch_path") for item in sources],
+                        "method_families": [item.get("method_family") for item in sources],
+                        "rule": (
+                            "Create a fresh synthesis lane from the current official incumbent, "
+                            "re-implement compatible mechanisms, then pass the unchanged Core and promotion gates. "
+                            "Never merge or promote source patches directly."
+                        ),
+                    }
+                )
+                if len(opportunities) >= max(0, limit):
+                    return opportunities
+    return opportunities
 
 
 def resolve_coding_worker_concurrency(*, requested: int, candidate_count: int) -> int:
@@ -1698,7 +2240,7 @@ def competitive_direction_plans(
                 stage_index = min(stage_index, len(stages))
                 stage_complete = stage_index >= len(stages)
                 stage = {} if stage_complete else stages[stage_index]
-                implementation_order = _dependency_closed_order(
+                implementation_order = _component_scope_order(
                     [
                         *(prior_state.verified_components if prior_state is not None else []),
                         *(
@@ -1707,7 +2249,7 @@ def competitive_direction_plans(
                             else _stage_component_ids(stage)
                         ),
                     ],
-                    _component_dependency_map(bundle),
+                    bundle,
                 )
                 selected_ids = set(implementation_order)
                 plan["implementation_order"] = implementation_order
@@ -1767,6 +2309,44 @@ def competitive_direction_plans(
             )[:12]
         if variant.get("next_mutation"):
             plan["next_mutation"] = variant["next_mutation"]
+        bundle = (
+            plan.get("implementation_bundle")
+            if isinstance(plan.get("implementation_bundle"), dict)
+            else {}
+        )
+        if bundle and plan.get("implementation_order"):
+            implementation_order = _component_scope_order(
+                [str(item) for item in plan.get("implementation_order") or [] if str(item).strip()],
+                bundle,
+            )
+            plan["implementation_order"] = implementation_order
+            existing_deliverables = {
+                str(item.get("id") or item.get("component_id") or ""): item
+                for item in plan.get("deliverables") or []
+                if isinstance(item, dict)
+            }
+            component_by_id = {
+                str(item.get("component_id") or ""): item
+                for item in bundle.get("required_components") or []
+                if isinstance(item, dict) and str(item.get("component_id") or "").strip()
+            }
+            plan["deliverables"] = [
+                existing_deliverables.get(component_id)
+                or {
+                    "id": component_id,
+                    "behavior": " ".join(
+                        str(value)
+                        for value in component_by_id.get(component_id, {}).get("required_behaviors") or []
+                    )
+                    or str(component_by_id.get(component_id, {}).get("title") or component_id),
+                    "evidence_required": str(
+                        component_by_id.get(component_id, {}).get("evidence_required")
+                        or "Reachable source and bounded behavioral evidence."
+                    ),
+                }
+                for component_id in implementation_order
+                if component_id in existing_deliverables or component_id in component_by_id
+            ]
         plan["candidate_variant"] = variant
         plan["candidate_variants"] = []
         # A variant may declare only a weak legality check (for example,
@@ -1848,6 +2428,17 @@ def _dependency_closed_order(
     for component_id in component_ids:
         visit(component_id)
     return ordered
+
+
+def _component_scope_order(
+    component_ids: list[str],
+    bundle: dict[str, Any],
+) -> list[str]:
+    coupled = coupled_component_closure(
+        component_ids,
+        bundle.get("coupled_groups"),
+    )
+    return _dependency_closed_order(coupled, _component_dependency_map(bundle))
 
 
 def _track_stages(track: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2015,7 +2606,7 @@ def delegated_worker_lane_plans(
             stage_complete = stage_index >= len(stages)
             stage_status = "completed" if stage_complete else "active"
             stage = {} if stage_complete else stages[stage_index]
-            implementation_order = _dependency_closed_order(
+            implementation_order = _component_scope_order(
                 [
                     *(prior_state.verified_components if prior_state is not None else []),
                     *(
@@ -2024,7 +2615,7 @@ def delegated_worker_lane_plans(
                         else _stage_component_ids(stage)
                     ),
                 ],
-                dependencies,
+                bundle,
             )
             contract_stage: int | str = (
                 f"maintenance:{role_id}" if stage_complete else stage_index
@@ -2613,6 +3204,7 @@ def run_worker_cycle_with_in_round_repairs(
     user_intervention: dict[str, Any] | None = None,
     initial_session_id: str | None = None,
     cancellation: CancellationToken | None = None,
+    controller_budget: ControllerTimeBudget | None = None,
 ) -> tuple[Any, Path, list[dict[str, Any]]]:
     """Run one checkpoint batch of same-direction Trials and return its best result.
 
@@ -2663,6 +3255,16 @@ def run_worker_cycle_with_in_round_repairs(
     for attempt_index in range(local_trial_count):
         if cancellation is not None:
             cancellation.raise_if_cancelled()
+        if controller_budget is not None and controller_budget.exhausted():
+            if last_cycle is None:
+                raise ControllerBudgetExhausted("controller budget exhausted before local trial")
+            termination_reason = "controller_budget_exhausted"
+            break
+        attempt_runtime_seconds = (
+            controller_budget.cap_runtime_seconds(max_runtime_seconds)
+            if controller_budget is not None
+            else max_runtime_seconds
+        )
         attempt_dir = output_dir if attempt_index == 0 else output_dir / f"repair_{attempt_index:03d}"
         # repair feedback 只带最近失败、精确门禁和 patch 证据，控制上下文增长。
         repair_feedback = (
@@ -2706,7 +3308,7 @@ def run_worker_cycle_with_in_round_repairs(
                 loop_feedback=assignment_feedback,
                 output_dir=attempt_dir,
                 max_steps=max_steps,
-                max_runtime_seconds=max_runtime_seconds,
+                max_runtime_seconds=attempt_runtime_seconds,
                 parent_assignment_path=parent_assignment_path,
             ),
         )
@@ -2719,7 +3321,7 @@ def run_worker_cycle_with_in_round_repairs(
             worker=worker,
             experiment_id=f"{experiment_id}_round_{round_index:03d}_attempt_{attempt_index:02d}",
             max_steps=max_steps,
-            max_runtime_seconds=max_runtime_seconds,
+            max_runtime_seconds=attempt_runtime_seconds,
             apply_worker_changes=apply_worker_changes,
             worker_assignment_path=assignment_issue.artifact_path,
             worker_input_root=worker_input_root,
@@ -4094,6 +4696,7 @@ def run_agent_generated_baseline(
     direction_plan: dict[str, Any] | None = None,
     repair_attempts: int = DEFAULT_IN_ROUND_REPAIR_ATTEMPTS,
     cancellation: CancellationToken | None = None,
+    controller_budget: ControllerTimeBudget | None = None,
 ) -> tuple[RunSummary, Path, dict[str, Any]]:
     """先让 Coding Agent 写出初始 solver，再测量 baseline。
 
@@ -4141,6 +4744,15 @@ def run_agent_generated_baseline(
         for attempt_index in range(local_trial_count):
             if cancellation is not None:
                 cancellation.raise_if_cancelled()
+            if controller_budget is not None and controller_budget.exhausted():
+                if cycle is None:
+                    raise ControllerBudgetExhausted("controller budget exhausted before baseline trial")
+                break
+            attempt_runtime_seconds = (
+                controller_budget.cap_runtime_seconds(max_runtime_seconds)
+                if controller_budget is not None
+                else max_runtime_seconds
+            )
             attempt_dir = baseline_dir if attempt_index == 0 else baseline_dir / f"repair_{attempt_index:03d}"
             attempt_direction_plan = direction_plan
             if (
@@ -4205,7 +4817,7 @@ def run_agent_generated_baseline(
                     loop_feedback=assignment_feedback,
                     output_dir=attempt_dir,
                     max_steps=max_steps,
-                    max_runtime_seconds=max_runtime_seconds,
+                    max_runtime_seconds=attempt_runtime_seconds,
                     parent_assignment_path=parent_assignment_path,
                 ),
             )
@@ -4218,7 +4830,7 @@ def run_agent_generated_baseline(
                 worker=worker,
                 experiment_id=f"{experiment_id}_agent_generated_baseline_attempt_{attempt_index:02d}",
                 max_steps=max_steps,
-                max_runtime_seconds=max_runtime_seconds,
+                max_runtime_seconds=attempt_runtime_seconds,
                 apply_worker_changes=True,
                 worker_assignment_path=assignment_issue.artifact_path,
                 worker_input_root=project_root,
@@ -5213,6 +5825,7 @@ def loop_feedback_payload(
     user_intervention: dict[str, Any] | None = None,
     max_competing_workers: int = 4,
     guidance_mode: str = "full",
+    candidate_pool: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """构建 Main/Coding Agent 共用的 evaluator-backed 动态反馈。
 
@@ -5245,6 +5858,7 @@ def loop_feedback_payload(
         )
     )
     protected_facts = protected_baseline_generation_facts(baseline_memory) + protected_promoted_facts(previous_rounds)
+    synthesis_opportunities = candidate_synthesis_opportunities(candidate_pool or [])
     payload = {
         "purpose": "Provide evaluator-backed history for the next coding-worker proposal.",
         "round_semantics": {
@@ -5258,7 +5872,10 @@ def loop_feedback_payload(
         "competition": {
             "max_competing_workers": max(1, min(4, int(max_competing_workers))),
             "isolation_rule": "Each Coding Worker candidate must start from the same incumbent in a separate worktree.",
-            "selection_rule": "JA/Core/semantic gates run per candidate; only the best eligible candidate may enter promotion.",
+            "selection_rule": (
+                "JA/Core/semantic gates run per candidate; eligible candidates enter an objective-ranked "
+                "promotion queue, and a failed repeat check falls through to the next candidate."
+            ),
         },
         "round_index": round_index,
         "current_direction": {
@@ -5298,6 +5915,15 @@ def loop_feedback_payload(
         "previous_rounds": previous_round_payloads,
         "direction_graph": direction_graph,
         "experience_memory": experience_memory,
+        "candidate_pool_summary": {
+            "candidate_count": len(candidate_pool or []),
+            "formal_candidate_count": sum(
+                1
+                for item in candidate_pool or []
+                if isinstance(item, dict) and item.get("formal_candidate")
+            ),
+        },
+        "synthesis_opportunities": synthesis_opportunities,
         "skill_usage_summary": {} if guidance_none else experience_memory.get("skill_usage_summary") or {},
         "protected_promoted_facts": protected_facts[-8:],
         "failure_memory": round_failure_memory(previous_rounds),
@@ -5321,6 +5947,12 @@ def loop_feedback_payload(
             "Prefer small, reversible solver changes whose effect can be attributed in the next evaluator run.",
         ],
     }
+    if synthesis_opportunities:
+        payload["instructions"].append(
+            "When synthesis_opportunities contains genuinely complementary routes, Main may create a new synthesis "
+            "candidate from the official incumbent and cite the source records. A fresh Coding Worker must implement "
+            "the synthesis and pass every normal Core/promotion gate; never apply source patches directly."
+        )
     if not guidance_none:
         payload["instructions"].insert(
             7,
@@ -6052,6 +6684,17 @@ def load_worker_loop_result(path: Path) -> WorkerLoopResult:
             ).items()
             if (state := lane_development_state_from_payload(item)) is not None
         },
+        candidate_pool=[
+            dict(item)
+            for item in payload.get("candidate_pool") or []
+            if isinstance(item, dict)
+        ],
+        best_history=[
+            dict(item)
+            for item in payload.get("best_history") or []
+            if isinstance(item, dict)
+        ],
+        controller_budget=dict(payload.get("controller_budget") or {}),
     )
 
 
@@ -6948,6 +7591,9 @@ def write_loop_report(
         "lane_development_states": lane_development_states_payload(
             result.lane_development_states or {}
         ),
+        "candidate_pool": result.candidate_pool,
+        "best_history": result.best_history,
+        "controller_budget": result.controller_budget,
         "baseline_source": result.baseline_source,
         "baseline_generation": result.baseline_generation,
         "baseline_summary": summary_payload(result.baseline_summary),
@@ -6961,6 +7607,14 @@ def write_loop_report(
         "rounds": round_payloads,
     }
     (output_dir / "loop_result.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (output_dir / "candidate_pool.json").write_text(
+        json.dumps(result.candidate_pool, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (output_dir / "best_history.json").write_text(
+        json.dumps(result.best_history, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     (output_dir / "hypothesis_graph.json").write_text(
         json.dumps(direction_graph, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -6994,6 +7648,8 @@ def write_loop_report(
         f"- Attempt count: `{direction_graph.get('attempt_count', 0)}`",
         f"- Candidate lessons: `{len((experience_memory.get('memory_tiers') or {}).get('candidate_lessons') or [])}`",
         f"- Skill usage records: `{len(skill_usage_records)}`",
+        f"- Candidate pool records: `{len(result.candidate_pool)}`",
+        f"- Best revisions: `{len(result.best_history)}`",
         "",
         "## Baseline",
         "",
@@ -7170,6 +7826,12 @@ def _run_harness(
         cancellation=cancellation,
     )
     started_at_epoch = time.time()
+    _write_core_evaluation_timing(
+        output_dir=output_dir,
+        started_at_epoch=started_at_epoch,
+        finished_at_epoch=started_at_epoch,
+        status="running",
+    )
     try:
         return runner.run()
     finally:
@@ -7195,6 +7857,12 @@ def _run_harness_with_records(
         cancellation=cancellation,
     )
     started_at_epoch = time.time()
+    _write_core_evaluation_timing(
+        output_dir=output_dir,
+        started_at_epoch=started_at_epoch,
+        finished_at_epoch=started_at_epoch,
+        status="running",
+    )
     try:
         summary = runner.run()
         records = runner.ledger.list_records()
@@ -7213,6 +7881,7 @@ def _write_core_evaluation_timing(
     output_dir: Path,
     started_at_epoch: float,
     finished_at_epoch: float,
+    status: str = "completed",
 ) -> None:
     """Persist a Core interval so controller time can exclude overlapping lanes."""
 
@@ -7220,14 +7889,56 @@ def _write_core_evaluation_timing(
     payload = {
         "schema_version": 1,
         "phase": "fixed_core_evaluation",
+        "status": status,
         "started_at_epoch": started_at_epoch,
         "finished_at_epoch": finished_at_epoch,
         "wall_seconds": max(0.0, finished_at_epoch - started_at_epoch),
     }
-    (output_dir / "core_evaluation_timing.json").write_text(
+    timing_path = output_dir / "core_evaluation_timing.json"
+    pending_path = output_dir / "core_evaluation_timing.json.tmp"
+    pending_path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    pending_path.replace(timing_path)
+
+
+def _core_timing_intervals(
+    timing_root: Path,
+    *,
+    started_at_epoch: float,
+    finished_at_epoch: float,
+) -> list[tuple[float, float]]:
+    intervals: list[tuple[float, float]] = []
+    for path in timing_root.rglob("core_evaluation_timing.json"):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8-sig"))
+            start = max(started_at_epoch, float(payload["started_at_epoch"]))
+            finish = (
+                finished_at_epoch
+                if payload.get("status") == "running"
+                else min(finished_at_epoch, float(payload["finished_at_epoch"]))
+            )
+        except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+            continue
+        if finish > start:
+            intervals.append((start, finish))
+    return intervals
+
+
+def _merged_interval_seconds(intervals: list[tuple[float, float]]) -> float:
+    if not intervals:
+        return 0.0
+    ordered = sorted(intervals)
+    total = 0.0
+    current_start, current_finish = ordered[0]
+    for start, finish in ordered[1:]:
+        if start <= current_finish:
+            current_finish = max(current_finish, finish)
+            continue
+        total += current_finish - current_start
+        current_start, current_finish = start, finish
+    return total + current_finish - current_start
 
 
 def _hash_json(payload: Any) -> str:

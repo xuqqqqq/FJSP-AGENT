@@ -647,6 +647,12 @@ def run_timed_core_evaluation(*, runner: GraphHarnessRunner, output_dir: Path) -
     """Run one fixed Core evaluation and persist its wall-clock interval."""
 
     started_at_epoch = time.time()
+    write_core_evaluation_timing(
+        output_dir=output_dir,
+        started_at_epoch=started_at_epoch,
+        finished_at_epoch=started_at_epoch,
+        status="running",
+    )
     try:
         return runner.run()
     finally:
@@ -654,21 +660,40 @@ def run_timed_core_evaluation(*, runner: GraphHarnessRunner, output_dir: Path) -
             runner.close()
         finally:
             finished_at_epoch = time.time()
-            output_dir.mkdir(parents=True, exist_ok=True)
-            (output_dir / "core_evaluation_timing.json").write_text(
-                json.dumps(
-                    {
-                        "schema_version": 1,
-                        "started_at_epoch": started_at_epoch,
-                        "finished_at_epoch": finished_at_epoch,
-                        "wall_seconds": max(0.0, finished_at_epoch - started_at_epoch),
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                )
-                + "\n",
-                encoding="utf-8",
+            write_core_evaluation_timing(
+                output_dir=output_dir,
+                started_at_epoch=started_at_epoch,
+                finished_at_epoch=finished_at_epoch,
+                status="completed",
             )
+
+
+def write_core_evaluation_timing(
+    *,
+    output_dir: Path,
+    started_at_epoch: float,
+    finished_at_epoch: float,
+    status: str,
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    timing_path = output_dir / "core_evaluation_timing.json"
+    pending_path = output_dir / "core_evaluation_timing.json.tmp"
+    pending_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "status": status,
+                "started_at_epoch": started_at_epoch,
+                "finished_at_epoch": finished_at_epoch,
+                "wall_seconds": max(0.0, finished_at_epoch - started_at_epoch),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    pending_path.replace(timing_path)
 
 
 def prepare_candidate_worktree(

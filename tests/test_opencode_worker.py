@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -58,6 +59,9 @@ class OpenCodeWorkerTests(unittest.TestCase):
             self.assertIn("at most 3 bounded smoke calls", prompt)
             self.assertIn("60-second solver limit", prompt)
             self.assertNotIn("Run one compile", prompt)
+            self.assertIn("sandbox_path/SKILL.md", prompt)
+            self.assertIn("do not retry Skill discovery", prompt)
+            self.assertIn("denied commands", prompt)
 
     def test_exact_worker_runtime_allows_only_fixed_ortools_probe(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1491,10 +1495,14 @@ class OpenCodeWorkerTests(unittest.TestCase):
             process = MagicMock()
             process.wait.return_value = 0
             process.returncode = 0
+            def mirrored_alias(alias_path, worktree_path, **kwargs):
+                shutil.copytree(worktree_path, alias_path, dirs_exist_ok=True)
+                return alias_path
+
             with (
                 patch(
                     "harness_agent.workers.opencode_worker._ensure_session_workspace_alias",
-                    side_effect=_fake_session_alias,
+                    side_effect=mirrored_alias,
                 ),
                 patch("harness_agent.workers.opencode_worker.subprocess.Popen", return_value=process) as popen,
                 patch("harness_agent.workers.opencode_worker.cleanup_process_descendants"),
@@ -1530,16 +1538,16 @@ class OpenCodeWorkerTests(unittest.TestCase):
             permissions = json.loads(
                 popen.call_args.kwargs["env"]["OPENCODE_CONFIG_CONTENT"]
             )["agent"][OPENCODE_WORKER_AGENT]["permission"]
-            self.assertEqual(
-                {"*": "deny", "selected-worker-skill": "allow"},
-                permissions["skill"],
-            )
+            self.assertEqual("deny", permissions["skill"])
             self.assertEqual(
                 "allow",
                 permissions["read"][".opencode/skills/selected-worker-skill/**"],
             )
-            self.assertNotIn("unselected-worker-skill", permissions["skill"])
-            self.assertNotIn("experiment-design", permissions["skill"])
+            command = json.loads((output_dir / "opencode_command.json").read_text(encoding="utf-8"))
+            skill_attachments = [item for item in command if item.startswith("--file=") and item.endswith("SKILL.md")]
+            self.assertEqual(1, len(skill_attachments))
+            self.assertIn("selected-worker-skill", skill_attachments[0])
+            self.assertNotIn("unselected-worker-skill", str(permissions["read"]))
             prompt = (output_dir / "opencode_prompt.md").read_text(encoding="utf-8")
             self.assertIn("advisory implementation material", prompt)
 

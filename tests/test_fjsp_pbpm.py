@@ -122,6 +122,27 @@ class FjspPbpmTests(unittest.TestCase):
         self.assertIn("WhichOneof", contract["interval_count_rule"])
         self.assertIn("至少一个批槽含两个或更多同族成员", contract["exact_grouping_rule"])
         self.assertIn("先过滤合法且 Core grouped_batch_count > 0", contract["grouping_acceptance_rule"])
+        self.assertIn("先构造并固定验证", contract["activation_first_rule"])
+        self.assertIn("分别保存最佳合法合批解", contract["dual_incumbent_rule"])
+        components = {
+            item["component_id"]: item for item in contract["required_components"]
+        }
+        self.assertIn("grouped_batch_seed", components)
+        self.assertEqual(
+            {
+                "pbpm_tail_parser",
+                "batch_aware_decoder",
+                "batch_legality_guard",
+                "transactional_batch_redecode",
+            },
+            set(components["grouped_batch_seed"]["depends_on"]),
+        )
+        activation_group = next(
+            item
+            for item in contract["coupled_groups"]
+            if item["group_id"] == "pbpm_activation_bootstrap"
+        )
+        self.assertIn("grouped_batch_seed", activation_group["component_ids"])
         self.assertEqual(
             "truthy",
             contract["activation_evidence"]["required_fields"]["diagnostics.cp_sat_called"],

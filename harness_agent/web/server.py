@@ -1669,6 +1669,8 @@ def enrich_worker_manifest_from_loop_result(manifest: dict[str, Any]) -> dict[st
     enriched["best_legal_incumbent"] = loop_result.get("best_legal_incumbent")
     enriched["best_activated_incumbent"] = loop_result.get("best_activated_incumbent")
     enriched["lane_development_states"] = loop_result.get("lane_development_states") or {}
+    enriched["candidate_pool"] = loop_result.get("candidate_pool") or []
+    enriched["best_history"] = loop_result.get("best_history") or []
     return enriched
 
 
@@ -1700,6 +1702,8 @@ def make_demo_examples() -> dict[str, Any]:
             "max_workers": 2,
             "worker_max_steps": 4,
             "worker_max_runtime_seconds": DEFAULT_WORKER_MAX_RUNTIME_SECONDS,
+            "controller_budget_seconds": 0,
+            "unlimited_rounds": False,
             "in_round_repair_attempts": DEFAULT_IN_ROUND_REPAIR_ATTEMPTS,
             "main_max_subagents": 4,
             "main_planning_mode": "fast",
@@ -2070,6 +2074,13 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
             minimum=10,
             maximum=1800,
         ),
+        "controller_budget_seconds": coerce_int(
+            payload.get("controller_budget_seconds"),
+            0,
+            minimum=0,
+            maximum=86400,
+        ),
+        "unlimited_rounds": coerce_bool(payload.get("unlimited_rounds"), False),
         "in_round_repair_attempts": coerce_int(
             payload.get("in_round_repair_attempts"),
             DEFAULT_IN_ROUND_REPAIR_ATTEMPTS,
@@ -2086,6 +2097,8 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
         "starter_project_instances": starter_instance_relatives,
         "starter_project": starter_project,
     }
+    if config["unlimited_rounds"] and config["controller_budget_seconds"] <= 0:
+        raise ValueError("不限轮模式必须设置正数主控累计时间预算")
 
     job = {
         "id": job_id,
@@ -2737,6 +2750,15 @@ def append_instance_profile_events(job: dict[str, Any]) -> None:
             f"并行数 {job['config'].get('max_workers')}。"
         ),
     )
+    controller_limit = int(job["config"].get("controller_budget_seconds", 0) or 0)
+    if controller_limit > 0:
+        append_event(
+            job,
+            (
+                f"主控净时间预算：{controller_limit}s（固定 Core 时间不计入）；"
+                f"轮数模式={'不限轮' if job['config'].get('unlimited_rounds') else '轮数与时间双门禁'}。"
+            ),
+        )
 
 
 def run_job(job_id: str) -> None:
@@ -2772,16 +2794,17 @@ def run_job(job_id: str) -> None:
             if continuation.get("active") and continuation.get("loop_result")
             else None
         )
-        run_iterations = (
-            int(continuation.get("additional_rounds", 0) or 0)
-            if resume_loop_result is not None
-            else int(config["max_rounds"])
-        )
+        if resume_loop_result is not None:
+            run_iterations: int | None = int(continuation.get("additional_rounds", 0) or 0)
+        elif config.get("unlimited_rounds"):
+            run_iterations = None
+        else:
+            run_iterations = int(config["max_rounds"])
         append_event(
             job,
             (
                 f"启动 {'现有项目增量演进' if config.get('baseline_mode') == 'provided_project' else 'Agent 自写 solver'}闭环："
-                f"本次 rounds={run_iterations}，"
+                f"本次 rounds={'不限（按主控时间停止）' if run_iterations is None else run_iterations}，"
                 f"seeds={config['seeds']}，Core 并行数={config['max_workers']}。"
             ),
         )
@@ -2810,7 +2833,7 @@ def run_job(job_id: str) -> None:
                 max_subagents=config["main_max_subagents"],
                 cancellation=cancellation,
             )
-        if run_iterations > 1 or resume_loop_result is not None:
+        if run_iterations is None or run_iterations > 1 or resume_loop_result is not None:
             round_gate = WebRoundInterventionGate(job, cancellation=cancellation)
             with _LOCK:
                 _ROUND_GATES[job_id] = round_gate
@@ -2859,6 +2882,9 @@ def run_job(job_id: str) -> None:
                     max_workers=config["max_workers"],
                     max_steps=config["worker_max_steps"],
                     max_runtime_seconds=config["worker_max_runtime_seconds"],
+                    controller_budget_seconds=(
+                        config.get("controller_budget_seconds", 0) or None
+                    ),
                     in_round_repair_attempts=config["in_round_repair_attempts"],
                     max_competing_workers=config["max_competing_workers"],
                     round_intervention=round_gate,
@@ -2906,6 +2932,8 @@ def run_job(job_id: str) -> None:
         summary_payload = {
             "manifest_status": manifest.get("status"),
             "terminal_reason": manifest.get("terminal_reason"),
+            "controller_budget": manifest.get("controller_budget") or {},
+            "execution_timing": manifest.get("execution_timing") or {},
             "worker_summary": round_summary,
             "last_summary": manifest.get("final_summary") or manifest.get("baseline_summary", {}),
             "artifact_checks": {},
@@ -3404,6 +3432,16 @@ def summarize_worker_insight(
     summary = (job.get("summary") or {}).get("worker_summary")
     if not isinstance(summary, dict):
         summary = {}
+    candidate_pool = (
+        loop_result.get("candidate_pool")
+        if isinstance(loop_result.get("candidate_pool"), list)
+        else []
+    )
+    best_history = (
+        loop_result.get("best_history")
+        if isinstance(loop_result.get("best_history"), list)
+        else []
+    )
     return {
         "rounds": compact_rounds,
         "direction_count": int(hypothesis_graph.get("direction_count", summary.get("direction_count", len(compact_rounds))) or 0),
@@ -3417,6 +3455,13 @@ def summarize_worker_insight(
         },
         "best_legal_incumbent": loop_result.get("best_legal_incumbent"),
         "best_activated_incumbent": loop_result.get("best_activated_incumbent"),
+        "candidate_pool_summary": {
+            "candidate_count": len(candidate_pool),
+            "formal_candidate_count": sum(
+                1 for item in candidate_pool if isinstance(item, dict) and item.get("formal_candidate")
+            ),
+        },
+        "best_history": best_history,
         "lane_development_states": compact_lane_development_states(
             loop_result.get("lane_development_states")
         ),
@@ -3607,6 +3652,9 @@ def compact_competition_result(value: Any) -> dict[str, Any]:
                 "parent_checkpoint": item.get("parent_checkpoint"),
                 "checkpoint_decision": item.get("checkpoint_decision") or {},
                 "lane_development_state": item.get("lane_development_state") or {},
+                "promotion_attempted": bool(item.get("promotion_attempted")),
+                "promotion_check": item.get("promotion_check") or {},
+                "promoted": bool(item.get("promoted")),
             }
         )
     return {
@@ -3614,6 +3662,11 @@ def compact_competition_result(value: Any) -> dict[str, Any]:
         "candidate_count": int(value.get("candidate_count", len(candidates)) or 0),
         "eligible_candidate_count": int(value.get("eligible_candidate_count", 0) or 0),
         "selected_candidate_id": value.get("selected_candidate_id"),
+        "competition_winner_id": value.get("competition_winner_id"),
+        "ranked_candidate_ids": list(value.get("ranked_candidate_ids") or [])[:4],
+        "promoted_candidate_id": value.get("promoted_candidate_id"),
+        "promotion_fallback_used": bool(value.get("promotion_fallback_used")),
+        "promotion_attempts": list(value.get("promotion_attempts") or [])[:4],
         "selected_for_promotion": bool(value.get("selected_for_promotion")),
         "best_legal_candidate": value.get("best_legal_candidate"),
         "best_activated_candidate": value.get("best_activated_candidate"),

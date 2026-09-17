@@ -2,14 +2,20 @@
   "schema_version": 1,
   "contract_id": "fjsp_distributed_transfer_adaptation",
   "mode": "complete_method_package",
+  "completion_rule": "已有合法基础组件按本轮改动核验并复用，不重写。先指出当前代码中的一个具体瓶颈及对应函数，在授权方法族内改变候选生成、解码或搜索控制，接入CLI并验证实际新路径。只给原算法补计数属于诊断任务，不算优化完成。保留原完整求解器的独立结果并与新结果按固定词典序取优；合法性与收益均以Core为准，搜索执行不等于收益成立。",
+  "activation_checks": [
+    {"id": "distributed_assignment_options", "path": "diagnostics.distributed_transfer.assignment_options_evaluated", "operator": "gt", "expected": 0, "required": true},
+    {"id": "distributed_candidates_decoded", "path": "diagnostics.distributed_transfer.candidates_decoded", "operator": "gt", "expected": 0, "required": true}
+  ],
   "required_components": [
     {"component_id": "grouped_dfm_parser", "required_behaviors": ["从 DFM 编码中还原每个工厂组及其加工/能耗候选。", "只有在声明的每道工序和作业行中的每个 token 都被消费后，才可接受回溯解析结果。", "在工厂组之间保留全局 machine ID，并在转换为 0-based 之前完成校验。"]},
-    {"component_id": "factory_machine_assignment", "required_behaviors": ["将每个资源选择表示为 factory-machine 对。", "保留重复的资源候选，并按 factory、machine 和实际加工时长选择；对于完全重复项，必须确定性地使用最后一个。"]},
-    {"component_id": "transfer_aware_full_decoder", "required_behaviors": ["比较 machine ID 之前必须先比较 factory ID：即使 machine ID 数值相同，只要工厂不同就始终产生跨工厂转移延迟。", "传播同资源、同工厂以及跨工厂三类转移延迟。"]},
-    {"component_id": "lexicographic_objective_tracking", "required_behaviors": ["按固定优先顺序重新计算 makespan、最大工厂负载和总能耗。", "在接受 incumbent 或输出结果前，拒绝任何内部自检错误非空的候选。"]}
+    {"component_id": "factory_machine_assignment", "depends_on": ["grouped_dfm_parser"], "required_behaviors": ["将每个资源选择表示为 factory-machine 对。", "保留重复的资源候选，并按 factory、machine 和实际加工时长选择；对于完全重复项，必须确定性地使用最后一个。"]},
+    {"component_id": "transfer_aware_full_decoder", "depends_on": ["factory_machine_assignment"], "required_behaviors": ["比较 machine ID 之前必须先比较 factory ID：即使 machine ID 数值相同，只要工厂不同就始终产生跨工厂转移延迟。", "传播同资源、同工厂以及跨工厂三类转移延迟；变更分配或顺序后完整重解码。"]},
+    {"component_id": "lexicographic_objective_tracking", "depends_on": ["transfer_aware_full_decoder"], "required_behaviors": ["按固定优先顺序重新计算 makespan、最大工厂负载和总能耗。", "在接受 incumbent 或输出结果前，拒绝任何内部自检错误非空的候选。"]},
+    {"component_id": "distributed_transfer_search_bridge", "depends_on": ["grouped_dfm_parser", "factory_machine_assignment", "transfer_aware_full_decoder", "lexicographic_objective_tracking"], "required_behaviors": ["先报告旧代码的具体限制、拟修改函数与可证伪预期，再交付一个新增的可达算法改动；不把旧候选的计数插桩解释为新增搜索。", "检查旧解码是否只追加到机器末尾且留下可用空洞；有证据时将最早合法空闲间隙插入作为本轮具体解码交付，已有间隙解码则选择其他瓶颈，不强制所有实例使用同一算法。", "在授权方法族内选一个与瓶颈匹配的最小完整机制，不要求本轮实现全部邻域：构造改变起点或解码，局部改变资源/顺序邻域，模因完成多样化种群及后代替换，exact完成有界真实Solve。候选变更后完整重解码三目标。", "停滞后按所属方法族采用有界重启、邻域切换或多样性恢复；停止原因由deadline、结构穷尽或明确工作量上限决定，说明为何停止，不用计数规模替代质量评价。", "先保存原完整求解器的结果而非仅构造seed，再独立运行新机制，最终固定词典序取优；异常必须报告具体阶段与类型，并在剩余授权预算内修复复验。", "在顶层diagnostics.distributed_transfer如实报告实际尝试和完整解码数、同厂/跨厂/工序段尝试、接受数及最终转运弧数，并保留方法族激活计数；没有实现的移动记0，不能按工序数量推算移动数。"]}
   ],
   "coupled_groups": [
-    {"group_id": "distributed_semantics", "component_ids": ["grouped_dfm_parser", "factory_machine_assignment", "transfer_aware_full_decoder", "lexicographic_objective_tracking"], "rule": "分配、定时与目标接受必须联动评估。"}
+    {"group_id": "distributed_semantics", "always_required": true, "component_ids": ["grouped_dfm_parser", "factory_machine_assignment", "transfer_aware_full_decoder", "lexicographic_objective_tracking", "distributed_transfer_search_bridge"], "rule": "分配、定时、目标接受和首次可达搜索组成每条正式lane的前置闭包，不得只下发parser。"}
   ],
-  "forbidden_shortcuts": ["collapse_factory_dimension", "ignore_transfer_delay", "weighted_sum_replaces_lexicographic_order", "modify_evaluator"]
+  "forbidden_shortcuts": ["collapse_factory_dimension", "ignore_transfer_delay", "weighted_sum_replaces_lexicographic_order", "modify_evaluator", "parser_only_formal_assignment", "telemetry_only_search_activation", "replace_effective_incumbent_search_with_single_greedy", "accept_shorter_processing_without_full_transfer_redecode"]
 }

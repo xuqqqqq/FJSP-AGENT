@@ -38,7 +38,11 @@ from harness_agent.domains.families import write_problem_family_card
 from harness_agent.context.intake import ProjectIntakeRequest, write_project_intake
 from harness_agent.core.runner import HarnessRunner
 from harness_agent.slots.manifest import write_default_slot_manifest, write_selected_slot_manifest
-from harness_agent.orchestration.standard import StandardWorkerLoopRequest, run_standard_worker_loop
+from harness_agent.orchestration.standard import (
+    StandardWorkerLoopRequest,
+    controller_budget_from_manifest,
+    run_standard_worker_loop,
+)
 from harness_agent.web.server import DEFAULT_OUTPUT_ROOT, run_web_server
 from .worker import ExperimentSpec, NullWorker, WorkerResult
 from harness_agent.orchestration.cycle import run_worker_cycle
@@ -220,6 +224,18 @@ def build_parser() -> argparse.ArgumentParser:
     standard.add_argument("--timeout-seconds", type=int, default=60)
     standard.add_argument("--max-workers", type=int, default=1)
     standard.add_argument("--iterations", type=int, default=1)
+    standard.add_argument(
+        "--unlimited-rounds",
+        action="store_true",
+        help="忽略轮数上限，仅由主控累计时间预算停止",
+    )
+    controller_budget = standard.add_mutually_exclusive_group()
+    controller_budget.add_argument("--controller-budget-seconds", type=float)
+    controller_budget.add_argument(
+        "--match-controller-budget-from",
+        type=Path,
+        help="读取 Full manifest 的实测主控净时间，作为本次运行预算",
+    )
     standard.add_argument("--max-steps", type=int, default=4)
     standard.add_argument("--max-runtime-seconds", type=int, default=120)
     standard.add_argument("--in-round-repair-attempts", type=int, default=DEFAULT_IN_ROUND_REPAIR_ATTEMPTS)
@@ -627,6 +643,13 @@ def intent_alignment_cmd(args: argparse.Namespace) -> int:
 def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
     """运行当前 Web 同款的“文档驱动、Agent 自写 FJSP solver”闭环。"""
 
+    controller_budget_seconds = (
+        controller_budget_from_manifest(args.match_controller_budget_from)
+        if args.match_controller_budget_from
+        else args.controller_budget_seconds
+    )
+    if args.unlimited_rounds and not controller_budget_seconds:
+        raise ValueError("--unlimited-rounds requires a positive controller time budget")
     worker = make_worker(
         args.worker,
         deepseek_model=args.deepseek_model,
@@ -671,9 +694,10 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
             seeds=parse_seed_list(args.seeds),
             timeout_seconds=args.timeout_seconds,
             max_workers=max(1, args.max_workers),
-            iterations=args.iterations,
+            iterations=None if args.unlimited_rounds else args.iterations,
             max_steps=args.max_steps,
             max_runtime_seconds=args.max_runtime_seconds,
+            controller_budget_seconds=controller_budget_seconds,
             in_round_repair_attempts=max(0, args.in_round_repair_attempts),
             max_competing_workers=max(1, min(4, args.max_competing_workers)),
             apply_worker_changes=bool(args.apply_worker),
@@ -698,6 +722,8 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
             "baseline_key": manifest["baseline_key"],
             "final_key": manifest["final_key"],
             "promoted_rounds": manifest["promoted_rounds"],
+            "controller_budget": manifest.get("controller_budget"),
+            "execution_timing": manifest.get("execution_timing"),
             "artifacts": manifest["artifacts"],
         }
     )

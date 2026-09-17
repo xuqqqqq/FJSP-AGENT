@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
+from harness_agent.agents.main import bind_direction_plan_to_method_catalog, normalize_direction_plan
+from harness_agent.orchestration.loop import competitive_direction_plans
 
 from harness_agent.domains.distributed_fjsp import (
     DistributedFjspInstance,
@@ -18,6 +21,38 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DistributedFjspIoTests(unittest.TestCase):
+    def test_formal_lane_receives_complete_transfer_search_closure(self) -> None:
+        path = ROOT / 'knowledge/method_packages/fjsp_distributed_transfer_adaptation/implementation_contract.json'
+        contract = json.loads(path.read_text(encoding='utf-8'))
+        context = {'method_package_catalog': {'packages': [{
+            'package_id': contract['contract_id'],
+            'implementation_contract_asset': str(path),
+            'implementation_contract': contract,
+        }]}}
+        plan = bind_direction_plan_to_method_catalog(
+            normalize_direction_plan({
+                'strategy_type': 'local_search_operator',
+                'method_family': 'coupled_local_search',
+                'activation_required': True,
+                'method_package_id': contract['contract_id'],
+                'implementation_order': ['grouped_dfm_parser'],
+            }, round_index=0), context=context,
+        )
+        expected = [item['component_id'] for item in contract['required_components']]
+        self.assertEqual(expected, plan['implementation_order'])
+        self.assertEqual('distributed_transfer_search_bridge', expected[-1])
+        plan['candidate_variants'] = [{
+            'candidate_id': 'local', 'method_family': 'coupled_local_search',
+            'implementation_order': ['grouped_dfm_parser'],
+            'activation_checks': [{'id': 'model_check', 'path': 'diagnostics.model_check',
+                                   'operator': 'truthy', 'required': False}],
+        }]
+        lane = competitive_direction_plans(plan, limit=1)[0]
+        self.assertEqual(expected, lane['implementation_order'])
+        self.assertEqual(expected, [item['id'] for item in lane['deliverables']])
+        check_ids = {item['id'] for item in lane['activation_checks']}
+        self.assertTrue({'distributed_assignment_options', 'distributed_candidates_decoded'}.issubset(check_ids))
+
     def test_worker_contract_requires_global_ids_and_full_row_consumption(self) -> None:
         io_doc = (
             ROOT / "docs" / "variants" / "distributed_transfer" / "fjsp_distributed_transfer_io.md"
