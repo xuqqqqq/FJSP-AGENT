@@ -55,6 +55,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class WebAppTests(unittest.TestCase):
     def setUp(self) -> None:
+        catalog_patch = patch("harness_agent.web.server.discover_model_catalog", return_value={"models": [], "error": None})
+        self.model_catalog = catalog_patch.start()
+        self.addCleanup(catalog_patch.stop)
         self.saved_jobs = dict(_JOBS)
         self.saved_cancellations = dict(_JOB_CANCELLATIONS)
         self.saved_round_gates = dict(_ROUND_GATES)
@@ -852,11 +855,9 @@ class WebAppTests(unittest.TestCase):
         self.assertIn('class="resource-browser"', resources_view)
         self.assertNotIn('class="model-allocation"', resources_view)
         self.assertIn('class="model-allocation"', models_view)
-        self.assertIn('<option value="qiming/glm-5.2">GLM 5.2</option>', models_view)
-        self.assertIn(
-            '<option value="qiming/deepseek-v4-flash">DeepSeek V4 Flash</option>',
-            models_view,
-        )
+        self.assertIn('<option value="">加载模型中...</option>', models_view)
+        self.assertNotIn('value="qiming/glm-5.2"', models_view)
+        self.assertNotIn('value="qiming/deepseek-v4-flash"', models_view)
         self.assertNotIn('openai/gpt-5.4', models_view)
 
     def test_browser_safe_json_replaces_non_finite_numbers(self) -> None:
@@ -946,6 +947,24 @@ class WebAppTests(unittest.TestCase):
         )
         for secret in env.values():
             self.assertNotIn(secret, json.dumps(status))
+
+    def test_provider_status_lists_configured_qiming_deployments(self) -> None:
+        self.model_catalog.return_value = {
+            "models": [{"id": "qiming/dsv4-0731"}, {"id": "qiming/dsv41-1017"}],
+            "error": None,
+        }
+        with patch.dict(os.environ, {
+            "QIMING_API_KEY": "deployment-test-secret",
+            "OPENCODE_MAIN_MODEL": "qiming/dsv41-1017",
+            "OPENCODE_WORKER_MODEL": "qiming/dsv41-1017",
+        }), patch("harness_agent.web.server.load_local_env"):
+            status = deepseek_status_payload()
+
+        self.assertIn("qiming/dsv4-0731", status["available_models"])
+        self.assertIn("qiming/dsv41-1017", status["available_models"])
+        self.assertEqual(2, len(status["available_models"]))
+        self.model_catalog.assert_called_once()
+        self.assertNotIn("deployment-test-secret", json.dumps(status))
 
     def test_provider_status_accepts_explicit_openai_compatible_gateway(self) -> None:
         os.environ["DEEPSEEK_API_KEY"] = "compatible-secret-must-not-leak"

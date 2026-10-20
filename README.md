@@ -117,20 +117,22 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-v4-pro
 ```
 
-自建 Qiming 网关只需一套共享凭据；同一个 provider 下同时注册 GLM 与
-DeepSeek，不需要复制成 `OPENAI_*`、`DEEPSEEK_*` 或手写
-`OPENCODE_CONFIG_CONTENT`：
+自建模型服务使用一套共享地址和凭据。网页从当前 Main/Worker 所配置服务的
+`/v1/models` 动态读取可用模型，OpenCode 根据实际选择注册模型，不需要手写
+模型清单或 `OPENCODE_CONFIG_CONTENT`：
 
 ```text
 QIMING_API_KEY=你的网关密钥
-QIMING_BASE_URL=https://cpa.qiming.zone/v1
-OPENCODE_MODEL=qiming/deepseek-v4-flash
-OPENCODE_MAIN_MODEL=qiming/deepseek-v4-flash
-OPENCODE_WORKER_MODEL=qiming/deepseek-v4-flash
+QIMING_BASE_URL=http://model-server:19090/v1
+OPENCODE_MODEL=qiming/dsv41-1017
+OPENCODE_MAIN_MODEL=qiming/dsv41-1017
+OPENCODE_WORKER_MODEL=qiming/dsv41-1017
 ```
 
-网页中可分别为 Main 与 Worker 选择 `qiming/glm-5.2` 或
-`qiming/deepseek-v4-flash`；二者自动复用同一个 `QIMING_API_KEY`。
+将 `QIMING_BASE_URL` 改为实际部署地址，并填写本地 `.env` 中的 Key。
+当前部署提供 `qiming/dsv41-1017`（1M 上下文）和 `qiming/dsv4-0731`（256K
+上下文）；二者共用同一个 `QIMING_API_KEY`，网页中可分别为 Main 与 Worker
+选择。服务下线的模型会从列表移除，模型清单缓存 60 秒。
 
 官方 DeepSeek 保持自己的凭据及 Base URL，不与 Qiming 混用：
 
@@ -139,10 +141,8 @@ DEEPSEEK_API_KEY=官方 DeepSeek 密钥
 DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
 ```
 
-当前产品模型 ID 分别为 `qiming/glm-5.2`、
-`qiming/deepseek-v4-flash` 和 `deepseek/deepseek-v4-pro`。
 `OPENCODE_MAIN_MODEL` 与 `OPENCODE_WORKER_MODEL` 只指定默认选择，
-不限制网页端在三个模型间切换。
+模型选项以相应服务实际返回的模型 ID 为准。
 
 OpenCode 由 `OPENCODE_EXECUTABLE` 和 `OPENCODE_MODEL` 配置。未设置模型时默认使用
 `deepseek/deepseek-v4-pro`，避免非交互任务在新 worktree 中等待模型选择。OpenCode 是

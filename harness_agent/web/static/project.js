@@ -264,16 +264,12 @@ async function initReviewPage() {
 }
 
 function selectedProvider(model) {
-  const provider = String(model || "").trim().split("/", 1)[0].toLowerCase();
-  return provider === "qiming" ? "openai" : provider;
+  return String(model || "").trim().split("/", 1)[0].toLowerCase();
 }
 
 function setSelectValue(select, value) {
-  if (!select || !value) return;
-  if (![...select.options].some((option) => option.value === value)) {
-    select.add(new Option(value, value));
-  }
-  select.value = value;
+  if (!select) return;
+  select.value = [...select.options].some((option) => option.value === value) ? value : select.options[0]?.value || "";
 }
 
 function setupValues() {
@@ -344,6 +340,14 @@ async function initSetupPage() {
   ]);
   const demo = await demoResponse.json();
   const providerStatus = providerResponse.ok ? await providerResponse.json() : null;
+  for (const id of ["project-main-model", "project-worker-model"]) {
+    const select = $(id);
+    const models = providerStatus?.available_models || [];
+    select.replaceChildren(...models.map((model) => new Option(model, model)));
+    select.disabled = models.length === 0;
+    if (select.disabled) select.add(new Option("暂无可用模型", ""));
+  }
+  Object.assign(demo.config, providerStatus || {});
   $("setup-project-name").textContent = draft.project.name;
   $("setup-target-file").textContent = draft.preview.contract?.target_file || draft.contract.targetFile;
   $("setup-project-instances").textContent = (draft.preview.project_instances || []).map((item) => item.path).join("、") || "使用外部算例";

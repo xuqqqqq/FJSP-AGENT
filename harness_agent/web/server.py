@@ -32,7 +32,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from harness_agent.deepseek_client import is_deepseek_configured, load_local_env, local_env_candidates, normalize_deepseek_model
+from harness_agent.deepseek_client import is_deepseek_configured, load_local_env, local_env_candidates, normalize_deepseek_model, resolve_secret
+from harness_agent.model_catalog import discover_model_catalog
 from harness_agent.orchestration.loop import DEFAULT_IN_ROUND_REPAIR_ATTEMPTS, load_worker_loop_result
 from harness_agent.context.knowledge import knowledge_query_catalog, method_family_catalog, method_package_catalog
 from harness_agent.core.cancellation import CancellationToken, TaskCancelled
@@ -1750,6 +1751,24 @@ def deepseek_status_payload() -> dict[str, Any]:
     env_files = [env_file_status(path) for path in local_env_candidates()]
     env_example = PROJECT_ROOT / ".env.example"
     default_opencode_model = os.environ.get("OPENCODE_MODEL", DEFAULT_OPENCODE_MODEL)
+    model_catalog = []
+    catalog_errors = {}
+    selected_models = [
+        os.environ.get("OPENCODE_MAIN_MODEL", default_opencode_model),
+        os.environ.get("OPENCODE_WORKER_MODEL", default_opencode_model),
+    ]
+    for provider in dict.fromkeys(model.split("/", 1)[0] for model in selected_models):
+        default_urls = {"qiming": "https://cpa.qiming.zone/v1", "deepseek": "https://api.deepseek.com/v1", "openai": "https://api.openai.com/v1"}
+        if provider not in default_urls:
+            continue
+        prefix = provider.upper()
+        key = resolve_secret(f"{prefix}_API_KEY", file_env=f"{prefix}_API_KEY_FILE")
+        if not key:
+            continue
+        catalog = discover_model_catalog(provider, os.environ.get(f"{prefix}_BASE_URL", default_urls[provider]), key)
+        model_catalog.extend(catalog["models"])
+        if catalog["error"]:
+            catalog_errors[provider] = catalog["error"]
     return {
         "configured": configured,
         "model": normalize_deepseek_model(os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")),
@@ -1765,6 +1784,9 @@ def deepseek_status_payload() -> dict[str, Any]:
             os.environ.get("OPENCODE_MAIN_PLANNING_MODE")
         ),
         "coding_worker_model": os.environ.get("OPENCODE_WORKER_MODEL", default_opencode_model),
+        "available_models": [model["id"] for model in model_catalog],
+        "model_catalog": model_catalog,
+        "model_catalog_errors": catalog_errors,
         "coding_worker_variant": normalize_opencode_variant(os.environ.get("OPENCODE_WORKER_VARIANT")),
         "main_max_subagents": coerce_int(
             os.environ.get("OPENCODE_MAIN_MAX_SUBAGENTS"), 4, minimum=0, maximum=4

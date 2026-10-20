@@ -1053,6 +1053,7 @@ class OpenCodeMainAgent:
         popen_kwargs: dict[str, object] = {
             "cwd": isolated_workspace.name if isolated_workspace is not None else str(self.project_root),
             "env": opencode_subprocess_environment(
+                model=self.model,
                 runtime_config=runtime_config,
                 isolation_root=output_dir / ".opencode_runtime",
             ),

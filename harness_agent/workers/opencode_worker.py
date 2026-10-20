@@ -304,6 +304,7 @@ class OpenCodeWorker(CodingWorker):
                 popen_kwargs: dict[str, object] = {
                     "cwd": str(session_launch.launch_dir),
                     "env": opencode_subprocess_environment(
+                        model=self.model,
                         runtime_config=runtime_config,
                         isolation_root=session_launch.state_path.parent / ".opencode_runtime",
                     ),
@@ -1373,8 +1374,25 @@ def _quarantine_invalid_worker_target(
     return quarantine_path
 
 
+def qiming_model_ids(environment: dict[str, str], *, model: str | None = None) -> list[str]:
+    models: dict[str, None] = {}
+    for declared in environment.get("QIMING_MODELS", "").split(","):
+        model_id = declared.strip().removeprefix("qiming/")
+        if model_id and "/" not in model_id:
+            models[model_id] = None
+    for selected in (model, *(environment.get(key, "") for key in (
+        "OPENCODE_MODEL", "OPENCODE_MAIN_MODEL", "OPENCODE_WORKER_MODEL"
+    ))):
+        if selected and selected.strip().startswith("qiming/"):
+            model_id = selected.strip().split("/", 1)[1]
+            if model_id and "/" not in model_id:
+                models[model_id] = None
+    return list(models)
+
+
 def opencode_subprocess_environment(
     *,
+    model: str | None = None,
     runtime_config: dict[str, object] | None = None,
     isolation_root: Path | None = None,
 ) -> dict[str, str]:
@@ -1451,6 +1469,7 @@ def opencode_subprocess_environment(
 
     qiming_config: dict[str, object] = {}
     if qiming_key:
+        qiming_models = {model_id: {"name": model_id} for model_id in qiming_model_ids(environment, model=model)}
         qiming_config = {
             "provider": {
                 "qiming": {
@@ -1463,10 +1482,7 @@ def opencode_subprocess_environment(
                             "https://cpa.qiming.zone/v1",
                         ).strip(),
                     },
-                    "models": {
-                        "glm-5.2": {"name": "GLM 5.2"},
-                        "deepseek-v4-flash": {"name": "DeepSeek V4 Flash"},
-                    },
+                    "models": qiming_models,
                 }
             }
         }

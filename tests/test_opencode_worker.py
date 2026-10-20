@@ -1687,9 +1687,16 @@ class OpenCodeWorkerTests(unittest.TestCase):
             "QIMING_API_KEY",
             "QIMING_BASE_URL",
             "OPENCODE_CONFIG_CONTENT",
+            "QIMING_MODELS",
+            "OPENCODE_MODEL",
+            "OPENCODE_MAIN_MODEL",
+            "OPENCODE_WORKER_MODEL",
         )
         previous = {key: os.environ.get(key) for key in keys}
         try:
+            for key in keys[3:]:
+                os.environ.pop(key, None)
+            os.environ["OPENCODE_MODEL"] = "qiming/deployment-v1"
             os.environ["QIMING_API_KEY"] = "shared-qiming-key"
             os.environ["QIMING_BASE_URL"] = "https://gateway.example/v1"
             os.environ.pop("OPENCODE_CONFIG_CONTENT", None)
@@ -1706,8 +1713,29 @@ class OpenCodeWorkerTests(unittest.TestCase):
         self.assertEqual("shared-qiming-key", environment["QIMING_API_KEY"])
         self.assertEqual("{env:QIMING_API_KEY}", provider["options"]["apiKey"])
         self.assertEqual("https://gateway.example/v1", provider["options"]["baseURL"])
-        self.assertEqual({"glm-5.2", "deepseek-v4-flash"}, set(provider["models"]))
+        self.assertEqual({"deployment-v1"}, set(provider["models"]))
         self.assertNotIn("shared-qiming-key", environment["OPENCODE_CONFIG_CONTENT"])
+
+    def test_qiming_registers_deployment_models_and_explicit_selection(self) -> None:
+        env = {
+            "QIMING_API_KEY": "deployment-test-secret",
+            "QIMING_MODELS": "dsv4-0731, qiming/dsv41-1017,dsv4-0731",
+            "OPENCODE_MAIN_MODEL": "qiming/main-deployment",
+            "OPENCODE_WORKER_MODEL": "deepseek/another-provider",
+        }
+        with patch.dict(os.environ, env, clear=True), patch(
+            "harness_agent.workers.opencode_worker.load_local_env"
+        ):
+            environment = opencode_subprocess_environment(model="qiming/task-deployment")
+
+        raw_config = environment["OPENCODE_CONFIG_CONTENT"]
+        models = json.loads(raw_config)["provider"]["qiming"]["models"]
+        self.assertEqual(
+            {"dsv4-0731", "dsv41-1017",
+             "main-deployment", "task-deployment"},
+            set(models),
+        )
+        self.assertNotIn("deployment-test-secret", raw_config)
 
     def test_all_configured_providers_are_isolated_and_do_not_embed_secrets(self) -> None:
         keys = (
@@ -1747,10 +1775,8 @@ class OpenCodeWorkerTests(unittest.TestCase):
             {"deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"},
             set(providers["deepseek"]["models"]),
         )
-        self.assertEqual(
-            {"glm-5.2", "deepseek-v4-flash"},
-            set(providers["qiming"]["models"]),
-        )
+        self.assertNotIn("glm-5.2", providers["qiming"]["models"])
+        self.assertNotIn("deepseek-v4-flash", providers["qiming"]["models"])
         self.assertEqual("https://gpt-test.example/v1", providers["openai"]["options"]["baseURL"])
         self.assertEqual("{env:DEEPSEEK_API_KEY}", providers["deepseek"]["options"]["apiKey"])
         self.assertEqual("{env:OPENAI_API_KEY}", providers["openai"]["options"]["apiKey"])

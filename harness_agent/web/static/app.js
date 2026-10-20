@@ -484,11 +484,8 @@ function formatFileSize(value) {
 }
 
 function setModelSelectValue(select, model) {
-  if (!select || !model) return;
-  if (![...select.options].some((option) => option.value === model)) {
-    select.add(new Option(model, model));
-  }
-  select.value = model;
+  if (!select) return;
+  select.value = [...select.options].some((option) => option.value === model) ? model : select.options[0]?.value || "";
 }
 
 function selectedProvider(model) {
@@ -511,6 +508,16 @@ function syncAgentControl(sourceId, targetId) {
 }
 
 function setAgentControlsFromConfig(config) {
+  if (Array.isArray(config.available_models)) {
+    for (const id of ["main-agent-model", "main-agent-model-setup", "coding-worker-model", "coding-worker-model-setup"]) {
+      const select = $(id);
+      if (select) {
+        select.replaceChildren(...config.available_models.map((model) => new Option(model, model)));
+        select.disabled = config.available_models.length === 0;
+        if (select.disabled) select.add(new Option("暂无可用模型", ""));
+      }
+    }
+  }
   const fallbackModel = config.opencode_model || "deepseek/deepseek-v4-pro";
   const values = {
     "main-agent-model": config.main_agent_model || fallbackModel,
