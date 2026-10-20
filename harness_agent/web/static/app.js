@@ -17,6 +17,7 @@ const state = {
   renderedTimelineIds: new Set(),
   mainTimelineHeaderRendered: false,
   codingTimelineHeaders: new Set(),
+  reasoningTraceNodes: new Map(),
   currentJobStatus: null,
   renderedInterventionKey: null,
   interventionCountdownTimer: null,
@@ -818,6 +819,7 @@ function resetConversationState(jobId) {
   state.renderedTimelineIds = new Set();
   state.mainTimelineHeaderRendered = false;
   state.codingTimelineHeaders = new Set();
+  state.reasoningTraceNodes = new Map();
   state.renderedInterventionKey = null;
   clearInterventionCountdown();
   setChatInputPlaceholder(DEFAULT_CHAT_PLACEHOLDER);
@@ -883,6 +885,10 @@ function appendMainAgentRunHeader(job) {
 }
 
 function appendMainAgentTraceItem(record, label) {
+  if (record.kind === "reasoning") {
+    appendModelReasoning(record, `Main Agent 模型推理 · ${record.attempt || "当前轮"}`);
+    return;
+  }
   const thread = $("chat-thread");
   if (!thread) return;
   const item = document.createElement("article");
@@ -920,6 +926,10 @@ function appendCodingAgentRunHeader(record) {
 }
 
 function appendCodingAgentTraceItem(record) {
+  if (record.kind === "reasoning") {
+    appendModelReasoning(record, `Coding Agent 模型推理 · ${record.display_name || record.attempt || "worker"}`);
+    return;
+  }
   const thread = $("chat-thread");
   if (!thread) return;
   const labels = {
@@ -942,6 +952,39 @@ function appendCodingAgentTraceItem(record) {
   item.append(head, content);
   thread.appendChild(item);
   thread.scrollTop = thread.scrollHeight;
+}
+
+function appendModelReasoning(record, label) {
+  const thread = $("chat-thread");
+  if (!thread) return;
+  const followThread = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 80;
+  const key = String(record.id);
+  let item = state.reasoningTraceNodes.get(key);
+  if (!item) {
+    item = document.createElement("details");
+    item.className = "main-trace-item trace-reasoning";
+    item.open = Boolean(record.streaming);
+    const summary = document.createElement("summary");
+    const title = document.createElement("strong");
+    title.textContent = label;
+    const status = document.createElement("span");
+    status.className = "model-reasoning-status";
+    const text = document.createElement("pre");
+    text.className = "model-reasoning-text";
+    summary.append(title, status);
+    item.append(summary, text);
+    thread.appendChild(item);
+    state.reasoningTraceNodes.set(key, item);
+  }
+  const text = item.querySelector(".model-reasoning-text");
+  const followText = text.scrollHeight - text.scrollTop - text.clientHeight < 60;
+  if (text.textContent !== record.text) text.textContent = record.text || "";
+  const length = record.text_length || record.text?.length || 0;
+  const status = record.interrupted ? "已中断" : record.streaming ? "生成中" : "已结束";
+  const clipped = length > (record.text?.length || 0) ? " · 显示最近片段" : "";
+  item.querySelector(".model-reasoning-status").textContent = `${status} · ${length.toLocaleString()} 字符${clipped}`;
+  if (followText) text.scrollTop = text.scrollHeight;
+  if (followThread) thread.scrollTop = thread.scrollHeight;
 }
 
 function stableAgentColorIndex(value) {
@@ -1109,7 +1152,17 @@ function renderUnifiedTimeline(job) {
     final: "Main 最终结论",
   };
   for (const entry of entries) {
-    if (state.renderedTimelineIds.has(entry.id)) continue;
+    if (entry.value.kind === "reasoning" && entry.value.streaming &&
+        ["completed", "completed_with_warnings", "failed", "stopped", "interrupted"].includes(job.status)) {
+      entry.value = {...entry.value, streaming: false, interrupted: true};
+    }
+    if (state.renderedTimelineIds.has(entry.id)) {
+      if (entry.value.kind === "reasoning") {
+        if (entry.type === "coding") appendCodingAgentTraceItem(entry.value);
+        else appendMainAgentTraceItem(entry.value, "模型推理");
+      }
+      continue;
+    }
     state.renderedTimelineIds.add(entry.id);
     if (entry.type === "main") {
       if (!state.mainTimelineHeaderRendered) {

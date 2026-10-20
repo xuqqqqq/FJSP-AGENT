@@ -1326,6 +1326,24 @@ class OpenCodeMainAgentTests(unittest.TestCase):
         self.assertTrue(state["stalled"])
         kill.assert_called_once_with(process)
 
+    def test_stall_watchdog_counts_incremental_reasoning_as_activity(self) -> None:
+        process = MagicMock()
+        process.poll.side_effect = [None, None, None]
+        state = {"stalled": False}
+        reasoning_path = MagicMock()
+        reasoning_path.stat.side_effect = [SimpleNamespace(st_size=size) for size in (0, 40, 80, 80)]
+
+        with (
+            patch("harness_agent.agents.opencode_main.MAIN_STALL_POLL_SECONDS", 0),
+            patch("harness_agent.agents.opencode_main.time.monotonic", side_effect=[0.0, 2.0, 4.0, 6.0]),
+            patch("harness_agent.agents.opencode_main.kill_process_tree") as kill,
+        ):
+            monitor_process_stall(process, [], [], 1, threading.Event(), state, reasoning_path)
+
+        self.assertEqual(3, process.poll.call_count)
+        self.assertTrue(state["stalled"])
+        kill.assert_called_once_with(process)
+
     def test_run_once_honors_explicit_main_timeout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -2500,6 +2518,7 @@ class OpenCodeMainAgentTests(unittest.TestCase):
             self.assertIn("json", command)
             self.assertEqual("openai/gpt-5.4", command[command.index("--model") + 1])
             self.assertEqual("high", command[command.index("--variant") + 1])
+            self.assertIn("--thinking", command)
             session_title = command[command.index("--title") + 1]
             prompt_arg = command[command.index("json") + 1]
             self.assertTrue(session_title.startswith("AlgoForge Main "))

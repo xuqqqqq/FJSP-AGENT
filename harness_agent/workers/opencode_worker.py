@@ -305,6 +305,7 @@ class OpenCodeWorker(CodingWorker):
                     "cwd": str(session_launch.launch_dir),
                     "env": opencode_subprocess_environment(
                         model=self.model,
+                        reasoning_path=output_dir / "opencode_reasoning.jsonl",
                         runtime_config=runtime_config,
                         isolation_root=session_launch.state_path.parent / ".opencode_runtime",
                     ),
@@ -647,6 +648,7 @@ class OpenCodeWorker(CodingWorker):
                 OPENCODE_WORKER_AGENT,
                 "--format",
                 "json",
+                "--thinking",
                 f"--dir={_absolute_path_no_resolve(worktree_path)}",
             ]
         )
@@ -1393,6 +1395,7 @@ def qiming_model_ids(environment: dict[str, str], *, model: str | None = None) -
 def opencode_subprocess_environment(
     *,
     model: str | None = None,
+    reasoning_path: Path | None = None,
     runtime_config: dict[str, object] | None = None,
     isolation_root: Path | None = None,
 ) -> dict[str, str]:
@@ -1404,6 +1407,10 @@ def opencode_subprocess_environment(
 
     load_local_env()
     environment = os.environ.copy()
+    if reasoning_path is not None:
+        environment["ALGOFORGE_REASONING_EVENTS_PATH"] = str(reasoning_path.resolve())
+        runtime_config = dict(runtime_config or {})
+        runtime_config["plugin"] = [Path(__file__).with_name("opencode_reasoning_plugin.mjs").resolve().as_uri()]
     if isolation_root is not None:
         runtime_root = isolation_root.resolve()
         environment["XDG_DATA_HOME"] = str(runtime_root / "data")

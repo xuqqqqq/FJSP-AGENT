@@ -1030,7 +1030,7 @@ class OpenCodeMainAgent:
         # These are disposable harness sessions.  Supplying a title prevents
         # OpenCode from spending a separate provider request on auto-naming.
         command.extend(["--title", session_title])
-        command.extend(["--agent", OPENCODE_MAIN_AGENT, "--format", "json", prompt])
+        command.extend(["--thinking", "--agent", OPENCODE_MAIN_AGENT, "--format", "json", prompt])
         command.extend(f"--file={path.resolve()}" for path in attachments)
         command_path = output_dir / f"opencode_main_command{suffix}.json"
         events_path = output_dir / f"opencode_main_events{suffix}.jsonl"
@@ -1054,6 +1054,7 @@ class OpenCodeMainAgent:
             "cwd": isolated_workspace.name if isolated_workspace is not None else str(self.project_root),
             "env": opencode_subprocess_environment(
                 model=self.model,
+                reasoning_path=output_dir / f"opencode_main_reasoning{suffix}.jsonl",
                 runtime_config=runtime_config,
                 isolation_root=output_dir / ".opencode_runtime",
             ),
@@ -1100,6 +1101,7 @@ class OpenCodeMainAgent:
                     self.stall_timeout_seconds,
                     stall_stop,
                     stall_state,
+                    output_dir / f"opencode_main_reasoning{suffix}.jsonl",
                 ),
                 daemon=True,
             )
@@ -1488,15 +1490,23 @@ def monitor_process_stall(
     stall_timeout_seconds: int,
     stop_event: threading.Event,
     state: dict[str, bool],
+    reasoning_path: Path | None = None,
 ) -> None:
     """Terminate only a silent OpenCode call; active research has no total deadline."""
 
-    observed_size = (len(stdout_chunks), len(stderr_chunks))
+    def output_size() -> tuple[int, int, int]:
+        try:
+            reasoning_bytes = reasoning_path.stat().st_size if reasoning_path is not None else 0
+        except OSError:
+            reasoning_bytes = 0
+        return len(stdout_chunks), len(stderr_chunks), reasoning_bytes
+
+    observed_size = output_size()
     last_activity = time.monotonic()
     while not stop_event.wait(MAIN_STALL_POLL_SECONDS):
         if process.poll() is not None:
             return
-        current_size = (len(stdout_chunks), len(stderr_chunks))
+        current_size = output_size()
         if current_size != observed_size:
             observed_size = current_size
             last_activity = time.monotonic()

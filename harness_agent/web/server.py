@@ -34,6 +34,12 @@ from urllib.parse import parse_qs, urlparse
 
 from harness_agent.deepseek_client import is_deepseek_configured, load_local_env, local_env_candidates, normalize_deepseek_model, resolve_secret
 from harness_agent.model_catalog import discover_model_catalog
+from harness_agent.web.opencode_reasoning import (
+    merge_trace_records,
+    read_reasoning_events,
+    read_session_reasoning,
+    reasoning_trace_record,
+)
 from harness_agent.orchestration.loop import DEFAULT_IN_ROUND_REPAIR_ATTEMPTS, load_worker_loop_result
 from harness_agent.context.knowledge import knowledge_query_catalog, method_family_catalog, method_package_catalog
 from harness_agent.core.cancellation import CancellationToken, TaskCancelled
@@ -1252,7 +1258,7 @@ def append_event(job: dict[str, Any], message: str, *, level: str = "info") -> N
 
 
 def _trace_timestamp(record: dict[str, Any]) -> float:
-    value = record.get("timestamp")
+    value = record.get("updated_at") or record.get("timestamp")
     try:
         return float(value)
     except (TypeError, ValueError):
@@ -1356,7 +1362,7 @@ def agent_status_snapshot(job: dict[str, Any]) -> dict[str, Any]:
             "detail": main_detail,
             "model": str(config.get("main_agent_model") or config.get("opencode_model") or ""),
             "variant": str(config.get("main_agent_variant") or ""),
-            "updated_at": (latest_main or {}).get("timestamp") or job.get("updated_at"),
+            "updated_at": (latest_main or {}).get("updated_at") or (latest_main or {}).get("timestamp") or job.get("updated_at"),
         }
     ]
     worker_summary = (
@@ -1446,7 +1452,7 @@ def agent_status_snapshot(job: dict[str, Any]) -> dict[str, Any]:
                 "detail": _agent_detail(latest_non_usage, "等待 Coding Agent 输出"),
                 "model": str(latest.get("model") or config.get("coding_worker_model") or config.get("opencode_model") or ""),
                 "variant": str(latest.get("variant") or config.get("coding_worker_variant") or ""),
-                "updated_at": latest.get("timestamp") or job.get("updated_at"),
+                "updated_at": latest.get("updated_at") or latest.get("timestamp") or job.get("updated_at"),
             }
         )
 
@@ -4329,7 +4335,7 @@ def scan_round_reflection_progress(
     records: list[dict[str, Any]] = []
     for path in sorted(reflection_dir.glob("opencode_main_events*.jsonl")):
         try:
-            lines = path.read_text(encoding="utf-8").splitlines()
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
             continue
         for index, line in enumerate(lines):
@@ -4344,6 +4350,7 @@ def scan_round_reflection_progress(
             record = opencode_main_trace_record(payload, label=label, record_id=key)
             if record is not None:
                 records.append(record)
+        records.extend(scan_session_reasoning(reflection_dir, path, label))
     reflection_path = reflection_dir / "round_reflection.json"
     if reflection_path.exists():
         reflection = read_json_file(reflection_path)
@@ -4366,10 +4373,11 @@ def scan_round_reflection_progress(
         with _LOCK:
             if job.get("status") != "running":
                 return
-            trace = [item for item in job.get("main_agent_trace") or [] if isinstance(item, dict)]
-            trace.extend(records)
-            job["main_agent_trace"] = trace[-240:]
-            write_job_status(job)
+            previous = job.get("main_agent_trace") or []
+            merged = merge_trace_records(previous, records, limit=240)
+            if merged != previous:
+                job["main_agent_trace"] = merged
+                write_job_status(job)
 
 
 def scan_opencode_main_trace(
@@ -4378,11 +4386,10 @@ def scan_opencode_main_trace(
     attempt_dir: Path,
     label: str,
 ) -> None:
-    """Collect the Main Agent's model-visible trace without exposing hidden reasoning.
+    """Collect public output and model-returned reasoning from the task session.
 
     OpenCode JSONL can contain very large tool inputs, including source patches.
-    The browser trace intentionally keeps only public commentary, tool identity,
-    completion state, final answers, and usage counters.
+    Tool inputs and source patches stay outside the browser trace.
     """
 
     records: list[dict[str, Any]] = []
@@ -4398,7 +4405,7 @@ def scan_opencode_main_trace(
         )
         for path in sorted(main_dir.glob("opencode_main_events*.jsonl")):
             try:
-                lines = path.read_text(encoding="utf-8").splitlines()
+                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
             except OSError:
                 continue
             for index, line in enumerate(lines):
@@ -4417,6 +4424,7 @@ def scan_opencode_main_trace(
                 records.append(record)
                 if record.get("kind") == "commentary":
                     has_native_commentary = True
+            records.extend(scan_session_reasoning(main_dir, path, trace_label))
         public_trace_path = main_dir / "main_reasoning_trace.json"
         # The structured trace is generated from the final plan. It is useful when a
         # provider emits no commentary, but must not masquerade as live thinking.
@@ -4445,8 +4453,11 @@ def scan_opencode_main_trace(
     with _LOCK:
         if job.get("status") != "running":
             return
-        job.setdefault("main_agent_trace", []).extend(records)
-        write_job_status(job)
+        previous = job.get("main_agent_trace") or []
+        merged = merge_trace_records(previous, records, limit=240)
+        if merged != previous:
+            job["main_agent_trace"] = merged
+            write_job_status(job)
 
 
 def scan_opencode_worker_trace(
@@ -4455,7 +4466,7 @@ def scan_opencode_worker_trace(
     attempt_dir: Path,
     label: str,
 ) -> None:
-    """Collect one Coding Agent's public progress without exposing tool payloads."""
+    """Collect one Coding Agent's output without exposing tool payloads."""
 
     worker_dir = attempt_dir / "worker"
     events_path = worker_dir / "opencode_events.jsonl"
@@ -4486,15 +4497,70 @@ def scan_opencode_worker_trace(
         )
         if record is not None:
             records.append(record)
+    records.extend(
+        {**record, **identity}
+        for record in scan_session_reasoning(worker_dir, events_path, label)
+    )
     if not records:
         return
     with _LOCK:
         if job.get("status") != "running":
             return
-        trace = [item for item in job.get("coding_agent_trace") or [] if isinstance(item, dict)]
-        trace.extend(records)
-        job["coding_agent_trace"] = trace[-800:]
-        write_job_status(job)
+        previous = [item for item in job.get("coding_agent_trace") or [] if isinstance(item, dict)]
+        merged = merge_trace_records(previous, records, limit=800)
+        if merged != previous:
+            job["coding_agent_trace"] = merged
+            write_job_status(job)
+
+
+def scan_session_reasoning(directory: Path, events_path: Path, label: str) -> list[dict[str, Any]]:
+    """Observe persisted streaming parts; never query another task's session."""
+
+    command_path = directory / events_path.name.replace("events", "command").replace(".jsonl", ".json")
+    if not command_path.is_file():
+        return []
+    try:
+        session_id = ""
+        for line in reversed(events_path.read_text(encoding="utf-8", errors="replace").splitlines()):
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(event, dict) and event.get("sessionID"):
+                session_id = str(event["sessionID"])
+                break
+        if directory.name == "worker":
+            session = read_json_file(directory / "opencode_session.json")
+            workspace = Path(str(session.get("materialized_workspace") or session.get("launch_dir") or "")).resolve()
+            loop_root = next((parent for parent in directory.parents if parent.name == "worker_loop"), None)
+            if (
+                loop_root is None or not workspace.is_relative_to(loop_root.resolve())
+                or workspace.parent.parent.name != ".algoforge_opencode_session"
+            ):
+                return []
+            runtime_root = workspace.parent / ".opencode_runtime"
+        else:
+            runtime_root = directory / ".opencode_runtime"
+        reasoning_path = directory / events_path.name.replace("events", "reasoning")
+        finished_path = directory.parent / "cycle_result.json"
+        if reasoning_path.is_file():
+            records = read_reasoning_events(
+                reasoning_path, session_id=session_id,
+                started_at=command_path.stat().st_mtime * 1000, label=label,
+            )
+        else:
+            records = read_session_reasoning(
+                runtime_root / "data" / "opencode" / "opencode.db",
+                session_id=session_id, started_at=command_path.stat().st_mtime * 1000, label=label,
+                finished_at=finished_path.stat().st_mtime * 1000 if finished_path.is_file() else None,
+            )
+        if finished_path.is_file():
+            for record in records:
+                if record["streaming"]:
+                    record.update(streaming=False, interrupted=True)
+        return records
+    except (OSError, ValueError, TypeError):
+        return []
 
 
 def coding_agent_identity(attempt_dir: Path, label: str, command_path: Path) -> dict[str, str]:
@@ -4561,6 +4627,9 @@ def opencode_worker_trace_record(
         "timestamp": payload.get("timestamp"),
         **identity,
     }
+    if event_type == "reasoning":
+        record = reasoning_trace_record(part, label=label, record_id=record_id, timestamp=payload.get("timestamp"))
+        return {**record, **identity} if record is not None else None
     if event_type == "text":
         text = str(part.get("text") or "").strip()
         if not text:
@@ -4617,6 +4686,8 @@ def opencode_main_trace_record(
         "attempt": label,
         "timestamp": timestamp,
     }
+    if event_type == "reasoning":
+        return reasoning_trace_record(part, label=label, record_id=record_id, timestamp=timestamp)
     if event_type == "text":
         text = str(part.get("text") or "").strip()
         if not text:

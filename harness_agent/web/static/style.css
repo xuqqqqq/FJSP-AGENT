@@ -671,6 +671,39 @@ h3 {
   border-left-color: var(--success);
 }
 
+.trace-reasoning {
+  display: block;
+  border-left-color: var(--border-strong);
+}
+
+.trace-reasoning summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.model-reasoning-status {
+  display: block;
+  margin-top: 4px;
+  font-weight: 400;
+}
+
+.model-reasoning-text {
+  min-height: 0;
+  max-height: 240px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-left: 2px solid var(--border);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .audit-event-item {
   display: grid;
   gap: 8px;

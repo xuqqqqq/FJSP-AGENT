@@ -1579,6 +1579,7 @@ class OpenCodeWorkerTests(unittest.TestCase):
 
         self.assertEqual("openai/gpt-5.4", command[command.index("--model") + 1])
         self.assertEqual("high", command[command.index("--variant") + 1])
+        self.assertIn("--thinking", command)
         self.assertTrue(command[command.index("--title") + 1].startswith("AlgoForge Worker "))
 
     def test_opencode_environment_resolves_deepseek_key_file_without_copying_it(self) -> None:
