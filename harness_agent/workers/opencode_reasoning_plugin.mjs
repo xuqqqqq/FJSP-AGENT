@@ -1,5 +1,13 @@
 import { appendFileSync } from "node:fs";
 
+const displayLanguagePolicy = [
+  "输出语言约定：应用的使用者使用简体中文。请使用简体中文组织本次分析与说明。",
+  "本约定同时适用于返回给应用的推理文本（reasoning/reasoning_content）、阶段说明、子任务描述、最终报告和 JSON 中的自然语言值。即使输入材料或旧会话使用英文，后续自然语言分析与说明也使用简体中文。",
+  "代码、命令、文件路径、变量和函数名、API 名称、JSON 字段名、固定枚举值、方法及技能标识符和工具返回的原始日志保持原样，不得翻译或改写；解释这些内容时使用中文。",
+  "遵守原有输出格式和任务预算，不额外调用模型或工具进行翻译。",
+].join("\n");
+const taskLanguageReminder = "【语言要求】请用简体中文进行本次分析，并用中文返回推理文本和说明。代码、命令、路径、标识符、JSON 字段名和固定枚举值保持原样。";
+
 export const ReasoningCapture = async () => {
   const outputPath = process.env.ALGOFORGE_REASONING_EVENTS_PATH;
   if (!outputPath) return {};
@@ -20,6 +28,16 @@ export const ReasoningCapture = async () => {
     state.flushedAt = Date.now();
   };
   return {
+    "experimental.chat.system.transform": async (_input, output) => {
+      if (output.system.some((text) => text.includes(displayLanguagePolicy))) return;
+      if (output.system.length) output.system[0] += "\n\n" + displayLanguagePolicy;
+      else output.system.push(displayLanguagePolicy);
+    },
+    "experimental.chat.messages.transform": async (_input, output) => {
+      const latestUser = output.messages.findLast((message) => message.info?.role === "user");
+      const textPart = latestUser?.parts.find((part) => part.type === "text" && !part.synthetic && typeof part.text === "string");
+      if (textPart && !textPart.text.includes(taskLanguageReminder)) textPart.text += "\n\n" + taskLanguageReminder;
+    },
     event: async ({ event }) => {
       const type = event.type.replace(/\.\d+$/, "");
       const properties = event.properties || {};
