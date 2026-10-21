@@ -132,8 +132,10 @@ async function loadDemo(options = {}) {
   $("best-text").value = demo.best_known_csv.text;
   $("best-text").dataset.filename = demo.best_known_csv.name;
   $("max-rounds").value = demo.config.max_rounds;
+  $("guidance-mode").value = demo.config.guidance_mode || "full";
   $("controller-budget-minutes").value = Number(demo.config.controller_budget_seconds || 0) / 60;
   $("unlimited-rounds").checked = demo.config.unlimited_rounds === true;
+  updateRoundBudgetControls();
   $("seeds").value = demo.config.seeds;
   $("max-workers").value = demo.config.max_workers || 2;
   $("timeout-seconds").value = demo.config.timeout_seconds;
@@ -713,7 +715,8 @@ function buildPayload() {
       text: $("best-text").value,
     },
     max_rounds: Number($("max-rounds").value || 2),
-    controller_budget_seconds: Math.round(Number($("controller-budget-minutes").value || 0) * 60),
+    guidance_mode: $("guidance-mode").value,
+    controller_budget_seconds: Number($("controller-budget-minutes").value || 0) * 60,
     unlimited_rounds: $("unlimited-rounds").checked,
     seeds: $("seeds").value || DEFAULT_STANDARD_SEEDS,
     max_workers: Number($("max-workers").value || 1),
@@ -741,6 +744,11 @@ function updateContractSummary() {
   target.textContent = "Agent 自写 solver · 固定 Core 评测 · 自动选择方法知识";
 }
 
+function updateRoundBudgetControls() {
+  $("max-rounds").disabled = $("unlimited-rounds").checked;
+  $("controller-budget-minutes").min = $("unlimited-rounds").checked ? "0.1" : "0";
+}
+
 async function submitJob(event) {
   event.preventDefault();
   await submitCurrentJob();
@@ -748,6 +756,11 @@ async function submitJob(event) {
 
 async function submitCurrentJob() {
   const payload = buildPayload();
+  if (payload.unlimited_rounds && !(payload.controller_budget_seconds > 0)) {
+    appendChatMessage("assistant", "不限轮数时，请设置正数主控累计时间预算。");
+    setActiveView("setup");
+    return;
+  }
   if (
     !payload.requirement.text.trim()
     || !payload.io.text.trim()
@@ -1563,6 +1576,33 @@ async function stopCurrentJob() {
   });
 }
 
+async function startMatchedNoneJob() {
+  if (!state.currentJobId) return;
+  const button = $("matched-none-job");
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/jobs/${encodeURIComponent(state.currentJobId)}/matched-none`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: "{}",
+    });
+    const job = await response.json();
+    if (!response.ok) throw new Error(job.error || response.statusText);
+    state.currentJobId = job.id;
+    state.lastRenderedStatus = null;
+    renderJob(job);
+    const reference = job.config.comparison_reference;
+    appendChatMessage("assistant", `已启动 None 等时对比，按 Full 实测主控净时间 ${(reference.controller_seconds / 60).toFixed(2)} 分钟不限轮数运行。`);
+    await loadJobHistory();
+    showUnifiedConversation({scrollThread: true});
+    startPolling();
+  } catch (error) {
+    appendChatMessage("assistant", `等时对比启动失败：${error.message}`);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function stopJob(jobId, options = {}) {
   if (!jobId || !["queued", "running", "waiting_for_user"].includes(options.status)) return;
   if (!window.confirm("停止这个任务？已完成的轮次、产物和 incumbent 会保留。")) return;
@@ -1637,6 +1677,19 @@ function renderJob(job) {
   $("job-title").textContent = job.title;
   $("job-status").textContent = statusLabel(job.status);
   $("job-status").className = `status-pill ${job.status}`;
+  const guidanceMode = job.config?.guidance_mode || "full";
+  const measuredSeconds = job.summary?.execution_timing?.controller_wall_seconds_excluding_core;
+  const budgetLimit = Number(job.config?.controller_budget_seconds || 0);
+  const comparisonButton = $("matched-none-job");
+  comparisonButton.classList.toggle("hidden", !(guidanceMode === "full"
+    && ["completed", "completed_with_warnings"].includes(job.status)
+    && measuredSeconds > 0 && !job.continuation_history?.length));
+  $("job-budget-summary").textContent = [
+    guidanceMode === "none" ? "None" : "Full",
+    job.config?.unlimited_rounds ? "不限轮数" : `${job.config?.max_rounds ?? "-"} 轮`,
+    budgetLimit > 0 ? `主控预算 ${(budgetLimit / 60).toFixed(2)} 分钟` : "",
+    measuredSeconds > 0 ? `实测 ${(measuredSeconds / 60).toFixed(2)} 分钟` : "",
+  ].filter(Boolean).join(" · ");
   const stopButton = $("stop-job");
   const stoppable = ["queued", "running", "waiting_for_user"].includes(job.status);
   stopButton.classList.toggle("hidden", !stoppable && job.status !== "stopping");
@@ -2166,6 +2219,8 @@ $("resource-dialog").addEventListener("click", (event) => {
   if (event.target === $("resource-dialog")) closeResourceDialog();
 });
 $("stop-job").addEventListener("click", stopCurrentJob);
+$("matched-none-job").addEventListener("click", startMatchedNoneJob);
+$("unlimited-rounds").addEventListener("change", updateRoundBudgetControls);
 $("resume-job").addEventListener("click", resumeCurrentJob);
 $("resume-dialog-form").addEventListener("submit", submitResumeDialog);
 $("resume-dialog-close").addEventListener("click", closeResumeDialog);

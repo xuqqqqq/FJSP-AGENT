@@ -59,7 +59,10 @@
             <label class="field compact"><span>Main 推理等级</span><select id="project-main-variant"><option value="">模型默认</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
             <label class="field compact"><span>Coding Worker 模型</span><select id="project-worker-model"><option value="">加载模型中...</option></select></label>
             <label class="field compact"><span>Worker 推理等级</span><select id="project-worker-variant"><option value="">模型默认</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+            <label class="field compact"><span>领域适配</span><select id="project-guidance-mode"><option value="full">Full（启用领域知识与 Skill）</option><option value="none">None（通用框架基线）</option></select></label>
             <label class="field compact"><span>迭代轮次</span><input id="project-max-rounds" type="number" min="1" max="20" value="6" /></label>
+            <label class="field compact"><span>主控累计预算（分钟）</span><input id="project-controller-budget-minutes" type="number" min="0" max="1440" step="0.1" value="0" /></label>
+            <label class="field compact checkbox-field"><input id="project-unlimited-rounds" type="checkbox" /><span>不限轮数</span></label>
             <label class="field compact"><span>竞争 Coding Worker</span><input id="project-competing-workers" type="number" min="1" max="4" value="3" /></label>
             <label class="field compact"><span>Main 子 Agent 上限</span><input id="project-main-subagents" type="number" min="0" max="4" value="4" /></label>
             <label class="field compact"><span>并行 Core 数</span><input id="project-max-workers" type="number" min="1" max="8" value="2" /></label>
@@ -86,6 +89,6 @@
         <p id="project-page-message" class="project-page-message" aria-live="polite"></p>
       </form>
     </main>
-    <script src="/static/project.js?v=20260731-project-documents-1"></script>
+    <script src="/static/project.js?v=20261021-matched-time-1"></script>
   </body>
 </html>

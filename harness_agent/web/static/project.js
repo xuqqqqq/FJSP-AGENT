@@ -281,6 +281,9 @@ function setupValues() {
     workerModel: $("project-worker-model").value,
     workerVariant: $("project-worker-variant").value,
     maxRounds: Number($("project-max-rounds").value || 6),
+    guidanceMode: $("project-guidance-mode").value,
+    controllerBudgetSeconds: Number($("project-controller-budget-minutes").value || 0) * 60,
+    unlimitedRounds: $("project-unlimited-rounds").checked,
     competingWorkers: Number($("project-competing-workers").value || 3),
     mainSubagents: Number($("project-main-subagents").value || 4),
     maxWorkers: Number($("project-max-workers").value || 2),
@@ -303,6 +306,10 @@ function applySetupValues(values, draft, demo) {
   setSelectValue($("project-worker-model"), values?.workerModel || defaults.coding_worker_model || defaults.opencode_model);
   $("project-worker-variant").value = values?.workerVariant ?? defaults.coding_worker_variant ?? "";
   $("project-max-rounds").value = values?.maxRounds ?? 6;
+  $("project-guidance-mode").value = values?.guidanceMode || "full";
+  $("project-controller-budget-minutes").value = Number(values?.controllerBudgetSeconds || 0) / 60;
+  $("project-unlimited-rounds").checked = values?.unlimitedRounds === true;
+  updateProjectRoundBudgetControls();
   $("project-competing-workers").value = values?.competingWorkers ?? 3;
   $("project-main-subagents").value = values?.mainSubagents ?? 4;
   $("project-max-workers").value = values?.maxWorkers ?? defaults.max_workers ?? 2;
@@ -322,6 +329,11 @@ function renderProviderStatus(status) {
   target.textContent = missing.length ? "模型凭据缺失" : "模型可用";
   target.className = `status-pill ${missing.length ? "failed" : "confirmed"}`;
   return missing;
+}
+
+function updateProjectRoundBudgetControls() {
+  $("project-max-rounds").disabled = $("project-unlimited-rounds").checked;
+  $("project-controller-budget-minutes").min = $("project-unlimited-rounds").checked ? "0.1" : "0";
 }
 
 async function initSetupPage() {
@@ -353,6 +365,7 @@ async function initSetupPage() {
   $("setup-project-instances").textContent = (draft.preview.project_instances || []).map((item) => item.path).join("、") || "使用外部算例";
   $("setup-solver-command").textContent = draft.preview.contract?.solver_command || draft.contract.solverCommand;
   applySetupValues(draft.setup, draft, demo);
+  $("project-unlimited-rounds").addEventListener("change", updateProjectRoundBudgetControls);
   renderProviderStatus(providerStatus);
   for (const id of ["project-main-model", "project-worker-model"]) {
     $(id).addEventListener("change", () => renderProviderStatus(providerStatus));
@@ -364,6 +377,10 @@ async function initSetupPage() {
   $("project-job-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const values = setupValues();
+    if (values.unlimitedRounds && !(values.controllerBudgetSeconds > 0)) {
+      setMessage("不限轮数时，请设置正数主控累计时间预算。", "error");
+      return;
+    }
     const missingProviders = renderProviderStatus(providerStatus);
     if (missingProviders.length) {
       setMessage(`缺少模型 provider 凭据：${[...new Set(missingProviders.map(selectedProvider))].join("、")}`, "error");
@@ -388,6 +405,9 @@ async function initSetupPage() {
       starter_solver_command: draft.preview.contract?.solver_command || draft.contract.solverCommand,
       starter_use_project_instances: draft.preview.contract?.use_project_instances !== false,
       max_rounds: values.maxRounds,
+      guidance_mode: values.guidanceMode,
+      controller_budget_seconds: values.controllerBudgetSeconds,
+      unlimited_rounds: values.unlimitedRounds,
       seeds: values.seeds,
       max_workers: values.maxWorkers,
       coding_backend: "opencode",

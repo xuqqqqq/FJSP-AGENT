@@ -158,9 +158,11 @@
                     <div>
                       <span class="muted">当前任务</span>
                       <strong id="job-title">-</strong>
+                      <small id="job-budget-summary" class="muted"></small>
                     </div>
                     <div class="status-actions">
                       <span id="job-status" class="status-pill">排队中</span>
+                      <button class="ghost hidden" type="button" id="matched-none-job" title="复用原始输入和单次预算，按 Full 实测主控净时间不限轮数运行 None">等时 None 对比</button>
                       <div id="resume-job-controls" class="resume-job-controls hidden">
                         <label for="resume-additional-rounds">追加轮数</label>
                         <input id="resume-additional-rounds" type="number" min="1" max="20" value="3" />
@@ -549,6 +551,13 @@
                       </select>
                     </label>
                     <label class="field compact">
+                      <span>领域适配</span>
+                      <select id="guidance-mode">
+                        <option value="full">Full（启用领域知识与 Skill）</option>
+                        <option value="none">None（通用框架基线）</option>
+                      </select>
+                    </label>
+                    <label class="field compact">
                       <span>迭代轮次</span>
                       <input id="max-rounds" type="number" min="1" max="20" value="10" />
                     </label>
@@ -729,6 +738,6 @@
         </div>
       </form>
     </dialog>
-    <script src="/static/app.js?v=20260806-solver-runtime-1"></script>
+    <script src="/static/app.js?v=20261021-matched-time-1"></script>
   </body>
 </html>

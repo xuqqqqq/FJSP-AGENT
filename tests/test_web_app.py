@@ -24,6 +24,7 @@ from harness_agent.web.server import (
     compact_lane_development_states,
     create_project_resource,
     create_job,
+    create_matched_none_job,
     deepseek_status_payload,
     frontend_document,
     inspect_instance_profile,
@@ -919,6 +920,123 @@ class WebAppTests(unittest.TestCase):
                     self.job_payload(unlimited_rounds=True),
                     output_root=Path(tmp),
                 )
+
+    def test_web_job_preserves_fractional_budget_and_guidance_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job = create_job(
+                self.job_payload(guidance_mode="none", controller_budget_seconds=1800.125),
+                output_root=Path(tmp),
+            )
+        self.assertEqual("none", job["config"]["guidance_mode"])
+        self.assertEqual(1800.125, job["config"]["controller_budget_seconds"])
+
+    def test_web_job_rejects_invalid_guidance_and_budget(self) -> None:
+        for overrides in (
+            {"guidance_mode": "other"},
+            {"controller_budget_seconds": float("nan")},
+            {"controller_budget_seconds": float("inf")},
+            {"controller_budget_seconds": -1},
+        ):
+            with self.subTest(overrides=overrides), tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(ValueError):
+                    create_job(self.job_payload(**overrides), output_root=Path(tmp))
+
+    def test_matched_none_uses_original_inputs_and_full_measured_time(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = create_job(
+                self.job_payload(
+                    max_rounds=3, seeds="0,2", timeout_seconds=77,
+                    max_competing_workers=3, controller_budget_seconds=2000,
+                    main_agent_model="qiming/dsv41-1017",
+                    coding_worker_model="qiming/dsv41-1017",
+                ),
+                output_root=Path(tmp),
+            )
+            self.complete_full_with_timing(source, 1800.125)
+            matched = create_matched_none_job(source["id"], output_root=Path(tmp))
+            for field in ("requirement", "io", "instance", "best_known_csv"):
+                self.assertEqual(Path(source["inputs"][field]).read_bytes(), Path(matched["inputs"][field]).read_bytes())
+            for field in ("seeds", "timeout_seconds", "max_competing_workers", "main_agent_model", "coding_worker_model"):
+                self.assertEqual(source["config"][field], matched["config"][field])
+            self.assertEqual("queued", matched["status"])
+            self.assertEqual("none", matched["config"]["guidance_mode"])
+            self.assertTrue(matched["config"]["unlimited_rounds"])
+            self.assertEqual(1800.125, matched["config"]["controller_budget_seconds"])
+            self.assertEqual(source["id"], matched["config"]["comparison_reference"]["job_id"])
+            self.assertNotIn("continuation", matched)
+            self.assertEqual("full", source["config"]["guidance_mode"])
+
+    def test_matched_none_copies_initial_project_instead_of_full_final_solver(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = create_job(
+                self.job_payload(
+                    starter_project=self.zip_payload({"solver.py": "print('initial')\n"}),
+                    starter_use_project_instances=False,
+                ),
+                output_root=Path(tmp),
+            )
+            self.complete_full_with_timing(source, 40.5)
+            final_solver = Path(source["job_dir"]) / "run" / "final_solver.py"
+            final_solver.write_text("print('optimized full solver')\n", encoding="utf-8")
+            matched = create_matched_none_job(source["id"], output_root=Path(tmp))
+            self.assertEqual("provided_project", matched["config"]["baseline_mode"])
+            self.assertEqual(
+                "print('initial')\n",
+                (Path(matched["inputs"]["starter_project"]) / "solver.py").read_text(encoding="utf-8"),
+            )
+
+    def test_matched_none_rejects_running_none_resumed_or_missing_timing_source(self) -> None:
+        cases = ("running", "none", "resumed", "missing_timing")
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                source = create_job(self.job_payload(), output_root=Path(tmp))
+                self.complete_full_with_timing(source, 10)
+                if case == "running":
+                    source["status"] = "running"
+                elif case == "none":
+                    source["config"]["guidance_mode"] = "none"
+                elif case == "resumed":
+                    source["continuation_history"] = [{"completed_at": "test"}]
+                else:
+                    manifest = Path(source["job_dir"]) / "run" / "standard_worker_loop" / "standard_worker_loop_manifest.json"
+                    manifest.write_text("{}", encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    create_matched_none_job(source["id"], output_root=Path(tmp))
+
+    def test_none_skips_cross_task_experience_memory_lookup(self) -> None:
+        with patch("harness_agent.web.server.method_package_catalog") as catalog:
+            self.assertIsNone(latest_compatible_experience_memory({"config": {"guidance_mode": "none"}}))
+        catalog.assert_not_called()
+
+    @staticmethod
+    def complete_full_with_timing(job: dict[str, object], seconds: float) -> None:
+        manifest = Path(job["job_dir"]) / "run" / "standard_worker_loop" / "standard_worker_loop_manifest.json"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text(json.dumps({"execution_timing": {"controller_wall_seconds_excluding_core": seconds}}), encoding="utf-8")
+        job["status"] = "completed"
+
+    def test_run_none_passes_time_budget_and_disables_domain_semantic_reviewer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job = create_job(
+                self.job_payload(guidance_mode="none", unlimited_rounds=True, controller_budget_seconds=45.25),
+                output_root=Path(tmp),
+            )
+            manifest = {"status": "ok", "rounds": [], "round_count": 0, "artifacts": {}, "final_summary": {"total": 1, "valid": 1}}
+            worker = SimpleNamespace(capabilities=lambda: SimpleNamespace(supports_code_generation=True))
+            with patch("harness_agent.web.server.OpenCodeWorker", return_value=worker), patch(
+                "harness_agent.web.server.OpenCodeMainAgent"
+            ), patch("harness_agent.web.server.DeepSeekAlgorithmSemanticReviewer") as reviewer, patch(
+                "harness_agent.web.server.run_standard_worker_loop", return_value=manifest
+            ) as run_loop:
+                run_job(job["id"])
+            self.assertEqual("completed", job["status"])
+            request = run_loop.call_args.args[0]
+            self.assertIsNone(request.iterations)
+            self.assertEqual(45.25, request.controller_budget_seconds)
+            self.assertEqual("none", request.guidance_mode)
+            self.assertIsNone(request.semantic_reviewer)
+            self.assertIsNone(request.previous_pipeline_memory)
+            reviewer.assert_not_called()
 
     def test_provider_status_exposes_model_and_key_presence_without_secret(self) -> None:
         os.environ["OPENAI_API_KEY"] = "test-secret-must-not-leak"

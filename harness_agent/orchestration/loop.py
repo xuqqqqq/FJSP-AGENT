@@ -13,10 +13,12 @@ import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from copy import copy
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from harness_agent.context.compaction import compact_json
 from harness_agent.context.knowledge import method_package_catalog
@@ -57,7 +59,7 @@ from harness_agent.agents.semantic import (
     AlgorithmSemanticReviewer,
     AlgorithmSemanticReviewRequest,
 )
-from harness_agent.worker import CodingWorker, WorkerResult
+from harness_agent.worker import CodingWorker, ExperimentSpec, WorkerResult
 from harness_agent.orchestration.cycle import prepare_candidate_worktree, run_worker_cycle
 
 
@@ -222,7 +224,102 @@ class ControllerTimeBudget:
 
 
 class ControllerBudgetExhausted(RuntimeError):
-    """Raised before starting another Agent trial after the controller budget ends."""
+    """Normal controller stop, distinct from user cancellation or model failure."""
+
+
+@contextmanager
+def _controller_budgeted_agent(
+    agent: Any,
+    budget: ControllerTimeBudget | None,
+    cancellation: CancellationToken | None = None,
+) -> Iterator[Any]:
+    """Bound existing runtime controls without mutating a shared lane's agent."""
+
+    parent = cancellation or getattr(agent, "cancellation", None)
+    if parent is not None:
+        parent.raise_if_cancelled()
+    if budget is None or not budget.enabled():
+        yield agent
+        return
+    if budget.exhausted():
+        raise ControllerBudgetExhausted("controller budget exhausted before Agent call")
+
+    has_timeout = hasattr(agent, "timeout_seconds")
+    has_cancellation = hasattr(agent, "cancellation")
+    scoped = copy(agent) if has_timeout or has_cancellation else agent
+    if has_timeout:
+        configured = getattr(agent, "timeout_seconds")
+        scoped.timeout_seconds = budget.cap_runtime_seconds(
+            configured if configured is not None else math.ceil(budget.remaining_seconds() or 1)
+        )
+    stopped = threading.Event()
+    expired = threading.Event()
+    registration = None
+    watcher = None
+    if has_cancellation:
+        local = CancellationToken()
+        scoped.cancellation = local
+        if parent is not None:
+            registration = parent.register_terminator(local.cancel)
+
+        def monitor() -> None:
+            # Re-read net time: another lane's fixed Core interval can pause it.
+            while not stopped.is_set():
+                remaining = budget.remaining_seconds()
+                if remaining is not None and remaining <= 0:
+                    expired.set()
+                    local.cancel()
+                    return
+                stopped.wait(min(0.25, remaining) if remaining is not None else 0.25)
+
+        watcher = threading.Thread(target=monitor, name="controller-budget", daemon=True)
+        watcher.start()
+    try:
+        yield scoped
+        if parent is not None:
+            parent.raise_if_cancelled()
+        if expired.is_set() or budget.exhausted():
+            raise ControllerBudgetExhausted("controller budget exhausted during Agent call")
+    except Exception:
+        if parent is not None:
+            parent.raise_if_cancelled()
+        if expired.is_set() or budget.exhausted():
+            raise ControllerBudgetExhausted("controller budget exhausted during Agent call") from None
+        raise
+    finally:
+        stopped.set()
+        if parent is not None:
+            parent.unregister_terminator(registration)
+        if watcher is not None:
+            watcher.join(timeout=5)
+
+
+@dataclass
+class _ControllerBudgetedWorker:
+    worker: CodingWorker
+    budget: ControllerTimeBudget
+    cancellation: CancellationToken | None = None
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.worker, name)
+
+    def capabilities(self) -> Any:
+        return self.worker.capabilities()
+
+    def run_experiment(self, spec: ExperimentSpec) -> WorkerResult:
+        result = None
+        try:
+            with _controller_budgeted_agent(self.worker, self.budget, self.cancellation) as scoped:
+                result = scoped.run_experiment(
+                    replace(spec, max_runtime_seconds=self.budget.cap_runtime_seconds(spec.max_runtime_seconds))
+                )
+        except ControllerBudgetExhausted:
+            # Return through cycle's snapshot/Core path so partial edits are still
+            # evaluated. Never pass the local budget token to fixed Core work.
+            if result is None:
+                result = WorkerResult(status="timeout", changed_files=[], summary="Controller budget exhausted.")
+            result = replace(result, artifacts={**(result.artifacts or {}), "controller_budget_exhausted": "true"})
+        return result
 
 
 @dataclass(frozen=True)
@@ -323,8 +420,12 @@ def run_worker_loop(
         cancellation.raise_if_cancelled()
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    if iterations is None and not controller_budget_seconds:
-        raise ValueError("unlimited rounds require controller_budget_seconds")
+    if iterations is None and (
+        controller_budget_seconds is None
+        or not math.isfinite(float(controller_budget_seconds))
+        or float(controller_budget_seconds) <= 0
+    ):
+        raise ValueError("unlimited rounds require positive finite controller_budget_seconds")
     controller_budget = ControllerTimeBudget(
         limit_seconds=(
             float(controller_budget_seconds)
@@ -356,6 +457,16 @@ def run_worker_loop(
         baseline_generation: dict[str, Any] | None = None
         if normalized_baseline_source == "agent_generated":
             baseline_worker_for_generation = baseline_worker or worker
+            try:
+                baseline_direction = plan_agent_generated_baseline_direction(
+                    planner=direction_planner,
+                    context_packet_path=context_packet_path,
+                    output_dir=output_dir / "agent_generated_baseline" / "main_agent",
+                    controller_budget=controller_budget,
+                    cancellation=cancellation,
+                )
+            except ControllerBudgetExhausted:
+                baseline_direction = {}
             baseline_summary, baseline_worktree, baseline_generation = run_agent_generated_baseline(
                 contract=contract,
                 project_root=project_root,
@@ -367,11 +478,7 @@ def run_worker_loop(
                 max_runtime_seconds=controller_budget.cap_runtime_seconds(max_runtime_seconds),
                 semantic_reviewer=semantic_reviewer,
                 assignment_issuer=direction_planner,
-                direction_plan=plan_agent_generated_baseline_direction(
-                    planner=direction_planner,
-                    context_packet_path=context_packet_path,
-                    output_dir=output_dir / "agent_generated_baseline" / "main_agent",
-                ),
+                direction_plan=baseline_direction,
                 repair_attempts=worker_loop_repair_attempt_budget(
                     baseline_worker_for_generation,
                     in_round_repair_attempts,
@@ -438,10 +545,18 @@ def run_worker_loop(
             baseline_key=incumbent_key,
         )
     ):
-        stop_reason = agent_generated_baseline_failure_reason(
-            baseline_generation,
-            baseline_summary=baseline_summary,
-            baseline_key=incumbent_key,
+        budget_stopped = bool(
+            isinstance(baseline_generation, dict)
+            and baseline_generation.get("stop_reason") == "controller_budget_exhausted"
+        )
+        stop_reason = (
+            "controller_budget_exhausted"
+            if budget_stopped
+            else agent_generated_baseline_failure_reason(
+                baseline_generation,
+                baseline_summary=baseline_summary,
+                baseline_key=incumbent_key,
+            )
         )
         if isinstance(baseline_generation, dict):
             if baseline_generation.get("status") == "ok":
@@ -561,13 +676,19 @@ def run_worker_loop(
         )
         # Coding Agent/JA/Core/语义审查的任意异常都转为本轮失败证据，
         # 不允许一次坏候选终止后续方向。
-        direction_plan = plan_direction_with_fallback(
-            planner=direction_planner,
-            round_index=round_index,
-            context_packet_path=planning_context_packet_path,
-            loop_feedback=planning_feedback,
-            output_dir=cycle_dir / "main_agent",
-        )
+        try:
+            direction_plan = plan_direction_with_fallback(
+                planner=direction_planner,
+                round_index=round_index,
+                context_packet_path=planning_context_packet_path,
+                loop_feedback=planning_feedback,
+                output_dir=cycle_dir / "main_agent",
+                controller_budget=controller_budget,
+                cancellation=cancellation,
+            )
+        except ControllerBudgetExhausted:
+            stop_reason = "controller_budget_exhausted"
+            break
         direction_plan = dict(direction_plan)
         direction_plan["fast_checkpoint_mode"] = planner_uses_fast_mode(direction_planner)
         if round_records:
@@ -629,13 +750,19 @@ def run_worker_loop(
                         user_intervention=user_intervention,
                     )
                     revision_dir = cycle_dir / "main_agent_user_revision"
-                    revised_direction_plan = plan_direction_with_fallback(
-                        planner=direction_planner,
-                        round_index=round_index,
-                        context_packet_path=planning_context_packet_path,
-                        loop_feedback=planning_feedback,
-                        output_dir=revision_dir,
-                    )
+                    try:
+                        revised_direction_plan = plan_direction_with_fallback(
+                            planner=direction_planner,
+                            round_index=round_index,
+                            context_packet_path=planning_context_packet_path,
+                            loop_feedback=planning_feedback,
+                            output_dir=revision_dir,
+                            controller_budget=controller_budget,
+                            cancellation=cancellation,
+                        )
+                    except ControllerBudgetExhausted:
+                        stop_reason = "controller_budget_exhausted"
+                        break
                     direction_plan, patch_audit = apply_user_direction_revision(
                         original_direction_plan,
                         revised_direction_plan,
@@ -705,6 +832,9 @@ def run_worker_loop(
                 competition_result.get("best_activated_candidate"),
                 round_index=round_index,
             )
+        except ControllerBudgetExhausted:
+            stop_reason = "controller_budget_exhausted"
+            break
         except TaskCancelled:
             raise
         except Exception as exc:  # noqa: BLE001 - failed worker rounds are feedback, not loop-ending failures.
@@ -785,6 +915,8 @@ def run_worker_loop(
                 if controller_budget.exhausted()
                 else reflect_on_completed_round(
                     planner=direction_planner,
+                    controller_budget=controller_budget,
+                    cancellation=cancellation,
                     request=RoundReflectionRequest(
                         round_index=round_index,
                         direction_plan=direction_plan,
@@ -1001,6 +1133,8 @@ def run_worker_loop(
             if controller_budget.exhausted()
             else reflect_on_completed_round(
                 planner=direction_planner,
+                controller_budget=controller_budget,
+                cancellation=cancellation,
                 request=RoundReflectionRequest(
                     round_index=round_index,
                     direction_plan=direction_plan,
@@ -1254,6 +1388,14 @@ def run_competing_worker_cycles(
             candidate_plan["mechanism_activation"] = mechanism_activation
             completed = (key, eligible, cycle, context_path, attempts, candidate_plan)
             return candidate_index, outcome, completed
+        except ControllerBudgetExhausted:
+            return candidate_index, {
+                "candidate_id": candidate_id,
+                "candidate_index": candidate_index,
+                "status": "stopped",
+                "reason": "controller_budget_exhausted",
+                "eligible": False,
+            }, None
         except TaskCancelled:
             raise
         except Exception as exc:  # noqa: BLE001 - one failed lane must not cancel its competitors.
@@ -1330,7 +1472,11 @@ def run_competing_worker_cycles(
     selection_pool = eligible_completed or ranked_candidates
     if not selection_pool:
         result = {
-            "status": "all_candidates_failed",
+            "status": (
+                "controller_budget_exhausted"
+                if any(item.get("reason") == "controller_budget_exhausted" for item in outcomes)
+                else "all_candidates_failed"
+            ),
             "candidate_count": len(candidate_plans),
             "execution_mode": "parallel" if concurrency > 1 else "serial",
             "max_concurrency": concurrency,
@@ -1342,6 +1488,8 @@ def run_competing_worker_cycles(
             json.dumps(result, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+        if result["status"] == "controller_budget_exhausted":
+            raise ControllerBudgetExhausted("controller budget exhausted before Core selection")
         raise RuntimeError("all competing Coding Worker candidates failed before Core selection")
     winner = selection_pool[0]
     has_eligible_winner = bool(eligible_completed)
@@ -3298,27 +3446,40 @@ def run_worker_cycle_with_in_round_repairs(
             project_root=direction_project_root,
         )
         assignment_feedback = load_context_packet(last_context_packet_path).effective_context.get("loop_feedback") or {}
-        assignment_issue = request_worker_assignment(
-            planner,
-            WorkerAssignmentRequest(
-                round_index=round_index,
-                attempt_index=attempt_index,
-                context_packet_path=last_context_packet_path,
-                direction_plan=effective_direction_plan,
-                loop_feedback=assignment_feedback,
-                output_dir=attempt_dir,
-                max_steps=max_steps,
-                max_runtime_seconds=attempt_runtime_seconds,
-                parent_assignment_path=parent_assignment_path,
-            ),
-        )
+        try:
+            with _controller_budgeted_agent(planner, controller_budget, cancellation) as scoped_planner:
+                assignment_issue = request_worker_assignment(
+                    scoped_planner,
+                    WorkerAssignmentRequest(
+                        round_index=round_index,
+                        attempt_index=attempt_index,
+                        context_packet_path=last_context_packet_path,
+                        direction_plan=effective_direction_plan,
+                        loop_feedback=assignment_feedback,
+                        output_dir=attempt_dir,
+                        max_steps=max_steps,
+                        max_runtime_seconds=attempt_runtime_seconds,
+                        parent_assignment_path=parent_assignment_path,
+                    ),
+                )
+        except ControllerBudgetExhausted:
+            if last_cycle is None:
+                raise
+            termination_reason = "controller_budget_exhausted"
+            break
+        if controller_budget is not None:
+            attempt_runtime_seconds = controller_budget.cap_runtime_seconds(max_runtime_seconds)
         requested_session_id = worker_session_id if session_reuse_enabled else None
         last_cycle = run_worker_cycle(
             contract=contract,
             project_root=direction_project_root,
             output_dir=attempt_dir,
             context_packet_path=last_context_packet_path,
-            worker=worker,
+            worker=(
+                _ControllerBudgetedWorker(worker, controller_budget, cancellation)
+                if controller_budget is not None and controller_budget.enabled()
+                else worker
+            ),
             experiment_id=f"{experiment_id}_round_{round_index:03d}_attempt_{attempt_index:02d}",
             max_steps=max_steps,
             max_runtime_seconds=attempt_runtime_seconds,
@@ -4807,27 +4968,39 @@ def run_agent_generated_baseline(
                 direction_plan=attempt_direction_plan,
             )
             assignment_feedback = load_context_packet(baseline_context_path).effective_context.get("loop_feedback") or {}
-            assignment_issue = request_worker_assignment(
-                planner,
-                WorkerAssignmentRequest(
-                    round_index=-1,
-                    attempt_index=attempt_index,
-                    context_packet_path=baseline_context_path,
-                    direction_plan=attempt_direction_plan or baseline_semantic_direction_plan(baseline_context_path),
-                    loop_feedback=assignment_feedback,
-                    output_dir=attempt_dir,
-                    max_steps=max_steps,
-                    max_runtime_seconds=attempt_runtime_seconds,
-                    parent_assignment_path=parent_assignment_path,
-                ),
-            )
+            try:
+                with _controller_budgeted_agent(planner, controller_budget, cancellation) as scoped_planner:
+                    assignment_issue = request_worker_assignment(
+                        scoped_planner,
+                        WorkerAssignmentRequest(
+                            round_index=-1,
+                            attempt_index=attempt_index,
+                            context_packet_path=baseline_context_path,
+                            direction_plan=attempt_direction_plan or baseline_semantic_direction_plan(baseline_context_path),
+                            loop_feedback=assignment_feedback,
+                            output_dir=attempt_dir,
+                            max_steps=max_steps,
+                            max_runtime_seconds=attempt_runtime_seconds,
+                            parent_assignment_path=parent_assignment_path,
+                        ),
+                    )
+            except ControllerBudgetExhausted:
+                if cycle is None:
+                    raise
+                break
+            if controller_budget is not None:
+                attempt_runtime_seconds = controller_budget.cap_runtime_seconds(max_runtime_seconds)
             requested_session_id = worker_session_id if session_reuse_enabled else None
             cycle = run_worker_cycle(
                 contract=contract,
                 project_root=repair_project_root,
                 output_dir=attempt_dir,
                 context_packet_path=baseline_context_path,
-                worker=worker,
+                worker=(
+                    _ControllerBudgetedWorker(worker, controller_budget, cancellation)
+                    if controller_budget is not None and controller_budget.enabled()
+                    else worker
+                ),
                 experiment_id=f"{experiment_id}_agent_generated_baseline_attempt_{attempt_index:02d}",
                 max_steps=max_steps,
                 max_runtime_seconds=attempt_runtime_seconds,
@@ -5027,6 +5200,11 @@ def run_agent_generated_baseline(
         )
         generation_payload = {
             "status": "ok",
+            "stop_reason": (
+                "controller_budget_exhausted"
+                if controller_budget is not None and controller_budget.exhausted()
+                else None
+            ),
             "source": "agent_generated",
             "cycle_dir": str(baseline_dir),
             "final_cycle_dir": str(Path(selected_cycle.patch_path).parent),
@@ -5068,12 +5246,14 @@ def run_agent_generated_baseline(
             contract=contract,
             worktree_path=fallback_worktree,
         )
+        budget_stopped = isinstance(exc, ControllerBudgetExhausted)
         exception_path = baseline_dir / "baseline_generation_exception.txt"
         exception_path.parent.mkdir(parents=True, exist_ok=True)
-        exception_path.write_text(
-            "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
-            encoding="utf-8",
-        )
+        if not budget_stopped:
+            exception_path.write_text(
+                "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+                encoding="utf-8",
+            )
         summary = RunSummary(
             total=0,
             valid=0,
@@ -5084,17 +5264,20 @@ def run_agent_generated_baseline(
             best_candidate_metrics=None,
             candidate_summaries=[],
             pareto_frontier=[],
-            validation_summary={"agent_generated_baseline_exception": str(exc)},
+            validation_summary={
+                "controller_budget_exhausted" if budget_stopped else "agent_generated_baseline_exception": str(exc)
+            },
         )
         generation_payload = {
-            "status": "worker_exception",
+            "status": "stopped" if budget_stopped else "worker_exception",
+            "stop_reason": "controller_budget_exhausted" if budget_stopped else None,
             "source": "agent_generated",
             "cycle_dir": str(baseline_dir),
             "context_packet_path": str(baseline_context_path),
             "source_project": str(source_project),
             "hidden_incumbent_files": hidden_incumbent_files,
             "worktree": str(fallback_worktree),
-            "exception_path": str(exception_path),
+            "exception_path": None if budget_stopped else str(exception_path),
             "reason": str(exc),
             "summary": summary_payload(summary),
         }
@@ -5144,6 +5327,8 @@ def plan_agent_generated_baseline_direction(
     planner: DirectionPlanningAgent,
     context_packet_path: Path,
     output_dir: Path,
+    controller_budget: ControllerTimeBudget | None = None,
+    cancellation: CancellationToken | None = None,
 ) -> dict[str, Any]:
     feedback = {
         "round_type": "agent_generated_baseline",
@@ -5160,8 +5345,9 @@ def plan_agent_generated_baseline_direction(
         output_dir=output_dir,
     )
     try:
-        plan = planner.plan_direction(request)
-    except TaskCancelled:
+        with _controller_budgeted_agent(planner, controller_budget, cancellation) as scoped:
+            plan = scoped.plan_direction(request)
+    except (ControllerBudgetExhausted, TaskCancelled):
         raise
     except Exception as exc:  # noqa: BLE001 - baseline planning must retain deterministic fallback.
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -6306,6 +6492,8 @@ def plan_direction_with_fallback(
     context_packet_path: Path,
     loop_feedback: dict[str, Any],
     output_dir: Path,
+    controller_budget: ControllerTimeBudget | None = None,
+    cancellation: CancellationToken | None = None,
 ) -> dict[str, Any]:
     """Run Main planning without allowing a provider failure to lose a round."""
 
@@ -6316,8 +6504,9 @@ def plan_direction_with_fallback(
         output_dir=output_dir,
     )
     try:
-        return planner.plan_direction(request)
-    except TaskCancelled:
+        with _controller_budgeted_agent(planner, controller_budget, cancellation) as scoped:
+            return scoped.plan_direction(request)
+    except (ControllerBudgetExhausted, TaskCancelled):
         raise
     except Exception as exc:  # noqa: BLE001 - planner failure falls back to evidence-only planning.
         planner_error_path = output_dir / "planner_exception.txt"
@@ -6343,15 +6532,20 @@ def reflect_on_completed_round(
     *,
     planner: DirectionPlanningAgent,
     request: RoundReflectionRequest,
+    controller_budget: ControllerTimeBudget | None = None,
+    cancellation: CancellationToken | None = None,
 ) -> dict[str, Any]:
     """Always produce a round-closing causal interpretation, including the last round."""
 
     method = getattr(planner, "reflect_on_round", None)
     if callable(method):
         try:
-            reflection = method(request)
+            with _controller_budgeted_agent(planner, controller_budget, cancellation) as scoped:
+                reflection = scoped.reflect_on_round(request)
             if isinstance(reflection, dict):
                 return reflection
+        except ControllerBudgetExhausted:
+            return {"status": "skipped", "reason": "controller_budget_exhausted"}
         except TaskCancelled:
             raise
         except Exception as exc:  # noqa: BLE001 - reflection must not discard evaluator evidence.

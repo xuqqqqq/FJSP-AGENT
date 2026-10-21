@@ -49,7 +49,11 @@ from harness_agent.agents.opencode_main import OpenCodeMainAgent
 from harness_agent.agents.semantic import DeepSeekAlgorithmSemanticReviewer
 from harness_agent.domains.io import parse_standard_fjsp
 from harness_agent.domains.distributed_fjsp import looks_like_distributed_fjsp, parse_distributed_fjsp
-from harness_agent.orchestration.standard import StandardWorkerLoopRequest, run_standard_worker_loop
+from harness_agent.orchestration.standard import (
+    StandardWorkerLoopRequest,
+    controller_budget_from_manifest,
+    run_standard_worker_loop,
+)
 from harness_agent.workers.opencode_worker import (
     DEFAULT_OPENCODE_MODEL,
     OpenCodeWorker,
@@ -1634,6 +1638,8 @@ def refresh_persisted_worker_summary(job: dict[str, Any]) -> None:
     worker_summary = summarize_worker_manifest(manifest)
     summary = dict(job.get("summary") or {})
     summary["manifest_status"] = manifest.get("status")
+    summary["controller_budget"] = manifest.get("controller_budget") or {}
+    summary["execution_timing"] = manifest.get("execution_timing") or {}
     summary["worker_summary"] = worker_summary
     summary["last_summary"] = manifest.get("final_summary") or manifest.get("baseline_summary", {})
     summary["round_summary"] = {
@@ -1703,6 +1709,7 @@ def make_demo_examples() -> dict[str, Any]:
         },
         "config": {
             "title": "标准 FJSP DP18a Agent 自写闭环测试",
+            "guidance_mode": "full",
             "max_rounds": 10,
             "seeds": DEFAULT_STANDARD_SEEDS_TEXT,
             "timeout_seconds": 60,
@@ -1929,6 +1936,9 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
     这份快照，避免用户再次修改表单后影响正在运行的实验。
     """
 
+    guidance_mode = str(payload.get("guidance_mode") or "full").strip().lower()
+    if guidance_mode not in {"full", "none"}:
+        raise ValueError("领域适配模式必须为 full 或 none")
     output_root = output_root or _ACTIVE_OUTPUT_ROOT
     job_id = time.strftime("%Y%m%d_%H%M%S", time.localtime()) + "_" + uuid.uuid4().hex[:8]
     title = str(payload.get("title") or "AlgoForge Web Run").strip() or "AlgoForge Web Run"
@@ -2066,6 +2076,7 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
     main_agent_backend = agent_backend_for_model(main_agent_model)
     coding_backend = agent_backend_for_model(coding_worker_model)
     config = {
+        "guidance_mode": guidance_mode,
         "max_rounds": coerce_int(payload.get("max_rounds"), 2, minimum=1, maximum=20),
         "seeds": parse_seeds(payload.get("seeds", "0")),
         "timeout_seconds": coerce_int(payload.get("timeout_seconds"), 60, minimum=5, maximum=3600),
@@ -2102,12 +2113,7 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
             minimum=10,
             maximum=1800,
         ),
-        "controller_budget_seconds": coerce_int(
-            payload.get("controller_budget_seconds"),
-            0,
-            minimum=0,
-            maximum=86400,
-        ),
+        "controller_budget_seconds": coerce_controller_budget(payload.get("controller_budget_seconds")),
         "unlimited_rounds": coerce_bool(payload.get("unlimited_rounds"), False),
         "in_round_repair_attempts": coerce_int(
             payload.get("in_round_repair_attempts"),
@@ -2173,6 +2179,89 @@ def create_job(payload: dict[str, Any], *, output_root: Path | None = None) -> d
     write_job_status(job)
     with _LOCK:
         _JOBS[job_id] = job
+    return job
+
+
+def coerce_controller_budget(value: Any) -> float:
+    if value is None or value == "":
+        return 0.0
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("主控累计时间预算必须为有限非负秒数") from exc
+    if not math.isfinite(seconds) or seconds < 0:
+        raise ValueError("主控累计时间预算必须为有限非负秒数")
+    return seconds
+
+
+def create_matched_none_job(job_id: str, *, output_root: Path | None = None) -> dict[str, Any]:
+    """Start a fresh None arm using the Full input snapshot and measured Agent time."""
+
+    with _LOCK:
+        source = _JOBS.get(job_id)
+        if source is None:
+            raise KeyError("job not found")
+        source = {key: source.get(key) for key in (
+            "id", "title", "status", "job_dir", "config", "inputs", "continuation_history"
+        )}
+        source["config"] = dict(source["config"])
+        source["inputs"] = dict(source["inputs"])
+    if source.get("status") not in {"completed", "completed_with_warnings"}:
+        raise ValueError("等时 None 对比需要已完成的 Full 任务")
+    config = source["config"]
+    if config.get("guidance_mode", "full") != "full":
+        raise ValueError("等时对比的参考任务必须为 Full")
+    if source.get("continuation_history"):
+        raise ValueError("续跑任务包含多次运行，请选择一次独立完成的 Full 任务进行等时对比")
+    source_root = Path(source["job_dir"]).resolve()
+    manifest_path = source_root / "run" / "standard_worker_loop" / "standard_worker_loop_manifest.json"
+    seconds = controller_budget_from_manifest(manifest_path)
+    inputs = source["inputs"]
+    payload = dict(config)
+    payload.update(
+        title=f"{source['title']} - None 等时对比",
+        guidance_mode="none",
+        controller_budget_seconds=seconds,
+        unlimited_rounds=True,
+    )
+    for field in ("requirement", "io", "instance", "best_known_csv"):
+        path = Path(inputs[field]).resolve() if inputs.get(field) else None
+        if path is not None:
+            if not path.is_relative_to(source_root / "inputs"):
+                raise ValueError(f"参考任务的 {field} 不在原始输入快照中")
+            payload[field] = {"name": path.name, "text": path.read_text(encoding="utf-8")}
+        else:
+            payload[field] = {"name": "best_known.csv", "text": ""}
+    if inputs.get("starter_project"):
+        project_root = Path(inputs["starter_project"]).resolve()
+        if not project_root.is_relative_to(source_root / "inputs"):
+            raise ValueError("参考项目不在原始输入快照中")
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for path in sorted(project_root.rglob("*")):
+                if path.is_file():
+                    if not path.resolve().is_relative_to(project_root):
+                        raise ValueError("参考项目文件越出原始输入快照")
+                    archive.write(path, path.relative_to(project_root).as_posix())
+        payload["starter_project"] = {
+            "name": (config.get("starter_project") or {}).get("name", "starter_project.zip"),
+            "base64": base64.b64encode(stream.getvalue()).decode("ascii"),
+        }
+    else:
+        payload.pop("starter_project", None)
+    job = create_job(payload, output_root=output_root)
+    job["config"]["comparison_reference"] = {
+        "job_id": job_id,
+        "manifest": str(manifest_path),
+        "controller_seconds": seconds,
+        "metric": "controller_wall_seconds_excluding_fixed_core",
+    }
+    append_event(
+        job,
+        f"等时对比：复用 Full 任务 {job_id} 的原始输入及单次预算；"
+        f"None 禁用领域知识与 Skill，主控预算 {seconds:.3f}s，不限轮数。",
+    )
+    write_job_status(job)
     return job
 
 
@@ -2402,6 +2491,8 @@ def latest_compatible_experience_memory(job: dict[str, Any]) -> Path | None:
     """召回标准格式兼容且含 validated lessons 的最近一次经验。"""
 
     config = job.get("config") if isinstance(job.get("config"), dict) else {}
+    if config.get("guidance_mode", "full") == "none":
+        return None
     profile = config.get("instance_profile") if isinstance(config.get("instance_profile"), dict) else {}
     expected_format = str(profile.get("format") or "").strip()
     if not expected_format:
@@ -2425,6 +2516,8 @@ def latest_compatible_experience_memory(job: dict[str, Any]) -> Path | None:
         if str(previous.get("status") or "") not in {"completed", "completed_with_warnings"}:
             continue
         previous_config = previous.get("config") if isinstance(previous.get("config"), dict) else {}
+        if previous_config.get("guidance_mode", "full") == "none":
+            continue
         previous_profile = (
             previous_config.get("instance_profile")
             if isinstance(previous_config.get("instance_profile"), dict)
@@ -2778,12 +2871,13 @@ def append_instance_profile_events(job: dict[str, Any]) -> None:
             f"并行数 {job['config'].get('max_workers')}。"
         ),
     )
-    controller_limit = int(job["config"].get("controller_budget_seconds", 0) or 0)
+    append_event(job, f"领域适配模式：{job['config'].get('guidance_mode', 'full')}。")
+    controller_limit = float(job["config"].get("controller_budget_seconds", 0) or 0)
     if controller_limit > 0:
         append_event(
             job,
             (
-                f"主控净时间预算：{controller_limit}s（固定 Core 时间不计入）；"
+                f"主控净时间预算：{controller_limit:g}s（固定 Core 时间不计入）；"
                 f"轮数模式={'不限轮' if job['config'].get('unlimited_rounds') else '轮数与时间双门禁'}。"
             ),
         )
@@ -2883,6 +2977,7 @@ def run_job(job_id: str) -> None:
         try:
             manifest = run_standard_worker_loop(
                 StandardWorkerLoopRequest(
+                    guidance_mode=config.get("guidance_mode", "full"),
                     docs=[Path(input_paths["requirement"]), Path(input_paths["io"])],
                     instance_dir=Path(input_paths["instance"]).parent,
                     pattern=Path(input_paths["instance"]).name,
@@ -2895,8 +2990,10 @@ def run_job(job_id: str) -> None:
                     project_root=PROJECT_ROOT,
                     worker=coding_worker,
                     main_agent=direction_planner,
-                    semantic_reviewer=DeepSeekAlgorithmSemanticReviewer(
-                        model=config["deepseek_model"],
+                    semantic_reviewer=(
+                        DeepSeekAlgorithmSemanticReviewer(model=config["deepseek_model"])
+                        if config.get("guidance_mode", "full") == "full"
+                        else None
                     ),
                     previous_pipeline_memory=previous_memory_path,
                     max_instances=(
@@ -2934,19 +3031,23 @@ def run_job(job_id: str) -> None:
                         else "web_agent_generated_loop"
                     ),
                     hypothesis=(
-                        (
-                            "Read the provided project incumbent and its supporting source before editing. "
-                            "Preserve its runnable CLI and working mechanisms, change only the assigned primary "
-                            "target file. Project instances copied into the immutable task snapshot are formal "
-                            "inputs, but archive-local evaluators, solutions, and scores remain untrusted. State the scheduling idea "
-                            "before editing and accept claims only after the fixed Core measures every task instance."
-                        )
-                        if config.get("baseline_mode") == "provided_project"
+                        "仅根据需求、IO、实例和固定 Core 反馈生成与修订求解器；禁用领域知识库、Skill 和跨任务经验。"
+                        if config.get("guidance_mode", "full") == "none"
                         else (
-                            "Read the requirement, IO documents, instance diagnostics, domain-pack metadata, and "
-                            "retrieved knowledge first. Create a runnable solver from those materials; never rely "
-                            "on a repository-embedded solver. State the scheduling idea before editing, preserve "
-                            "the fixed parser/evaluator contract, and accept claims only after Core measurement."
+                            (
+                                "Read the provided project incumbent and its supporting source before editing. "
+                                "Preserve its runnable CLI and working mechanisms, change only the assigned primary "
+                                "target file. Project instances copied into the immutable task snapshot are formal "
+                                "inputs, but archive-local evaluators, solutions, and scores remain untrusted. State the scheduling idea "
+                                "before editing and accept claims only after the fixed Core measures every task instance."
+                            )
+                            if config.get("baseline_mode") == "provided_project"
+                            else (
+                                "Read the requirement, IO documents, instance diagnostics, domain-pack metadata, and "
+                                "retrieved knowledge first. Create a runnable solver from those materials; never rely "
+                                "on a repository-embedded solver. State the scheduling idea before editing, preserve "
+                                "the fixed parser/evaluator contract, and accept claims only after Core measurement."
+                            )
                         )
                     ),
                 )
@@ -5043,6 +5144,16 @@ class AlgoForgeWebHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/starter-projects/preview":
                 self._json(200, preview_starter_project(self._read_json()))
+                return
+            if parsed.path.startswith("/api/jobs/") and parsed.path.endswith("/matched-none"):
+                parts = [item for item in parsed.path.split("/") if item]
+                if len(parts) != 4:
+                    self._json(404, {"error": "not found"})
+                    return
+                self._read_json()
+                job = create_matched_none_job(parts[2], output_root=_ACTIVE_OUTPUT_ROOT)
+                start_job(job["id"])
+                self._json(202, public_job(job))
                 return
             if parsed.path.startswith("/api/jobs/") and parsed.path.endswith("/resume"):
                 parts = [item for item in parsed.path.split("/") if item]

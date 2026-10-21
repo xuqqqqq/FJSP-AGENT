@@ -11,16 +11,24 @@ from unittest.mock import MagicMock, patch
 
 from harness_agent.context.packet import ContextPacketRequest, write_context_packet
 from harness_agent.agents.main import (
+    EvidenceDrivenMainAgent,
+    RoundReflectionRequest,
+    WorkerAssignmentRequest,
     ensure_direction_activation_contracts,
     method_family_activation_checks,
+    request_worker_assignment,
 )
+from harness_agent.core.cancellation import CancellationToken, TaskCancelled
 from harness_agent.orchestration.loop import (
     CandidateIncumbent,
     CompetitionCandidate,
     CompetingWorkerCyclesResult,
+    ControllerBudgetExhausted,
     ControllerTimeBudget,
     LaneDevelopmentState,
     WorkerLoopResult,
+    _controller_budgeted_agent,
+    _ControllerBudgetedWorker,
     apply_user_direction_revision,
     agent_generated_baseline_is_accepted,
     agent_generated_baseline_memory_payload,
@@ -52,6 +60,7 @@ from harness_agent.orchestration.loop import (
     plan_agent_generated_baseline_direction,
     bind_variant_baseline_exact_rescue_method_package,
     plan_direction_with_fallback,
+    reflect_on_completed_round,
     run_agent_generated_baseline,
     run_competing_worker_cycles,
     resolve_coding_worker_concurrency,
@@ -1456,6 +1465,270 @@ class WorkerLoopTests(unittest.TestCase):
         self.assertEqual("controller_budget_exhausted", result.stop_reason)
         self.assertEqual([], result.rounds)
         self.assertTrue(result.controller_budget["exhausted"])
+
+    def test_controller_budget_caps_fractional_remaining_time_and_records_overshoot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            budget = ControllerTimeBudget(limit_seconds=1.125, timing_root=Path(tmp), started_at_epoch=100.0)
+            with patch("harness_agent.orchestration.loop.time.time", return_value=101.0):
+                self.assertEqual(1, budget.cap_runtime_seconds(600))
+                self.assertEqual(0.125, budget.remaining_seconds())
+            self.assertEqual(0.375, budget.snapshot(now_epoch=101.5)["overshoot_seconds"])
+
+    def test_controller_budget_interrupts_main_phases_without_model_error_or_parent_cancellation(self) -> None:
+        class WaitingMain:
+            timeout_seconds = 600
+            cancellation = None
+
+            def __init__(self) -> None:
+                self.observed = []
+
+            def wait(self, _request):
+                self.observed.append((self.timeout_seconds, self.cancellation))
+                terminated = threading.Event()
+                registration = self.cancellation.register_terminator(terminated.set)
+                try:
+                    if not terminated.wait(2):
+                        raise AssertionError("Main did not receive budget cancellation")
+                    self.cancellation.raise_if_cancelled()
+                finally:
+                    self.cancellation.unregister_terminator(registration)
+
+            plan_direction = wait
+            issue_worker_assignment = wait
+            revise_worker_assignment = wait
+            reflect_on_round = wait
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            context = _write_test_context(root)
+            for phase in ("planning", "baseline", "assignment", "revision", "reflection"):
+                with self.subTest(phase=phase):
+                    planner = WaitingMain()
+                    parent = CancellationToken()
+                    output_dir = root / phase
+                    budget = ControllerTimeBudget(limit_seconds=0.05, timing_root=root)
+                    if phase == "reflection":
+                        reflection = reflect_on_completed_round(
+                            planner=planner,
+                            request=RoundReflectionRequest(
+                                round_index=0, direction_plan={}, competition_result={}, promotion_check={},
+                                incumbent_key_before=(1.0,), incumbent_key_after=(1.0,), output_dir=output_dir,
+                            ),
+                            controller_budget=budget,
+                            cancellation=parent,
+                        )
+                        self.assertEqual("controller_budget_exhausted", reflection["reason"])
+                    else:
+                        with self.assertRaises(ControllerBudgetExhausted):
+                            if phase == "planning":
+                                plan_direction_with_fallback(
+                                    planner=planner, round_index=0, context_packet_path=context,
+                                    loop_feedback={}, output_dir=output_dir,
+                                    controller_budget=budget, cancellation=parent,
+                                )
+                            elif phase == "baseline":
+                                plan_agent_generated_baseline_direction(
+                                    planner=planner, context_packet_path=context, output_dir=output_dir,
+                                    controller_budget=budget, cancellation=parent,
+                                )
+                            else:
+                                with _controller_budgeted_agent(planner, budget, parent) as scoped:
+                                    request_worker_assignment(
+                                        scoped,
+                                        WorkerAssignmentRequest(
+                                            round_index=0, attempt_index=1 if phase == "revision" else 0,
+                                            context_packet_path=context, direction_plan={}, loop_feedback={},
+                                            output_dir=output_dir, max_steps=1, max_runtime_seconds=600,
+                                        ),
+                                    )
+                    self.assertEqual(1, planner.observed[0][0])
+                    self.assertTrue(planner.observed[0][1].cancelled)
+                    self.assertFalse(parent.cancelled)
+                    self.assertIsNone(planner.cancellation)
+                    self.assertEqual(600, planner.timeout_seconds)
+                    self.assertEqual([], list(output_dir.glob("*exception*")))
+
+    def test_controller_budget_keeps_overlapping_lane_controls_independent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = CancellationToken()
+            planner = SimpleNamespace(timeout_seconds=600, cancellation=parent)
+            budget = ControllerTimeBudget(limit_seconds=10, timing_root=Path(tmp))
+            with _controller_budgeted_agent(planner, budget) as first:
+                with _controller_budgeted_agent(planner, budget) as second:
+                    self.assertIsNot(first, second)
+                    self.assertIsNot(first.cancellation, second.cancellation)
+                    first.cancellation.cancel()
+                    self.assertFalse(second.cancellation.cancelled)
+                    self.assertFalse(parent.cancelled)
+            self.assertEqual(600, planner.timeout_seconds)
+            self.assertIs(parent, planner.cancellation)
+            parent.cancel()
+            with self.assertRaises(TaskCancelled):
+                with _controller_budgeted_agent(planner, budget):
+                    self.fail("user cancellation must propagate")
+
+    def test_controller_budget_expiring_in_main_planning_keeps_legal_incumbent(self) -> None:
+        class SpendingMain(EvidenceDrivenMainAgent):
+            def plan_direction(self, request):
+                clock.return_value = 111.0
+                return super().plan_direction(request)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("harness_agent.orchestration.loop.time.time", return_value=100.0) as clock:
+                result = run_worker_loop(
+                    contract=TaskContract.load(ROOT / "configs" / "task_contract.example.json"),
+                    project_root=ROOT, output_dir=root / "loop", context_packet_path=_write_test_context(root),
+                    worker=NullWorker(), main_agent=SpendingMain(), experiment_id="planning-budget-stop",
+                    iterations=None, max_steps=1, max_runtime_seconds=600, apply_worker_changes=False,
+                    controller_budget_seconds=10.0,
+                )
+            self.assertEqual("ok", result.status)
+            self.assertEqual("controller_budget_exhausted", result.stop_reason)
+            self.assertEqual(result.baseline_key, result.final_key)
+            self.assertIsNotNone(result.best_legal_incumbent)
+            self.assertTrue(result.final_worktree.is_dir())
+            self.assertEqual([], result.rounds)
+            self.assertEqual(1.0, result.controller_budget["overshoot_seconds"])
+            self.assertEqual([], list((root / "loop").rglob("*exception*")))
+
+    def test_controller_budget_rechecks_worker_after_assignment_and_evaluates_partial_edits(self) -> None:
+        observed = []
+
+        class SpendingMain(EvidenceDrivenMainAgent):
+            def plan_direction(self, request):
+                return {
+                    "direction_id": "bounded-dummy-edit",
+                    "target_file": "examples/dummy_solver.py",
+                    "hypothesis": "Improve the dummy objective under fixed Core validation.",
+                }
+
+            def issue_worker_assignment(self, request):
+                issue = super().issue_worker_assignment(request)
+                clock.return_value = 109.8
+                return issue
+
+        class WaitingWorker(ImproveOnceWorker):
+            timeout_seconds = 600
+            cancellation = None
+
+            def run_experiment(self, spec):
+                observed.append((self.timeout_seconds, spec.max_runtime_seconds))
+                super().run_experiment(spec)
+                clock.return_value = 110.1
+                terminated = threading.Event()
+                self.cancellation.register_terminator(terminated.set)
+                if not terminated.wait(2):
+                    raise AssertionError("worker did not receive budget cancellation")
+                self.cancellation.raise_if_cancelled()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            context = _write_test_context(root)
+            payload = json.loads(context.read_text(encoding="utf-8"))
+            payload["guidance_ablation"] = {"mode": "none"}
+            context.write_text(json.dumps(payload), encoding="utf-8")
+            worker = WaitingWorker()
+            parent = CancellationToken()
+            with patch("harness_agent.orchestration.loop.time.time", return_value=100.0) as clock:
+                result = run_worker_loop(
+                    contract=TaskContract.load(ROOT / "configs" / "task_contract.example.json"),
+                    project_root=ROOT, output_dir=root / "loop", context_packet_path=context,
+                    worker=worker, main_agent=SpendingMain(), experiment_id="worker-budget-stop",
+                    iterations=None, max_steps=1, max_runtime_seconds=600, apply_worker_changes=True,
+                    controller_budget_seconds=10.0, max_competing_workers=1, cancellation=parent,
+                )
+            self.assertEqual([(1, 1)], observed)
+            self.assertEqual("ok", result.status)
+            self.assertEqual("controller_budget_exhausted", result.stop_reason)
+            self.assertEqual(1, len(result.rounds))
+            self.assertEqual("timeout", result.rounds[0].worker_status)
+            self.assertEqual("promoted", result.rounds[0].decision)
+            self.assertGreater(result.final_key, result.baseline_key)
+            self.assertEqual(result.final_key, result.best_legal_incumbent.objective_key)
+            self.assertTrue(result.final_worktree.is_dir())
+            self.assertFalse(parent.cancelled)
+            self.assertIsNone(worker.cancellation)
+            self.assertEqual(600, worker.timeout_seconds)
+            self.assertGreater(result.controller_budget["overshoot_seconds"], 0)
+            self.assertEqual([], list((root / "loop").rglob("*exception*")))
+
+    def test_controller_budget_stop_during_assignment_is_not_a_failed_round(self) -> None:
+        class SpendingMain(EvidenceDrivenMainAgent):
+            def issue_worker_assignment(self, request):
+                issue = super().issue_worker_assignment(request)
+                clock.return_value = 111.0
+                return issue
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("harness_agent.orchestration.loop.time.time", return_value=100.0) as clock:
+                result = run_worker_loop(
+                    contract=TaskContract.load(ROOT / "configs" / "task_contract.example.json"),
+                    project_root=ROOT, output_dir=root / "loop", context_packet_path=_write_test_context(root),
+                    worker=NullWorker(), main_agent=SpendingMain(), experiment_id="assignment-budget-stop",
+                    iterations=None, max_steps=1, max_runtime_seconds=600, apply_worker_changes=False,
+                    controller_budget_seconds=10.0, max_competing_workers=1,
+                )
+            self.assertEqual("ok", result.status)
+            self.assertEqual("controller_budget_exhausted", result.stop_reason)
+            self.assertEqual([], result.rounds)
+            self.assertIsNotNone(result.best_legal_incumbent)
+            competition = json.loads((root / "loop/round_000/competition_result.json").read_text(encoding="utf-8"))
+            self.assertEqual("stopped", competition["candidates"][0]["status"])
+            self.assertEqual([], list((root / "loop").rglob("*exception*")))
+
+    def test_controller_budget_stopping_before_generated_baseline_is_not_model_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result = run_worker_loop(
+                contract=TaskContract.load(ROOT / "configs" / "task_contract.example.json"),
+                project_root=ROOT, output_dir=root / "loop", context_packet_path=_write_test_context(root),
+                worker=NullWorker(), experiment_id="baseline-budget-stop", baseline_source="agent_generated",
+                iterations=None, max_steps=1, max_runtime_seconds=600, apply_worker_changes=True,
+                controller_budget_seconds=0.000001,
+            )
+            self.assertEqual("baseline_generation_failed", result.status)
+            self.assertEqual("controller_budget_exhausted", result.stop_reason)
+            self.assertIsNone(result.best_legal_incumbent)
+            self.assertEqual("stopped", result.baseline_generation["status"])
+            self.assertEqual([], list((root / "loop").rglob("*exception*")))
+
+    def test_controller_budget_worker_proxy_preserves_model_and_runtime_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = NullWorker()
+            worker.model = "test-model"
+            worker.session_state = object()
+            worker.runtime_identity = lambda: worker.session_state
+            proxy = _ControllerBudgetedWorker(worker, ControllerTimeBudget(10.0, Path(tmp)))
+            self.assertIs(worker, proxy.worker)
+            self.assertEqual(worker.model, proxy.model)
+            self.assertIs(worker.session_state, proxy.session_state)
+            self.assertIs(worker.session_state, proxy.runtime_identity())
+            self.assertEqual(worker.capabilities(), proxy.capabilities())
+
+    def test_controller_budget_generated_baseline_timeout_without_legal_solver_stays_failed(self) -> None:
+        class ExpiringWorker(NullWorker):
+            def run_experiment(self, spec):
+                clock.return_value = 111.0
+                return WorkerResult(status="timeout", changed_files=[], summary="Budget ended without a solver.")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            contract_path = _write_standard_agent_generated_contract(root)
+            with patch("harness_agent.orchestration.loop.time.time", return_value=100.0) as clock:
+                result = run_worker_loop(
+                    contract=TaskContract.load(contract_path),
+                    project_root=ROOT, output_dir=root / "loop",
+                    context_packet_path=_write_test_context(root, contract_path=contract_path),
+                    worker=ExpiringWorker(), experiment_id="invalid-baseline-budget-stop", baseline_source="agent_generated",
+                    iterations=None, max_steps=1, max_runtime_seconds=600, apply_worker_changes=True,
+                    controller_budget_seconds=10.0,
+                )
+            self.assertEqual("baseline_generation_failed", result.status)
+            self.assertEqual("controller_budget_exhausted", result.stop_reason)
+            self.assertIsNone(result.best_legal_incumbent)
+            self.assertEqual([], result.rounds)
 
     def test_candidate_budgets_do_not_expand_declared_repair_budget(self) -> None:
         worker = MagicMock()
