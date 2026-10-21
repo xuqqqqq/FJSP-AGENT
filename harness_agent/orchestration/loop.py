@@ -43,6 +43,7 @@ from harness_agent.agents.main import (
     DirectionPlanRequest,
     DirectionPlanningAgent,
     EvidenceDrivenMainAgent,
+    MainPlanningError,
     RoundReflectionRequest,
     WorkerAssignmentRequest,
     bind_direction_plan_to_method_catalog,
@@ -442,6 +443,7 @@ def run_worker_loop(
     direction_planner = main_agent or EvidenceDrivenMainAgent()
     max_competing_workers = max(1, min(4, int(max_competing_workers)))
     guidance_mode = _guidance_mode_from_context_packet(context_packet_path)
+    planning_failure: dict[str, Any] | None = None
 
     # 阶段 1：首次运行建立 baseline；续跑则恢复原始 baseline、完整历史和
     # Core 已晋升的 incumbent，绝不重新生成 baseline 或丢失旧轮次证据。
@@ -467,25 +469,50 @@ def run_worker_loop(
                 )
             except ControllerBudgetExhausted:
                 baseline_direction = {}
-            baseline_summary, baseline_worktree, baseline_generation = run_agent_generated_baseline(
-                contract=contract,
-                project_root=project_root,
-                output_dir=output_dir,
-                context_packet_path=context_packet_path,
-                worker=baseline_worker_for_generation,
-                experiment_id=experiment_id,
-                max_steps=max_steps,
-                max_runtime_seconds=controller_budget.cap_runtime_seconds(max_runtime_seconds),
-                semantic_reviewer=semantic_reviewer,
-                assignment_issuer=direction_planner,
-                direction_plan=baseline_direction,
-                repair_attempts=worker_loop_repair_attempt_budget(
-                    baseline_worker_for_generation,
-                    in_round_repair_attempts,
-                ),
-                cancellation=cancellation,
-                controller_budget=controller_budget,
-            )
+            except MainPlanningError as exc:
+                baseline_dir = output_dir / "agent_generated_baseline"
+                planning_failure = record_main_planning_failure(baseline_dir / "main_agent", exc)
+                baseline_worktree, hidden_incumbent_files = prepare_agent_generated_baseline_source_project(
+                    project_root=project_root,
+                    contract=contract,
+                    output_dir=baseline_dir,
+                )
+                baseline_summary = RunSummary(
+                    total=0, valid=0, failed=0, best_experiment_id=None, best_metrics={},
+                    validation_summary={"main_planning_failed": str(exc)},
+                )
+                baseline_generation = {
+                    "status": "failed",
+                    "source": "agent_generated",
+                    "stop_reason": "main_planning_failed",
+                    "failure_reason": "main_planning_failed",
+                    "accepted_as_incumbent": False,
+                    "stopped_before_rounds": True,
+                    "planning_failure": planning_failure,
+                    "worktree": str(baseline_worktree),
+                    "hidden_incumbent_files": hidden_incumbent_files,
+                    "summary": summary_payload(baseline_summary),
+                }
+            if planning_failure is None:
+                baseline_summary, baseline_worktree, baseline_generation = run_agent_generated_baseline(
+                    contract=contract,
+                    project_root=project_root,
+                    output_dir=output_dir,
+                    context_packet_path=context_packet_path,
+                    worker=baseline_worker_for_generation,
+                    experiment_id=experiment_id,
+                    max_steps=max_steps,
+                    max_runtime_seconds=controller_budget.cap_runtime_seconds(max_runtime_seconds),
+                    semantic_reviewer=semantic_reviewer,
+                    assignment_issuer=direction_planner,
+                    direction_plan=baseline_direction,
+                    repair_attempts=worker_loop_repair_attempt_budget(
+                        baseline_worker_for_generation,
+                        in_round_repair_attempts,
+                    ),
+                    cancellation=cancellation,
+                    controller_budget=controller_budget,
+                )
         else:
             baseline_worktree = output_dir / "baseline_worktree"
             prepare_candidate_worktree(
@@ -539,6 +566,7 @@ def run_worker_loop(
     if (
         resume_from is None
         and normalized_baseline_source == "agent_generated"
+        and planning_failure is None
         and not agent_generated_baseline_is_accepted(
             baseline_generation,
             baseline_summary=baseline_summary,
@@ -636,7 +664,9 @@ def run_worker_loop(
     }
     first_round_index = max((item.round_index for item in round_records), default=-1) + 1
     round_offsets = itertools.count() if iterations is None else range(max(0, iterations))
-    stop_reason: str | None = None
+    stop_reason: str | None = "main_planning_failed" if planning_failure is not None else None
+    if planning_failure is not None:
+        round_offsets = range(0)
     for round_offset in round_offsets:
         if controller_budget.exhausted():
             stop_reason = "controller_budget_exhausted"
@@ -688,6 +718,10 @@ def run_worker_loop(
             )
         except ControllerBudgetExhausted:
             stop_reason = "controller_budget_exhausted"
+            break
+        except MainPlanningError as exc:
+            record_main_planning_failure(cycle_dir / "main_agent", exc)
+            stop_reason = "main_planning_failed"
             break
         direction_plan = dict(direction_plan)
         direction_plan["fast_checkpoint_mode"] = planner_uses_fast_mode(direction_planner)
@@ -762,6 +796,10 @@ def run_worker_loop(
                         )
                     except ControllerBudgetExhausted:
                         stop_reason = "controller_budget_exhausted"
+                        break
+                    except MainPlanningError as exc:
+                        record_main_planning_failure(revision_dir, exc)
+                        stop_reason = "main_planning_failed"
                         break
                     direction_plan, patch_audit = apply_user_direction_revision(
                         original_direction_plan,
@@ -1164,6 +1202,7 @@ def run_worker_loop(
         lane_development_states=lane_development_states,
         candidate_pool=candidate_pool,
         best_history=best_history,
+        status="failed" if stop_reason == "main_planning_failed" else "ok",
         stop_reason=stop_reason,
         controller_budget=controller_budget.snapshot(),
     )
@@ -3514,6 +3553,8 @@ def run_worker_cycle_with_in_round_repairs(
             incumbent_key=incumbent_key,
             candidate_key=summary_objective_key(last_cycle.summary, contract.objectives),
             worker_assignment=assignment_issue.assignment,
+            controller_budget=controller_budget,
+            cancellation=cancellation,
         )
         attempt_payload = round_attempt_payload(
             last_cycle,
@@ -3786,6 +3827,8 @@ def run_algorithm_semantic_review(
     incumbent_key: tuple[float, ...] | None = None,
     candidate_key: tuple[float, ...] | None = None,
     worker_assignment: Any | None = None,
+    controller_budget: ControllerTimeBudget | None = None,
+    cancellation: CancellationToken | None = None,
 ) -> dict[str, Any]:
     """只对 Core 合法且可能晋升的候选执行昂贵语义审查。
 
@@ -3839,18 +3882,35 @@ def run_algorithm_semantic_review(
         direction_plan,
         worker_assignment=worker_assignment,
     )
-    result = reviewer.review(
-        AlgorithmSemanticReviewRequest(
-            round_index=round_index,
-            attempt_index=attempt_index,
-            context_packet_path=context_packet_path,
-            worktree_path=Path(cycle.worktree_path),
-            changed_files=list(getattr(cycle.worker_result, "changed_files", []) or []),
-            direction_plan=review_direction_plan,
-            candidate_summary=summary_payload(summary),
-            output_dir=output_dir,
-        )
+    request = AlgorithmSemanticReviewRequest(
+        round_index=round_index,
+        attempt_index=attempt_index,
+        context_packet_path=context_packet_path,
+        worktree_path=Path(cycle.worktree_path),
+        changed_files=list(getattr(cycle.worker_result, "changed_files", []) or []),
+        direction_plan=review_direction_plan,
+        candidate_summary=summary_payload(summary),
+        output_dir=output_dir,
     )
+    try:
+        with _controller_budgeted_agent(reviewer, controller_budget, cancellation) as scoped:
+            result = scoped.review(request)
+    except ControllerBudgetExhausted:
+        payload = {
+            "schema_version": 1,
+            "status": "unavailable",
+            "accepted": False,
+            "reason": "controller_budget_exhausted",
+            "summary": "Controller budget expired before semantic review could complete.",
+            "findings": [],
+            "reviewer": type(reviewer).__name__,
+            "coverage_complete": False,
+        }
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "algorithm_semantic_review.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        return payload
     return result.to_payload()
 
 
@@ -5057,6 +5117,8 @@ def run_agent_generated_baseline(
                 attempt_index=attempt_index,
                 output_dir=attempt_dir / "semantic_review",
                 worker_assignment=assignment_issue.assignment,
+                controller_budget=controller_budget,
+                cancellation=cancellation,
             )
             exact_execution = evaluate_exact_solver_execution(
                 attempt_direction_plan or {},
@@ -5338,24 +5400,15 @@ def plan_agent_generated_baseline_direction(
             "Generate from active IO and requirements; do not copy instance-specific schedules or scores.",
         ],
     }
-    request = DirectionPlanRequest(
+    plan = plan_direction_with_fallback(
+        planner=planner,
         round_index=-1,
         context_packet_path=context_packet_path,
         loop_feedback=feedback,
         output_dir=output_dir,
+        controller_budget=controller_budget,
+        cancellation=cancellation,
     )
-    try:
-        with _controller_budgeted_agent(planner, controller_budget, cancellation) as scoped:
-            plan = scoped.plan_direction(request)
-    except (ControllerBudgetExhausted, TaskCancelled):
-        raise
-    except Exception as exc:  # noqa: BLE001 - baseline planning must retain deterministic fallback.
-        output_dir.mkdir(parents=True, exist_ok=True)
-        (output_dir / "planner_exception.txt").write_text(
-            "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
-            encoding="utf-8",
-        )
-        plan = EvidenceDrivenMainAgent().plan_direction(request)
     return bind_agent_generated_baseline_method_package(
         plan,
         context_packet_path=context_packet_path,
@@ -6495,7 +6548,7 @@ def plan_direction_with_fallback(
     controller_budget: ControllerTimeBudget | None = None,
     cancellation: CancellationToken | None = None,
 ) -> dict[str, Any]:
-    """Run Main planning without allowing a provider failure to lose a round."""
+    """Recover planning from evidence, or expose a bounded planning failure."""
 
     request = DirectionPlanRequest(
         round_index=round_index,
@@ -6515,7 +6568,32 @@ def plan_direction_with_fallback(
             "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
             encoding="utf-8",
         )
-        fallback_plan = EvidenceDrivenMainAgent().plan_direction(request)
+        try:
+            with _controller_budgeted_agent(EvidenceDrivenMainAgent(), controller_budget, cancellation) as scoped:
+                fallback_plan = scoped.plan_direction(request)
+        except (ControllerBudgetExhausted, TaskCancelled):
+            raise
+        except Exception as fallback_exc:  # noqa: BLE001 - classify only the fallback planning call.
+            planning_exc = exc if isinstance(exc, MainPlanningError) else fallback_exc
+            raise MainPlanningError(
+                planning_exc.reason if isinstance(planning_exc, MainPlanningError) else "fallback_planning_failed",
+                f"Main planning and evidence fallback failed: {planning_exc}",
+                details={
+                    "planner": type(planner).__name__,
+                    "planner_error": str(exc),
+                    "planner_exception_path": str(planner_error_path.resolve()),
+                    **(planning_exc.details if isinstance(planning_exc, MainPlanningError) else {}),
+                    "fallback_failure": {
+                        "reason": (
+                            fallback_exc.reason
+                            if isinstance(fallback_exc, MainPlanningError)
+                            else "fallback_planning_failed"
+                        ),
+                        "message": str(fallback_exc),
+                        "details": fallback_exc.details if isinstance(fallback_exc, MainPlanningError) else {},
+                    },
+                },
+            ) from fallback_exc
         fallback_plan = {
             key: value for key, value in fallback_plan.items() if key != "artifact_path"
         }
@@ -6526,6 +6604,29 @@ def plan_direction_with_fallback(
             "exception_path": str(planner_error_path.resolve()),
         }
         return write_direction_plan(output_dir, fallback_plan)
+
+
+def record_main_planning_failure(output_dir: Path, error: MainPlanningError) -> dict[str, Any]:
+    """Persist planning diagnostics without inventing a Worker direction or round."""
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    exception_path = output_dir / "planning_exception.txt"
+    exception_path.write_text(
+        "".join(traceback.format_exception(type(error), error, error.__traceback__)),
+        encoding="utf-8",
+    )
+    payload = {
+        "status": "failed",
+        "stop_reason": "main_planning_failed",
+        "reason": error.reason,
+        "message": str(error),
+        "details": error.details,
+        "exception_path": str(exception_path.resolve()),
+    }
+    (output_dir / "planning_failure.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+    )
+    return payload
 
 
 def reflect_on_completed_round(

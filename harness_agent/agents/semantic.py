@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from harness_agent.context.loader import load_context_dict
+from harness_agent.core.cancellation import CancellationToken
 from harness_agent.deepseek_client import DeepSeekClient, is_deepseek_configured
 from harness_agent.domains.pack import get_domain_pack
 
@@ -276,11 +277,13 @@ class OpenCodeAlgorithmSemanticReviewer:
         *,
         model: str,
         project_root: Path,
-        timeout_seconds: int = 300,
+        timeout_seconds: int | None = 300,
+        cancellation: CancellationToken | None = None,
     ) -> None:
         self.model = model
         self.project_root = Path(project_root).resolve()
-        self.timeout_seconds = max(120, int(timeout_seconds))
+        self.timeout_seconds = int(timeout_seconds) if timeout_seconds is not None and int(timeout_seconds) > 0 else None
+        self.cancellation = cancellation
         self.fallback = EvidenceOnlySemanticReviewer()
 
     def review(self, request: AlgorithmSemanticReviewRequest) -> AlgorithmSemanticReviewResult:
@@ -331,8 +334,9 @@ class OpenCodeAlgorithmSemanticReviewer:
                 model=self.model,
                 project_root=self.project_root,
                 max_subagents=0,
-                timeout_seconds=self.timeout_seconds,
+                timeout_seconds=self.timeout_seconds if self.timeout_seconds is not None else 0,
                 planning_mode="fast",
+                cancellation=self.cancellation,
             )
             run = agent._run_once(
                 output_dir=request.output_dir,

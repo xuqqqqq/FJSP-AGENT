@@ -34,6 +34,7 @@ from harness_agent.core.runner import (
     kill_process_tree,
 )
 from ..worker import CodingWorker, ExperimentSpec, WorkerAssignment, WorkerCapabilities, WorkerResult
+from harness_agent.workers.opencode_executable import resolve_opencode_executable
 
 
 DEFAULT_OPENCODE_MODEL = "deepseek/deepseek-v4-pro"
@@ -111,10 +112,7 @@ class OpenCodeWorker(CodingWorker):
             else executable
         )
         self.executable = configured_executable
-        executable_path = Path(configured_executable)
-        self.executable_path = (
-            str(executable_path.resolve()) if executable_path.exists() else shutil.which(configured_executable)
-        )
+        self.executable_path = resolve_opencode_executable(configured_executable)
         # Fresh candidate worktrees have no project-local model history.  An
         # explicit default keeps `opencode run` non-interactive in services.
         self.model = model or os.environ.get("OPENCODE_MODEL") or DEFAULT_OPENCODE_MODEL

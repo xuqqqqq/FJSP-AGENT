@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -15,6 +16,21 @@ from harness_agent.context.planning_packet import project_research_state
 from harness_agent.context.worker import build_worker_assignment, write_worker_assignment
 from harness_agent.deepseek_client import DeepSeekClient, is_deepseek_configured
 from harness_agent.worker import WorkerAssignment
+
+
+class MainPlanningError(RuntimeError):
+    """A planning failure with a machine-readable cause for loop diagnostics."""
+
+    def __init__(self, reason: str, message: str, *, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.details = dict(details or {})
+
+
+def generic_method_key(value: str) -> str:
+    """Compare method names across languages, spacing and Unicode widths."""
+
+    return "".join(char for char in unicodedata.normalize("NFKC", value).casefold() if char.isalnum())
 
 
 @dataclass(frozen=True)
@@ -286,7 +302,7 @@ def generic_ablation_history_fallback_plan(
             if not isinstance(item, dict):
                 continue
             method_name = str(item.get("method_name") or item.get("title") or "").strip()[:120]
-            method_key = re.sub(r"[^a-z0-9]+", "", method_name.lower())
+            method_key = generic_method_key(method_name)
             hypothesis = str(item.get("hypothesis") or "").strip()[:1_200]
             objective = str(item.get("worker_objective") or "").strip()[:1_200]
             strategy_type = str(item.get("strategy_type") or "").strip()[:120]

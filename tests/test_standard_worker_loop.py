@@ -475,7 +475,7 @@ class StandardWorkerLoopTests(unittest.TestCase):
         self.assertIsNone(request.semantic_reviewer)
         deepseek_status.assert_not_called()
 
-    def test_cli_standard_loop_bounds_worker_runtime_and_caps_main_planning(self) -> None:
+    def test_cli_standard_loop_keeps_worker_runtime_separate_from_main_planning(self) -> None:
         args = build_parser().parse_args(
             [
                 "run-standard-worker-loop",
@@ -504,7 +504,7 @@ class StandardWorkerLoopTests(unittest.TestCase):
 
         self.assertEqual(0, exit_code)
         self.assertEqual(321, make_worker.call_args.kwargs["timeout_seconds"])
-        self.assertEqual(120, make_main_agent.call_args.kwargs["timeout_seconds"])
+        self.assertNotIn("timeout_seconds", make_main_agent.call_args.kwargs)
 
     def test_repair_targets_prefer_result_revalidation_top_errors_and_drop_semantic_blocks(self) -> None:
         attempt = {

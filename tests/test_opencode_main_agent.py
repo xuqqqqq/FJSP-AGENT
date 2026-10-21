@@ -1276,7 +1276,7 @@ class OpenCodeMainAgentTests(unittest.TestCase):
         self.assertEqual("selected", result["status"])
         self.assertEqual("openai/gpt-5.4", result["candidates"][0]["model"])
 
-    def test_run_once_waits_indefinitely_when_no_main_timeout_is_configured(self) -> None:
+    def test_run_once_waits_indefinitely_when_main_timeout_is_explicitly_disabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             executable = tmp_path / "opencode.exe"
@@ -1297,7 +1297,7 @@ class OpenCodeMainAgentTests(unittest.TestCase):
                 patch("harness_agent.agents.opencode_main.cleanup_process_descendants"),
             ):
                 thread_factory.return_value = SimpleNamespace(start=lambda: None, join=lambda timeout=0: None)
-                agent = OpenCodeMainAgent(executable=str(executable), project_root=ROOT)
+                agent = OpenCodeMainAgent(executable=str(executable), project_root=ROOT, timeout_seconds=0)
 
                 result = agent._run_once(
                     output_dir=output_dir,

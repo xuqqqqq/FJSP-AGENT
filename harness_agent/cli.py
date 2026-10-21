@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -32,7 +33,7 @@ from harness_agent.agents.semantic import (
     DeepSeekAlgorithmSemanticReviewer,
     OpenCodeAlgorithmSemanticReviewer,
 )
-from harness_agent.agents.opencode_main import OpenCodeMainAgent
+from harness_agent.agents.opencode_main import OpenCodeMainAgent, resolve_main_planning_timeout
 from harness_agent.core.models import TaskContract
 from harness_agent.domains.families import write_problem_family_card
 from harness_agent.context.intake import ProjectIntakeRequest, write_project_intake
@@ -46,10 +47,10 @@ from harness_agent.orchestration.standard import (
 from harness_agent.web.server import DEFAULT_OUTPUT_ROOT, run_web_server
 from .worker import ExperimentSpec, NullWorker, WorkerResult
 from harness_agent.orchestration.cycle import run_worker_cycle
+from harness_agent.workers.opencode_worker import DEFAULT_OPENCODE_MODEL
 
 
 DEFAULT_STANDARD_SEEDS = "0,1,2,3,4,5,6,7,8,9"
-MAX_CLI_OPENCODE_MAIN_TIMEOUT_SECONDS = 120
 
 
 # ---------------------------------------------------------------------------
@@ -343,22 +344,17 @@ def make_main_agent(
     """CLI 与 Web 共用同一职责选择：OpenCode Worker 对应隔离的 OpenCode Main。"""
 
     if worker_name == "opencode":
+        main_model = opencode_model or os.environ.get("OPENCODE_MODEL") or DEFAULT_OPENCODE_MODEL
         return OpenCodeMainAgent(
             model=opencode_model,
             project_root=project_root,
             max_subagents=max(0, min(4, max_subagents)),
-            timeout_seconds=timeout_seconds,
+            timeout_seconds=resolve_main_planning_timeout(main_model, timeout_seconds) or 0,
             planning_mode=planning_mode,
         )
     if is_deepseek_configured():
         return DeepSeekMainAgent(model=deepseek_model)
     return EvidenceDrivenMainAgent()
-
-
-def cli_main_timeout_seconds(max_runtime_seconds: int) -> int:
-    """Keep direction planning short while preserving the Worker generation budget."""
-
-    return min(max(1, max_runtime_seconds), MAX_CLI_OPENCODE_MAIN_TIMEOUT_SECONDS)
 
 
 def worker_result_payload(result: WorkerResult) -> dict[str, object]:
@@ -550,7 +546,6 @@ def run_worker_loop_cmd(args: argparse.Namespace) -> int:
             opencode_model=args.opencode_model,
             project_root=args.project_root,
             max_subagents=args.main_max_subagents,
-            timeout_seconds=cli_main_timeout_seconds(args.max_runtime_seconds),
         ),
         semantic_reviewer=None,
         experiment_id=args.experiment_id,
@@ -662,9 +657,9 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
         opencode_model=args.opencode_model,
         project_root=args.project_root,
         max_subagents=args.main_max_subagents,
-        timeout_seconds=cli_main_timeout_seconds(args.max_runtime_seconds),
         planning_mode=args.main_planning_mode,
     )
+    semantic_model = str(getattr(worker, "model", "") or args.opencode_model or "deepseek/deepseek-v4-pro")
     manifest = run_standard_worker_loop(
         StandardWorkerLoopRequest(
             docs=args.doc,
@@ -678,9 +673,9 @@ def run_standard_worker_loop_cmd(args: argparse.Namespace) -> int:
             main_agent=main_agent,
             semantic_reviewer=(
                 OpenCodeAlgorithmSemanticReviewer(
-                    model=str(getattr(worker, "model", "") or args.opencode_model or "deepseek/deepseek-v4-pro"),
+                    model=semantic_model,
                     project_root=args.project_root,
-                    timeout_seconds=cli_main_timeout_seconds(args.max_runtime_seconds),
+                    timeout_seconds=resolve_main_planning_timeout(semantic_model) or 0,
                 )
                 if args.guidance_mode == "full" and args.worker == "opencode"
                 else DeepSeekAlgorithmSemanticReviewer(model=args.deepseek_model)

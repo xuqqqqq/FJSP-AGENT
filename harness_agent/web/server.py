@@ -45,7 +45,7 @@ from harness_agent.context.knowledge import knowledge_query_catalog, method_fami
 from harness_agent.core.cancellation import CancellationToken, TaskCancelled
 from harness_agent.core.runtime import solver_runtime_status
 from harness_agent.agents.main import DeepSeekMainAgent
-from harness_agent.agents.opencode_main import OpenCodeMainAgent
+from harness_agent.agents.opencode_main import OpenCodeMainAgent, resolve_main_planning_timeout
 from harness_agent.agents.semantic import DeepSeekAlgorithmSemanticReviewer
 from harness_agent.domains.io import parse_standard_fjsp
 from harness_agent.domains.distributed_fjsp import looks_like_distributed_fjsp, parse_distributed_fjsp
@@ -2949,6 +2949,9 @@ def run_job(job_id: str) -> None:
             direction_planner = OpenCodeMainAgent(
                 executable=config["opencode_executable"],
                 model=config["main_agent_model"] or None,
+                timeout_seconds=resolve_main_planning_timeout(
+                    config["main_agent_model"] or os.environ.get("OPENCODE_MODEL") or DEFAULT_OPENCODE_MODEL
+                ) or 0,
                 variant=config["main_agent_variant"] or None,
                 planning_mode=config["main_planning_mode"],
                 project_root=PROJECT_ROOT,

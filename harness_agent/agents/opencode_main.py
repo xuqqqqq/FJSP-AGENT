@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import shlex
 import subprocess
 import tempfile
@@ -17,6 +16,7 @@ from typing import Any
 from harness_agent.agents.main import (
     DirectionPlanRequest,
     EvidenceDrivenMainAgent,
+    MainPlanningError,
     RoundReflectionRequest,
     WorkerAssignmentIssue,
     WorkerAssignmentRequest,
@@ -30,6 +30,7 @@ from harness_agent.agents.main import (
     enforce_improvement_direction_contract,
     fallback_planning_contract_status,
     high_flexibility_query_tags,
+    generic_method_key,
     merge_public_reasoning_traces,
     normalize_activation_checks,
     normalize_direction_plan,
@@ -57,6 +58,7 @@ from harness_agent.workers.opencode_worker import (
     opencode_subprocess_environment,
     summarize_opencode_compaction_events,
 )
+from harness_agent.workers.opencode_executable import normalize_opencode_prompt, resolve_opencode_executable
 
 
 OPENCODE_MAIN_AGENT = "algoforge-main"
@@ -69,7 +71,8 @@ MAIN_SPECIALIST_NAMES = (
 )
 PLANNING_PACKET_MAX_CHARS = planning_packets.PLANNING_PACKET_MAX_CHARS
 MAIN_FORMAT_RETRY_TIMEOUT_SECONDS = 90
-FAST_MAIN_TIMEOUT_SECONDS = 120
+DEFAULT_MAIN_TIMEOUT_SECONDS = 120
+SELF_HOSTED_MAIN_TIMEOUT_SECONDS = 600
 FAST_PLANNING_PACKET_MAX_CHARS = 20_000
 DEFAULT_MAIN_STALL_TIMEOUT_SECONDS = 15 * 60
 MAIN_STALL_POLL_SECONDS = 1.0
@@ -98,19 +101,12 @@ class OpenCodeMainAgent:
             if executable == "opencode"
             else executable
         )
-        executable_path = Path(configured_executable)
-        self.executable_path = (
-            str(executable_path.resolve()) if executable_path.exists() else shutil.which(configured_executable)
-        )
+        self.executable_path = resolve_opencode_executable(configured_executable)
         self.model = model or os.environ.get("OPENCODE_MODEL") or DEFAULT_OPENCODE_MODEL
         self.variant = (variant or os.environ.get("OPENCODE_MAIN_VARIANT") or "").strip()
         self.run_command = os.environ.get("OPENCODE_RUN_COMMAND", "run")
         self.project_root = (project_root or Path(__file__).resolve().parents[2]).resolve()
-        self.timeout_seconds = resolve_optional_timeout_seconds(
-            timeout_seconds,
-            env_var="OPENCODE_MAIN_TIMEOUT_SECONDS",
-            minimum=15,
-        )
+        self.timeout_seconds = resolve_main_planning_timeout(self.model, timeout_seconds)
         configured_stall_timeout = stall_timeout_seconds
         if configured_stall_timeout is None:
             configured_stall_timeout = int(
@@ -565,6 +561,7 @@ class OpenCodeMainAgent:
         )
         variants: list[dict[str, Any]] = []
         usage_payload = summarize_opencode_events("")
+        failures: list[dict[str, Any]] = []
         for attempt_index in range(2):
             run = self._run_once(
                 output_dir=request.output_dir,
@@ -576,7 +573,7 @@ class OpenCodeMainAgent:
                     + " 上一次没有返回满足契约的 JSON；本次不要解释、不要请求更多证据，立即只输出 JSON。"
                 ),
                 suffix="_generic_ablation" if attempt_index == 0 else "_generic_ablation_retry",
-                timeout_seconds=bounded_timeout_seconds(self.timeout_seconds, FAST_MAIN_TIMEOUT_SECONDS),
+                timeout_seconds=self.timeout_seconds,
                 allowed_specialist=None,
                 allowed_skills=[],
                 attachments_only=True,
@@ -594,12 +591,25 @@ class OpenCodeMainAgent:
             )
             if len(variants) == max_workers:
                 break
+            failure = planning_response_failure(run)
+            failure["valid_method_count"] = len(variants)
+            failure["expected_method_count"] = max_workers
+            failures.append(failure)
+            # Repeating an exhausted call does not repair its JSON. Only a
+            # completed response gets one bounded format-repair opportunity.
+            if failure["reason"] in {"timeout", "stalled", "provider_error", "zero_event_stream", "context_limit"}:
+                break
         usage_payload.update({"attempts": attempt_index + 1, "planning_mode": "generic_guidance_ablation"})
         self._write_usage(request.output_dir, usage_payload)
         if len(variants) != max_workers:
-            raise ValueError(
-                "generic ablation Main must propose exactly "
-                f"{max_workers} distinct algorithm method lanes"
+            details = {"attempts": failures, "usage": usage_payload}
+            (request.output_dir / "main_planning_failure.json").write_text(json_dumps(details), encoding="utf-8")
+            reason = str(failures[-1]["reason"])
+            raise MainPlanningError(
+                reason,
+                f"Main planning failed ({reason}); expected {max_workers} distinct algorithm methods, "
+                f"received {len(variants)}. See main_planning_failure.json.",
+                details=details,
             )
         plan = normalize_direction_plan(
             {
@@ -706,7 +716,7 @@ class OpenCodeMainAgent:
                 "所有字段名使用 schema 的英文 key，自然语言值使用简体中文。"
             ),
             suffix="_fast",
-            timeout_seconds=bounded_timeout_seconds(self.timeout_seconds, FAST_MAIN_TIMEOUT_SECONDS),
+            timeout_seconds=self.timeout_seconds,
             allowed_specialist=None,
             allowed_skills=[],
             attachments_only=True,
@@ -719,7 +729,8 @@ class OpenCodeMainAgent:
 
         raw = extract_planned_direction(run["stdout"])
         if raw is None:
-            return self._fallback(request, reason="Fast Main Agent did not return a valid direction plan")
+            failure = planning_response_failure(run)
+            return self._fallback(request, reason=f"Fast Main planning failed: {failure['reason']}")
 
         raw_selection = raw.get("direction_selection")
         if not isinstance(raw_selection, dict):
@@ -1030,6 +1041,7 @@ class OpenCodeMainAgent:
         # These are disposable harness sessions.  Supplying a title prevents
         # OpenCode from spending a separate provider request on auto-naming.
         command.extend(["--title", session_title])
+        prompt = normalize_opencode_prompt(prompt, self.executable_path)
         command.extend(["--thinking", "--agent", OPENCODE_MAIN_AGENT, "--format", "json", prompt])
         command.extend(f"--file={path.resolve()}" for path in attachments)
         command_path = output_dir / f"opencode_main_command{suffix}.json"
@@ -1147,7 +1159,7 @@ class OpenCodeMainAgent:
         elif stalled and not stderr and self.stall_timeout_seconds is not None:
             stderr = f"OpenCode Main produced no output for {self.stall_timeout_seconds} seconds."
             stderr_path.write_text(stderr, encoding="utf-8")
-        return {
+        result = {
             "stdout": stdout,
             "stderr": stderr,
             "returncode": str(process.returncode),
@@ -1155,6 +1167,23 @@ class OpenCodeMainAgent:
             "stalled": stalled,
             **opencode_event_stream_health(stdout),
         }
+        (output_dir / f"opencode_main_result{suffix}.json").write_text(
+            json_dumps({
+                "returncode": process.returncode,
+                "timed_out": timed_out,
+                "stalled": stalled,
+                "timeout_seconds": timeout,
+                "stdout_bytes": len(stdout.encode("utf-8")),
+                "has_model_text": has_model_text(stdout),
+                "response_status": "completed" if has_model_text(stdout) and not timed_out and not stalled and process.returncode == 0 else planning_response_failure(result)["reason"],
+                "valid_direction_json": extract_planned_direction(stdout) is not None,
+                "executable": str(self.executable_path),
+                "requested_attachment_count": len(attachments),
+                **opencode_event_stream_health(stdout),
+            }),
+            encoding="utf-8",
+        )
+        return result
 
     def _runtime_config(
         self,
@@ -1902,11 +1931,11 @@ def normalize_generic_method_variants(value: Any, *, expected: int) -> list[dict
     result: list[dict[str, Any]] = []
     seen_methods: set[str] = set()
     seen_candidate_ids: set[str] = set()
-    for index, item in enumerate(value or []):
+    for index, item in enumerate(value if isinstance(value, list) else []):
         if not isinstance(item, dict):
             continue
         method_name = str(item.get("method_name") or "").strip()[:120]
-        method_key = re.sub(r"[^a-z0-9]+", "", method_name.lower())
+        method_key = generic_method_key(method_name)
         hypothesis = str(item.get("hypothesis") or "").strip()[:1_200]
         objective = str(item.get("worker_objective") or "").strip()[:1_200]
         strategy_type = str(item.get("strategy_type") or "").strip()[:120]
@@ -2002,6 +2031,56 @@ def extract_round_reflection(events_text: str) -> dict[str, Any] | None:
         ):
             return payload
     return None
+
+
+def planning_response_failure(run: dict[str, Any]) -> dict[str, Any]:
+    """Keep generation failures distinct from a completed but invalid plan."""
+
+    stdout = str(run.get("stdout") or "")
+    health = opencode_event_stream_health(stdout)
+    if run.get("timed_out"):
+        reason = "timeout"
+    elif run.get("stalled"):
+        reason = "stalled"
+    else:
+        events = []
+        for line in stdout.splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(event, dict):
+                events.append(event)
+        if any(event.get("type") == "error" for event in events) or str(run.get("returncode", "0")) not in {"0", "None"}:
+            reason = "provider_error"
+        elif any(
+            event.get("type") == "step_finish"
+            and isinstance(event.get("part"), dict)
+            and event["part"].get("reason") in {"length", "max_tokens"}
+            for event in events
+        ):
+            reason = "context_limit"
+        elif health["event_stream_status"] == "zero":
+            reason = "zero_event_stream"
+        elif not has_model_text(stdout):
+            reason = "no_final_output"
+        else:
+            reason = "invalid_plan_schema"
+    return {"reason": reason, **health}
+
+
+def resolve_main_planning_timeout(model: str | None, configured_seconds: int | None = None) -> int | None:
+    """Resolve a Main call limit independently of Worker and total controller budgets."""
+
+    value = configured_seconds
+    if value is None:
+        raw = os.environ.get("OPENCODE_MAIN_TIMEOUT_SECONDS", "").strip()
+        value = int(raw) if raw else None
+    if value is None:
+        value = SELF_HOSTED_MAIN_TIMEOUT_SECONDS if str(model or "").startswith("qiming/") else DEFAULT_MAIN_TIMEOUT_SECONDS
+    if int(value) < 0:
+        raise ValueError("OPENCODE_MAIN_TIMEOUT_SECONDS must be zero or positive")
+    return int(value) if int(value) > 0 else None
 
 
 def resolve_optional_timeout_seconds(
