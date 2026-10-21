@@ -85,6 +85,34 @@ class MainPlanningReliabilityTests(unittest.TestCase):
             invoke.assert_called_once()
             self.assertEqual("timeout", json.loads((root / "main_planning_failure.json").read_text())["attempts"][0]["reason"])
 
+    def test_initial_none_planning_does_not_require_an_existing_incumbent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            context = root / "context.json"
+            context.write_text(json.dumps({"task": {"objectives": [{"name": "makespan", "direction": "minimize"}]}}, ensure_ascii=False), encoding="utf-8")
+            request = DirectionPlanRequest(-1, context, {}, root)
+            agent = OpenCodeMainAgent(timeout_seconds=600)
+            variant = method("初始方法")
+            run = {"stdout": json.dumps({"direction_plan": {"candidate_variants": [variant]}}, ensure_ascii=False)}
+            with patch.object(agent, "_run_once", return_value=run) as invoke:
+                plan = agent._plan_direction_none(request)
+            self.assertEqual("baseline", plan["experiment_stage"])
+            self.assertEqual(variant["worker_objective"], plan["worker_objective"])
+            self.assertIn("尚无 incumbent", invoke.call_args.kwargs["prompt"])
+            self.assertNotIn("preserving the complete legal incumbent", plan["completion_rule"])
+            packet = json.loads((root / "generic_ablation_planning_packet.json").read_text(encoding="utf-8"))
+            self.assertFalse(packet["incumbent_available"])
+            self.assertEqual("makespan", packet["task_digest"]["objectives"][0]["name"])
+
+    def test_tool_free_analysis_uses_an_explicit_read_only_role(self) -> None:
+        agent = OpenCodeMainAgent()
+        runtime = agent._runtime_config(attachment_paths=[], attachments_only=True, allowed_skills=[])
+        config = runtime["agent"]["algoforge-main"]
+        self.assertIn("只读分析任务", config["prompt"])
+        self.assertEqual({"*": "deny"}, config["permission"]["read"])
+        research = agent._runtime_config(attachment_paths=[])
+        self.assertNotIn("prompt", research["agent"]["algoforge-main"])
+
     def test_generation_failure_categories(self) -> None:
         for run, expected in [
             ({"timed_out": True}, "timeout"),

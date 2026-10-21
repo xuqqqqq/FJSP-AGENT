@@ -43,6 +43,7 @@ from harness_agent.agents.main import (
 from harness_agent.context.compaction import compact_json
 from harness_agent.context.knowledge import method_package_catalog, method_package_query_tags
 from harness_agent.context.loader import load_context_dict
+from harness_agent.context.generic_planning import build_generic_planning_packet
 from harness_agent.context.packet import activate_direction_knowledge_context
 from harness_agent.context import planning_packet as planning_packets
 from harness_agent.core.cancellation import CancellationToken
@@ -513,42 +514,20 @@ class OpenCodeMainAgent:
             else {}
         )
         max_workers = max(1, min(4, int(competition.get("max_competing_workers") or 1)))
-        incumbent = (
-            planning_packet.get("incumbent_evidence")
-            if isinstance(planning_packet.get("incumbent_evidence"), dict)
-            else {}
+        generic_packet = build_generic_planning_packet(
+            context=context, planning_packet=planning_packet,
+            expected_methods=max_workers, round_index=request.round_index,
         )
-        generic_packet = {
-            "schema_version": 1,
-            "planning_stage": "generic_guidance_ablation",
-            "task_digest": _bounded_fast_value(planning_packet.get("task_digest")),
-            "instance_diagnostics": _bounded_fast_value(planning_packet.get("instance_diagnostics")),
-            "incumbent_evidence": _bounded_fast_value(
-                {
-                    "objective_key": incumbent.get("objective_key"),
-                    "evaluation": incumbent.get("evaluation"),
-                }
-            ),
-            "recent_round_evidence": _bounded_fast_value(
-                planning_packet.get("recent_round_evidence"), max_list=3
-            ),
-            "runtime_limits": _bounded_fast_value(planning_packet.get("runtime_limits")),
-            "output_contract": {
-                "candidate_method_count": max_workers,
-                "required_candidate_fields": [
-                    "candidate_id",
-                    "method_name",
-                    "hypothesis",
-                    "worker_objective",
-                    "strategy_type",
-                ],
-                "methods_must_be_distinct": True,
-            },
-        }
         packet_path = request.output_dir / "generic_ablation_planning_packet.json"
         packet_path.write_text(json_dumps(generic_packet), encoding="utf-8")
         source_attachments = incumbent_source_files(context)
         planning_attachments = [packet_path, *source_attachments]
+        baseline_generation = request.round_index < 0
+        phase_prompt = (
+            "当前是从零建立 baseline，尚无 incumbent。请规划首个完整合法求解器的实现，不要假设已有代码或合法解。"
+            if baseline_generation
+            else "当前是改进已有 incumbent，请基于随附源码规划有界改进，并保留其合法 fallback。"
+        )
         base_prompt = (
                 "这是无 FJSP 领域增强的通用算法规划对照。只阅读附件中的任务、实例事实、incumbent 与 Core 反馈；"
                 "可以读取随附的当前 incumbent solver 源码，但不要读取附件之外的任何文件。"
@@ -557,7 +536,8 @@ class OpenCodeMainAgent:
                 "不能用 direct_evidence、minimal_risk、orthogonal 等角色名代替方法名。"
                 "只返回 JSON，顶层为 direction_plan；其中 candidate_variants 为数组，每项严格包含 "
                 "candidate_id、method_name、hypothesis、worker_objective、strategy_type、change_scope、preserve、avoid。"
-                "worker_objective 要让 Coding Worker 实现该方法并保留合法 incumbent fallback。"
+                + phase_prompt
+                + "本次只规划，不写代码、不执行求解。hypothesis 和 worker_objective 各用一两句话，所有字段保持简洁。"
         )
         variants: list[dict[str, Any]] = []
         usage_payload = summarize_opencode_events("")
@@ -614,20 +594,26 @@ class OpenCodeMainAgent:
         plan = normalize_direction_plan(
             {
                 "direction_id": f"d{request.round_index:03d}",
-                "title": "Generic algorithm-method tournament",
+                "title": "Generic initial solver plan" if baseline_generation else "Generic algorithm-method tournament",
                 "strategy_type": "generic_method_tournament",
                 "hypothesis": (
-                    "Distinct generic algorithm methods can be tested independently against the current incumbent."
+                    "Generate the first complete legal solver from the supplied requirements and IO."
+                    if baseline_generation
+                    else "Distinct generic algorithm methods can be tested independently against the current incumbent."
                 ),
                 "worker_objective": (
-                    "Implement each proposed method as a bounded incumbent-preserving candidate."
+                    variants[0]["worker_objective"]
+                    if baseline_generation
+                    else "Implement each proposed method as a bounded incumbent-preserving candidate."
                 ),
                 "diagnosis": (
                     "Use the model-proposed methods directly without domain retrieval or fallback planning."
                 ),
-                "experiment_stage": "research_tournament",
+                "experiment_stage": "baseline" if baseline_generation else "research_tournament",
                 "preserve": [
-                    "Preserve the complete legal incumbent and return it when the method does not improve it."
+                    "Preserve the task requirements, IO contract and fixed evaluator."
+                    if baseline_generation
+                    else "Preserve the complete legal incumbent and return it when the method does not improve it."
                 ],
                 "avoid": [
                     "Do not load domain Skills, knowledge cards, method packages, candidate operator libraries, "
@@ -639,7 +625,9 @@ class OpenCodeMainAgent:
                     "Candidate is promoted only when it strictly improves the incumbent.",
                 ],
                 "completion_rule": (
-                    "Implement only the assigned generic method while preserving the complete legal incumbent."
+                    "Implement the assigned generic method and produce a complete solver passing the fixed evaluator."
+                    if baseline_generation
+                    else "Implement only the assigned generic method while preserving the complete legal incumbent."
                 ),
             },
             round_index=request.round_index,
@@ -1236,6 +1224,16 @@ class OpenCodeMainAgent:
                 },
             }
         }
+        if attachments_only:
+            # A tool-free planner must not inherit the general coding-agent
+            # system prompt, which asks it to inspect files and perform edits.
+            agent_configs[OPENCODE_MAIN_AGENT]["prompt"] = (
+                "你负责一次只读分析任务。以当前用户任务和消息中已展开的附件为依据，"
+                "严格按附件约定返回一个 JSON 对象。不要调用工具，不要修改文件。"
+                "规划任务只提出候选方法，不执行求解，也不直接编写求解器。"
+                "区分从零建立 baseline 与已有 incumbent 的改进；缺失事实不得编造。"
+                "保持分析和输出简洁；JSON 字段名、标识符、代码和路径保持原样，自然语言值使用简体中文。"
+            )
         for name in MAIN_SPECIALIST_NAMES:
             agent_configs[name] = {
                 "disable": name not in allowed_specialists,
