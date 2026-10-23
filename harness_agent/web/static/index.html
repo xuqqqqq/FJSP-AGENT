@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AlgoForge FJSP 智能演进平台</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/static/style.css?v=20260731-workbench-views-1" />
+    <link rel="stylesheet" href="/static/style.css?v=20261023-usage-1" />
   </head>
   <body>
     <div class="app-shell">
@@ -78,6 +78,7 @@
             </select>
           </label>
           <div class="header-actions">
+            <span class="token-usage-badge" id="workspace-token-usage">已记录 Token —</span>
             <span class="status-pill running" id="workspace-status">系统就绪</span>
             <button class="ghost" type="button" id="refresh">刷新</button>
           </div>
@@ -99,6 +100,20 @@
                   <div id="agent-status-summary" class="agent-status-summary"></div>
                   <div id="agent-status-track" class="agent-status-track"></div>
                 </div>
+                <section id="token-usage-panel" class="token-usage-panel hidden" aria-label="模型Token实时用量">
+                  <div class="usage-heading"><div><span class="section-kicker">当前任务 · 含继续迭代</span>
+                    <h3>已记录 Token <strong id="token-usage-total">—</strong></h3></div>
+                    <span id="token-usage-calls" class="muted">等待模型调用</span></div>
+                  <p id="token-usage-status" class="muted">等待用量回执</p>
+                  <div id="token-usage-fields" class="usage-fields"></div>
+                  <details><summary>按角色、轮次和候选查看用量</summary>
+                    <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>角色</th><th>已记录Token</th><th>已计量 / 调用</th><th>回执状态</th></tr></thead><tbody id="token-usage-roles"></tbody></table></div>
+                    <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>轮次</th><th>已记录Token</th><th>已计量 / 调用</th><th>回执状态</th></tr></thead><tbody id="token-usage-rounds"></tbody></table></div>
+                    <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>候选（含修复）</th><th>已记录Token</th><th>已计量 / 调用</th><th>回执状态</th></tr></thead><tbody id="token-usage-candidates"></tbody></table></div>
+                    <ul id="token-usage-recent" class="usage-recent"></ul>
+                  </details>
+                  <small class="muted">使用模型返回的 usage，失败、重试和审查同样计入。部分网关仅在响应结束时返回用量；缺失值保持未知。分项沿用提供方口径，思考和缓存不重复加到总量。</small>
+                </section>
                 <div id="chat-thread" class="chat-thread" aria-live="polite"></div>
                 <div id="chat-actions" class="chat-actions"></div>
                 <form id="chat-form" class="composer-row">
@@ -189,6 +204,7 @@
                       <span>Gap</span>
                       <strong id="metric-gap">-</strong>
                     </div>
+                    <div class="metric"><span>已记录 Token</span><strong id="metric-tokens">—</strong></div>
                   </div>
                 </div>
               </section>
@@ -738,6 +754,7 @@
         </div>
       </form>
     </dialog>
-    <script src="/static/app.js?v=20261021-matched-time-1"></script>
+    <script src="/static/usage.js?v=20261023-usage-1"></script>
+    <script src="/static/app.js?v=20261023-usage-1"></script>
   </body>
 </html>

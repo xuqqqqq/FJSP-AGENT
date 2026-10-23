@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from harness_agent.usage import usage_stage, opencode_usage_environment, finish_opencode_usage
 from ..deepseek_client import load_local_env, resolve_secret
 from harness_agent.context.worker import (
     WORKER_ASSIGNMENT_MAX_CHARS,
@@ -159,6 +160,7 @@ class OpenCodeWorker(CodingWorker):
             supports_session_reuse=available,
         )
 
+    @usage_stage('coding_worker')
     def run_experiment(self, spec: ExperimentSpec) -> WorkerResult:
         """执行一次 OpenCode worker 周期并收集审计产物。
 
@@ -316,7 +318,11 @@ class OpenCodeWorker(CodingWorker):
                     popen_kwargs["creationflags"] = CREATE_NEW_PROCESS_GROUP
                 else:
                     popen_kwargs["start_new_session"] = True
-                process = subprocess.Popen(attempt_command, **popen_kwargs)
+                try:
+                    process = subprocess.Popen(attempt_command, **popen_kwargs)
+                except BaseException:
+                    finish_opencode_usage(popen_kwargs['env'], 'launch_failed')
+                    raise
                 registration = (
                     self.cancellation.register_terminator(lambda: kill_process_tree(process))
                     if self.cancellation is not None
@@ -371,6 +377,7 @@ class OpenCodeWorker(CodingWorker):
                             except OSError:
                                 pass
                 finally:
+                    finish_opencode_usage(popen_kwargs['env'], 'timeout' if timed_out else 'error' if process.returncode else 'completed')
                     events_stream.flush()
                     stderr_stream.flush()
                     if self.cancellation is not None:
@@ -1405,6 +1412,7 @@ def opencode_subprocess_environment(
 
     load_local_env()
     environment = os.environ.copy()
+    environment.update(opencode_usage_environment(model))
     if reasoning_path is not None:
         environment["ALGOFORGE_REASONING_EVENTS_PATH"] = str(reasoning_path.resolve())
         runtime_config = dict(runtime_config or {})
@@ -1517,8 +1525,14 @@ def opencode_subprocess_environment(
         }
         connection_config = merge_nested_dicts(safe_existing, provider_config)
         connection_config = merge_nested_dicts(connection_config, compatibility_config)
+        merged_config = merge_nested_dicts(connection_config, runtime_config or {})
+        # @ai-sdk/openai-compatible otherwise omits streaming usage by default.
+        # Request provider receipts explicitly; never estimate missing counts.
+        for provider in (merged_config.get('provider') or {}).values():
+            if isinstance(provider, dict) and provider.get('npm') == '@ai-sdk/openai-compatible':
+                provider.setdefault('options', {})['includeUsage'] = True
         environment["OPENCODE_CONFIG_CONTENT"] = json.dumps(
-            merge_nested_dicts(connection_config, runtime_config or {}),
+            merged_config,
             ensure_ascii=False,
         )
     return environment

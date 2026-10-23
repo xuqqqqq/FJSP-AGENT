@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from harness_agent.usage import usage_stage
 from harness_agent.context.compaction import compact_json, compact_source_records, stable_worker_context_json
 from harness_agent.context.knowledge import method_package_catalog
 from harness_agent.context.loader import load_context_dict
@@ -1014,6 +1015,7 @@ class DeepSeekMainAgent:
         self.model = model
         self.fallback = EvidenceDrivenMainAgent()
 
+    @usage_stage('main')
     def plan_direction(self, request: DirectionPlanRequest) -> dict[str, Any]:
         if not is_deepseek_configured():
             return self.fallback.plan_direction(request)

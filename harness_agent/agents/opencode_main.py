@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from harness_agent.usage import usage_stage, finish_opencode_usage
 from harness_agent.agents.main import (
     DirectionPlanRequest,
     EvidenceDrivenMainAgent,
@@ -990,6 +991,7 @@ class OpenCodeMainAgent:
         )
         return write_round_reflection(request.output_dir, reflection)
 
+    @usage_stage('main')
     def _run_once(
         self,
         *,
@@ -1067,7 +1069,11 @@ class OpenCodeMainAgent:
             popen_kwargs["creationflags"] = CREATE_NEW_PROCESS_GROUP
         else:
             popen_kwargs["start_new_session"] = True
-        process = subprocess.Popen(command, **popen_kwargs)
+        try:
+            process = subprocess.Popen(command, **popen_kwargs)
+        except BaseException:
+            finish_opencode_usage(popen_kwargs['env'], 'launch_failed')
+            raise
         registration = (
             self.cancellation.register_terminator(lambda: kill_process_tree(process))
             if self.cancellation is not None
@@ -1136,6 +1142,7 @@ class OpenCodeMainAgent:
                 pass
         if isolated_workspace is not None:
             isolated_workspace.cleanup()
+        finish_opencode_usage(popen_kwargs['env'], 'timeout' if timed_out else 'error' if process.returncode else 'completed')
         stdout = "".join(stdout_chunks)
         stderr = "".join(stderr_chunks)
         stalled = bool(stall_state.get("stalled"))

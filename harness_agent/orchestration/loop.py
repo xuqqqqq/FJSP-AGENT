@@ -13,6 +13,7 @@ import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from contextlib import contextmanager
 from copy import copy
 from dataclasses import dataclass, field, replace
@@ -20,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from harness_agent.usage import record_usage_run, current_usage
 from harness_agent.context.compaction import compact_json
 from harness_agent.context.knowledge import method_package_catalog
 from harness_agent.context.loader import load_context_packet
@@ -383,6 +385,7 @@ def materialize_selected_round_artifacts(
         target.write_bytes(source.read_bytes())
 
 
+@record_usage_run
 def run_worker_loop(
     *,
     contract: TaskContract,
@@ -1474,7 +1477,8 @@ def run_competing_worker_cycles(
         candidate_results = [run_candidate(item) for item in indexed_plans]
     else:
         with ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="coding-candidate") as executor:
-            candidate_results = list(executor.map(run_candidate, indexed_plans))
+            futures = [executor.submit(copy_context().run, run_candidate, item) for item in indexed_plans]
+            candidate_results = [future.result() for future in futures]
 
     candidate_results.sort(key=lambda item: item[0])
     outcomes = [item[1] for item in candidate_results]
@@ -7866,7 +7870,9 @@ def write_loop_report(
 ) -> None:
     """写出闭环的机器可读 JSON 和面向人的 Markdown，不再重新运行实验。"""
 
-    round_payloads = [round_record_payload(item) for item in result.rounds]
+    usage = current_usage()
+    by_round = {item['round_index']: item for item in usage.get('by_round', [])}
+    round_payloads = [dict(round_record_payload(item), token_usage=by_round.get(item.round_index, {})) for item in result.rounds]
     direction_graph = summarize_direction_graph(round_payloads)
     guidance_none = str(guidance_mode or "full").strip().lower() == "none"
     experience_memory = (
@@ -7878,6 +7884,7 @@ def write_loop_report(
     payload = {
         "status": result.status,
         "stop_reason": result.stop_reason,
+        "token_usage": usage,
         "baseline_key": list(result.baseline_key),
         "final_key": list(result.final_key),
         "final_worktree": str(result.final_worktree),
@@ -7934,6 +7941,7 @@ def write_loop_report(
     lines = [
         "# Worker Loop Report",
         "",
+        f"- 已记录 Token: `{usage.get('recorded_total_tokens')}`（仅提供方回执；缺失用量未知）",
         f"- Baseline key: `{json.dumps(result.baseline_key, ensure_ascii=False)}`",
         f"- Final key: `{json.dumps(result.final_key, ensure_ascii=False)}`",
         f"- Final worktree: `{result.final_worktree}`",

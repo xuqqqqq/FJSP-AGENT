@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from harness_agent.usage import usage_stage
 from harness_agent.context.loader import load_context_dict
 from harness_agent.core.cancellation import CancellationToken
 from harness_agent.deepseek_client import DeepSeekClient, is_deepseek_configured
@@ -105,6 +106,7 @@ class DeepSeekAlgorithmSemanticReviewer:
         self.timeout_seconds = max(120, int(timeout_seconds))
         self.fallback = EvidenceOnlySemanticReviewer()
 
+    @usage_stage('semantic_review')
     def review(self, request: AlgorithmSemanticReviewRequest) -> AlgorithmSemanticReviewResult:
         """加载完整候选源码和当前知识契约，调用模型并验证其每条 finding。"""
 
@@ -286,6 +288,7 @@ class OpenCodeAlgorithmSemanticReviewer:
         self.cancellation = cancellation
         self.fallback = EvidenceOnlySemanticReviewer()
 
+    @usage_stage('semantic_review')
     def review(self, request: AlgorithmSemanticReviewRequest) -> AlgorithmSemanticReviewResult:
         request.output_dir.mkdir(parents=True, exist_ok=True)
         artifacts: dict[str, str] = {}

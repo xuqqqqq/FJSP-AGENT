@@ -1,3 +1,23 @@
+/* Live provider usage, independent of reasoning/tool transcript rendering. */
+.token-usage-badge { color: var(--primary-text); background: var(--primary-soft); border-radius: 8px; padding: 7px 10px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.token-usage-panel { margin: 12px 0; padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-soft); }
+.usage-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.usage-heading h3 { margin: 5px 0; font-size: 16px; }
+.usage-heading h3 strong { color: var(--primary); font-size: 25px; font-variant-numeric: tabular-nums; }
+.usage-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); gap: 12px; margin: 14px 0; }
+.usage-fields div { display: flex; flex-direction: column; gap: 4px; }
+.usage-fields span { font-size: 12px; color: var(--text-muted); }
+.usage-fields strong { font-variant-numeric: tabular-nums; }
+.usage-warning { color: var(--warning); }
+.usage-table-wrap { overflow-x: auto; margin: 12px 0; }
+.usage-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; }
+.usage-table th, .usage-table td { padding: 8px; border-bottom: 1px solid var(--border); }
+.usage-table td:first-child { overflow-wrap: anywhere; }
+.usage-recent { list-style: none; padding: 0; }
+.usage-recent li { display: flex; gap: 10px; flex-wrap: wrap; padding: 6px 0; font-size: 12px; }
+.usage-recent small { color: var(--text-muted); }
+#job-view .metric-grid { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+
 /* 设计令牌：颜色、边框和字体集中定义，后续组件不重复硬编码主题值。 */
 :root {
   --bg: #f6f7fb;

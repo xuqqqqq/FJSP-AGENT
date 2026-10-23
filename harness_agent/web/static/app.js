@@ -617,6 +617,7 @@ function renderJobHistory(jobs) {
     selectButton.innerHTML = `
       <strong>${escapeHtml(job.title || job.id)}</strong>
       <span>${escapeHtml(statusLabel(job.status))} · ${escapeHtml(formatShortTime(job.updated_at || job.created_at))}</span>
+      <small>已记录 Token ${usageNumber(job.token_usage?.recorded_total_tokens)}</small>
       <small>${metricText}</small>
     `;
     selectButton.addEventListener("click", () => selectHistoryJob(job.id, {loadReport: true}));
@@ -1138,13 +1139,14 @@ function renderUnifiedTimeline(job) {
     state.codingTimelineHeaders = new Set();
   }
   const entries = [
-    ...(Array.isArray(job.main_agent_trace) ? job.main_agent_trace : []).map((record) => ({
+    ...tokenTimelineItems(job),
+    ...(Array.isArray(job.main_agent_trace) ? job.main_agent_trace : []).filter((record) => record.kind !== "usage" || !job.token_usage?.available).map((record) => ({
       type: "main",
       id: `main:${record.id || `${record.attempt}:${record.timestamp}:${record.kind}:${record.text}`}`,
       timestamp: Number(record.timestamp) || 0,
       value: record,
     })),
-    ...(Array.isArray(job.coding_agent_trace) ? job.coding_agent_trace : []).map((record) => ({
+    ...(Array.isArray(job.coding_agent_trace) ? job.coding_agent_trace : []).filter((record) => record.kind !== "usage" || !job.token_usage?.available).map((record) => ({
       type: "coding",
       id: `coding:${record.id || `${record.agent_key}:${record.timestamp}:${record.kind}:${record.text}`}`,
       timestamp: Number(record.timestamp) || 0,
@@ -1659,6 +1661,7 @@ async function handleTerminalJob(job) {
 }
 
 function renderJob(job) {
+  renderTokenUsage(job);
   if (state.conversationJobId !== job.id) {
     resetConversationState(job.id);
   }
@@ -1808,12 +1811,13 @@ async function loadAndRenderInsights(job) {
   if (!response.ok) return;
   const insights = await response.json();
   if (state.currentJobId && state.currentJobId !== job.id) return;
+  if (insights.token_usage) job.token_usage = insights.token_usage;
   renderInsights(insights, job);
 }
 
 function renderInsights(insights, job) {
   renderContextInsight(insights.context || {});
-  renderWorkerInsight(insights.worker || {});
+  renderWorkerInsight(insights.worker || {}, job);
   renderExperimentInsight(insights.experiments || {});
   renderKnowledgeInsight(insights.knowledge || {});
   renderInspectorInsight(insights, job);
@@ -1856,7 +1860,7 @@ function renderContextInsight(context) {
   }
 }
 
-function renderWorkerInsight(worker) {
+function renderWorkerInsight(worker, job) {
   const rounds = Array.isArray(worker.rounds) ? worker.rounds : [];
   const roundList = $("worker-round-list");
   if (roundList) {
@@ -1884,6 +1888,7 @@ function renderWorkerInsight(worker) {
     return;
   }
   for (const round of rounds) {
+    const usage = tokenRoundUsage(job, round.round_index) || round.token_usage;
     const card = document.createElement("article");
     card.className = `direction-card ${safeClass(round.status)} ${safeClass(round.decision)}`;
     const failures = (round.failure_signatures || []).map((item) => `<span class="tag danger">${escapeHtml(item)}</span>`).join("");
@@ -1910,7 +1915,8 @@ function renderWorkerInsight(worker) {
         : "-";
       const selected = candidate.candidate_id === competition.selected_candidate_id;
       const objectiveWinner = candidate.candidate_id === competition.competition_winner_id;
-      return `<span class="tag ${candidate.promoted ? "success" : candidate.eligible ? "" : "warning"}">${objectiveWinner ? "客观第一 " : ""}${selected ? "入选 " : ""}${escapeHtml(candidate.candidate_id || "candidate")} · ${escapeHtml(gate)} · ${escapeHtml(objective)}</span>`;
+      const candidateUsage = job?.token_usage?.by_candidate?.find((row) => row.round_index === round.round_index && row.candidate_id === candidate.candidate_id);
+      return `<span class="tag ${candidate.promoted ? "success" : candidate.eligible ? "" : "warning"}">${objectiveWinner ? "客观第一 " : ""}${selected ? "入选 " : ""}${escapeHtml(candidate.candidate_id || "candidate")} · ${escapeHtml(gate)} · ${escapeHtml(objective)} · Token ${usageNumber(candidateUsage?.recorded_total_tokens)}</span>`;
     }).join("");
     card.innerHTML = `
       <header>
@@ -1928,6 +1934,7 @@ function renderWorkerInsight(worker) {
       ${round.selection_rationale ? `<p><strong>选择理由：</strong>${escapeHtml(truncateText(round.selection_rationale, 220))}</p>` : ""}
       <div class="direction-meta">
         <span class="tag">尝试 ${round.attempt_count ?? 0}</span>
+        <span class="tag">本轮已记录 Token ${usageNumber(usage?.recorded_total_tokens)}</span>
         <span class="tag">valid ${round.valid ?? 0}/${round.total ?? 0}</span>
         <span class="tag">makespan ${formatMetric(round.makespan)}</span>
         ${round.gap_pct === null || round.gap_pct === undefined ? "" : `<span class="tag">gap ${formatPct(round.gap_pct)}</span>`}
@@ -2087,6 +2094,8 @@ function labelForArtifact(name) {
     experience_memory: "经验记忆",
     experience_memory_report: "经验报告",
     skill_usage_records: "知识使用记录",
+    token_usage: "Token 用量汇总",
+    token_usage_events: "Token 实时回执",
     exception: "异常追踪",
   };
   return labels[name] || name;

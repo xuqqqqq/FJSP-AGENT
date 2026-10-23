@@ -31,6 +31,7 @@ from harness_agent.domains.distributed_fjsp import looks_like_distributed_fjsp, 
 from harness_agent.domains.io import parse_standard_fjsp
 from harness_agent.agents.semantic import AlgorithmSemanticReviewer
 from harness_agent.worker import CodingWorker
+from harness_agent.usage import record_usage_run, current_usage
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,7 @@ class StandardWorkerLoopRequest:
     )
 
 
+@record_usage_run
 def run_standard_worker_loop(request: StandardWorkerLoopRequest) -> dict[str, Any]:
     """构建任务契约和上下文，并运行“生成、审查、评测、晋升”闭环。"""
 
@@ -708,6 +710,7 @@ def standard_worker_manifest(
         "final_round_index": final_round_index,
         "latest_candidate_summary": latest_candidate_summary,
         "rounds": round_payloads,
+        "token_usage": current_usage(),
     }
 
 
@@ -949,6 +952,7 @@ def render_standard_worker_report(manifest: dict[str, Any]) -> str:
         f"- Improved: `{manifest.get('improved')}`",
         f"- Rounds: `{manifest.get('round_count')}`",
         f"- Promoted rounds: `{manifest.get('promoted_rounds')}`",
+        f"- 已记录 Token: `{(manifest.get('token_usage') or {}).get('recorded_total_tokens')}`（仅提供方回执；缺失用量未知）",
         f"- Controller budget: `{json.dumps(manifest.get('controller_budget') or {}, ensure_ascii=False)}`",
         f"- Direction graph: `{json.dumps((manifest.get('hypothesis_graph') or {}).get('status_counts') or {}, ensure_ascii=False)}`",
         f"- Candidate lessons: `{len(((manifest.get('experience_memory') or {}).get('memory_tiers') or {}).get('candidate_lessons') or [])}`",

@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from harness_agent.usage import start_api_request, api_receipt
 
 
 class DeepSeekUnavailable(RuntimeError):
@@ -169,16 +170,30 @@ class DeepSeekClient:
         raw = ""
         max_attempts = 6
         for attempt in range(max_attempts):
+            receipt = start_api_request(self.config.model)
+            received = False
             try:
                 if stream:
-                    return urlopen_stream_chat_with_deadline(
+                    result = urlopen_stream_chat_with_deadline(
                         request,
                         timeout_seconds=self.config.timeout_seconds,
+                        usage_receipt=receipt,
                     )
-                raw = urlopen_read_with_deadline(request, timeout_seconds=self.config.timeout_seconds)
+                    received = True
+                    return result
+                raw = urlopen_read_with_deadline(request, timeout_seconds=self.config.timeout_seconds, usage_receipt=receipt)
+                data = json.loads(raw)
+                api_receipt(receipt, 'request_usage', usage=data.get('usage'))
+                received = True
                 break
             except urllib.error.HTTPError as exc:
                 body = exc.read().decode("utf-8", errors="replace")
+                try:
+                    error_payload = json.loads(body)
+                except ValueError:
+                    error_payload = None
+                if isinstance(error_payload, dict):
+                    api_receipt(receipt, 'request_usage', usage=error_payload.get('usage'))
                 if exc.code not in {429, 500, 502, 503, 504} or attempt == max_attempts - 1:
                     raise RuntimeError(f"DeepSeek HTTP {exc.code}: {body[:1000]}") from exc
             except urllib.error.URLError as exc:
@@ -190,6 +205,8 @@ class DeepSeekClient:
                     marker in message for marker in ("unexpected eof", "service unavailable", "temporarily unavailable")
                 ):
                     raise
+            finally:
+                api_receipt(receipt, 'request_finished', outcome='response_received' if received else 'error_or_timeout')
             time.sleep(min(8, 1 << attempt))
 
         # provider 有时只返回 reasoning_content，因此正文读取提供一次兼容回退。
@@ -298,14 +315,24 @@ def resolve_timeout_seconds(raw_value: str | None, *, default: int) -> int:
     return max(5, min(600, value))
 
 
-def urlopen_read_with_deadline(request: urllib.request.Request, *, timeout_seconds: int) -> str:
+def urlopen_read_with_deadline(request: urllib.request.Request, *, timeout_seconds: int, usage_receipt: dict | None = None) -> str:
     """为 urllib 再加一层 Future deadline，处理底层 socket 未及时退出的情况。"""
 
     timeout = resolve_timeout_seconds(str(timeout_seconds), default=120)
 
     def read_response() -> str:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            return response.read().decode("utf-8")
+            raw = response.read().decode("utf-8")
+        # Keep a late provider receipt even if the caller's deadline has already
+        # expired. It belongs to the original request, not a later retry.
+        if usage_receipt is not None:
+            try:
+                data = json.loads(raw)
+            except ValueError:
+                data = None
+            if isinstance(data, dict):
+                api_receipt(usage_receipt, 'request_usage', usage=data.get('usage'))
+        return raw
 
     executor = ThreadPoolExecutor(max_workers=1)
     future = executor.submit(read_response)
@@ -322,6 +349,7 @@ def urlopen_stream_chat_with_deadline(
     request: urllib.request.Request,
     *,
     timeout_seconds: int,
+    usage_receipt: dict | None = None,
 ) -> DeepSeekChatResult:
     """Read OpenAI-compatible SSE so long generations keep gateway connections alive."""
 
@@ -341,12 +369,14 @@ def urlopen_stream_chat_with_deadline(
                 if payload == "[DONE]":
                     break
                 event = json.loads(payload)
+                usage_raw = event.get("usage") if isinstance(event.get("usage"), dict) else {}
+                if usage_raw:
+                    api_receipt(usage_receipt, 'request_usage', usage=usage_raw)
                 if isinstance(event.get("error"), dict):
                     raise RuntimeError(
                         "DeepSeek stream error: "
                         + json.dumps(event["error"], ensure_ascii=False)[:1000]
                     )
-                usage_raw = event.get("usage") if isinstance(event.get("usage"), dict) else {}
                 for key, value in usage_raw.items():
                     if isinstance(value, (int, float)) and not isinstance(value, bool):
                         usage[str(key)] = int(value)

@@ -34,6 +34,7 @@ from urllib.parse import parse_qs, urlparse
 
 from harness_agent.deepseek_client import is_deepseek_configured, load_local_env, local_env_candidates, normalize_deepseek_model, resolve_secret
 from harness_agent.model_catalog import discover_model_catalog
+from harness_agent.usage import read_usage
 from harness_agent.web.opencode_reasoning import (
     merge_trace_records,
     read_reasoning_events,
@@ -1522,9 +1523,20 @@ def agent_status_snapshot(job: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def job_token_usage(job: dict[str, Any]) -> dict[str, Any]:
+    directory = job.get('job_dir')
+    if not directory:
+        return {'available': False, 'recorded_total_tokens': None, 'completeness': 'not_recorded'}
+    return read_usage(Path(directory) / 'run' / 'standard_worker_loop' / 'run_usage.jsonl')
+
+
 def public_job(job: dict[str, Any]) -> dict[str, Any]:
     """过滤内部字段，并限制事件数量，形成浏览器可轮询的任务快照。"""
 
+    token_usage = job_token_usage(job)
+    artifacts = dict(job.get('artifacts', {}))
+    if token_usage.get('available'):
+        artifacts['token_usage_events'] = str(Path(job['job_dir']) / 'run/standard_worker_loop/run_usage.jsonl')
     return {
         "id": job["id"],
         "title": job["title"],
@@ -1537,12 +1549,13 @@ def public_job(job: dict[str, Any]) -> dict[str, Any]:
         "main_agent_trace": job.get("main_agent_trace", []),
         "coding_agent_trace": job.get("coding_agent_trace", []),
         "agent_status": agent_status_snapshot(job),
+        "token_usage": token_usage,
         "pending_intervention": job.get("pending_intervention"),
         "intervention_history": job.get("intervention_history", []),
         "continuation": job.get("continuation"),
         "continuation_history": job.get("continuation_history", []),
         "summary": job.get("summary", {}),
-        "artifacts": job.get("artifacts", {}),
+        "artifacts": artifacts,
         "error": job.get("error"),
     }
 
@@ -3453,6 +3466,7 @@ def job_insights(job: dict[str, Any]) -> dict[str, Any]:
         skill_usage_records = loop_result.get("skill_usage_records") if isinstance(loop_result.get("skill_usage_records"), list) else []
     return {
         "job_id": job.get("id"),
+        "token_usage": job_token_usage(job),
         "context": summarize_context_insight(context_packet),
         "worker": summarize_worker_insight(job, loop_result, hypothesis_graph),
         "experiments": summarize_experiment_insight(job, loop_result),
@@ -3561,6 +3575,9 @@ def summarize_worker_insight(
         compact_rounds = [compact_direction(item, rounds) for item in directions if isinstance(item, dict)]
     else:
         compact_rounds = [compact_loop_round(item) for item in rounds if isinstance(item, dict)]
+    usage_by_round = {item['round_index']: item for item in job_token_usage(job).get('by_round', [])}
+    for item in compact_rounds:
+        item['token_usage'] = usage_by_round.get(item.get('round_index'), {})
     summary = (job.get("summary") or {}).get("worker_summary")
     if not isinstance(summary, dict):
         summary = {}
@@ -4183,6 +4200,11 @@ def monitor_code_evolution_progress(job: dict[str, Any], worker_root: Path, stop
 
 
 def scan_code_evolution_progress(job: dict[str, Any], worker_root: Path, seen: set[str]) -> None:
+    usage = job_token_usage(job)
+    if usage != job.get('token_usage'):
+        with _LOCK:
+            job['token_usage'] = usage
+            write_job_status(job)
     if not worker_root.exists():
         return
     record_progress_event(

@@ -15,6 +15,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from harness_agent.usage import usage_stage
 from harness_agent.context.compaction import compact_json, stable_worker_context_json
 from harness_agent.context.loader import load_context_dict
 from ..deepseek_client import DeepSeekClient, is_deepseek_configured
@@ -90,6 +91,7 @@ class DeepSeekWorker(CodingWorker):
             supports_structured_output=True,
         )
 
+    @usage_stage('coding_worker')
     def run_experiment(self, spec: ExperimentSpec) -> WorkerResult:
         """执行一次“上下文 -> proposal -> 可选 apply”的结构化 worker 周期。
 

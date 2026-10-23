@@ -10,11 +10,37 @@ const taskLanguageReminder = "【语言要求】请用简体中文进行本次�
 
 export const ReasoningCapture = async () => {
   const outputPath = process.env.ALGOFORGE_REASONING_EVENTS_PATH;
-  if (!outputPath) return {};
+  const usagePath = process.env.ALGOFORGE_USAGE_EVENTS_PATH;
+  const metadata = JSON.parse(process.env.ALGOFORGE_USAGE_METADATA || "{}");
+  if (!outputPath && !usagePath) return {};
+  const calls = new Map();
+  const usageEvent = (type, sessionID, messageID, extra = {}) => {
+    if (!usagePath || !sessionID || !messageID) return;
+    const key = `${sessionID}:${messageID}`;
+    const base = {...metadata, request_id: `opencode:${key}`, backend: "opencode",
+      session_id: sessionID, message_id: messageID};
+    if (!calls.has(key)) {
+      calls.set(key, {usage: null, finished: false});
+      appendFileSync(usagePath, JSON.stringify({...base, type: "request_started", timestamp: Date.now() / 1000}) + "\n", "utf8");
+    }
+    const state = calls.get(key);
+    if (type === "request_started") return;
+    if (type === "request_usage") {
+      if (!extra.usage || typeof extra.usage !== "object") return;
+      const fingerprint = JSON.stringify({usage: extra.usage, role: extra.role || metadata.role, model: extra.model || metadata.model});
+      if (fingerprint === state.usage) return;
+      state.usage = fingerprint;
+    }
+    if (type === "request_finished") {
+      if (state.finished) return;
+      state.finished = true;
+    }
+    appendFileSync(usagePath, JSON.stringify({...base, type, timestamp: Date.now() / 1000, ...extra}) + "\n", "utf8");
+  };
   const parts = new Map();
   let writable = true;
   const emit = (event) => {
-    if (!writable) return;
+    if (!outputPath || !writable) return;
     try {
       appendFileSync(outputPath, JSON.stringify({ ...event, timestamp: Date.now() }) + "\n", "utf8");
     } catch {
@@ -41,6 +67,33 @@ export const ReasoningCapture = async () => {
     event: async ({ event }) => {
       const type = event.type.replace(/\.\d+$/, "");
       const properties = event.properties || {};
+      if (type === "message.updated" && properties.info?.role === "assistant") {
+        const info = properties.info;
+        let role = metadata.role || "other";
+        if (info.agent === "compaction" || info.summary === true) role = "compaction";
+        else if (info.agent && !["algoforge-main", "algoforge-worker"].includes(info.agent)) role = "subagent";
+        const extra = {model: info.modelID || metadata.model, provider: info.providerID, role};
+        usageEvent("request_started", info.sessionID, info.id);
+        const tokens = info.tokens || {};
+        const measured = Object.values(tokens).some((x) => typeof x === "number" && x > 0)
+          || Object.values(tokens.cache || {}).some((x) => typeof x === "number" && x > 0);
+        // Initial assistant messages contain placeholder zero counters, even
+        // when the eventual request fails. They are not provider usage.
+        if (measured) usageEvent("request_usage", info.sessionID, info.id, {...extra, usage: tokens});
+        if (info.finish || info.time?.completed || info.error) {
+          usageEvent("request_finished", info.sessionID, info.id,
+            {...extra, outcome: info.error ? "request_error" : "response_received"});
+        }
+      }
+      if (type === "message.part.updated" && properties.part?.type === "step-start") {
+        const part = properties.part;
+        usageEvent("request_started", part.sessionID, part.messageID);
+      }
+      if (type === "message.part.updated" && properties.part?.type === "step-finish") {
+        const part = properties.part;
+        usageEvent("request_usage", part.sessionID, part.messageID, {usage: part.tokens});
+        usageEvent("request_finished", part.sessionID, part.messageID, {outcome: "response_received"});
+      }
       if (type === "message.part.updated" && properties.part?.type === "reasoning") {
         const part = properties.part;
         let state = parts.get(part.id);
